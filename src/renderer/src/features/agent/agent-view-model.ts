@@ -18,6 +18,7 @@ import {
   agentToolCallPayloadSchema,
   agentToolResultPayloadSchema,
   readCitationsResultSchema,
+  readSectionResultSchema,
   searchKnowledgeResultSchema
 } from '../../../../shared/contracts/agent-tools'
 
@@ -323,6 +324,26 @@ export function projectAgentTimeline(
       ? Math.max(latest, event.sequence)
       : latest
   }, 0)
+  const settledCompactionSequences = new Map<string, number>()
+  for (const event of orderedEvents) {
+    if (event.type === 'compaction_summary') {
+      const parsed = agentCompactionSummaryPayloadSchema.safeParse(event.payload)
+      if (
+        !parsed.success ||
+        !('compactionId' in parsed.data) ||
+        !('finalStep' in parsed.data) ||
+        !parsed.data.finalStep
+      )
+        continue
+      settledCompactionSequences.set(parsed.data.compactionId, event.sequence)
+      continue
+    }
+    if (event.type === 'compaction_failed') {
+      const parsed = agentCompactionFailedPayloadSchema.safeParse(event.payload)
+      if (!parsed.success) continue
+      settledCompactionSequences.set(parsed.data.compactionId, event.sequence)
+    }
+  }
   const runsById = new Map(runs.map((run) => [run.agentRunId, run] as const))
   const terminalsByRunId = new Map<string, AgentRunTerminal>()
   for (const event of orderedEvents) {
@@ -527,6 +548,7 @@ export function projectAgentTimeline(
       const parsed = agentCompactionStartedPayloadSchema.safeParse(event.payload)
       if (!parsed.success) continue
       flushTools()
+      if ((settledCompactionSequences.get(parsed.data.compactionId) ?? 0) > event.sequence) continue
       items.push({ type: 'compaction_started', id: event.agentEventId, payload: parsed.data })
       continue
     }
@@ -1024,8 +1046,14 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
       return running ? 'Reading manuscript context' : 'Read manuscript context'
     case 'read_outline':
       return running ? 'Reading the outline' : 'Read the outline'
-    case 'read_section':
-      return running ? 'Reading a section' : 'Read a section'
+    case 'read_section': {
+      if (running) return 'Reading a section'
+      const result =
+        tool.result?.isError === false
+          ? readSectionResultSchema.safeParse(tool.result.result)
+          : null
+      return result?.success === true ? `Read · ${result.data.section.title}` : 'Read a section'
+    }
     case 'search_manuscript':
       return running ? 'Searching the manuscript' : 'Searched the manuscript'
     case 'search_knowledge':
@@ -1065,6 +1093,10 @@ export function agentToolActivityLabel(tool: AgentToolActivity): string {
     case 'generate_image':
       return running ? 'Generating an image' : 'Generated an image'
   }
+}
+
+export function agentActivityDefaultOpen(status: AgentActivityStatus): boolean {
+  return status !== 'complete'
 }
 
 export function currentAgentActivitySummary(

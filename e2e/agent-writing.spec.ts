@@ -468,13 +468,32 @@ test(
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'pipeline'
       })
+      await createProject(launched.page, projectName)
+
+      await launched.page.getByTestId('agent-menubar-trigger').click()
+      const setupPanel = launched.page.getByTestId('agent-panel')
+      await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
+      await setupPanel.getByTestId('agent-model-selector').click()
+      await expect(
+        launched.page.getByTestId('agent-model-picker').getByRole('option', { name: /E2E Agent/ })
+      ).toHaveCount(0)
+      await launched.page.keyboard.press('Escape')
       await configureProvider(launched.page, {
         sectionName: /^Agent API/,
         role: 'agent',
         baseUrl: `http://127.0.0.1:${port}/v1`,
         model: 'writer-model'
       })
-      await createProject(launched.page, projectName)
+      await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
+      await expect(
+        setupPanel.getByText('Choose an Agent model to start this conversation.')
+      ).toBeVisible()
+      await setupPanel.getByTestId('agent-model-selector').click()
+      await expect(
+        launched.page.getByTestId('agent-model-picker').getByRole('option', { name: /E2E Agent/ })
+      ).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+      await setupPanel.getByLabel('Close writing agent').click()
 
       await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
       const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
@@ -581,17 +600,16 @@ test(
       await agentTrigger.click()
       const panel = launched.page.getByTestId('agent-panel')
       await expect(panel).toBeVisible()
-      await expect(panel.getByRole('button', { name: 'Set up an Agent model' })).toBeVisible()
+      await expect(panel.getByTestId('agent-model-recovery')).toBeVisible()
+      await expect(
+        panel.getByText('Choose an Agent model to start this conversation.')
+      ).toBeVisible()
       await expect(panel.getByLabel('Agent message')).toHaveCount(0)
       await expect(panel.getByText(/created only when you send it/i)).toBeVisible()
-      await panel.getByTestId('agent-conversation-menu').click()
-      await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
-      const details = launched.page.getByRole('dialog', { name: 'Agent details' })
-      await details.getByLabel('Agent model').click()
+      await panel.getByTestId('agent-model-selector').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
-      await launched.page.keyboard.press('Escape')
       await expect(panel.getByTestId('agent-model-selector')).toContainText('Writer model')
       const approvalSelector = panel.getByTestId('agent-approval-selector')
       await expect(approvalSelector).toContainText('Manual')

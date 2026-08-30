@@ -24,7 +24,176 @@ import {
   paragraph
 } from './mutation-service.test-support'
 
+async function generatedImageFixture(
+  flushForMutation: (affectedSectionIds: readonly string[]) => Promise<void> = async () => undefined
+) {
+  const value = await fixture()
+  const opened = value.persistence.openEditor().activeSection
+  if (opened === null) throw new Error('Missing section')
+  const generatedModelRequestId = '019c6a5c-8d34-4a8e-a602-3d37a52dc797'
+  const assets = new ManuscriptAssetService({
+    projectRoot: value.projectRoot,
+    projectId: value.manifest.projectId,
+    database: value.database,
+    log
+  })
+  const publishChanged = vi.fn()
+  const service = new MutationProposalService({
+    projectId: value.manifest.projectId,
+    projectSessionId,
+    database: value.database,
+    manuscript: value.manuscript,
+    editorPersistence: value.persistence,
+    manuscriptAssets: assets,
+    modelExecution: {
+      generateImage: vi.fn(async () => {
+        seedImageModelRequest(value.database, generatedModelRequestId)
+        return {
+          dataBase64: png(80, 45).toString('base64'),
+          mimeType: 'image/png',
+          effectiveImageSize: '1K',
+          modelRequestId: generatedModelRequestId,
+          metadata: {
+            usage: {
+              inputTokens: 10,
+              outputTokens: 20,
+              cacheReadTokens: null,
+              cacheWriteTokens: null,
+              estimatedCostUsdMicros: null
+            },
+            responseIds: ['generated-response'],
+            retryCount: 0,
+            providerModelId: 'gemini-3.1-flash-image'
+          }
+        }
+      })
+    } as never,
+    flushForMutation,
+    publishChanged,
+    log
+  })
+  const snapshot = new AgentContextBuilder(value.manuscript).capture('image-publication-snapshot', {
+    activeSectionId: opened.section.sectionId,
+    selectedBlockIds: [],
+    activeBlockId: null
+  })
+  const propose = (altText: string) =>
+    service.proposeGeneratedImage(
+      {
+        sectionId: opened.section.sectionId,
+        anchor: null,
+        placement: 'end',
+        prompt: 'A compact evidence flow diagram',
+        altText,
+        caption: 'Evidence flow.',
+        aspectRatio: '16:9',
+        imageSize: '1K',
+        iteration: undefined
+      },
+      snapshot,
+      value.toolCall('generate_image')
+    )
+  return { value, service, publishChanged, propose }
+}
+
 describe('MutationProposalService: images', () => {
+  it('keeps the full alt text while bounding the derived image name', async () => {
+    const { value, service, propose } = await generatedImageFixture()
+    const altText = 'A'.repeat(501)
+    const proposed = propose(altText)
+
+    const applied = await service.approve({
+      projectSessionId,
+      agentSessionId,
+      proposalId: proposed.proposalId
+    })
+
+    expect(applied.outcome).toBe('applied')
+    const revision = value.manuscript.getRevision(applied.proposal.appliedRevisionId ?? '')
+    expect(revision.content.at(-1)).toMatchObject({
+      type: 'image',
+      props: { name: 'A'.repeat(500), altText }
+    })
+    value.database.close()
+  })
+
+  it('terminalizes a generated image when manuscript publication fails', async () => {
+    const { value, service, publishChanged, propose } = await generatedImageFixture(async () => {
+      throw new Error('Editor flush failed')
+    })
+    const proposed = propose('Evidence flow diagram')
+
+    await expect(
+      service.approve({ projectSessionId, agentSessionId, proposalId: proposed.proposalId })
+    ).rejects.toMatchObject({ code: 'stale_base' })
+    expect(service.list(agentSessionId)[0]).toMatchObject({
+      proposalId: proposed.proposalId,
+      status: 'failed',
+      rejectedReason: 'The image was generated, but it could not be inserted safely',
+      decisionAt: expect.any(String)
+    })
+    expect(publishChanged).toHaveBeenLastCalledWith(
+      expect.objectContaining({ proposalId: proposed.proposalId, status: 'failed' })
+    )
+    value.database.close()
+  })
+
+  it('recovers request-scoped image generations interrupted before service recreation', async () => {
+    const value = await fixture()
+    const opened = value.persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const snapshot = new AgentContextBuilder(value.manuscript).capture(
+      'interrupted-generation-snapshot',
+      {
+        activeSectionId: opened.section.sectionId,
+        selectedBlockIds: [],
+        activeBlockId: null
+      }
+    )
+    const proposed = value.service.proposeGeneratedImage(
+      {
+        sectionId: opened.section.sectionId,
+        anchor: null,
+        placement: 'end',
+        prompt: 'An interrupted image request',
+        altText: 'Interrupted request',
+        caption: 'Interrupted request.',
+        aspectRatio: 'auto',
+        imageSize: '1K',
+        iteration: undefined
+      },
+      snapshot,
+      value.toolCall('generate_image')
+    )
+    value.database.immediate((database) =>
+      database
+        .prepare(
+          `UPDATE mutation_proposals
+              SET status = 'generating', decision_at = ?, updated_at = ?
+            WHERE mutation_proposal_id = ?`
+        )
+        .run('2026-08-25T16:31:09.560Z', '2026-08-25T16:31:32.769Z', proposed.proposalId)
+    )
+
+    const restarted = new MutationProposalService({
+      projectId: value.manifest.projectId,
+      projectSessionId,
+      database: value.database,
+      manuscript: value.manuscript,
+      editorPersistence: value.persistence,
+      now: () => new Date('2026-08-30T12:00:00.000Z'),
+      log
+    })
+
+    expect(restarted.list(agentSessionId)[0]).toMatchObject({
+      proposalId: proposed.proposalId,
+      status: 'failed',
+      rejectedReason: 'Image generation was interrupted before it could be completed',
+      decisionAt: '2026-08-25T16:31:09.560Z'
+    })
+    value.database.close()
+  })
+
   it('generates an immutable image candidate and replaces only the figure URL through a normal proposal', async () => {
     const value = await fixture()
     const opened = value.persistence.openEditor().activeSection

@@ -202,7 +202,7 @@
       "id": "agent-tool-capability-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.tools.test.ts",
-      "sourceSha256": "d72336c45ab21b32235df6cb7933b08090b9c2d3ca0f8d8b22f7bf17c4a3595d",
+      "sourceSha256": "29c1a7d77fd33204f641e8ec914950e7b62c1fad9f817d0dc683cc7816880b2b",
       "tests": [
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "authorizes exactly one tool-free finalization call after a run reaches 180 events",

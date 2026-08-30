@@ -19,7 +19,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-08-30
+Recorded: 2026-08-31
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -28,6 +28,64 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Local no-Team-ID candidate `v0.2026.8.46` is fully built and verified pending its authorized
+  source commit, annotated tag, and push. The gate verified 31 recovery fixtures from 29 sources,
+  53,288 ASAR entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged smoke
+  scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
+  produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`; tag CI is aligned with the
+  accepted pnpm 11.17.0 pin. No Developer ID signing, notarization, GitHub Release, promotion, or
+  publication was performed.
+- Agent staged-tool preflight and citation recovery maintenance is complete. Each model request now
+  retains the exact visible tool envelope and the first applicable policy failure, so an activated
+  writing tool cannot be mislabeled `unknown_tool`; repeated same-response diagnostics are
+  collapsed without changing the underlying one-mutation policy. Citation failures now continue
+  from request-scoped `none`, `searched`, or `expanded` evidence state instead of restarting a
+  completed search. The two focused suites passed 37 tests; `check:fast`, all 1,194
+  Electron-hosted tests with three benchmark skips, the production build, and diff checks passed.
+- Agent context-compaction status presentation maintenance is complete. A durable final checkpoint
+  or failure now settles the matching historical start marker, so the timeline cannot show a stale
+  `Summarizing earlier conversation…` spinner beside its outcome. Non-final rolling checkpoints
+  retain the live marker until the same compaction reaches a terminal outcome. The focused Agent
+  Renderer suites passed 49 tests; Renderer typechecking, Biome, and diff checks passed. The
+  combined `check:fast` gate remains blocked in an unrelated dirty
+  `session-service.tools.test.ts` fixture that omits its required `blockType`.
+- The current Gemini/Vertex read-section maintenance source passed the complete no-identity macOS
+  arm64 package gate. It verified 31 recovery fixtures from 29 sources, 53,288 ASAR entries,
+  Electron ABI 148 native resources, all 12 packaged smoke scenarios, and all 34 packaged Electron
+  scenarios without flakes, skips, or failures. The gate produced a no-Team-ID unpacked App, DMG,
+  and ZIP; no Developer ID signing, notarization, release, commit, tag, push, promotion, or
+  publication was performed.
+- Agent read-section activity presentation maintenance is complete. Completed activity groups
+  remain collapsed by default; expanding them now labels each successful read with the section
+  title parsed from Main's validated `read_section` result. Model-authored arguments and narration
+  are not used as title authority, and section/block identifiers are not rendered. Running,
+  failed, stopped, or legacy malformed reads retain generic labels. Focused Renderer coverage,
+  `check:fast`, all 1,189 Electron-hosted tests with three benchmark skips, the production build,
+  and the Impeccable UI detector passed.
+- Gemini/Vertex `read_section` compatibility maintenance is complete. Durable diagnostics proved
+  ten pre-dispatch failures across three runs all came from the same blockless
+  `{ sectionId, view: "canonical" }` shape; one representative run spent an avoidable 18,275 input
+  and 374 output tokens on recovery before four corrected reads succeeded. The model-visible
+  description now distinguishes whole-section summary reads from block-scoped canonical reads,
+  and the Worker narrowly normalizes only the observed blockless canonical form to summary before
+  Pi validation. Exact canonical block reads and every Main authorization/domain check remain
+  unchanged. Focused Pi/Worker coverage, `check:fast`, all 1,187 Electron-hosted tests with three
+  benchmark skips, and the production build passed.
+- The post-fix macOS arm64 test App passed the complete no-identity package gate from the current
+  dirty source state. The gate verified 31 recovery fixtures from 29 sources, 53,288 ASAR entries,
+  all 12 packaged smoke scenarios, and all 34 packaged Electron scenarios without flakes, skips,
+  or failures, then produced the unpacked App, DMG, and ZIP. No Apple Team ID signing,
+  notarization, release, commit, tag, push, promotion, or publication was performed.
+- Image-generation lifecycle maintenance is complete. Generated assets whose later validation,
+  editor barrier, manuscript insertion, or candidate publication fails now leave the durable
+  `generating` state, and project-session startup terminalizes request-scoped generations
+  interrupted by a prior app lifetime. The full 2,000-character alternative-text contract is
+  preserved while the derived BlockNote image name is bounded to its separate 500-character
+  limit, preventing the reported post-generation metadata rejection.
+- Agent model-selection recovery maintenance is complete. Provider changes now refresh an open
+  Agent panel from Main's bounded catalog snapshot, New conversation refreshes before reuse, and
+  conversations whose stored model no longer exists expose an explicit replacement picker rather
+  than a misleading setup-only dead end. Historical selections are never silently redirected.
 - GitHub Release `WriteLLM 0.2026.8` is publicly available from immutable candidate tag
   `v0.2026.8.45` as the repository's Latest release. It contains seven unsigned Windows, macOS,
   and Linux packages plus `SHA256SUMS`, four platform evidence files, and an explicit public
@@ -424,16 +482,25 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
+The user separately authorized a no-Team-ID macOS arm64 App rebuild, source commit, annotated
+`v0.2026.8.46` tag, and push of `main` plus that tag for the completed maintenance snapshot. The
+local package gate is complete; the source commit, tag, and push remain in progress. The tag-only
+workflow uses the repository's accepted pnpm 11.17.0 pin and will independently build the four
+unsigned platform rows after push. Apple Developer ID signing, notarization, GitHub Release
+creation, promotion, and publication remain outside this authorization.
+
 Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
 immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent
 composer selector beside Send are locally verified. Checkpoint 77 Writing Task v2 and execution
-handoff remain paused. No dependency, new worker, generic permission framework, package/release
-action, commit, tag, push, hosted CI, signing, notarization, promotion, or publication is authorized.
+handoff remain paused. No dependency, new worker, generic permission framework, signed release,
+promotion, or publication is authorized.
 
 Checkpoint 75 Agent tool layering, demand profiles, and the authorized LM Studio union-schema
-compatibility maintenance are complete under ADR 067. No further Checkpoint 75 implementation is
-authorized. A user-visible profile selector, classifier request, durable activation preference,
-provider-specific fork, database migration, and release work remain outside this checkpoint.
+compatibility maintenance are complete under ADR 067. The separately authorized Gemini/Vertex
+blockless-canonical read compatibility maintenance is also complete under ADR 042's bounded
+`prepareArguments` allowance. No further Checkpoint 75 implementation is authorized. A
+user-visible profile selector, classifier request, durable activation preference, provider-specific
+fork, database migration, and release work remain outside this checkpoint.
 
 Checkpoint 74 Agent table authoring and publication is complete under ADR 066. No further
 Checkpoint 74 implementation is authorized. The separately authorized `v0.2026.8.28` tag ran the

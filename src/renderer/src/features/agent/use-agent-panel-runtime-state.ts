@@ -25,6 +25,7 @@ import {
   upsertSession
 } from './agent-panel-logic'
 import type { AgentPanelProps } from './agent-panel'
+import { subscribeProviderCatalogChanged } from '../providers/provider-catalog-events'
 
 export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   const [sessions, setSessions] = useState<AgentSessionRecord[]>([])
@@ -252,6 +253,26 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         .then(setSkillsSnapshot)
         .catch(() => undefined)
     })
+  }, [props.open])
+
+  useEffect(() => {
+    if (!props.open) return
+    let disposed = false
+    const refresh = (): void => {
+      void window.desktop.providers
+        .snapshot()
+        .then((snapshot) => {
+          if (!disposed) setProviderCatalog(snapshot.agentCatalog)
+        })
+        .catch((cause) => {
+          if (!disposed) setError(errorMessage(cause))
+        })
+    }
+    const unsubscribe = subscribeProviderCatalogChanged(refresh)
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
   }, [props.open])
 
   useEffect(() => {

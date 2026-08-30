@@ -177,6 +177,30 @@ const AGENT_RUN_FINALIZATION_EVENT_THRESHOLD = 180
 const AGENT_FINALIZATION_INSTRUCTION =
   'This is the final model call for this run. No tools are available. Return the best complete answer you can now, including the evidence already gathered and any unfinished items. Do not claim unfinished work is complete.'
 
+function citationRecoveryStateAfterToolResult(
+  current: 'none' | 'searched' | 'expanded',
+  toolName: AgentToolRequest['toolName'],
+  data: unknown
+): 'none' | 'searched' | 'expanded' {
+  if (current === 'expanded' || data === null || typeof data !== 'object') return current
+  const result = data as Record<string, unknown>
+  if (
+    toolName === 'read_citations' &&
+    Array.isArray(result['citations']) &&
+    result['citations'].length > 0
+  ) {
+    return 'expanded'
+  }
+  if (
+    toolName === 'search_knowledge' &&
+    Array.isArray(result['hits']) &&
+    result['hits'].length > 0
+  ) {
+    return 'searched'
+  }
+  return current
+}
+
 export interface StartedAgentRun {
   agentRunId: string
   completion: Promise<void>
@@ -204,6 +228,7 @@ interface ActiveRun {
   readonly pendingModelRequestIds: Set<string>
   readonly pendingMessages: PendingFollowUpMessage[]
   activeToolGroups: WritingToolGroup[]
+  citationRecoveryState: 'none' | 'searched' | 'expanded'
   readonly snapshots: Map<string, WritingSnapshot>
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
@@ -1015,6 +1040,7 @@ export class AgentSessionService {
             pendingModelRequestIds: new Set(),
             pendingMessages: [],
             activeToolGroups: [],
+            citationRecoveryState: 'none',
             snapshots: new Map(),
             skillSnapshot: pendingSkillSnapshot(),
             skillState: null,
@@ -2610,6 +2636,11 @@ export class AgentSessionService {
         ok: true,
         data
       })
+      active.citationRecoveryState = citationRecoveryStateAfterToolResult(
+        active.citationRecoveryState,
+        request.toolName,
+        data
+      )
       if (request.toolName === 'ask_user') {
         this.#completePendingUserQuestion(active, request.toolCallId, true)
       }
@@ -2626,12 +2657,16 @@ export class AgentSessionService {
         'Agent tool execution failed'
       )
       const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
+      const citationRecoveryState = /citation|source label/iu.test(safe.message)
+        ? active.citationRecoveryState
+        : 'none'
       const structured = structuredToolError(
         safe.code,
         safe.message,
         safe.retryable,
         request.toolName,
-        safe.recoveryUri
+        safe.recoveryUri,
+        citationRecoveryState
       )
       this.options.log.warn(
         {
@@ -2643,6 +2678,7 @@ export class AgentSessionService {
           phase: 'dispatched',
           code: structured.code,
           category: structured.category,
+          citationRecoveryState,
           recoveryAction: structured.recovery.action,
           recoveryTool: structured.recovery.tool,
           durationMs: Math.max(0, this.#now().getTime() - toolStartedAt)
@@ -2676,7 +2712,14 @@ export class AgentSessionService {
           payload: resultPayload,
           modelRequestId: request.modelRequestId
         })
-        return toolErrorResponse(request, safe.code, safe.message, safe.retryable, safe.recoveryUri)
+        return toolErrorResponse(
+          request,
+          safe.code,
+          safe.message,
+          safe.retryable,
+          safe.recoveryUri,
+          citationRecoveryState
+        )
       } finally {
         if (request.toolName === 'ask_user') {
           this.#completePendingUserQuestion(active, request.toolCallId, false)

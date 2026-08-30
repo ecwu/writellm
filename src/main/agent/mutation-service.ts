@@ -96,6 +96,7 @@ import { MutationProposalError, type ProposalToolExecutionContext } from './muta
 export { MutationProposalError, type ProposalToolExecutionContext } from './mutation-errors'
 
 const MAX_PROPOSAL_PAYLOAD_BYTES = 1_048_576
+const MAX_IMAGE_BLOCK_NAME_CHARACTERS = 500
 
 function outcomeFromApproval(
   originalProposalId: string,
@@ -174,6 +175,7 @@ export class MutationProposalService {
   ) {
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
+    this.#recoverInterruptedImageGenerations()
   }
 
   cancelImageGeneration(agentSessionId: string, proposalId: string): boolean {
@@ -1156,30 +1158,13 @@ export class MutationProposalService {
           },
           'Agent image generation failed'
         )
-        this.options.database.immediate((database) => {
-          const now = this.#now().toISOString()
-          database
-            .prepare(
-              `UPDATE mutation_proposals
-                  SET status = 'failed', rejected_reason = ?, updated_at = ?
-                WHERE mutation_proposal_id = ? AND status = 'generating'`
-            )
-            .run(
-              controller.signal.aborted
-                ? 'Image generation was cancelled'
-                : 'Image generation failed safely',
-              now,
-              proposalId
-            )
-        })
-        this.options.publishChanged?.({
-          projectSessionId: this.options.projectSessionId,
+        this.#recordImageFailure(
           agentSessionId,
           proposalId,
-          kind: 'generated_image_insert',
-          status: 'failed',
-          sectionChanged: null
-        })
+          controller.signal.aborted
+            ? 'Image generation was cancelled'
+            : 'Image generation failed safely'
+        )
         throw err
       } finally {
         this.#imageControllers.delete(proposalId)
@@ -1189,78 +1174,91 @@ export class MutationProposalService {
       }
     }
 
-    if (payload.mutation.iteration !== null) {
-      return this.#publishImageIterationCandidate(agentSessionId, proposalId, payload)
-    }
-
     try {
-      await this.options.flushForMutation?.([payload.mutation.sectionId])
-    } catch (err) {
-      this.options.log.error(
-        { event: 'agent.image_mutation_barrier.failed', err, proposalId },
-        'Generated image editor barrier failed'
-      )
-      throw new MutationProposalError(
-        'stale_base',
-        'The active editor could not be safely flushed before inserting the image',
-        { cause: err }
-      )
-    }
-
-    const transactionResult = this.options.database.immediate((database) => {
-      const row = requireProposal(database, agentSessionId, proposalId)
-      const currentPayload = persistedMutationProposalPayloadSchema.parse(
-        JSON.parse(row.payload_json)
-      )
-      if (currentPayload.kind !== 'generated_image_insert') {
-        throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
+      if (payload.mutation.iteration !== null) {
+        return await this.#publishImageIterationCandidate(agentSessionId, proposalId, payload)
       }
-      const section = database
-        .prepare('SELECT * FROM sections WHERE section_id = ?')
-        .get(currentPayload.mutation.sectionId) as SectionTable | undefined
-      if (section === undefined || section.deleted_at !== null) {
-        // A removed target must resolve the proposal instead of throwing: a throw
-        // leaves the proposal pending and deadlocks the review wait.
-        return this.#recordRefreshConflict(
-          database,
-          row,
-          'target_missing',
-          'The proposal target is no longer available'
+
+      try {
+        await this.options.flushForMutation?.([payload.mutation.sectionId])
+      } catch (err) {
+        this.options.log.error(
+          { event: 'agent.image_mutation_barrier.failed', err, proposalId },
+          'Generated image editor barrier failed'
+        )
+        throw new MutationProposalError(
+          'stale_base',
+          'The active editor could not be safely flushed before inserting the image',
+          { cause: err }
         )
       }
-      if (section.current_revision_id !== currentPayload.mutation.baseRevisionId) {
-        return this.#refreshGeneratedImageProposal(database, row, currentPayload, section)
+
+      const transactionResult = this.options.database.immediate((database) => {
+        const row = requireProposal(database, agentSessionId, proposalId)
+        const currentPayload = persistedMutationProposalPayloadSchema.parse(
+          JSON.parse(row.payload_json)
+        )
+        if (currentPayload.kind !== 'generated_image_insert') {
+          throw new MutationProposalError('invalid_proposal', 'Proposal is not an image request')
+        }
+        const section = database
+          .prepare('SELECT * FROM sections WHERE section_id = ?')
+          .get(currentPayload.mutation.sectionId) as SectionTable | undefined
+        if (section === undefined || section.deleted_at !== null) {
+          // A removed target must resolve the proposal instead of throwing: a throw
+          // leaves the proposal pending and deadlocks the review wait.
+          return this.#recordRefreshConflict(
+            database,
+            row,
+            'target_missing',
+            'The proposal target is no longer available'
+          )
+        }
+        if (section.current_revision_id !== currentPayload.mutation.baseRevisionId) {
+          return this.#refreshGeneratedImageProposal(database, row, currentPayload, section)
+        }
+        return {
+          outcome: 'applied' as const,
+          transaction: this.#applyProposal(database, agentSessionId, proposalId)
+        }
+      })
+      if (transactionResult.outcome === 'applied') {
+        const applied = await this.#finalizeAppliedTransaction(
+          transactionResult.transaction,
+          agentSessionId,
+          proposalId,
+          'apply',
+          Date.now()
+        )
+        return approveMutationProposalResultSchema.parse({ outcome: 'applied', ...applied })
       }
-      return {
-        outcome: 'applied' as const,
-        transaction: this.#applyProposal(database, agentSessionId, proposalId)
+      if (transactionResult.outcome === 'refresh_required') {
+        this.options.log.info(
+          {
+            event: 'agent.image_refresh.refresh_required',
+            proposalId,
+            replacementProposalId: transactionResult.proposal.proposalId,
+            agentSessionId
+          },
+          'Stale generated image proposal refreshed for review'
+        )
       }
-    })
-    if (transactionResult.outcome === 'applied') {
-      const applied = await this.#finalizeAppliedTransaction(
-        transactionResult.transaction,
+      return approveMutationProposalResultSchema.parse({
+        ...transactionResult,
+        sectionChanged: null
+      })
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.image_publication.failed', err, proposalId, agentSessionId },
+        'Generated image could not be published to the manuscript'
+      )
+      this.#recordImageFailure(
         agentSessionId,
         proposalId,
-        'apply',
-        Date.now()
+        'The image was generated, but it could not be inserted safely'
       )
-      return approveMutationProposalResultSchema.parse({ outcome: 'applied', ...applied })
+      throw err
     }
-    if (transactionResult.outcome === 'refresh_required') {
-      this.options.log.info(
-        {
-          event: 'agent.image_refresh.refresh_required',
-          proposalId,
-          replacementProposalId: transactionResult.proposal.proposalId,
-          agentSessionId
-        },
-        'Stale generated image proposal refreshed for review'
-      )
-    }
-    return approveMutationProposalResultSchema.parse({
-      ...transactionResult,
-      sectionChanged: null
-    })
   }
 
   async #publishImageIterationCandidate(
@@ -1409,7 +1407,10 @@ export class MutationProposalService {
                     props: {
                       backgroundColor: 'default',
                       textAlignment: 'center',
-                      name: currentPayload.mutation.altText,
+                      name: currentPayload.mutation.altText.slice(
+                        0,
+                        MAX_IMAGE_BLOCK_NAME_CHARACTERS
+                      ),
                       url: assetUrl(currentPayload.mutation.assetId),
                       caption: currentPayload.mutation.caption,
                       figureId: '',
@@ -2251,7 +2252,7 @@ export class MutationProposalService {
                   props: {
                     backgroundColor: 'default',
                     textAlignment: 'center',
-                    name: mutation.altText,
+                    name: mutation.altText.slice(0, MAX_IMAGE_BLOCK_NAME_CHARACTERS),
                     url: assetUrl(mutation.assetId),
                     caption: mutation.caption,
                     figureId: figureIdForBlock(mutation.sectionId, imageBlockId),
@@ -2427,6 +2428,66 @@ export class MutationProposalService {
         { event: 'agent.mutation.failure_record_failed', err: recordErr, proposalId },
         'Agent mutation application failure could not be recorded'
       )
+    }
+  }
+
+  #recordImageFailure(agentSessionId: string, proposalId: string, reason: string): void {
+    let changed = false
+    try {
+      changed = this.options.database.immediate((database) => {
+        const now = this.#now().toISOString()
+        const result = database
+          .prepare(
+            `UPDATE mutation_proposals
+                SET status = 'failed', decision_at = COALESCE(decision_at, ?),
+                    rejected_reason = ?, updated_at = ?
+              WHERE mutation_proposal_id = ? AND agent_session_id = ?
+                AND kind = 'generated_image_insert' AND status = 'generating'`
+          )
+          .run(now, reason, now, proposalId, agentSessionId)
+        return result.changes === 1
+      })
+    } catch (recordErr) {
+      this.options.log.error(
+        { event: 'agent.image_failure.record_failed', err: recordErr, proposalId, agentSessionId },
+        'Generated image failure could not be recorded'
+      )
+    }
+    if (!changed) return
+    this.options.publishChanged?.({
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId,
+      proposalId,
+      kind: 'generated_image_insert',
+      status: 'failed',
+      sectionChanged: null
+    })
+  }
+
+  #recoverInterruptedImageGenerations(): void {
+    try {
+      const recovered = this.options.database.immediate((database) => {
+        const now = this.#now().toISOString()
+        return database
+          .prepare(
+            `UPDATE mutation_proposals
+                SET status = 'failed', decision_at = COALESCE(decision_at, ?),
+                    rejected_reason = ?, updated_at = ?
+              WHERE kind = 'generated_image_insert' AND status = 'generating'`
+          )
+          .run(now, 'Image generation was interrupted before it could be completed', now).changes
+      })
+      if (recovered === 0) return
+      this.options.log.warn(
+        { event: 'agent.image_generation.interrupted_recovered', recoveredCount: recovered },
+        'Interrupted Agent image generations were recovered'
+      )
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.image_generation.recovery_failed', err },
+        'Interrupted Agent image generations could not be recovered'
+      )
+      throw err
     }
   }
 

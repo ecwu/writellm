@@ -367,7 +367,24 @@ describe('Pi Agent tool TypeBox schemas', () => {
     })
     const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
     expect(skillReader?.description).toContain('run-authorized')
-    expect(tools.every((tool) => tool.prepareArguments === undefined)).toBe(true)
+    expect(
+      tools.filter((tool) => tool.prepareArguments !== undefined).map((tool) => tool.name)
+    ).toEqual(['read_section'])
+    const sectionReader = tools.find((tool) => tool.name === 'read_section')
+    if (sectionReader?.prepareArguments === undefined)
+      throw new Error('Missing section reader shim')
+    expect(sectionReader.prepareArguments({ sectionId: UUIDS.section, view: 'canonical' })).toEqual(
+      { sectionId: UUIDS.section, view: 'summary' }
+    )
+    const canonicalRead = {
+      sectionId: UUIDS.section,
+      view: 'canonical',
+      blockId: 'block-1'
+    }
+    expect(sectionReader.prepareArguments(canonicalRead)).toBe(canonicalRead)
+    expect(sectionReader.prepareArguments({ sectionId: UUIDS.section })).toEqual({
+      sectionId: UUIDS.section
+    })
     const proposal = tools.find((tool) => tool.name === 'submit_brief_change')
     if (proposal === undefined) throw new Error('Missing proposal tool')
     const result = await proposal.execute('tool-proposal', { changes: { title: 'Revised' } })

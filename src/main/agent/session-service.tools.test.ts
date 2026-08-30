@@ -776,6 +776,132 @@ describe('AgentSessionService: tools', () => {
     database.close()
   })
 
+  it.each([
+    {
+      state: 'searched',
+      evidenceTool: 'search_knowledge' as const,
+      evidenceArgs: { query: 'evidence' },
+      expected: { action: 'refresh_context', tool: 'read_citations', maxAttempts: 1 }
+    },
+    {
+      state: 'expanded',
+      evidenceTool: 'read_citations' as const,
+      evidenceArgs: { citationIds: [`citation-${'a'.repeat(40)}`] },
+      expected: { action: 'fix_arguments', maxAttempts: 1 }
+    }
+  ])('routes citation recovery from $state run evidence', async (fixture) => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const warn = vi.fn()
+    const execute = vi.fn(async (input: { toolName: AgentToolRequest['toolName'] }) => {
+      if (input.toolName === 'search_knowledge') {
+        return {
+          mode: 'fts',
+          rerankStatus: 'disabled',
+          hits: [
+            {
+              citationId: `citation-${'a'.repeat(40)}`,
+              knowledgeItemId: '019c6a5c-8d34-7a8e-a602-3d37a52dc471',
+              parseRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc472',
+              chunkId: `chunk-${'a'.repeat(40)}`,
+              title: 'Source',
+              snippet: 'Evidence',
+              headingPath: [],
+              sourceBlockIds: ['block-source']
+            }
+          ]
+        }
+      }
+      if (input.toolName === 'read_citations') {
+        return {
+          citations: [
+            {
+              citationId: `citation-${'a'.repeat(40)}`,
+              knowledgeItemId: '019c6a5c-8d34-7a8e-a602-3d37a52dc471',
+              parseRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc472',
+              chunkId: `chunk-${'a'.repeat(40)}`,
+              title: 'Source',
+              text: 'Expanded evidence',
+              contentHash: 'b'.repeat(64),
+              offset: 0,
+              totalChars: 17,
+              nextOffset: null,
+              headingPath: [],
+              sourceBlockIds: ['block-source']
+            }
+          ],
+          missingCitationIds: [],
+          truncated: false
+        }
+      }
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Readable source labels require corresponding expanded citationIds'
+      )
+    })
+    const service = createService(database, runtime, undefined, {
+      tools: { execute } as never,
+      log: { ...log, warn } as never
+    })
+    const session = service.createSession(`Citation recovery ${fixture.state}`)
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Use the available evidence.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    await activateToolGroups(active, ['section'])
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4b0',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: `tool-evidence-${fixture.state}`,
+        modelRequestId: active.input.modelRequestId,
+        toolName: fixture.evidenceTool,
+        args: fixture.evidenceArgs
+      } as AgentToolRequest)
+    ).resolves.toMatchObject({ ok: true })
+    const response = await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc4b1',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: `tool-section-${fixture.state}`,
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'submit_section_change',
+      args: {
+        sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
+        operations: [
+          {
+            type: 'insertTextBlocks',
+            anchor: null,
+            placement: 'end',
+            blocks: [{ blockType: 'paragraph', text: 'Body.' }]
+          }
+        ],
+        citationIds: []
+      }
+    })
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'agent.tool.safe_failure_projected',
+        citationRecoveryState: fixture.state
+      }),
+      'Projected a safe Agent tool failure'
+    )
+    expect(response).toMatchObject({
+      ok: false,
+      error: { code: 'invalid_arguments', recovery: fixture.expected }
+    })
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it('reports a non-retryable image provider rejection instead of a read-tool failure', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

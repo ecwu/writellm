@@ -498,6 +498,66 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(bodies)).not.toContain('agent-secret')
   })
 
+  it('normalizes a blockless canonical section read before Pi preflight and Main dispatch', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-section', 'read_section', {
+              sectionId: request.agentSessionId,
+              view: 'canonical'
+            })
+          : completionResponse('Section read completed', 'response-after-section')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    const toolRequests: Array<Record<string, unknown>> = []
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      toolRequests.push(event.data)
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: sectionReadResult('Section body')
+      })
+    })
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_call_requested') {
+          control?.authorizeModelCall({
+            operation: 'authorize_model_call',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            continuationId: event.continuationId,
+            modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
+            systemPrompt: request.systemPrompt
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(2)
+    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toEqual([])
+    expect(toolRequests).toHaveLength(1)
+    expect(toolRequests[0]).toMatchObject({
+      toolName: 'read_section',
+      args: { sectionId: request.agentSessionId, view: 'summary' }
+    })
+  })
+
   it('replaces the next-turn tool set after one exclusive capability activation', async () => {
     const bodies: Array<{
       tools?: Array<{
@@ -565,6 +625,158 @@ describe('runAgentSession', () => {
         view: { type: 'string', enum: ['summary', 'canonical', 'fragment', 'table'] }
       })
     }
+  })
+
+  it('diagnoses invalid arguments against the activated model-call tool envelope', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        if (fetchAttempt === 1) {
+          return toolCallResponse('tool-activate', 'activate_tool_groups', { groups: ['section'] })
+        }
+        if (fetchAttempt === 2) {
+          return toolCallResponse('tool-section-invalid', 'submit_section_change', {
+            sectionId: 42,
+            operations: []
+          })
+        }
+        return completionResponse('Recovered after correcting the section call.', 'response-fixed')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const { port1, port2 } = createFakeMessageChannel()
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: { activated: ['section'], alreadyActive: [], activeGroups: ['section'] }
+      })
+    })
+    let continuation = 0
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type !== 'model_call_requested') return
+        continuation += 1
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId:
+            continuation === 1
+              ? '019c6a5c-8d34-7a8e-a602-3d37a52dc41b'
+              : '019c6a5c-8d34-7a8e-a602-3d37a52dc41c',
+          systemPrompt: request.systemPrompt,
+          activeToolGroups: ['section']
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never
+    )
+
+    expect(fetchAttempt).toBe(3)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'tool_preflight_failed',
+        requestedToolName: 'submit_section_change',
+        diagnostic: expect.objectContaining({
+          code: 'invalid_arguments',
+          paths: expect.arrayContaining(['/sectionId'])
+        })
+      })
+    )
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'tool_preflight_failed' && event.diagnostic?.code === 'unknown_tool'
+      )
+    ).toBe(false)
+  })
+
+  it('retains one exact policy diagnostic for duplicate mutations in one model response', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallsResponse(
+              ['first', 'second', 'third'].map((suffix) => ({
+                id: `tool-section-${suffix}`,
+                name: 'submit_section_change',
+                args: {
+                  sectionId: request.agentSessionId,
+                  operations: [
+                    {
+                      type: 'insertTextBlocks',
+                      anchor: null,
+                      placement: 'end',
+                      blocks: [{ blockType: 'paragraph', text: `Draft ${suffix}` }]
+                    }
+                  ]
+                }
+              }))
+            )
+          : completionResponse('Recovered with one mutation.', 'response-one-mutation')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    const logs: Array<{ event: string; fields?: Record<string, unknown> }> = []
+    const { port1, port2 } = createFakeMessageChannel()
+    const toolRequests: unknown[] = []
+    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      { ...request, activeToolGroups: ['section'] },
+      (event) => {
+        events.push(event)
+        if (event.type !== 'model_call_requested') return
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc41d',
+          systemPrompt: request.systemPrompt,
+          activeToolGroups: ['section']
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      port1 as never,
+      (_level, event, _message, fields) => logs.push({ event, fields })
+    )
+
+    const failures = events.filter((event) => event.type === 'tool_preflight_failed')
+    expect(fetchAttempt).toBe(2)
+    expect(toolRequests).toEqual([])
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toMatchObject({
+      requestedToolName: 'submit_section_change',
+      diagnostic: {
+        code: 'invalid_arguments',
+        message: expect.stringContaining('Only one mutation'),
+        paths: []
+      }
+    })
+    expect(
+      logs.filter((entry) => entry.event === 'agent.tool.preflight_duplicate_suppressed')
+    ).toHaveLength(2)
   })
 
   it('removes tools from a finalization authorization and returns a terminal assistant answer', async () => {

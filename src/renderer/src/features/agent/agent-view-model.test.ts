@@ -4,6 +4,7 @@ import type { MutationProposalRecord } from '../../../../shared/contracts/agent-
 import type { AgentToolActivity } from './agent-view-model'
 import {
   aggregateAgentUsage,
+  agentActivityDefaultOpen,
   agentReviewState,
   agentThinkingVisualState,
   agentToolActivityLabel,
@@ -508,6 +509,33 @@ describe('Agent renderer view model', () => {
     expect(agentToolActivityLabel(search)).toBe('Searching sources')
   })
 
+  it('reveals the authoritative section title only for a completed successful read', () => {
+    const completed = projectAgentTimeline([
+      toolCallRecord(1, 'read', 'read_section', {
+        sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc427',
+        view: 'summary'
+      }),
+      toolResultRecord(2, 'read', 'read_section', {
+        result: readSectionResult('Evidence Maturity')
+      })
+    ])
+    const activity = completed[0]
+    if (activity?.type !== 'activity') throw new Error('Expected completed activity')
+
+    expect(agentToolActivityLabel(activity.tools[0] as AgentToolActivity)).toBe(
+      'Read · Evidence Maturity'
+    )
+    expect(agentToolActivityLabel(activity.tools[0] as AgentToolActivity)).not.toContain('019c6a5c')
+  })
+
+  it('keeps completed activity collapsed by default while attention states start expanded', () => {
+    expect(agentActivityDefaultOpen('complete')).toBe(false)
+    expect(agentActivityDefaultOpen('running')).toBe(true)
+    expect(agentActivityDefaultOpen('partial')).toBe(true)
+    expect(agentActivityDefaultOpen('error')).toBe(true)
+    expect(agentActivityDefaultOpen('stopped')).toBe(true)
+  })
+
   it('projects ask_user as a dedicated question record and hides its duplicate answer event', () => {
     const timeline = projectAgentTimeline([
       toolCallRecord(1, 'tool-question', 'ask_user', {
@@ -944,7 +972,7 @@ describe('Agent renderer view model', () => {
     expect(agentReviewState(base.agentRunId, [{ ...pending, status: 'rejected' }])).toBe('rejected')
   })
 
-  it('projects started, checkpoint detail, and failed compaction markers without inventing a run', () => {
+  it('replaces a settled compaction start with checkpoint detail without inventing a run', () => {
     const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
     const timeline = projectAgentTimeline([
       {
@@ -1000,12 +1028,8 @@ describe('Agent renderer view model', () => {
       }
     ])
 
-    expect(timeline.map((item) => item.type)).toEqual([
-      'compaction_started',
-      'compaction_summary',
-      'compaction_failed'
-    ])
-    expect(timeline[1]).toMatchObject({
+    expect(timeline.map((item) => item.type)).toEqual(['compaction_summary', 'compaction_failed'])
+    expect(timeline[0]).toMatchObject({
       type: 'compaction_summary',
       payload: {
         trigger: 'manual',
@@ -1015,6 +1039,69 @@ describe('Agent renderer view model', () => {
         estimatedTokensAfter: 4_000
       }
     })
+  })
+
+  it('keeps the in-progress marker until a rolling compaction reaches a terminal outcome', () => {
+    const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
+    const started = {
+      ...record(1, 'compaction_started', {
+        schemaVersion: 2,
+        compactionId,
+        trigger: 'auto_threshold',
+        phase: 'planning',
+        timestamp: 1
+      }),
+      modelRequestId: null
+    }
+    const firstStep = {
+      ...record(2, 'compaction_summary', {
+        schemaVersion: 3,
+        handoffMode: 'bounded_conversation_memory',
+        compactionId,
+        trigger: 'auto_threshold',
+        stepIndex: 1,
+        finalStep: false,
+        previousCheckpointEventId: null,
+        coveredFromSequence: 1,
+        coveredThroughSequence: 10,
+        summary: 'First rolling checkpoint.',
+        proposalOutcomes: [],
+        approvalDecisions: [],
+        citationIds: [],
+        toolOutcomes: [],
+        estimatedTokensBefore: 100,
+        estimatedTokensAfter: 80,
+        checkpointTokens: 20,
+        tailTokens: 60,
+        postCompactionBudgetTokens: 32_000,
+        checkpointBudgetTokens: 12_000,
+        recentTailBudgetTokens: 20_000,
+        timestamp: 2
+      }),
+      modelRequestId: null
+    }
+
+    expect(projectAgentTimeline([started, firstStep]).map((item) => item.type)).toEqual([
+      'compaction_started',
+      'compaction_summary'
+    ])
+
+    const failed = {
+      ...record(3, 'compaction_failed', {
+        schemaVersion: 2,
+        compactionId,
+        trigger: 'auto_threshold',
+        code: 'compaction_failed',
+        retryable: true,
+        aborted: false,
+        timestamp: 3
+      }),
+      modelRequestId: null
+    }
+    expect(projectAgentTimeline([started, firstStep, failed]).map((item) => item.type)).toEqual([
+      'compaction_summary',
+      'compaction_failed'
+    ])
   })
 
   it('hides a compaction failure after a later successful checkpoint recovers the conversation', () => {
@@ -1184,6 +1271,33 @@ function toolResultRecord(
     timestamp: sequence,
     ...overrides
   })
+}
+
+function readSectionResult(title: string): Record<string, unknown> {
+  return {
+    section: {
+      sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc427',
+      parentSectionId: null,
+      position: 0,
+      level: 1,
+      title,
+      objective: null,
+      status: 'drafting',
+      currentRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc428',
+      wordCount: 120,
+      characterCount: 840
+    },
+    revisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc428',
+    blocks: [],
+    canonicalBlock: null,
+    canonicalFragment: null,
+    fragmentOffset: null,
+    nextFragmentOffset: null,
+    table: null,
+    missingBlockIds: [],
+    nextCursor: null,
+    totalBlocks: 0
+  }
 }
 
 function record(

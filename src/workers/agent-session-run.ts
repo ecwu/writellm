@@ -3,7 +3,11 @@ import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import { Value } from 'typebox/value'
-import { agentModelVisibleToolSpecs, agentToolEnvelope } from '../shared/agent-tool-specs'
+import {
+  agentModelVisibleToolSpecs,
+  agentToolEnvelope,
+  type AgentModelVisibleToolSpec
+} from '../shared/agent-tool-specs'
 import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
@@ -71,6 +75,7 @@ export async function runAgentSession(
     catalogModelKey: null,
     resolvedAt: null
   }
+  const toolProfile = request.toolProfile ?? 'writing'
   const interactionMode = request.interactionMode ?? 'write'
   const [{ Agent: AgentClass }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
@@ -83,7 +88,7 @@ export async function runAgentSession(
     maxOutputTokens: request.maxOutputTokens
   })
   const initialTools = agentModelVisibleToolSpecs(
-    request.toolProfile,
+    toolProfile,
     request.activeToolGroups,
     interactionMode
   )
@@ -152,6 +157,15 @@ export async function runAgentSession(
   >()
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
+  const modelVisibleToolsByRequestId = new Map<
+    string,
+    ReadonlyMap<string, AgentModelVisibleToolSpec>
+  >()
+  const preflightPolicyDiagnosticByToolCallId = new Map<
+    string,
+    ReturnType<typeof policyPreflightDiagnostic>
+  >()
+  const emittedPreflightDiagnosticsByModelRequestId = new Map<string, Set<string>>()
   const rawArgumentsByToolCallId = new Map<string, unknown>()
   const toolStartedAtByToolCallId = new Map<string, number>()
   let lastAssistant: AssistantMessage | undefined
@@ -172,7 +186,7 @@ export async function runAgentSession(
       }
       return modelRequestId
     },
-    request.toolProfile,
+    toolProfile,
     interactionMode
   )
 
@@ -200,7 +214,7 @@ export async function runAgentSession(
               limits: modelLimits,
               systemPrompt,
               advertisedTools: agentToolEnvelope(
-                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
+                agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
               )
             })
           )
@@ -216,7 +230,7 @@ export async function runAgentSession(
               limits: modelLimits,
               systemPrompt: followUp.systemPrompt,
               advertisedTools: agentToolEnvelope(
-                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
+                agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
               )
             })
           )
@@ -244,7 +258,7 @@ export async function runAgentSession(
             advertisedTools: authorization.finalize
               ? []
               : agentToolEnvelope(
-                  agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
+                  agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
                 )
           })
       )
@@ -257,9 +271,19 @@ export async function runAgentSession(
       }
     },
     beforeToolCall: async ({ assistantMessage, toolCall }) => {
+      const block = (message: string, code: 'invalid_arguments' | 'unknown_tool') => {
+        preflightPolicyDiagnosticByToolCallId.set(
+          toolCall.id,
+          policyPreflightDiagnostic(code, message)
+        )
+        return { block: true as const, reason: message }
+      }
       const allowed = agentToolNameSchema.safeParse(toolCall.name)
       if (!allowed.success) {
-        return { block: true, reason: 'Tool is not authorized by WriteLLM' }
+        return block(
+          'The requested tool is not authorized by WriteLLM. Choose one of the advertised tools and retry once.',
+          'unknown_tool'
+        )
       }
       const calls = assistantMessage.content
         .filter((part) => part.type === 'toolCall')
@@ -269,37 +293,37 @@ export async function runAgentSession(
         clarificationCalls.length > 0 &&
         (clarificationCalls.length !== 1 || calls.length !== 1)
       ) {
-        return {
-          block: true,
-          reason: 'User clarification must be the only tool in an assistant message'
-        }
+        return block(
+          'User clarification must be the only tool in an assistant message. Ask one clarification and retry once.',
+          'invalid_arguments'
+        )
       }
       const activationCalls = calls.filter((call) => call.name === 'activate_tool_groups')
       if (activationCalls.length > 0 && (activationCalls.length !== 1 || calls.length !== 1)) {
-        return {
-          block: true,
-          reason: 'Tool-group activation must be the only tool in an assistant message'
-        }
+        return block(
+          'Tool-group activation must be the only tool in an assistant message. Activate the required groups, then continue on the next turn.',
+          'invalid_arguments'
+        )
       }
       const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')
       if (skillCalls.length > 0 && calls.some((call) => call.name !== 'read_writing_skill')) {
-        return {
-          block: true,
-          reason: 'Writing Skill preparation cannot be mixed with other tools'
-        }
+        return block(
+          'Writing Skill preparation cannot be mixed with other tools. Prepare the Skill, then continue on the next turn.',
+          'invalid_arguments'
+        )
       }
       const mutationCalls = calls.filter((call) => isMutationTool(call.name))
       if (isMutationTool(toolCall.name) && mutationCalls.length > 1) {
-        return {
-          block: true,
-          reason: 'Only one mutation may be submitted in an assistant message'
-        }
+        return block(
+          'Only one mutation may be submitted in an assistant message. Submit exactly one mutation and retry once.',
+          'invalid_arguments'
+        )
       }
       if (isMutationTool(toolCall.name) && calls.some((call) => !isMutationTool(call.name))) {
-        return {
-          block: true,
-          reason: 'Mutation was blocked because its assistant message also requested read tools'
-        }
+        return block(
+          'A mutation cannot be mixed with read tools in one assistant message. Finish the reads, then submit exactly one mutation on the next turn.',
+          'invalid_arguments'
+        )
       }
       return undefined
     },
@@ -331,6 +355,15 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent provider call has no authorized model request')
       }
+      const advertisedToolNames = new Set(context.tools.map((tool) => tool.name))
+      modelVisibleToolsByRequestId.set(
+        modelRequestId,
+        new Map(
+          agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
+            .filter((tool) => advertisedToolNames.has(tool.name))
+            .map((tool) => [tool.name, tool])
+        )
+      )
       authorizedContinuationRequestIds.delete(modelRequestId)
       let lastResponseStatus: number | undefined
       let retryAfterMs: number | undefined
@@ -478,27 +511,52 @@ export async function runAgentSession(
         throw new Error('Agent tool preflight failure has no authorized source model request')
       }
       const diagnostic = safePreflightDiagnostic(
-        request.toolProfile,
-        interactionMode,
+        modelVisibleToolsByRequestId.get(modelRequestId) ?? new Map(),
         event.toolName,
-        rawArgumentsByToolCallId.get(event.toolCallId)
+        rawArgumentsByToolCallId.get(event.toolCallId),
+        preflightPolicyDiagnosticByToolCallId.get(event.toolCallId)
       )
       const startedAt = toolStartedAtByToolCallId.get(event.toolCallId)
-      onEvent({
-        type: 'tool_preflight_failed',
-        modelRequestId,
-        toolCallId: event.toolCallId,
-        requestedToolName: event.toolName,
-        phase: 'pre_dispatch',
-        diagnostic,
-        ...(startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - startedAt) }),
-        timestamp: Date.now()
-      })
+      const fingerprint = JSON.stringify([
+        event.toolName,
+        diagnostic.code,
+        diagnostic.message,
+        diagnostic.paths
+      ])
+      const emitted = emittedPreflightDiagnosticsByModelRequestId.get(modelRequestId) ?? new Set()
+      if (!emitted.has(fingerprint)) {
+        emitted.add(fingerprint)
+        emittedPreflightDiagnosticsByModelRequestId.set(modelRequestId, emitted)
+        onEvent({
+          type: 'tool_preflight_failed',
+          modelRequestId,
+          toolCallId: event.toolCallId,
+          requestedToolName: event.toolName,
+          phase: 'pre_dispatch',
+          diagnostic,
+          ...(startedAt === undefined ? {} : { durationMs: Math.max(0, Date.now() - startedAt) }),
+          timestamp: Date.now()
+        })
+      } else {
+        log?.(
+          'info',
+          'agent.tool.preflight_duplicate_suppressed',
+          'Suppressed a duplicate Agent preflight diagnostic from one model response',
+          {
+            agentRunId: request.agentRunId,
+            modelRequestId,
+            toolName: event.toolName,
+            code: diagnostic.code
+          }
+        )
+      }
+      preflightPolicyDiagnosticByToolCallId.delete(event.toolCallId)
       rawArgumentsByToolCallId.delete(event.toolCallId)
       toolStartedAtByToolCallId.delete(event.toolCallId)
       return
     }
     if (event.type === 'tool_execution_end') {
+      preflightPolicyDiagnosticByToolCallId.delete(event.toolCallId)
       rawArgumentsByToolCallId.delete(event.toolCallId)
       toolStartedAtByToolCallId.delete(event.toolCallId)
     }
@@ -954,19 +1012,29 @@ function describeArgumentShape(value: unknown, depth = 0): string {
   return typeof value
 }
 
+function policyPreflightDiagnostic(
+  code: 'invalid_arguments' | 'unknown_tool',
+  message: string
+): {
+  code: 'invalid_arguments' | 'unknown_tool'
+  message: string
+  paths: string[]
+} {
+  return { code, message: message.slice(0, 1_000), paths: [] }
+}
+
 function safePreflightDiagnostic(
-  toolProfile: AgentRunStart['toolProfile'],
-  interactionMode: AgentRunStart['interactionMode'],
+  modelVisibleTools: ReadonlyMap<string, AgentModelVisibleToolSpec>,
   requestedToolName: string,
-  rawArguments: unknown
+  rawArguments: unknown,
+  policyDiagnostic?: ReturnType<typeof policyPreflightDiagnostic>
 ): {
   code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed'
   message: string
   paths: string[]
 } {
-  const tool = agentModelVisibleToolSpecs(toolProfile, [], interactionMode).find(
-    (candidate) => candidate.name === requestedToolName
-  )
+  if (policyDiagnostic !== undefined) return policyDiagnostic
+  const tool = modelVisibleTools.get(requestedToolName)
   if (tool === undefined) {
     return {
       code: 'unknown_tool',

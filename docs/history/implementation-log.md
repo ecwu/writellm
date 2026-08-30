@@ -1032,3 +1032,95 @@ maintenance without turning the active tracker back into a historical log.
   the no-identity macOS arm64 package gate with 31 recovery fixtures, 12 packaged smoke scenarios,
   and 34/34 packaged Electron scenarios. Produced structurally verified unsigned DMG and ZIP
   artifacts for `0.2026.8.45`; no signing, notarization, release, commit, tag, or push followed.
+- Completed Agent model-selection recovery maintenance. Provider settings publish a Renderer-local
+  invalidation that makes an open Agent panel re-read Main's bounded catalog snapshot, New
+  conversation performs the same refresh defensively, and a stale project-local model reference
+  now exposes an explicit available-model picker without silently rewriting conversation history.
+  Three focused Renderer tests, `check:fast`, the production build, and the focused
+  `agent.grounded-proposal-workflow` and `agent.table-authoring-publication` Electron scenarios
+  passed; no persistence, preload, IPC, Agent protocol, package, release, commit, tag, or push
+  action was performed.
+- Completed generated-image lifecycle maintenance. Main now terminalizes a `generating` proposal
+  when the generated asset cannot pass the later editor barrier, insertion metadata validation,
+  manuscript application, or image-iteration publication, publishes the failed state, and records
+  a safe failure reason. Because ADR 006 makes image work request-scoped rather than a durable job,
+  project-session startup also converts generations left active by a prior app lifetime to failed;
+  this repairs existing orphan rows instead of merely hiding them in the Renderer. Main also keeps
+  the complete 2,000-character alternative text while bounding only the derived BlockNote image
+  name to 500 characters, so the reported 501-character metadata case applies successfully. The
+  focused image suite passed 11/11 tests, including long metadata, post-generation publication
+  failure, and service-recreation recovery. `check:fast`, all 1,186 Electron tests with three
+  benchmark skips, the production build, and `git diff --check` passed; no migration, preload,
+  IPC, Agent protocol, package, release, commit, tag, or push action was performed.
+- Built the user-requested post-fix macOS arm64 test application from dirty source revision
+  `bc2f0bf926397f632bac577d039d4205f5b0183a`. The complete no-identity package gate verified 31
+  recovery fixtures from 29 sources, 53,288 ASAR entries, arm64 Electron ABI 148 native modules,
+  a no-Team-ID ad-hoc/linker signature, all 12 packaged smoke scenarios, and all 34 packaged
+  Electron scenarios with no flaky, skipped, or failed scenario. It produced the unpacked App,
+  238,734,583-byte DMG (`efd9e480b4c63c20da468640adbfa5c30a27969e794584fc93bc7422c58eeb66`),
+  and 236,882,652-byte ZIP (`54f64cf2acd5ede85b1e80cc4364999038efd9fe53792698729f49329ac9865a`).
+  No Developer ID signing, notarization, release, commit, tag, push, promotion, or publication was
+  performed.
+- Completed Gemini/Vertex `read_section` compatibility maintenance from the reported real-app
+  failure. Safe durable event evidence showed ten failures across three runs, all generated as
+  blockless canonical reads; hash comparison confirmed `view: "canonical"` without reading or
+  persisting raw private arguments. The affected run recovered by issuing four summary reads, but
+  consumed one avoidable continuation with 18,275 input and 374 output tokens. Clarified that
+  summary is the whole-section text/page mode and added the single ADR 042-compatible Worker shim
+  that maps only a blockless canonical request to summary before Pi validation. Canonical reads
+  with an exact `blockId`, every other malformed call, and Main validation remain unchanged. The
+  two focused suites passed 37 tests; `check:fast` passed; and `check:electron` passed 215 files / 3
+  skipped benchmark files, 1,187 tests / 3 skipped benchmark tests, plus the production build. No
+  live billable Vertex request, dependency, migration, package, release, commit, tag, or push action
+  was performed.
+- Completed read-section activity presentation maintenance. Finished groups remain summary-first
+  and collapsed by default; expanding a group now displays `Read · <section title>` for each
+  successful read, with the title parsed from Main's validated `read_section` result rather than
+  model arguments or narration. No section ID or block ID is shown, while running, failed,
+  stopped, and legacy malformed results keep the safe generic label. The focused Renderer suite
+  passed 32 tests, `check:fast` passed, `check:electron` passed 215 files / 3 skipped benchmark
+  files and 1,189 tests / 3 skipped benchmark tests plus the production build, and the Impeccable
+  detector reported no findings. No IPC, persistence, protocol, package, release, commit, tag, or
+  push action was performed.
+- Built the user-requested Gemini/Vertex read-section trial application from dirty source revision
+  `bc2f0bf926397f632bac577d039d4205f5b0183a`. The complete no-identity macOS arm64 package gate
+  verified 31 recovery fixtures from 29 sources, 53,288 ASAR entries, Electron 43.4.1 / ABI 148
+  arm64 native resources, all 12 packaged smoke scenarios, and all 34 packaged Electron scenarios
+  with no flaky, skipped, or failed scenario. It produced the unpacked App, a 238,736,237-byte DMG
+  (`02f11feb8c382d5587d2550c488d51d8402d53df7ddd1279615840296219275a`), and a
+  236,885,312-byte ZIP
+  (`33c6ddc043600710a09469ebb156967829149b9ea0b157484274d156f336ea91`). No Developer ID
+  signing, notarization, release, commit, tag, push, promotion, or publication was performed.
+- Completed Agent context-compaction status presentation maintenance. Timeline projection now
+  removes a matching historical start marker after a final successful checkpoint or failure, while
+  retaining the live marker across non-final rolling checkpoints. This prevents the completed
+  outcome and a stale `Summarizing earlier conversation…` spinner from appearing together. The
+  focused Agent Renderer suites passed 49 tests; Renderer typechecking, Biome, and `git diff
+  --check` passed. The combined `check:fast` gate reached and passed Biome, then remained blocked by
+  the unrelated dirty `session-service.tools.test.ts` fixture missing its required `blockType`.
+  No persistence, IPC, protocol, package, release, commit, tag, or push action was performed.
+
+## 2026-08-31
+
+- Built the separately authorized local `v0.2026.8.46` candidate after aligning tag CI with the
+  accepted pnpm 11.17.0 runtime. `check:fast`, 31 recovery fixtures from 29 sources, 1,194
+  Electron-hosted tests with three benchmark skips plus the production build, and all 47 fresh
+  Electron E2E scenarios passed. The complete no-identity macOS arm64 package gate verified
+  Electron 43.4.1 / ABI 148, 53,288 ASAR entries, all 12 packaged smoke scenarios, and all 34
+  packaged Electron scenarios without flakes, skips, or failures. It produced a 238,735,121-byte
+  DMG (`45e37ea91cb07e945014695d89cbc51cd966570216a925567b664f6cf01b20cc`) and a
+  236,883,926-byte ZIP (`3120c4ac9a63c2763f918129de0ee86c9f5a0bf8a74c68828e53c77330d13fd3`).
+  Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
+  outside the authorization.
+- Completed Agent staged-tool preflight and citation-recovery maintenance. The Worker now snapshots
+  the exact model-visible tool specifications for each provider request and preserves the concrete
+  policy rejection selected before dispatch. Activated tools with malformed arguments therefore
+  report schema paths instead of `unknown_tool`, policy failures retain their actual cause, and
+  duplicate diagnostics from the same model response are collapsed while Pi still receives each
+  individual tool result. Main tracks only the active request's monotonic citation evidence state:
+  a fresh failure requests `search_knowledge` then `read_citations`, a completed search resumes at
+  `read_citations`, and expanded citations direct the model to repair its existing arguments. The
+  two focused suites passed 37 tests; `check:fast` passed; and the Electron gate passed 215 files /
+  3 skipped benchmark files and 1,194 tests / 3 skipped benchmark tests, followed by a successful
+  production build. `git diff --check` passed. No staged-loading redesign, protocol version,
+  database migration, dependency, package, release, commit, tag, or push action was performed.

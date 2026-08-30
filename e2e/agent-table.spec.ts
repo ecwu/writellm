@@ -33,15 +33,11 @@ async function createProject(page: Page, name: string): Promise<void> {
 async function openAgentForSection(page: Page): Promise<ReturnType<Page['getByTestId']>> {
   await page.getByTestId('agent-menubar-trigger').click()
   const panel = page.getByTestId('agent-panel')
-  if (await panel.getByRole('button', { name: 'Set up an Agent model' }).isVisible()) {
-    await panel.getByTestId('agent-conversation-menu').click()
-    await page.getByRole('menuitem', { name: 'Details', exact: true }).click()
-    const details = page.getByRole('dialog', { name: 'Agent details' })
-    await details.getByLabel('Agent model').click()
+  if (await panel.getByTestId('agent-model-recovery').isVisible()) {
+    await panel.getByTestId('agent-model-selector').click()
     const picker = page.getByTestId('agent-model-picker')
     await picker.getByRole('option', { name: /Table Agent/ }).click()
     await picker.getByRole('option', { name: /Table E2E model/ }).click()
-    await page.keyboard.press('Escape')
   }
   await panel.getByTestId('agent-add-menu-trigger').click()
   await page.getByRole('option', { name: /This section/ }).click()

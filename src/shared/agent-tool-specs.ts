@@ -345,7 +345,8 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
   {
     name: 'read_section',
     label: 'Read section',
-    description: 'Read bounded summary, canonical, fragment, or table data for one section.',
+    description:
+      'Read one section. Use summary for section text or pages; canonical, fragment, and table each require an exact blockId from a prior summary.',
     parameters: parameters(readSectionArgsSchema),
     executionMode: 'parallel'
   },

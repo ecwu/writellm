@@ -45,6 +45,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useTheme } from '@/theme-provider'
 import { AgentMarkdown } from './agent-markdown'
 import {
+  agentActivityDefaultOpen,
   agentToolActivityLabel,
   agentTerminalDetail,
   agentTerminalLabel,
@@ -491,12 +492,7 @@ function ActivityGroup(props: {
   return (
     <Collapsible
       className='group/activity min-w-0 max-w-full overflow-hidden'
-      defaultOpen={
-        item.status === 'running' ||
-        item.status === 'partial' ||
-        item.status === 'error' ||
-        item.status === 'stopped'
-      }
+      defaultOpen={agentActivityDefaultOpen(item.status)}
       data-testid='agent-activity-group'
       data-status={item.status}
     >

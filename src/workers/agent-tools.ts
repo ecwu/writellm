@@ -803,6 +803,7 @@ export class AgentToolBridge {
     return agentModelVisibleToolSpecs(this.toolProfile, activeGroups, this.interactionMode).map(
       (tool) => ({
         ...tool,
+        ...(tool.name === 'read_section' ? { prepareArguments: prepareReadSectionArguments } : {}),
         execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
       })
     ) as AgentTool[]
@@ -1071,6 +1072,13 @@ export class AgentToolBridge {
       pending.reject(error)
     }
   }
+}
+
+function prepareReadSectionArguments(args: unknown): unknown {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return args
+  const record = args as Record<string, unknown>
+  if (record.view !== 'canonical' || 'blockId' in record) return args
+  return { ...record, view: 'summary' }
 }
 
 function escapeToolEnvelopeText(value: string): string {

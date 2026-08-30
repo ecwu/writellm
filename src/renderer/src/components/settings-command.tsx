@@ -61,6 +61,7 @@ import {
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
+import { notifyProviderCatalogChanged } from '@/features/providers/provider-catalog-events'
 import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings'
 import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
@@ -230,6 +231,11 @@ export function SettingsCommand({
     }
   }
 
+  const updateProviderSnapshot = (next: ProviderSettingsSnapshot): void => {
+    setSnapshot(next)
+    notifyProviderCatalogChanged()
+  }
+
   return (
     <CommandDialog
       open={open}
@@ -371,7 +377,7 @@ export function SettingsCommand({
                 role={section}
                 snapshot={snapshot}
                 closeAction={<SettingsCloseButton />}
-                onSnapshotChange={setSnapshot}
+                onSnapshotChange={updateProviderSnapshot}
                 onError={onError}
               />
             ) : null}

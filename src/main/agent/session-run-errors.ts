@@ -191,13 +191,21 @@ export function toolErrorResponse(
   code: Extract<AgentToolResponse, { ok: false }>['error']['code'],
   message: string,
   retryable: boolean,
-  recoveryUri?: string
+  recoveryUri?: string,
+  citationRecoveryState: 'none' | 'searched' | 'expanded' = 'none'
 ): AgentToolResponse {
   return agentToolResponseSchema.parse({
     ...toolResponseCapability(request),
     schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
     ok: false,
-    error: structuredToolError(code, message, retryable, request.toolName, recoveryUri)
+    error: structuredToolError(
+      code,
+      message,
+      retryable,
+      request.toolName,
+      recoveryUri,
+      citationRecoveryState
+    )
   })
 }
 
@@ -294,12 +302,35 @@ export function structuredToolError(
   message: string,
   retryable: boolean,
   toolName: AgentToolRequest['toolName'],
-  recoveryUri?: string
+  recoveryUri?: string,
+  citationRecoveryState: 'none' | 'searched' | 'expanded' = 'none'
 ): Extract<AgentToolResponse, { ok: false }>['error'] {
   const refreshTool = recoveryToolFor(toolName)
   switch (code) {
     case 'invalid_arguments':
       if (/citation|source label/iu.test(message)) {
+        if (citationRecoveryState === 'expanded') {
+          return {
+            code,
+            category: 'validation',
+            message: actionableToolErrorMessage(
+              message,
+              'Copy citationIds from the expanded citations already present in this run and retry once.'
+            ),
+            recovery: { action: 'fix_arguments', maxAttempts: 1 }
+          }
+        }
+        if (citationRecoveryState === 'searched') {
+          return {
+            code,
+            category: 'validation',
+            message: actionableToolErrorMessage(
+              message,
+              'Call read_citations with citation IDs already returned by search_knowledge, copy the expanded provenance, and retry once.'
+            ),
+            recovery: { action: 'refresh_context', tool: 'read_citations', maxAttempts: 1 }
+          }
+        }
         return {
           code,
           category: 'validation',

@@ -82,6 +82,10 @@ export function useAgentPanelSessionActions(input: {
     setProposals([])
     setContinuationFailure(null)
     setSessionSwitcherOpen(false)
+    void window.desktop.providers
+      .snapshot()
+      .then((snapshot) => setProviderCatalog(snapshot.agentCatalog))
+      .catch((cause) => setError(errorMessage(cause)))
   }
 
   const setApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {

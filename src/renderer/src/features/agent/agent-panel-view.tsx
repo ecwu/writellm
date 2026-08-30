@@ -61,6 +61,7 @@ import {
 import { ConversationSwitcher } from './agent-conversation-switcher'
 import { EventTimeline } from './agent-event-timeline'
 import { AgentModelEffortPicker } from './agent-model-effort-picker'
+import { AgentModelRecovery } from './agent-model-recovery'
 import { WritingTaskDialog, WritingTaskProgressDock } from './agent-writing-task'
 import { isSectionProposalOutdated } from './agent-view-model'
 import { AgentAttentionBeam } from './agent-motion'
@@ -444,9 +445,14 @@ export function AgentPanelView({
               </Marker>
             </AgentAttentionDock>
           ) : !modelReady ? (
-            <Button variant='outline' className='w-full' onClick={props.onOpenSettings}>
-              <Settings2 data-icon='inline-start' /> Set up an Agent model
-            </Button>
+            <AgentModelRecovery
+              presets={availableModelPresets}
+              selection={modelSelection}
+              activeConversation={activeSession !== null}
+              disabled={busy || activeSessionArchived}
+              onSelect={setModelSelection}
+              onOpenSettings={props.onOpenSettings}
+            />
           ) : (
             <Field data-disabled={busy || choosingSkill || activeSession?.compatible === false}>
               <FieldLabel htmlFor='agent-message' className='sr-only'>

@@ -1,10 +1,10 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 25 Checkpoint 76 is in progress under ADR 068; Checkpoint 77 is paused pending
+Status: Phase 25 Checkpoint 76 is complete under ADR 068; Checkpoint 77 is paused pending
 separate authorization. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-08-30
+Recorded: 2026-08-31
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -19,7 +19,29 @@ Status markers:
 
 ## Active and paused work
 
-- [~] Checkpoint 76: add sticky Ask, Plan, and Write ceilings, Protocol v13 exact tool enforcement,
+- [~] Maintenance candidate `v0.2026.8.46`: align tag CI with the accepted pnpm 11.17.0 runtime,
+  rebuild and fully verify the no-Team-ID macOS arm64 App, then commit, tag, and push `main` plus
+  the immutable tag under explicit user authorization.
+- [x] Maintenance: replace a completed or failed context-compaction start marker with its durable
+  outcome while preserving the live marker across non-final rolling checkpoints.
+- [x] Maintenance: preserve the exact model-call tool envelope and preflight policy reason so
+  activated writing tools never surface as `unknown_tool`, collapse duplicate same-call failures,
+  and route citation recovery from the evidence already gathered in the active run.
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 trial App containing
+  the Gemini/Vertex `read_section` compatibility and authoritative expanded section-title UI.
+- [x] Maintenance: keep completed read-section activity groups collapsed by default and reveal
+  only authoritative section titles in their expanded action rows, without exposing section or
+  block identifiers.
+- [x] Maintenance: eliminate repeated Gemini/Vertex `read_section` preflight failures by
+  clarifying whole-section reads and narrowly normalizing the observed blockless canonical-read
+  quirk without weakening Main validation.
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 test App containing the
+  Agent model-selection and generated-image lifecycle fixes.
+- [x] Maintenance: terminalize generated-image proposals when post-generation publication fails
+  and recover request-scoped image generations interrupted by a prior project-session lifetime.
+- [x] Maintenance: synchronize application-global Agent Provider catalog changes into an open
+  Agent panel and recover model selection without silently rewriting stale conversations.
+- [x] Checkpoint 76: add sticky Ask, Plan, and Write ceilings, Protocol v13 exact tool enforcement,
   immutable run snapshots, and the Agent composer mode selector under ADR 068.
 - [!] Checkpoint 77: detailed Writing Task v2 and Plan-to-Write execution handoff; separate
   authorization required after Checkpoint 76.
