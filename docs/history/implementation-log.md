@@ -802,6 +802,16 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Published `WriteLLM 0.2026.8` from immutable tag `v0.2026.8.45` as the public Latest GitHub
+  Release after explicit user authorization to distribute unsigned artifacts. Revalidated all
+  seven platform packages against their build evidence, attached four renamed evidence files,
+  `SHA256SUMS`, and a public unsigned release manifest, then verified 13/13 remote assets in
+  uploaded state totaling 1,573,263,711 bytes. Release notes state that Windows and macOS may show
+  security warnings because the artifacts are unsigned and not notarized.
+- Replaced `pnpm/action-setup` v4 with SHA-pinned v6.0.10 in the tag-only CI and disabled
+  release-candidate workflow. GitHub run `33299058552` identified it as the only Action still
+  targeting deprecated Node 20; v6.0.10 declares the Node 24 Action runtime, while project commands
+  remain pinned to Node 24.15.0.
 - Completed Checkpoint 26.9 with immutable `v0.2026.8.45` run `33299058552`. The shared static and
   recovery-fixture gate passed, followed by terminal success for four independent build-only jobs:
   macOS arm64, Windows x64, Linux x64, and macOS x64. Each platform completed native packaging,

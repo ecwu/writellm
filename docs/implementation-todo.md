@@ -19,6 +19,10 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Release maintenance: publish `WriteLLM 0.2026.8` from immutable `v0.2026.8.45` as an
+  explicitly unsigned four-platform GitHub Release with checksums and per-platform evidence.
+- [x] Maintenance: replace the final Node 20 GitHub Action runtime with the Node 24-based
+  `pnpm/action-setup` v6.0.10 pin in active and disabled hosted workflows.
 - [x] Checkpoint 75 maintenance: project root-union properties into the model-visible object root,
   retain exact branch constraints, verify OpenAI-compatible and LM Studio behavior, and produce a
   fresh no-identity macOS trial build.

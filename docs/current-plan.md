@@ -27,6 +27,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- GitHub Release `WriteLLM 0.2026.8` is publicly available from immutable candidate tag
+  `v0.2026.8.45` as the repository's Latest release. It contains seven unsigned Windows, macOS,
+  and Linux packages plus `SHA256SUMS`, four platform evidence files, and an explicit public
+  unsigned manifest. The release notes warn that the artifacts are unsigned and not notarized.
+- Hosted workflow maintenance removes the final Node 20 Action runtime: both tag CI and the
+  disabled release-candidate definition pin `pnpm/action-setup` v6.0.10, whose JavaScript action
+  runs on Node 24. Project commands remain pinned to Node 24.15.0, matching Electron 43's embedded
+  Node major.
 - Candidates `.31`–`.33` show that a standalone Linux Electron safeStorage probe is not evidence
   for the later application process: the probe selected `gnome_libsecret`, while every provider
   scenario later observed `basic_text`. The wrapper now reserves standalone Electron probing for
