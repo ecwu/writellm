@@ -699,6 +699,30 @@ scenarios receive 180-second budgets. The recovery manifest records the resultin
 source digest, and release metadata advances to `0.2026.8.38`. Hosted confirmation remains required
 before Checkpoint 26.9 can complete.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.38` at
+`e842a0f4bb4422bd29ee446382526ac04c92869b` completed tag-only run `33281622771`. The shared
+static/fixture gate passed, and Windows x64, macOS arm64, macOS x64, and Linux x64 each passed the
+frozen install plus complete 1,160-test Electron/build gate. Every platform's E2E then reproduced
+React error 185 at Floating UI's `setPositionReference`: deduplicating the DOM reference had left a
+new virtual position object allocated on each effect turn. Windows and Linux otherwise reached the
+same citation-coverage failure; Windows also retried a remounting project-menu item. macOS arm64
+also exposed transient slash-menu and narrow-layout sampling, while macOS x64 rejected three
+first-attempt setup/materialization/menu races under the no-flake policy. All four package steps
+were independently skipped after their own E2E failure; the run reached terminal failure only after
+Linux printed its complete 35-minute summary.
+
+Local post-candidate remediation evidence (2026-08-30): the BlockNote patch now retains a stable
+virtual position reference until its context element or measured geometry changes, while delegated
+bounding/client-rect callbacks always read the latest source. The Agent flow waits for dropdown
+closure and settled narrow control geometry; the custom Agent-provider scenario opens Settings
+through its visible command; and the parsed-document scenario waits for the durable normalization
+job before selecting the source. A fresh frozen pnpm 12 install applied the updated patch. Two
+independent focused runs passed the arm64 citation/Agent pair; a combined run passed the three x64
+flaky scenarios. The complete local gate passed 201 Electron-hosted files / 1,160 tests, a fresh
+production build, all 47 E2E scenarios without retries, static/type checks, all 27 recovery
+fixtures, and diff checks. Release metadata advances to `0.2026.8.39`; hosted confirmation remains
+required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

@@ -3,11 +3,11 @@
 Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
 ADR 067. Immutable tag-only candidates `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
-Candidate `.36` confirmed the Windows patch-EOL and Linux password-store fixes, then exposed a
-remaining Windows Floating UI setter loop and one macOS arm64 conflict-test race. Candidate `.37`
-proved both independent macOS pipelines through artifact upload, while Windows and Linux exposed
-one repeated-reference loop, one duplicate final-response locator, and two Linux 90-second scenario
-budgets. Candidate `v0.2026.8.38` contains the focused remediation.
+Candidate `.37` proved both independent macOS pipelines through artifact upload, while Windows and
+Linux exposed one repeated-reference loop, one duplicate final-response locator, and two Linux
+90-second scenario budgets. Candidate `.38` proved those fixes reached all hosts, then identified
+the underlying virtual position-reference update loop plus three hosted UI timing races. Candidate
+`v0.2026.8.39` contains their consolidated remediation.
 Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
@@ -74,6 +74,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   reached their final action at about 88 seconds and hit the 90-second total budget rather than
   hanging inside Secret Service. Candidate `.38` deduplicates reference application, selects the
   final response explicitly, and gives only those two proven long scenarios 180-second budgets.
+- Candidate `.38` passed the shared static gate and every platform's 1,160-test Electron/build gate.
+  All four E2E rows then reproduced the same React error 185 at Floating UI's
+  `setPositionReference`, proving the remaining loop came from a newly allocated virtual reference
+  rather than its DOM reference. Hosted timing also exposed one arm64 narrow-layout sampling race,
+  one arm64 dropdown-close race, two x64 first-attempt setup/materialization races, and one Windows
+  menu detachment; Linux had no additional failure. Candidate `.39` keeps one delegated virtual
+  reference object until its element or geometry changes, while refreshing its live callbacks, and
+  waits for the specific UI/backend state before the affected assertions.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

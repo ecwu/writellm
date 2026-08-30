@@ -660,6 +660,11 @@ test(
         })
       }
       await launched.page.keyboard.press('Escape')
+      await expect(
+        launched.page.getByRole('menuitemradio', {
+          name: /Manual Review every proposed manuscript change/
+        })
+      ).not.toBeVisible()
       await panel.getByLabel('Agent message').fill('/section')
       const slashMenu = launched.page.getByTestId('agent-slash-menu')
       await expect(slashMenu).toBeVisible()
@@ -903,23 +908,24 @@ Continue only the original user request that remains unresolved after this appro
       await expect(contextUsageTooltip).not.toBeVisible()
       await browserWindow.evaluate((window) => window.setContentSize(1000, 900))
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
-      const [narrowApprovalBox, narrowRingBox, narrowModelBox, narrowSendBox] = await Promise.all([
-        approvalSelector.boundingBox(),
-        contextUsageIndicator.boundingBox(),
-        modelSelector.boundingBox(),
-        sendButton.boundingBox()
-      ])
-      if (
-        narrowApprovalBox === null ||
-        narrowRingBox === null ||
-        narrowModelBox === null ||
-        narrowSendBox === null
-      ) {
-        throw new Error('Agent context and composer controls must have visible bounds')
-      }
-      expect(narrowApprovalBox.x + narrowApprovalBox.width).toBeLessThanOrEqual(narrowRingBox.x)
-      expect(narrowRingBox.x + narrowRingBox.width).toBeLessThanOrEqual(narrowModelBox.x)
-      expect(narrowModelBox.x + narrowModelBox.width).toBeLessThanOrEqual(narrowSendBox.x)
+      await expect
+        .poll(async () => {
+          const [approvalBox, ringBox, modelBox, sendBox] = await Promise.all([
+            approvalSelector.boundingBox(),
+            contextUsageIndicator.boundingBox(),
+            modelSelector.boundingBox(),
+            sendButton.boundingBox()
+          ])
+          if (approvalBox === null || ringBox === null || modelBox === null || sendBox === null) {
+            return false
+          }
+          return (
+            approvalBox.x + approvalBox.width <= ringBox.x &&
+            ringBox.x + ringBox.width <= modelBox.x &&
+            modelBox.x + modelBox.width <= sendBox.x
+          )
+        })
+        .toBe(true)
       await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
       const contextScreenshotDirectory = process.env.WRITELLM_CP55_SCREENSHOT_DIR

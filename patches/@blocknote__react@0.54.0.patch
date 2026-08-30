@@ -3,25 +3,48 @@ diff --git a/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js b/dist/confirmDiscard
 +++ b/dist/confirmDiscardUnsavedComment-D1Q3ha7c.js
 @@ -80 +80 @@ var z = (e) => {
 -	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]);
-+	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]), P = s(o.setReference), U = s(o.setPositionReference), V = s(); P.current = o.setReference, U.current = o.setPositionReference;
++	}), { getFloatingProps: E } = h([C, w]), D = s(""), O = s(null), k = g([O, o.setFloating]), P = s(o.setReference), U = s(o.setPositionReference), V = s(), W = s(), X = s(); P.current = o.setReference, U.current = o.setPositionReference;
 @@ -84 +84 @@ var z = (e) => {
 -			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && o.setReference(n);
 +			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && V.current !== n && (V.current = n, P.current(n));
-@@ -86 +86 @@ var z = (e) => {
+@@ -86,5 +86,6 @@ var z = (e) => {
 -			o.setPositionReference({
-+			U.current({
-@@ -94 +93,0 @@ var z = (e) => {
+-				getBoundingClientRect: L(e.reference),
+-				...r ? { getClientRects: r } : {},
+-				contextElement: n
+-			});
++			let q = L(e.reference), M = q(), A = r ? Array.from(r(), (F) => `${F.x}:${F.y}:${F.width}:${F.height}`).join(";") : "", G = { element: n, x: M.x, y: M.y, width: M.width, height: M.height, clientRects: A }, H = W.current; X.current = { getBoundingClientRect: q, getClientRects: r };
++			(!H || H.element !== G.element || H.x !== G.x || H.y !== G.y || H.width !== G.width || H.height !== G.height || H.clientRects !== G.clientRects) && (W.current = G, U.current({
++				getBoundingClientRect: () => X.current.getBoundingClientRect(),
++				...r ? { getClientRects: () => X.current.getClientRects() } : {},
++				contextElement: n
++			}));
+@@ -94 +95,0 @@ var z = (e) => {
 -		o,
 diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popovers/GenericPopover.tsx
 --- a/src/components/Popovers/GenericPopover.tsx
 +++ b/src/components/Popovers/GenericPopover.tsx
-@@ -167,0 +168,5 @@ export const GenericPopover = (
+@@ -167,0 +168,19 @@ export const GenericPopover = (
 +  const setReferenceRef = useRef(refs.setReference);
 +  const setPositionReferenceRef = useRef(refs.setPositionReference);
 +  const appliedReferenceElementRef = useRef<Element | undefined>(undefined);
++  const appliedPositionReferenceRef = useRef<
++    | {
++        element: Element | undefined;
++        x: number;
++        y: number;
++        width: number;
++        height: number;
++        clientRects: string;
++      }
++    | undefined
++  >(undefined);
++  const positionReferenceSourceRef = useRef<
++    { getBoundingClientRect: () => DOMRect; getClientRects?: () => DOMRectList } | undefined
++  >(undefined);
 +  setReferenceRef.current = refs.setReference;
 +  setPositionReferenceRef.current = refs.setPositionReference;
-@@ -181,13 +186,15 @@ export const GenericPopover = (
+@@ -181,13 +200,15 @@ export const GenericPopover = (
        if (
          element !== undefined &&
 +        appliedReferenceElementRef.current !== element &&
@@ -38,10 +61,63 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
 +        appliedReferenceElementRef.current = element;
 +        setReferenceRef.current(element);
        }
-@@ -196 +204 @@ export const GenericPopover = (
+@@ -196,9 +217,54 @@ export const GenericPopover = (
 -      refs.setPositionReference({
-+      setPositionReferenceRef.current({
-@@ -204 +212,5 @@ export const GenericPopover = (
+-        getBoundingClientRect: getMountedBoundingClientRectCache(
+-          props.reference,
+-        ),
+-        ...(getClientRects ? { getClientRects } : {}),
+-        contextElement: element,
+-      });
++      const getBoundingClientRect = getMountedBoundingClientRectCache(
++        props.reference,
++      );
++      const rect = getBoundingClientRect();
++      const clientRects = getClientRects
++        ? Array.from(
++            getClientRects(),
++            ({ x, y, width, height }) => `${x}:${y}:${width}:${height}`,
++          ).join(";")
++        : "";
++      const nextPositionReference = {
++        contextElement: element,
++        x: rect.x,
++        y: rect.y,
++        width: rect.width,
++        height: rect.height,
++        clientRects,
++      };
++      const appliedPositionReference = appliedPositionReferenceRef.current;
++      positionReferenceSourceRef.current = {
++        getBoundingClientRect,
++        ...(getClientRects ? { getClientRects } : {}),
++      };
++      if (
++        appliedPositionReference === undefined ||
++        appliedPositionReference.element !== nextPositionReference.contextElement ||
++        appliedPositionReference.x !== nextPositionReference.x ||
++        appliedPositionReference.y !== nextPositionReference.y ||
++        appliedPositionReference.width !== nextPositionReference.width ||
++        appliedPositionReference.height !== nextPositionReference.height ||
++        appliedPositionReference.clientRects !== nextPositionReference.clientRects
++      ) {
++        appliedPositionReferenceRef.current = {
++          element: nextPositionReference.contextElement,
++          ...nextPositionReference,
++        };
++        setPositionReferenceRef.current({
++          getBoundingClientRect: () =>
++            positionReferenceSourceRef.current!.getBoundingClientRect(),
++          ...(getClientRects
++            ? {
++                getClientRects: () =>
++                  positionReferenceSourceRef.current!.getClientRects!(),
++              }
++            : {}),
++          contextElement: element,
++        });
++      }
+     }
 -  }, [props.reference, refs, props.focusManagerProps?.disabled, editor]);
 +  }, [
 +    props.reference,

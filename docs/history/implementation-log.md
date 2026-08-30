@@ -802,6 +802,15 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.38` as failed evidence after run `33281622771` passed static and
+  every platform's complete Electron/build gate, then reproduced Floating UI's virtual
+  position-reference loop on Windows, Linux, and both macOS targets. The independent jobs also
+  exposed bounded setup, materialization, dropdown-close, layout-settle, and menu-remount races.
+  Kept the virtual reference stable while delegating to live geometry callbacks, added explicit
+  state waits at those hosted boundaries, passed 1,160 Electron tests, a production build, all 47
+  E2E scenarios without retries, static/type and recovery-fixture gates, and advanced release
+  metadata to `0.2026.8.39`.
+
 - Retained immutable `v0.2026.8.37` as failed evidence after run `33279820297` proved complete
   independent native packaging and artifact upload on both macOS targets. Windows and Linux
   reproduced the same repeated BlockNote/Floating UI DOM-reference loop; Windows also exposed a

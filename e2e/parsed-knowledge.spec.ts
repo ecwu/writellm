@@ -324,6 +324,11 @@ test(
       await knowledge.getByTestId('knowledge-upload-button').click()
       const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
       await expect(sourceButton).toBeVisible()
+      await expect
+        .poll(() => succeededJobCount(launched.page, 'normalize_parse_revision'), {
+          timeout: 60_000
+        })
+        .toBeGreaterThan(0)
       await expect(
         knowledge.getByRole('heading', { name: 'parsed source.pdf', exact: true })
       ).toHaveCount(0)
@@ -886,15 +891,20 @@ test(
 async function succeededBuildCount(
   page: Awaited<ReturnType<typeof launchApp>>['page'] | undefined
 ) {
+  return succeededJobCount(page, 'build_index_generation')
+}
+
+async function succeededJobCount(
+  page: Awaited<ReturnType<typeof launchApp>>['page'] | undefined,
+  type: string
+) {
   if (page === undefined) return 0
-  return page.evaluate(async () => {
+  return page.evaluate(async (jobType) => {
     const session = (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
     if (session === undefined) return 0
     const result = await window.desktop.jobs.list({ projectSessionId: session, limit: 100 })
-    return result.jobs.filter(
-      (job) => job.type === 'build_index_generation' && job.state === 'succeeded'
-    ).length
-  })
+    return result.jobs.filter((job) => job.type === jobType && job.state === 'succeeded').length
+  }, type)
 }
 
 async function resultZip(): Promise<Buffer> {

@@ -56,7 +56,9 @@ Status markers:
   loop and one macOS arm64 conflict-test race. Candidate `.37` proved independent native packaging
   and artifact upload on both macOS targets while Windows and Linux exposed the remaining repeated
   DOM-reference loop, one ambiguous Windows locator, and two Linux scenario budgets. Candidate
-  `.38` contains those focused fixes. Release promotion remains disabled.
+  `.38` confirmed those fixes but exposed the underlying virtual position-reference update loop on
+  all four hosts plus three hosted UI timing boundaries. Candidate `.39` contains the consolidated
+  remediation. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).
