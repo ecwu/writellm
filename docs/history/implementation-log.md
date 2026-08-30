@@ -802,6 +802,16 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.42` as failed evidence after run `33291808264` passed the shared
+  gate and every platform's 1,160-test Electron/build gate. Both macOS rows and Linux completed all
+  47 E2E scenarios without retries, native packaging, and artifact upload. Windows alone retried
+  the section-title wrapping scenario after the test wrote before initial title hydration replaced
+  its input with `Untitled Section`; the retry passed, and the no-flake policy correctly failed the
+  platform. Added an explicit initial-title wait, passed the focused scenario independently three
+  times without retries, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged-smoke
+  categories, 34/34 packaged E2E, and structural local DMG/ZIP checks; advanced release metadata
+  to `0.2026.8.43`.
+
 - Retained immutable `v0.2026.8.41` as failed evidence after run `33289904719` passed the shared
   gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, packaging,
   and artifact upload; macOS x64 exposed clarification-keyboard and context-menu remount races,

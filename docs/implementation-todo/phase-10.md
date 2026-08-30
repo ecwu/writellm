@@ -793,6 +793,25 @@ gate: all 27 recovery fixtures, all 12 packaged smoke categories, all 34 package
 without retries, and structural DMG/ZIP checks. Release metadata advances to `0.2026.8.42`; hosted
 confirmation remains required.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.42` at
+`9317dd2451a463c2431a6f8b1a5c48f3df38c21d` completed tag-only run `33291808264` with terminal
+failure. The shared static/fixture gate and every platform's 1,160-test Electron/build gate passed.
+Both macOS rows and Linux passed all 47 E2E scenarios without retries, completed native packaging,
+and uploaded their platform artifacts; Linux used its real Secret Service backend. Windows passed
+46 scenarios on their first attempt, then the section-title wrapping scenario filled its title
+before the asynchronous initial `Untitled Section` state finished hydrating. That later state
+overwrote the test input, the retry passed, and the strict no-flake policy correctly failed only the
+Windows platform while retaining diagnostics.
+
+Local post-candidate remediation evidence (2026-08-30): the section-title wrapping scenario now
+waits for the initial project title value before testing newline normalization and long-title
+layout. It passed three independent focused runs without retries. The final source passed
+`check:fast`, 201 Electron-hosted files / 1,160 tests with three intentional benchmark skips, and
+a fresh 47/47 full E2E run without retries. The complete no-identity macOS arm64 package gate
+passed all 27 recovery fixtures, all 12 packaged-smoke categories, all 34 packaged E2E scenarios
+without retries, and structural DMG/ZIP verification. Release metadata advances to
+`0.2026.8.43`; hosted confirmation remains required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

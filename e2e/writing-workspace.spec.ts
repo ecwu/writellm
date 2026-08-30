@@ -1131,6 +1131,7 @@ test(
       })
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
       await expect(title).toHaveAttribute('maxlength', '500')
+      await expect(title).toHaveValue('Untitled Section')
       await title.fill('Evidence orchestration\n跨语言研究')
       await expect(title).toHaveValue('Evidence orchestration 跨语言研究')
 

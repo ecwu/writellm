@@ -8,8 +8,9 @@ failed packaged E2E while its selected section context was still settling. Candi
 proved those remediations, then exposed one model-picker opening race on macOS x64 and one
 KaTeX-internal assertion race on Windows. Linux and macOS arm64 completed their independent package
 pipelines. Candidate `.41` proved those fixes, then exposed three additional hosted interaction
-races and a slow Windows packaged-shell startup. Candidate `.42` contains the consolidated
-remediation and awaits hosted confirmation.
+races and a slow Windows packaged-shell startup. Candidate `.42` completed both macOS rows and
+Linux through artifact upload; Windows alone exposed one title-input hydration race. Candidate
+`.43` waits for initial title hydration, is locally verified, and awaits hosted confirmation.
 Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in

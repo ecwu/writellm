@@ -14,8 +14,10 @@ after its full suite passed. Candidate `.40` proved those remediations, then exp
 model-picker opening on macOS x64 and one transient KaTeX-internal assertion on Windows; Linux and
 macOS arm64 completed their independent package pipelines. Candidate `.41` contains both
 test-boundary remediations, then exposed three further hosted interaction races plus a slow Windows
-packaged-shell startup. Candidate `.42` contains their consolidated remediation and awaits hosted
-confirmation.
+packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux through artifact
+upload; Windows alone retried one section-title scenario after the test wrote before initial
+project state finished hydrating. Candidate `.43` waits for that initial title state before editing
+and is locally verified pending hosted confirmation.
 Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
@@ -119,6 +121,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   package work after their own failures. Candidate `.42` sends keyboard input through the radio
   locator, retries remounting Agent menus until their selected state is visible, and polls the
   packaged shell until Knowledge is both navigable and loaded.
+- Candidate `.42` passed the shared static/fixture gate and every platform's complete 1,160-test
+  Electron/build gate. Both macOS rows and Linux passed all 47 E2E scenarios without retries,
+  completed native packaging, and uploaded their platform artifacts. Windows retried only the
+  section-title wrapping scenario after the test filled its title before the asynchronous initial
+  `Untitled Section` state finished hydrating; the retry passed, but the no-flake policy correctly
+  rejected the platform. Candidate `.43` waits for the initial title value before testing newline
+  normalization and long-title layout. That scenario passed three independent no-retry runs; the
+  complete local gate then passed `check:fast`, 1,160 Electron tests, all 47 E2E scenarios without
+  retries, and the full no-identity package gate with 27 recovery fixtures, 12 packaged-smoke
+  categories, 34 packaged E2E scenarios without retries, and structural DMG/ZIP checks.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while
