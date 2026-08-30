@@ -12,6 +12,31 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: runtime', () => {
+  it('persists a sticky mode and snapshots it immutably into each run', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Modes')
+    expect(session.interactionMode).toBe('write')
+
+    const planned = service.setInteractionMode(session.agentSessionId, 'plan')
+    expect(planned.interactionMode).toBe('plan')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Plan the revision.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(runtime.active(started.agentRunId).input.interactionMode).toBe('plan')
+    expect(service.requireRun(started.agentRunId).interactionMode).toBe('plan')
+    expect(() => service.setInteractionMode(session.agentSessionId, 'ask')).toThrow('active')
+
+    runtime.active(started.agentRunId).resolve()
+    await started.completion
+    expect(service.setInteractionMode(session.agentSessionId, 'ask').interactionMode).toBe('ask')
+    expect(service.requireRun(started.agentRunId).interactionMode).toBe('plan')
+    database.close()
+  })
+
   it('runs three conversations concurrently, rejects 3+1, and targets queue and stop by run', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -418,6 +443,29 @@ describe('AgentSessionService: runtime', () => {
     runtime.active().resolve()
     await started.completion
     expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('not_needed')
+    database.close()
+  })
+
+  it('skips Writing Skill routing in Ask mode', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const route = vi.fn()
+    const service = createService(database, runtime, undefined, {
+      skillRouter: { route } as never
+    })
+    const session = service.createSession('Ask without skills')
+    service.setInteractionMode(session.agentSessionId, 'ask')
+
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'What does the introduction claim?',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(route).not.toHaveBeenCalled()
+    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('not_needed')
+    await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
+    runtime.active(started.agentRunId).resolve()
+    await started.completion
     database.close()
   })
 

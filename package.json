@@ -5,13 +5,13 @@
     "version": "0.2026.8.45"
   },
   "description": "A local-first AI-assisted writing workspace",
-  "packageManager": "pnpm@12.0.0",
+  "packageManager": "pnpm@11.17.0",
   "main": "./out/main/index.js",
   "author": "WriteLLM contributors",
   "homepage": "https://github.com/ecwu/writellm",
   "engines": {
     "node": ">=24.15.0 <25",
-    "pnpm": "12.0.0"
+    "pnpm": "11.17.0"
   },
   "scripts": {
     "check": "biome check .",

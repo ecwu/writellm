@@ -1,4 +1,4 @@
-import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
+import type { AgentApprovalMode, AgentInteractionMode } from '../../../../shared/contracts/agent'
 import type {
   AgentModelSelection,
   AgentThinkingLevel
@@ -102,6 +102,25 @@ export function useAgentPanelSessionActions(input: {
     } catch (cause) {
       const message = errorMessage(cause)
       setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setInteractionMode = async (mode: AgentInteractionMode): Promise<void> => {
+    if (activeSessionArchived || activeRun !== null || activeCompaction !== null) return
+    setBusy(true)
+    setError(null)
+    try {
+      const session = activeSession ?? (await createSession())
+      const updated = await window.desktop.agent.setInteractionMode({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: session.agentSessionId,
+        mode
+      })
+      setSessions((current) => upsertSession(current, updated))
+    } catch (cause) {
+      setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -282,6 +301,7 @@ export function useAgentPanelSessionActions(input: {
     createSession,
     beginNewConversation,
     setApprovalMode,
+    setInteractionMode,
     setModelSelection,
     setThinkingLevel,
     openSession,

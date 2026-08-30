@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 067
-Recorded: 2026-07-31; amended through 2026-08-28
+Status: accepted implementation baseline, amended through accepted ADR 068
+Recorded: 2026-07-31; amended through 2026-08-30
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -37,6 +37,12 @@ The following rules are now the current target. Any older section in this docume
   Shared behavior lives once in application policy; short tool descriptions and object-root JSON
   schemas remain provider-neutral under ADR 067. Root object unions project their complete field
   vocabulary and common required fields at the root while retaining exact branches under `allOf`.
+- Agent Harness Protocol v13 keeps those outer profiles and adds a writing-only `ask`, `plan`, or
+  `write` interaction-mode ceiling. New and migrated writing conversations default to Write; each
+  run snapshots its mode. One application policy derives the exact Worker-visible and Main-enforced
+  tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan may also
+  mutate Writing Task collaboration metadata, and only Write can activate proposal groups. See ADR
+  068.
 - Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.

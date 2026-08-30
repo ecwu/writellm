@@ -159,6 +159,7 @@ export interface AgentSessionTable {
   event_schema_version: number
   status: 'active' | 'archived'
   approval_mode: 'manual' | 'section_auto' | 'yolo'
+  interaction_mode: 'ask' | 'plan' | 'write'
   provider_preset_id: string | null
   selected_model_id: string | null
   thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -181,6 +182,7 @@ export interface AgentRunTable {
   api_id: string
   thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   approval_mode: 'manual' | 'section_auto' | 'yolo'
+  interaction_mode: 'ask' | 'plan' | 'write'
   model_limits_json: string
   provider_fingerprint: string
   model_fingerprint: string

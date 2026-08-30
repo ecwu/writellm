@@ -27,6 +27,8 @@ export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
 export const AGENT_RUN_PROMPT_MAX_CHARACTERS = 262_144
 
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
+export const agentInteractionModeSchema = z.enum(['ask', 'plan', 'write'])
+export type AgentInteractionMode = z.infer<typeof agentInteractionModeSchema>
 export const agentToolProfileSchema = z.enum(['writing', 'notebook_knowledge'])
 export type AgentToolProfile = z.infer<typeof agentToolProfileSchema>
 export const writingToolGroupSchema = z.enum([
@@ -194,6 +196,7 @@ export const agentRunStartSchema = z
     prompt: z.string().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
     toolProfile: agentToolProfileSchema.default('writing'),
+    interactionMode: agentInteractionModeSchema.default('write'),
     activeToolGroups: activeWritingToolGroupsSchema.default([]),
     runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
     thinkingLevel: agentThinkingLevelSchema.default('off'),
@@ -284,6 +287,7 @@ export const agentModelCallAuthorizationSchema = z
     continuationId: z.uuid(),
     modelRequestId: agentModelRequestIdSchema,
     systemPrompt: z.string().min(1).max(65_536),
+    interactionMode: agentInteractionModeSchema.default('write'),
     activeToolGroups: activeWritingToolGroupsSchema.optional(),
     runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
     finalize: z.boolean().optional()

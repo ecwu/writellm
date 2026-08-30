@@ -56,7 +56,7 @@ describe('writing skill prompt budget baseline', () => {
       )
     }).toEqual({
       max: 65_536,
-      policy: 13_716,
+      policy: 13_744,
       companion: 1_899,
       emptyInvocation: 197,
       wrappedEntrypoint: 292,

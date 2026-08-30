@@ -125,6 +125,7 @@ export const IPC_CHANNELS = {
   agentArchiveSession: 'agent:archive-session',
   agentRestoreSession: 'agent:restore-session',
   agentSetApprovalMode: 'agent:set-approval-mode',
+  agentSetInteractionMode: 'agent:set-interaction-mode',
   agentSetModelSelection: 'agent:set-model-selection',
   agentSetThinkingLevel: 'agent:set-thinking-level',
   agentUpdateWritingTask: 'agent:update-writing-task',

@@ -372,6 +372,27 @@ describe('Agent session IPC', () => {
     expect(value.catalog.setLastThinkingLevel).toHaveBeenCalledTimes(1)
   })
 
+  it('validates and persists the sticky interaction mode through Main authority', async () => {
+    const value = harness()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSetInteractionMode, {
+        projectSessionId,
+        agentSessionId,
+        mode: 'plan'
+      })
+    ).resolves.toMatchObject({ interactionMode: 'plan' })
+    expect(value.sessions.setInteractionMode).toHaveBeenCalledWith(agentSessionId, 'plan')
+
+    await expect(
+      value.invoke(IPC_CHANNELS.agentSetInteractionMode, {
+        projectSessionId,
+        agentSessionId,
+        mode: 'execute'
+      })
+    ).rejects.toThrow()
+    expect(value.sessions.setInteractionMode).toHaveBeenCalledOnce()
+  })
+
   it('resumes and revises a writing task through the existing idle conversation', async () => {
     const value = harness()
     await expect(
@@ -515,6 +536,7 @@ function harness() {
     status: 'active' as const,
     compatible: true,
     approvalMode: 'manual' as const,
+    interactionMode: 'write' as const,
     workflowState: 'idle' as const,
     modelSelection: { presetId: 'builtin:anthropic', modelId: 'claude-writer' },
     thinkingLevel: 'off' as const,
@@ -536,6 +558,10 @@ function harness() {
     setThinkingLevel: vi.fn((_sessionId: string, level: string) => ({
       ...session,
       thinkingLevel: level
+    })),
+    setInteractionMode: vi.fn((_sessionId: string, mode: 'ask' | 'plan' | 'write') => ({
+      ...session,
+      interactionMode: mode
     })),
     listEventPage: vi.fn(() => {
       order.push('replay')

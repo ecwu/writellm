@@ -13,6 +13,70 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: tools', () => {
+  it('rejects forged tool-group activation in Ask mode before tool execution', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn()
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const session = service.createSession('Ask ceiling')
+    service.setInteractionMode(session.agentSessionId, 'ask')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Read only.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    const response = await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc473',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-forged-activation',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'activate_tool_groups',
+      args: { groups: ['section'] }
+    })
+
+    expect(response).toMatchObject({ ok: false, error: { code: 'unauthorized' } })
+    expect(execute).not.toHaveBeenCalled()
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
+  it('rejects forged Review Issue mutation in Plan mode before tool execution', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const execute = vi.fn()
+    const service = createService(database, runtime, undefined, { tools: { execute } as never })
+    const session = service.createSession('Plan ceiling')
+    service.setInteractionMode(session.agentSessionId, 'plan')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Plan only.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(started.agentRunId)
+    const response = await active.requestTool({
+      type: 'tool_request',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc474',
+      projectSessionId: active.input.projectSessionId,
+      agentSessionId: active.input.agentSessionId,
+      agentRunId: active.input.agentRunId,
+      toolCallId: 'tool-forged-review-mutation',
+      modelRequestId: active.input.modelRequestId,
+      toolName: 'record_review_issues',
+      args: {}
+    } as never)
+
+    expect(response).toMatchObject({ ok: false, error: { code: 'unauthorized' } })
+    expect(execute).not.toHaveBeenCalled()
+    active.resolve()
+    await started.completion
+    database.close()
+  })
+
   it('creates the strict migration-0016 tables and indexes', async () => {
     const database = await createDatabase()
     const names = database.immediate(

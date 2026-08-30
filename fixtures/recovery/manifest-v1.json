@@ -165,7 +165,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "798110fee1f0ba0832a62c54efe5c963c90bd719fd6cac5df469dd877379db91",
+      "sourceSha256": "f7e63217c1a2c33502aaef98447e3d4bb4edf3a3723a94737c90dfd4929e544d",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",
@@ -191,7 +191,7 @@
       "id": "agent-review-and-compaction-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.review.test.ts",
-      "sourceSha256": "1f1fed98717f63b7b5f3266404371eeb67c82a6b573682e9b9e83897edf45c7e",
+      "sourceSha256": "0f5c18b63aea1a0a7872e1d085d309bd809a82b93260b72d8659bbebdbaa4a37",
       "tests": [
         "persists manual review as a completed wait state and locks only that conversation",
         "stops before provider work when automatic failure would omit a user turn",
@@ -202,7 +202,7 @@
       "id": "agent-tool-capability-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.tools.test.ts",
-      "sourceSha256": "b544e3f8b357233813f0000c846b3a638fd0273864d716a73399487a74bc4e75",
+      "sourceSha256": "d72336c45ab21b32235df6cb7933b08090b9c2d3ca0f8d8b22f7bf17c4a3595d",
       "tests": [
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "authorizes exactly one tool-free finalization call after a run reaches 180 events",

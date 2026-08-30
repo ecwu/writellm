@@ -18,6 +18,7 @@ import {
   type AgentEditorContext,
   type AgentEventType,
   type AgentHistoryMessage,
+  type AgentInteractionMode,
   type AgentRuntimeModel,
   type AgentRuntimeEvent,
   type AgentModelLimits,
@@ -191,6 +192,7 @@ interface ActiveRun {
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
+  readonly interactionMode: AgentInteractionMode
   readonly thinkingLevel: AgentThinkingLevel
   readonly runtimeModel?: AgentRuntimeModel
   readonly modelLimits: AgentModelLimits
@@ -345,10 +347,10 @@ export class AgentSessionService {
         .prepare(
           `INSERT INTO agent_sessions (
              agent_session_id, title, pi_runtime_version, event_schema_version,
-             status, approval_mode, provider_preset_id, selected_model_id, thinking_level,
+             status, approval_mode, interaction_mode, provider_preset_id, selected_model_id, thinking_level,
              skill_mode, skill_id,
              created_at, updated_at, archived_at
-           ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, 'auto', NULL, ?, ?, NULL)`
+           ) VALUES (?, ?, ?, ?, 'active', ?, 'write', ?, ?, ?, 'auto', NULL, ?, ?, NULL)`
         )
         .run(
           agentSessionId,
@@ -373,6 +375,7 @@ export class AgentSessionService {
       status: 'active',
       compatible: true,
       approvalMode,
+      interactionMode: 'write',
       workflowState: 'idle',
       modelSelection,
       thinkingLevel,
@@ -408,7 +411,7 @@ export class AgentSessionService {
         database
           .prepare(
             `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
-                    status, approval_mode, provider_preset_id, selected_model_id,
+                    status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
                     thinking_level,
                     created_at, updated_at, archived_at,
                     CASE
@@ -441,6 +444,7 @@ export class AgentSessionService {
           event_schema_version: number
           status: 'active' | 'archived'
           approval_mode: AgentApprovalMode
+          interaction_mode: AgentInteractionMode
           provider_preset_id: string | null
           selected_model_id: string | null
           thinking_level: AgentThinkingLevel
@@ -458,6 +462,7 @@ export class AgentSessionService {
             row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
             row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
+          interactionMode: row.interaction_mode,
           workflowState: this.#sessionIsAwaitingInput(row.agent_session_id)
             ? 'awaiting_input'
             : this.#sessionIsCompacting(row.agent_session_id)
@@ -575,6 +580,29 @@ export class AgentSessionService {
       { event: 'agent.session.approval_mode_updated', agentSessionId, mode },
       'Agent session approval mode updated'
     )
+    return session
+  }
+
+  setInteractionMode(agentSessionId: string, mode: AgentInteractionMode): AgentSessionRecord {
+    if (this.#workBySession.has(agentSessionId)) {
+      throw new Error('Agent interaction mode cannot change while work is active')
+    }
+    this.#assertCompatibleSession(agentSessionId)
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      const result = database
+        .prepare(
+          'UPDATE agent_sessions SET interaction_mode = ?, updated_at = ? WHERE agent_session_id = ?'
+        )
+        .run(mode, now, agentSessionId)
+      if (result.changes !== 1) throw new Error('Agent session does not exist')
+    })
+    const session = this.#requireSessionRecord(agentSessionId)
+    this.options.log.info(
+      { event: 'agent.session.interaction_mode_updated', agentSessionId, mode },
+      'Agent session interaction mode updated'
+    )
+    void this.#publishSession(session, false)
     return session
   }
 
@@ -758,7 +786,7 @@ export class AgentSessionService {
           .prepare(
             `SELECT run.agent_run_id, run.agent_session_id, run.status, run.provider_id, run.model_id,
                     run.provider_preset_id, run.provider_label, run.model_label, run.api_id,
-                    run.approval_mode, run.thinking_level, run.model_limits_json,
+                    run.approval_mode, run.interaction_mode, run.thinking_level, run.model_limits_json,
                     run.editor_context_json, run.error_json, run.skill_snapshot_json,
                     run.writing_task_id, run.writing_task_step_id,
                     skill_route.model_request_id AS skill_route_model_request_id,
@@ -788,6 +816,7 @@ export class AgentSessionService {
           model_label: string
           api_id: string
           approval_mode: AgentApprovalMode
+          interaction_mode: AgentInteractionMode
           thinking_level: AgentThinkingLevel
           model_limits_json: string
           editor_context_json: string
@@ -818,6 +847,7 @@ export class AgentSessionService {
           modelLabel: row.model_label || row.model_id,
           api: row.api_id,
           approvalMode: row.approval_mode,
+          interactionMode: row.interaction_mode,
           thinkingLevel: row.thinking_level,
           modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
@@ -867,6 +897,7 @@ export class AgentSessionService {
     operationId?: string
     reuseSkillSnapshot?: SkillRunSnapshot
     presentation?: AgentUserMessagePayload['presentation']
+    interactionMode?: AgentInteractionMode
   }): Promise<StartedAgentRun> {
     try {
       const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
@@ -914,6 +945,7 @@ export class AgentSessionService {
     temperature?: number
     reuseSkillSnapshot?: SkillRunSnapshot
     presentation?: AgentUserMessagePayload['presentation']
+    interactionMode?: AgentInteractionMode
     operationId: string
     agentRunId: string
     controller: AbortController
@@ -935,6 +967,8 @@ export class AgentSessionService {
             legacyModelLimits()
           const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
           const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
+          const interactionMode =
+            input.interactionMode ?? this.#sessionInteractionMode(input.agentSessionId)
           const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
           const thinkingLevel =
             resolved === undefined
@@ -953,6 +987,7 @@ export class AgentSessionService {
             editorContext: input.editorContext,
             prompt: input.prompt,
             approvalMode,
+            interactionMode,
             thinkingLevel,
             modelLimits,
             presentation: input.presentation,
@@ -968,6 +1003,7 @@ export class AgentSessionService {
             config,
             editorContext: input.editorContext,
             approvalMode,
+            interactionMode,
             thinkingLevel,
             runtimeModel,
             modelLimits,
@@ -1045,6 +1081,7 @@ export class AgentSessionService {
               agentSessionId: input.agentSessionId,
               agentRunId: input.agentRunId,
               phase: 'skill_preparation',
+              interactionMode,
               thinkingLevel,
               activeCount: this.#workBySession.size,
               concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
@@ -1070,7 +1107,7 @@ export class AgentSessionService {
       markPrepared: () => void
     }
   ): Promise<void> {
-    if (this.options.skillRouter !== undefined) {
+    if (this.options.skillRouter !== undefined && active.interactionMode !== 'ask') {
       try {
         const routed = await this.options.skillRouter.route({
           reuseSnapshot: input.reuseSkillSnapshot,
@@ -1146,7 +1183,8 @@ export class AgentSessionService {
         prompt: input.prompt,
         editorContext: active.editorContext,
         snapshotId: modelRequestId,
-        skillPrompt: active.skillPrompt
+        skillPrompt: active.skillPrompt,
+        interactionMode: active.interactionMode
       })
     } catch (err) {
       throw new AgentRunSetupError(
@@ -1212,6 +1250,7 @@ export class AgentSessionService {
         maxOutputTokens: input.maxOutputTokens,
         modelLimits: active.modelLimits,
         toolProfile: 'writing',
+        interactionMode: active.interactionMode,
         activeToolGroups: active.activeToolGroups,
         runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
           active,
@@ -1316,7 +1355,8 @@ export class AgentSessionService {
       prompt: parsedContent,
       editorContext: active.editorContext,
       snapshotId: modelRequestId,
-      skillPrompt: active.skillPrompt
+      skillPrompt: active.skillPrompt,
+      interactionMode: active.interactionMode
     })
     if (refreshedContext !== undefined) {
       this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
@@ -1974,7 +2014,8 @@ export class AgentSessionService {
       prompt: content,
       editorContext: active.editorContext,
       snapshotId: modelRequestId,
-      skillPrompt: active.skillPrompt
+      skillPrompt: active.skillPrompt,
+      interactionMode: active.interactionMode
     })
     if (refreshedContext !== undefined) {
       this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
@@ -2248,7 +2289,8 @@ export class AgentSessionService {
         prompt: TOOL_CONTINUATION_REQUEST,
         editorContext: active.editorContext,
         snapshotId: modelRequestId,
-        skillPrompt: active.skillPrompt
+        skillPrompt: active.skillPrompt,
+        interactionMode: active.interactionMode
       })
       if (refreshedContext !== undefined) {
         this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
@@ -2279,6 +2321,7 @@ export class AgentSessionService {
         continuationId,
         modelRequestId,
         systemPrompt,
+        interactionMode: active.interactionMode,
         activeToolGroups: active.activeToolGroups,
         runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
           active,
@@ -2343,7 +2386,14 @@ export class AgentSessionService {
     if (signal.aborted) {
       return toolErrorResponse(request, 'aborted', 'Agent tool request was aborted', true)
     }
-    if (!activeAgentToolSetAllows('writing', active.activeToolGroups, request.toolName)) {
+    if (
+      !activeAgentToolSetAllows(
+        'writing',
+        active.activeToolGroups,
+        request.toolName,
+        active.interactionMode
+      )
+    ) {
       this.options.log.warn(
         {
           event: 'agent.tool.inactive_group_rejected',
@@ -2924,7 +2974,7 @@ export class AgentSessionService {
       currentRequest: active.currentRequest,
       uncheckpointedEventCount: envelope.eventCount,
       uncheckpointedPayloadBytes: envelope.payloadBytes,
-      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups)
+      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
     const compactionId = this.#createId()
     active.phase = 'compacting'
@@ -3010,6 +3060,7 @@ export class AgentSessionService {
         maxOutputTokens: active.maxOutputTokens,
         modelLimits: active.modelLimits,
         toolProfile: 'writing',
+        interactionMode: active.interactionMode,
         activeToolGroups: active.activeToolGroups,
         runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
           active,
@@ -3072,6 +3123,7 @@ export class AgentSessionService {
     editorContext: AgentEditorContext
     prompt: string
     approvalMode: AgentApprovalMode
+    interactionMode: AgentInteractionMode
     thinkingLevel: AgentThinkingLevel
     modelLimits: AgentModelLimits
     presentation?: AgentUserMessagePayload['presentation']
@@ -3105,10 +3157,10 @@ export class AgentSessionService {
           `INSERT INTO agent_runs (
              agent_run_id, agent_session_id, status, provider_id, model_id,
              provider_preset_id, provider_label, model_label, api_id,
-             provider_fingerprint, model_fingerprint, approval_mode, thinking_level, model_limits_json,
+             provider_fingerprint, model_fingerprint, approval_mode, interaction_mode, thinking_level, model_limits_json,
              editor_context_json, skill_snapshot_json, writing_task_id, writing_task_step_id,
              error_json, started_at, completed_at, created_at, updated_at
-           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
+           ) VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`
         )
         .run(
           input.agentRunId,
@@ -3132,6 +3184,7 @@ export class AgentSessionService {
             api: input.config.api ?? 'openai-completions'
           }),
           input.approvalMode,
+          input.interactionMode,
           input.thinkingLevel,
           JSON.stringify(input.modelLimits),
           JSON.stringify(input.editorContext),
@@ -3765,7 +3818,7 @@ export class AgentSessionService {
       currentRequest: input.currentRequest,
       uncheckpointedEventCount: envelope.eventCount,
       uncheckpointedPayloadBytes: envelope.payloadBytes,
-      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups)
+      advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
     if (this.options.messageTokenBudget !== undefined) {
       const conversationBudgetTokens = Math.min(
@@ -3852,12 +3905,17 @@ export class AgentSessionService {
     return agentHistorySchema.parse(history)
   }
 
-  #activeToolEnvelope(activeToolGroups: readonly WritingToolGroup[]): unknown[] {
-    return agentToolEnvelope(agentModelVisibleToolSpecs('writing', activeToolGroups))
+  #activeToolEnvelope(
+    activeToolGroups: readonly WritingToolGroup[],
+    interactionMode: AgentInteractionMode
+  ): unknown[] {
+    return agentToolEnvelope(
+      agentModelVisibleToolSpecs('writing', activeToolGroups, interactionMode)
+    )
   }
 
   #runtimeMessageBudget(
-    active: Pick<ActiveRun, 'maxOutputTokens' | 'modelLimits'>,
+    active: Pick<ActiveRun, 'maxOutputTokens' | 'modelLimits' | 'interactionMode'>,
     systemPrompt: string,
     activeToolGroups: readonly WritingToolGroup[],
     finalize = false
@@ -3866,7 +3924,9 @@ export class AgentSessionService {
       maxOutputTokens: active.maxOutputTokens,
       limits: active.modelLimits,
       systemPrompt,
-      advertisedTools: finalize ? [] : this.#activeToolEnvelope(activeToolGroups)
+      advertisedTools: finalize
+        ? []
+        : this.#activeToolEnvelope(activeToolGroups, active.interactionMode)
     })
   }
 
@@ -4240,6 +4300,19 @@ export class AgentSessionService {
     )
     if (mode !== 'manual' && mode !== 'section_auto' && mode !== 'yolo') {
       throw new Error('Agent session approval mode is invalid')
+    }
+    return mode
+  }
+
+  #sessionInteractionMode(agentSessionId: string): AgentInteractionMode {
+    const mode = this.options.database.immediate((database) =>
+      database
+        .prepare('SELECT interaction_mode FROM agent_sessions WHERE agent_session_id = ?')
+        .pluck()
+        .get(agentSessionId)
+    )
+    if (mode !== 'ask' && mode !== 'plan' && mode !== 'write') {
+      throw new Error('Agent session interaction mode is invalid')
     }
     return mode
   }

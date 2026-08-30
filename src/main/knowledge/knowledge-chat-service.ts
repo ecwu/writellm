@@ -658,7 +658,8 @@ export class KnowledgeChatService {
         agentRunId: active.agentRunId,
         continuationId,
         modelRequestId,
-        systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT
+        systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
+        interactionMode: 'write'
       })
     } catch (err) {
       await repository.abort(modelRequestId, 'authorization_delivery_failed')

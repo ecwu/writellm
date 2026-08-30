@@ -71,6 +71,7 @@ export async function runAgentSession(
     catalogModelKey: null,
     resolvedAt: null
   }
+  const interactionMode = request.interactionMode ?? 'write'
   const [{ Agent: AgentClass }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
     loadAgentStreamSimple(request.runtimeModel?.api ?? request.config.api ?? 'openai-completions')
@@ -81,7 +82,11 @@ export async function runAgentSession(
     modelLimits,
     maxOutputTokens: request.maxOutputTokens
   })
-  const initialTools = agentModelVisibleToolSpecs(request.toolProfile, request.activeToolGroups)
+  const initialTools = agentModelVisibleToolSpecs(
+    request.toolProfile,
+    request.activeToolGroups,
+    interactionMode
+  )
   let activeToolGroups = request.activeToolGroups ?? []
   const contextBudget = new AgentContextBudgetController(
     request.runtimeMessageBudgetTokens ??
@@ -167,7 +172,8 @@ export async function runAgentSession(
       }
       return modelRequestId
     },
-    request.toolProfile
+    request.toolProfile,
+    interactionMode
   )
 
   const agent = new AgentClass({
@@ -194,7 +200,7 @@ export async function runAgentSession(
               limits: modelLimits,
               systemPrompt,
               advertisedTools: agentToolEnvelope(
-                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups)
+                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
               )
             })
           )
@@ -210,7 +216,7 @@ export async function runAgentSession(
               limits: modelLimits,
               systemPrompt: followUp.systemPrompt,
               advertisedTools: agentToolEnvelope(
-                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups)
+                agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
               )
             })
           )
@@ -223,6 +229,9 @@ export async function runAgentSession(
         onEvent,
         pendingModelCallAuthorizations
       )
+      if (authorization.interactionMode !== interactionMode) {
+        throw new Error('Agent model-call authorization changed the immutable interaction mode')
+      }
       modelRequestIds.push(authorization.modelRequestId)
       authorizedContinuationRequestIds.add(authorization.modelRequestId)
       activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
@@ -234,7 +243,9 @@ export async function runAgentSession(
             systemPrompt: authorization.systemPrompt,
             advertisedTools: authorization.finalize
               ? []
-              : agentToolEnvelope(agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups))
+              : agentToolEnvelope(
+                  agentModelVisibleToolSpecs(request.toolProfile, activeToolGroups, interactionMode)
+                )
           })
       )
       return {
@@ -468,6 +479,7 @@ export async function runAgentSession(
       }
       const diagnostic = safePreflightDiagnostic(
         request.toolProfile,
+        interactionMode,
         event.toolName,
         rawArgumentsByToolCallId.get(event.toolCallId)
       )
@@ -944,6 +956,7 @@ function describeArgumentShape(value: unknown, depth = 0): string {
 
 function safePreflightDiagnostic(
   toolProfile: AgentRunStart['toolProfile'],
+  interactionMode: AgentRunStart['interactionMode'],
   requestedToolName: string,
   rawArguments: unknown
 ): {
@@ -951,7 +964,7 @@ function safePreflightDiagnostic(
   message: string
   paths: string[]
 } {
-  const tool = agentModelVisibleToolSpecs(toolProfile).find(
+  const tool = agentModelVisibleToolSpecs(toolProfile, [], interactionMode).find(
     (candidate) => candidate.name === requestedToolName
   )
   if (tool === undefined) {

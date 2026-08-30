@@ -28,6 +28,8 @@ import {
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
+  agentSetInteractionModeInputSchema,
+  agentSetInteractionModeResultSchema,
   agentSetModelSelectionInputSchema,
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
@@ -221,6 +223,18 @@ export function registerAgentIpc(options: {
       )
     )
   })
+  ipc.handle(IPC_CHANNELS.agentSetInteractionMode, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentSetInteractionModeInputSchema.parse(raw)
+    return lifecycle('agent.session.set_interaction_mode', () =>
+      agentSetInteractionModeResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.setInteractionMode(
+          input.agentSessionId,
+          input.mode
+        )
+      )
+    )
+  })
   ipc.handle(IPC_CHANNELS.agentUpdateWritingTask, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = userUpdateWritingTaskInputSchema.parse(raw)
@@ -270,10 +284,18 @@ export function registerAgentIpc(options: {
       const context = mutationContext(input.projectSessionId)
       const service = context.agentSessions
       if (service === null) throw new Error('Agent sessions are unavailable')
+      const session = service
+        .listSessions()
+        .find((candidate) => candidate.agentSessionId === input.agentSessionId)
+      if (session === undefined) throw new Error('Agent session does not exist')
       let prompt: string
       let reuseSkillFromRunId = input.reuseSkillFromRunId
       let presentation: AgentUserMessagePayload['presentation']
+      let interactionMode = session.interactionMode ?? 'write'
       if (input.quickAction !== undefined) {
+        if (interactionMode !== 'write') {
+          throw new Error('Selection quick actions require Write mode')
+        }
         const selection = validateQuickActionSelection(
           context.manuscript,
           input.editorContext,
@@ -305,6 +327,9 @@ export function registerAgentIpc(options: {
         )
       } else {
         if (input.resumeWritingTask === true) {
+          if (interactionMode !== 'write') {
+            throw new Error('Writing task resume requires Write mode')
+          }
           if (context.writingTasks === null) throw new Error('Agent writing tasks are unavailable')
           const correlation = context.writingTasks.activeCorrelation(input.agentSessionId)
           if (correlation === null) throw new Error('Writing task has no active step to resume')
@@ -353,6 +378,11 @@ export function registerAgentIpc(options: {
           continueRequested: true
         })
         reuseSkillFromRunId ??= proposal.agentRunId
+        const sourceRun = service.requireRun(proposal.agentRunId)
+        if ((sourceRun.interactionMode ?? 'write') !== 'write') {
+          throw new Error('Proposal continuation requires an originating Write run')
+        }
+        interactionMode = sourceRun.interactionMode ?? 'write'
         prompt = buildApprovalContinuationPrompt(proposal)
         presentation = { kind: 'approval_continuation' }
         options.logger.info(
@@ -388,6 +418,11 @@ export function registerAgentIpc(options: {
           )
         }
         reuseSkillFromRunId = proposal.agentRunId
+        const sourceRun = service.requireRun(proposal.agentRunId)
+        if ((sourceRun.interactionMode ?? 'write') !== 'write') {
+          throw new Error('Proposal revision requires an originating Write run')
+        }
+        interactionMode = sourceRun.interactionMode ?? 'write'
         prompt = buildRejectedProposalRevisionPrompt(proposal)
         presentation = {
           kind: 'review_feedback',
@@ -434,7 +469,8 @@ export function registerAgentIpc(options: {
         prompt,
         editorContext: input.editorContext,
         reuseSkillSnapshot,
-        presentation
+        presentation,
+        interactionMode
       })
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
     })
@@ -579,6 +615,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentArchiveSession,
     IPC_CHANNELS.agentRestoreSession,
     IPC_CHANNELS.agentSetApprovalMode,
+    IPC_CHANNELS.agentSetInteractionMode,
     IPC_CHANNELS.agentSetModelSelection,
     IPC_CHANNELS.agentSetThinkingLevel,
     IPC_CHANNELS.agentUpdateWritingTask,

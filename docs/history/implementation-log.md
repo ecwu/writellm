@@ -1009,3 +1009,26 @@ maintenance without turning the active tracker back into a historical log.
   Pull requests, branch pushes, schedules, and manual dispatches do not trigger it. The protected
   release-candidate workflow remains disabled; no hosted run, signing, promotion, or publication
   result is claimed by the local configuration change.
+- Accepted ADR 068 and started Phase 25 Checkpoint 76 under explicit user authorization. The
+  checkpoint keeps `writing` and `notebook_knowledge` as the outer profiles, adds sticky Ask, Plan,
+  and Write ceilings with immutable run snapshots, advances the Agent Harness to Protocol v13, and
+  places the mode selector beside Send. Checkpoint 77 Writing Task v2 remains paused pending
+  separate authorization.
+- Completed Phase 25 Checkpoint 76 without entering Checkpoint 77. Migration 0039 persists sticky
+  Ask, Plan, and Write selection with Write defaults; Protocol v13 carries an immutable run mode;
+  shared ModePolicy enforcement bounds Worker advertisement and Main execution; and the shadcn
+  composer selector keeps Approval orthogonal and remains contained at 360 px. Direct Biome and
+  Node/Renderer typechecks, all 1,179 Electron-hosted tests, the production build, all 47 Electron
+  Playwright scenarios, and `git diff --check` passed. No package, signing, notarization, release,
+  commit, tag, or push action was performed.
+- Aligned the repository package-manager declaration from pnpm 12.0.0 to the installed and
+  user-approved pnpm 11.17.0 in both `packageManager` and `engines.pnpm`. Removed pnpm 12's
+  package-manager bootstrap document from `pnpm-lock.yaml`; pnpm 11.17.0 then accepted the
+  remaining dependency lock under `--frozen-lockfile`. The refreshed CP76 verification totals
+  1,180 Electron-hosted tests with three benchmark skips, and `check:fast` passes when only the
+  host Node 26 versus repository Node 24 engine mismatch is bypassed.
+- Built a separately authorized local trial package for the completed Checkpoint 76 work. Refreshed
+  the recovery fixture hashes for the three intentionally changed Agent test sources, then passed
+  the no-identity macOS arm64 package gate with 31 recovery fixtures, 12 packaged smoke scenarios,
+  and 34/34 packaged Electron scenarios. Produced structurally verified unsigned DMG and ZIP
+  artifacts for `0.2026.8.45`; no signing, notarization, release, commit, tag, or push followed.

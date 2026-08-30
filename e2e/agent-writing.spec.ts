@@ -598,21 +598,66 @@ test(
       await expect(approvalSelector.locator('svg')).toHaveCount(1)
       await expect(panel.getByTestId('agent-add-menu-trigger')).toBeVisible()
       const modelSelector = panel.getByTestId('agent-model-selector')
+      const modeSelector = panel.getByTestId('agent-interaction-mode-selector')
+      const agentMessage = panel.getByLabel('Agent message')
+      await expect(modeSelector).toContainText('Write')
+      await expect(agentMessage).toHaveAttribute('placeholder', 'Describe the change you want…')
+      await modeSelector.click()
+      await launched.page.getByRole('menuitemradio', { name: /Ask Read and answer/ }).click()
+      await expect(modeSelector).toContainText('Ask')
+      await expect(agentMessage).toHaveAttribute('placeholder', 'Ask about this manuscript…')
+      await expect(approvalSelector).toBeDisabled()
+      await modeSelector.click()
+      await launched.page.getByRole('menuitemradio', { name: /Plan Build a writing plan/ }).click()
+      await expect(modeSelector).toContainText('Plan')
+      await expect(agentMessage).toHaveAttribute('placeholder', 'Describe what you want to plan…')
+      await expect(approvalSelector).toBeDisabled()
+      await modeSelector.click()
+      await launched.page
+        .getByRole('menuitemradio', { name: /Write Propose manuscript changes/ })
+        .click()
+      await expect(modeSelector).toContainText('Write')
+      await expect(approvalSelector).toBeEnabled()
       const sendButton = panel.getByRole('button', { name: 'Send', exact: true })
       await expect(sendButton).toHaveAttribute('title', 'Send')
       await expect(sendButton).toHaveClass(/rounded-full/)
       await expect(sendButton.locator('svg')).toHaveClass(/lucide-arrow-up/)
       await expect(sendButton).toHaveText('')
-      const [approvalBox, modelBox, sendBox] = await Promise.all([
+      const [approvalBox, modelBox, modeBox, sendBox] = await Promise.all([
         approvalSelector.boundingBox(),
         modelSelector.boundingBox(),
+        modeSelector.boundingBox(),
         sendButton.boundingBox()
       ])
-      if (approvalBox === null || modelBox === null || sendBox === null) {
+      if (approvalBox === null || modelBox === null || modeBox === null || sendBox === null) {
         throw new Error('Agent composer controls must have visible bounds')
       }
       expect(approvalBox.x + approvalBox.width).toBeLessThanOrEqual(modelBox.x)
-      expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(sendBox.x)
+      expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(modeBox.x)
+      expect(modeBox.x + modeBox.width).toBeLessThanOrEqual(sendBox.x)
+      await browserWindow.evaluate((window) => window.setContentSize(360, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBe(360)
+      await expect(panel.getByTestId('agent-add-menu-trigger')).toBeVisible()
+      await expect(approvalSelector).toBeVisible()
+      await expect(modelSelector).toBeVisible()
+      await expect(modeSelector).toBeVisible()
+      await expect(sendButton).toBeVisible()
+      const narrowPanel = await panel.boundingBox()
+      const narrowControls = await Promise.all(
+        [approvalSelector, modelSelector, modeSelector, sendButton].map((control) =>
+          control.boundingBox()
+        )
+      )
+      if (narrowPanel === null || narrowControls.some((box) => box === null)) {
+        throw new Error('Narrow Agent composer controls must have visible bounds')
+      }
+      for (const box of narrowControls) {
+        if (box === null) throw new Error('Narrow Agent composer control is missing')
+        expect(box.x).toBeGreaterThanOrEqual(narrowPanel.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(narrowPanel.x + narrowPanel.width)
+      }
+      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
       await expect(panel.getByLabel('Agent message')).toBeVisible()
       const screenshotDirectory = process.env.WRITELLM_CP48_SCREENSHOT_DIR
       if (screenshotDirectory !== undefined) {
@@ -670,7 +715,6 @@ test(
           name: /Manual Review every proposed manuscript change/
         })
       ).not.toBeVisible()
-      const agentMessage = panel.getByLabel('Agent message')
       const slashMenu = launched.page.getByTestId('agent-slash-menu')
       const sectionOption = slashMenu.getByRole('option', { name: /This section/ })
       await expect(async () => {

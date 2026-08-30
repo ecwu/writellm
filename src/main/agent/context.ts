@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { AgentEditorContext } from '../../shared/contracts/agent'
+import type { AgentEditorContext, AgentInteractionMode } from '../../shared/contracts/agent'
 import {
   getWritingContextArgsSchema,
   writingContextResultSchema,
@@ -137,6 +137,7 @@ export class AgentContextBuilder {
     editorContext: AgentEditorContext
     snapshotId?: string
     skillPrompt?: AgentSkillPromptInput
+    interactionMode?: AgentInteractionMode
   }): {
     systemPrompt: string
     userRequest: string
@@ -164,7 +165,7 @@ export class AgentContextBuilder {
         writingContext.outlineTruncated ||
         writingContext.outline.length > MAX_SYSTEM_OUTLINE_SECTIONS
     }
-    const policy = buildAgentPolicy()
+    const policy = buildAgentPolicy(input.interactionMode ?? 'write')
     const writingRules = readWritingRules(snapshot.workspace.brief.extensible).rules.filter(
       (rule) => rule.active
     )

@@ -54,6 +54,7 @@ import {
   ComposerAction,
   ComposerCommandMenu,
   ComposerContextChips,
+  InteractionModePicker,
   ReviewBar,
   SkillMentionMenu
 } from './agent-panel-controls'
@@ -137,6 +138,7 @@ export function AgentPanelView({
     headerStatus,
     beginNewConversation,
     setApprovalMode,
+    setInteractionMode,
     setModelSelection,
     setThinkingLevel,
     openSession,
@@ -158,6 +160,7 @@ export function AgentPanelView({
     retryableRun,
     failedContinuationProposal,
     composerSettingsDisabled,
+    interactionModeSwitchDisabled,
     composerCommands,
     slashCommands,
     slashSelectableCommands,
@@ -544,7 +547,11 @@ export function AgentPanelView({
                           ? choosingSkill
                             ? 'Loading writing guidance…'
                             : 'Queue a follow-up…'
-                          : 'Ask the writing agent…'
+                          : (activeSession?.interactionMode ?? 'write') === 'ask'
+                            ? 'Ask about this manuscript…'
+                            : (activeSession?.interactionMode ?? 'write') === 'plan'
+                              ? 'Describe what you want to plan…'
+                              : 'Describe the change you want…'
                       }
                       rows={2}
                       className='min-h-20 max-h-48 overflow-y-auto [field-sizing:content]'
@@ -652,7 +659,11 @@ export function AgentPanelView({
                         </Popover>
                         <ApprovalModePicker
                           value={activeSession?.approvalMode ?? 'manual'}
-                          disabled={busy || activeSessionArchived}
+                          disabled={
+                            busy ||
+                            activeSessionArchived ||
+                            (activeSession?.interactionMode ?? 'write') !== 'write'
+                          }
                           onSelect={setApprovalMode}
                         />
                       </div>
@@ -670,6 +681,11 @@ export function AgentPanelView({
                           disabled={composerSettingsDisabled}
                           onModelSelect={setModelSelection}
                           onEffortSelect={setThinkingLevel}
+                        />
+                        <InteractionModePicker
+                          value={activeSession?.interactionMode ?? 'write'}
+                          disabled={interactionModeSwitchDisabled}
+                          onSelect={setInteractionMode}
                         />
                         {activeRun !== null ? (
                           agentComposerRunningAction(prompt) === 'follow_up' ? (

@@ -476,6 +476,7 @@ function session(
     status: 'active',
     compatible: true,
     approvalMode: 'manual',
+    interactionMode: 'write',
     workflowState,
     modelSelection: null,
     thinkingLevel: 'off',

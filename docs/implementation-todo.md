@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete.
-Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
+Status: Phase 25 Checkpoint 76 is in progress under ADR 068; Checkpoint 77 is paused pending
+separate authorization. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
 Recorded: 2026-08-30
@@ -18,6 +18,11 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [~] Checkpoint 76: add sticky Ask, Plan, and Write ceilings, Protocol v13 exact tool enforcement,
+  immutable run snapshots, and the Agent composer mode selector under ADR 068.
+- [!] Checkpoint 77: detailed Writing Task v2 and Plan-to-Write execution handoff; separate
+  authorization required after Checkpoint 76.
 
 - [x] Thermo-Nuclear structural remediation: remove behavior-bearing duplication, decompose the
   oversized Agent/UI/Main authorities along tested lifecycle and transaction boundaries, and
@@ -89,6 +94,16 @@ Checkpoint 73 detail: [`implementation-todo/phase-22.md`](implementation-todo/ph
 Checkpoint 74 detail: [`implementation-todo/phase-23.md`](implementation-todo/phase-23.md).
 
 Checkpoint 75 detail: [`implementation-todo/phase-24.md`](implementation-todo/phase-24.md).
+
+Checkpoint 76–77 detail: [`implementation-todo/phase-25.md`](implementation-todo/phase-25.md).
+
+## Phase 25: Agent Interaction Modes
+
+- [x] Checkpoint 76: writing-only interaction ceilings, Protocol v13, exact Main/Worker
+  enforcement, mode prompt layer, and responsive composer selector.
+- [!] Checkpoint 77: Writing Task v2 and execution handoff; not authorized.
+
+Authoritative detail: [`implementation-todo/phase-25.md`](implementation-todo/phase-25.md).
 
 ## Phase 24: Agent Tool Layering And Demand Profiles
 

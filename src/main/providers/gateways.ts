@@ -12,6 +12,7 @@ import type {
 import type {
   AgentFollowUpConsumptionAuthorization,
   AgentHistoryMessage,
+  AgentInteractionMode,
   AgentRuntimeModel,
   AgentModelLimits,
   AgentModelCallAuthorization,
@@ -51,6 +52,7 @@ export interface AgentSessionRunInput {
   maxOutputTokens: number
   modelLimits?: AgentModelLimits
   toolProfile?: AgentToolProfile
+  interactionMode?: AgentInteractionMode
   activeToolGroups?: WritingToolGroup[]
   runtimeMessageBudgetTokens?: number
   thinkingLevel?: AgentThinkingLevel

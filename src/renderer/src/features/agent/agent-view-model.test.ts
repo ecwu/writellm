@@ -833,6 +833,7 @@ describe('Agent renderer view model', () => {
       modelLabel: 'writer',
       api: 'openai-completions',
       approvalMode: 'manual',
+      interactionMode: 'write',
       thinkingLevel: 'off',
       modelLimits: {
         contextWindowTokens: 131_072,
@@ -1278,6 +1279,7 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     modelLabel: 'writer',
     api: 'openai-completions',
     approvalMode: 'manual',
+    interactionMode: 'write',
     thinkingLevel: 'off',
     modelLimits: {
       contextWindowTokens: 131_072,

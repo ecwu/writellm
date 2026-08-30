@@ -39,6 +39,21 @@ describe('Agent writing policy', () => {
     expect(new TextEncoder().encode(policy).byteLength).toBeLessThan(16_384)
   })
 
+  it('places the immutable mode ceiling after application safety and before collaboration', () => {
+    const ask = buildAgentPolicy('ask')
+    const plan = buildAgentPolicy('plan')
+    const write = buildAgentPolicy('write')
+
+    expect(ask.indexOf('OPERATING_POLICY')).toBeLessThan(ask.indexOf('INTERACTION_MODE_POLICY'))
+    expect(ask.indexOf('INTERACTION_MODE_POLICY')).toBeLessThan(ask.indexOf('COLLABORATION_POLICY'))
+    expect(ask).toContain('immutable mode for this run is Ask')
+    expect(ask).toContain('Do not create or update writing tasks')
+    expect(plan).toContain('immutable mode for this run is Plan')
+    expect(plan).toContain('Do not mutate review issues')
+    expect(write).toContain('immutable mode for this run is Write')
+    expect(write).toContain('Activate only task-relevant groups')
+  })
+
   it.each([
     ['internal citation ID', `citation-${'a'.repeat(40)}`],
     ['xx placeholder', 'A claim [xx].'],

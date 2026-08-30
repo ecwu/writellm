@@ -19,7 +19,11 @@ import {
 } from '../shared/contracts/agent-tools'
 import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from '../shared/contracts/knowledge'
 import { agentModelVisibleToolSpecs } from '../shared/agent-tool-specs'
-import type { AgentToolProfile, WritingToolGroup } from '../shared/contracts/agent'
+import type {
+  AgentInteractionMode,
+  AgentToolProfile,
+  WritingToolGroup
+} from '../shared/contracts/agent'
 
 const strict = { additionalProperties: false } as const
 const uuid = () => Type.String({ format: 'uuid' })
@@ -787,7 +791,8 @@ export class AgentToolBridge {
       agentRunId: string
     },
     private readonly modelRequestIdForToolCall: (toolCallId: string) => string,
-    private readonly toolProfile: AgentToolProfile = 'writing'
+    private readonly toolProfile: AgentToolProfile = 'writing',
+    private readonly interactionMode: AgentInteractionMode = 'write'
   ) {
     port.on('message', this.#onMessage)
     port.once('close', this.#onClose)
@@ -795,10 +800,12 @@ export class AgentToolBridge {
   }
 
   tools(activeGroups: readonly WritingToolGroup[] = []): AgentTool[] {
-    return agentModelVisibleToolSpecs(this.toolProfile, activeGroups).map((tool) => ({
-      ...tool,
-      execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
-    })) as AgentTool[]
+    return agentModelVisibleToolSpecs(this.toolProfile, activeGroups, this.interactionMode).map(
+      (tool) => ({
+        ...tool,
+        execute: (toolCallId, args, signal) => this.#execute(tool.name, toolCallId, args, signal)
+      })
+    ) as AgentTool[]
     /*return [
       {
         name: 'get_writing_context',

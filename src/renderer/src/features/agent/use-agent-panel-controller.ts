@@ -170,7 +170,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
     !activeSessionArchived &&
     workflowState === 'idle' &&
     !busy &&
-    !agentCapacityReached
+    !agentCapacityReached &&
+    (activeSession?.interactionMode ?? 'write') === 'write'
   const workingSession =
     sessions.find(
       (session) =>
@@ -236,6 +237,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     createSession,
     beginNewConversation,
     setApprovalMode,
+    setInteractionMode,
     setModelSelection,
     setThinkingLevel,
     openSession,
@@ -270,15 +272,17 @@ export function useAgentPanelController(props: AgentPanelProps) {
     const quickActionBlocked =
       quickAction === undefined
         ? null
-        : activeSessionArchived
-          ? 'Restore this conversation before using a quick action.'
-          : busy || activeRun !== null || conversationLocked
-            ? 'Finish the current Agent work or review before using a quick action.'
-            : !modelReady
-              ? 'Choose an Agent model before using a quick action.'
-              : agentCapacityReached
-                ? `All ${activeRunLimit} Agent work slots are in use. Try again when one finishes.`
-                : null
+        : (activeSession?.interactionMode ?? 'write') !== 'write'
+          ? 'Switch to Write mode before using a quick action.'
+          : activeSessionArchived
+            ? 'Restore this conversation before using a quick action.'
+            : busy || activeRun !== null || conversationLocked
+              ? 'Finish the current Agent work or review before using a quick action.'
+              : !modelReady
+                ? 'Choose an Agent model before using a quick action.'
+                : agentCapacityReached
+                  ? `All ${activeRunLimit} Agent work slots are in use. Try again when one finishes.`
+                  : null
     if (quickActionBlocked !== null) {
       setError(quickActionBlocked)
       return false
@@ -732,6 +736,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
       : (proposals.find((proposal) => proposal.proposalId === continuationFailure.proposalId) ??
         null)
   const composerSettingsDisabled = busy || activeRun !== null || conversationLocked
+  const interactionModeSwitchDisabled =
+    busy || activeSessionArchived || activeRun !== null || activeCompaction !== null
   const composerCommands = buildComposerCommands({
     selectionAvailable: selectionIsAvailable,
     sectionAvailable: props.activeSectionId !== null,
@@ -861,6 +867,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     headerStatus,
     beginNewConversation,
     setApprovalMode,
+    setInteractionMode,
     setModelSelection,
     setThinkingLevel,
     openSession,
@@ -882,6 +889,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     retryableRun,
     failedContinuationProposal,
     composerSettingsDisabled,
+    interactionModeSwitchDisabled,
     composerCommands,
     slashCommands,
     slashSelectableCommands,

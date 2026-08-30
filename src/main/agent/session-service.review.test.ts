@@ -330,6 +330,8 @@ describe('AgentSessionService: review', () => {
     expect(updated.approvalMode).toBe('yolo')
     active.resolve('awaiting_review')
     await started.completion
+    const interactionUpdated = service.setInteractionMode(session.agentSessionId, 'plan')
+    expect(interactionUpdated.interactionMode).toBe('plan')
     database.close()
   })
 

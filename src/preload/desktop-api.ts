@@ -10,7 +10,7 @@ import type {
   ThemePreference,
   SetDefaultAgentApprovalModeInput
 } from '../shared/contracts/app'
-import type { AgentApprovalMode } from '../shared/contracts/agent'
+import type { AgentApprovalMode, AgentInteractionMode } from '../shared/contracts/agent'
 import type {
   CreatePublicationPresetInput,
   PublicationPresetSnapshot,
@@ -422,6 +422,11 @@ export interface DesktopApi {
       projectSessionId: string
       agentSessionId: string
       mode: AgentApprovalMode
+    }): Promise<AgentSessionRecord>
+    setInteractionMode(input: {
+      projectSessionId: string
+      agentSessionId: string
+      mode: AgentInteractionMode
     }): Promise<AgentSessionRecord>
     setModelSelection(input: {
       projectSessionId: string

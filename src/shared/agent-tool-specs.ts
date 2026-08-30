@@ -1,6 +1,6 @@
 import type { TSchema } from 'typebox'
 import { z } from 'zod'
-import type { AgentToolProfile, WritingToolGroup } from './contracts/agent'
+import type { AgentInteractionMode, AgentToolProfile, WritingToolGroup } from './contracts/agent'
 import {
   generateImageArgsSchema,
   modelSubmitBriefChangeArgsSchema,
@@ -533,11 +533,43 @@ export const AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES = 20 * 1_024
 
 const NOTEBOOK_KNOWLEDGE_TOOL_NAMES = new Set<AgentToolName>(['search_knowledge', 'read_citations'])
 
+export const AGENT_INTERACTION_MODE_TOOL_NAMES = {
+  ask: [
+    'get_writing_context',
+    'read_outline',
+    'read_section',
+    'search_manuscript',
+    'search_knowledge',
+    'read_citations'
+  ],
+  plan: [
+    'get_writing_context',
+    'read_outline',
+    'read_section',
+    'search_manuscript',
+    'search_knowledge',
+    'read_citations',
+    'read_writing_skill',
+    'ask_user',
+    'inspect_change',
+    'check_draft',
+    'list_review_issues',
+    'get_writing_task',
+    'create_writing_task',
+    'update_writing_task'
+  ]
+} as const satisfies Record<Exclude<AgentInteractionMode, 'write'>, readonly AgentToolName[]>
+
 export function agentModelVisibleToolSpecs(
   profile: AgentToolProfile,
-  activeGroups: readonly WritingToolGroup[] = []
+  activeGroups: readonly WritingToolGroup[] = [],
+  interactionMode: AgentInteractionMode = 'write'
 ): readonly AgentModelVisibleToolSpec[] {
   if (profile === 'writing') {
+    if (interactionMode !== 'write') {
+      const names = new Set<AgentToolName>(AGENT_INTERACTION_MODE_TOOL_NAMES[interactionMode])
+      return AGENT_MODEL_VISIBLE_TOOL_SPECS.filter((tool) => names.has(tool.name))
+    }
     const names = new Set<AgentToolName>(WRITING_CORE_TOOL_NAMES)
     for (const group of activeGroups) {
       for (const name of WRITING_TOOL_GROUP_TOOL_NAMES[group]) names.add(name)
@@ -565,7 +597,10 @@ export function agentToolProfileAllows(
 export function activeAgentToolSetAllows(
   profile: AgentToolProfile,
   activeGroups: readonly WritingToolGroup[],
-  toolName: AgentToolName
+  toolName: AgentToolName,
+  interactionMode: AgentInteractionMode = 'write'
 ): boolean {
-  return agentModelVisibleToolSpecs(profile, activeGroups).some((tool) => tool.name === toolName)
+  return agentModelVisibleToolSpecs(profile, activeGroups, interactionMode).some(
+    (tool) => tool.name === toolName
+  )
 }

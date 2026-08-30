@@ -1,7 +1,8 @@
 # WriteLLM Current Plan
 
-Status: Phase 24 Checkpoint 75 LM Studio union-schema compatibility maintenance is complete under
-ADR 067. Immutable tag-only candidates `.28`–`.35` exposed portable fixture, hosted timing,
+Status: Phase 25 Checkpoint 76 Ask, Plan, and Write interaction-mode ceilings are complete under
+ADR 068. Checkpoint 77 is paused pending separate authorization. Immutable tag-only candidates
+`.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
 Candidate `.37` proved both independent macOS pipelines through artifact upload, while Windows and
 Linux exposed one repeated-reference loop, one duplicate final-response locator, and two Linux
@@ -422,6 +423,12 @@ or failed scenario. It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from t
 notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
+
+Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
+immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent
+composer selector beside Send are locally verified. Checkpoint 77 Writing Task v2 and execution
+handoff remain paused. No dependency, new worker, generic permission framework, package/release
+action, commit, tag, push, hosted CI, signing, notarization, promotion, or publication is authorized.
 
 Checkpoint 75 Agent tool layering, demand profiles, and the authorized LM Studio union-schema
 compatibility maintenance are complete under ADR 067. No further Checkpoint 75 implementation is

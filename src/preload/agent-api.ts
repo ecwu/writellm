@@ -28,6 +28,8 @@ import {
   agentRunInputSchema,
   agentSetApprovalModeInputSchema,
   agentSetApprovalModeResultSchema,
+  agentSetInteractionModeInputSchema,
+  agentSetInteractionModeResultSchema,
   agentSetModelSelectionInputSchema,
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
@@ -106,6 +108,14 @@ export const agentApi: DesktopApi['agent'] = {
       await ipcRenderer.invoke(
         IPC_CHANNELS.agentSetApprovalMode,
         agentSetApprovalModeInputSchema.parse(input)
+      )
+    )
+  },
+  async setInteractionMode(input) {
+    return agentSetInteractionModeResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentSetInteractionMode,
+        agentSetInteractionModeInputSchema.parse(input)
       )
     )
   },

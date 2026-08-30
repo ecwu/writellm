@@ -3,6 +3,7 @@ import {
   AGENT_PENDING_MESSAGE_LIMIT,
   AGENT_PENDING_MESSAGE_MAX_BYTES,
   agentApprovalModeSchema,
+  agentInteractionModeSchema,
   agentEditorContextSchema,
   agentEventIdSchema,
   agentEventTypeSchema,
@@ -47,6 +48,7 @@ export const agentSessionRecordSchema = strictObject({
   status: agentSessionStatusSchema,
   compatible: z.boolean(),
   approvalMode: agentApprovalModeSchema.default('manual'),
+  interactionMode: agentInteractionModeSchema.default('write'),
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
   modelSelection: agentModelSelectionSchema.nullable().default(null),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
@@ -68,6 +70,7 @@ export const agentRunRecordSchema = strictObject({
   api: piApiSchema.default('openai-completions'),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
   approvalMode: agentApprovalModeSchema.default('manual'),
+  interactionMode: agentInteractionModeSchema.default('write'),
   modelLimits: agentModelLimitsSchema.default({
     contextWindowTokens: 131_072,
     inputLimitTokens: null,
@@ -134,6 +137,10 @@ export const agentSetApprovalModeInputSchema = agentSessionInputSchema.extend({
   mode: agentApprovalModeSchema
 })
 export const agentSetApprovalModeResultSchema = agentSessionRecordSchema
+export const agentSetInteractionModeInputSchema = agentSessionInputSchema.extend({
+  mode: agentInteractionModeSchema
+})
+export const agentSetInteractionModeResultSchema = agentSessionRecordSchema
 export const agentSetModelSelectionInputSchema = agentSessionInputSchema.extend({
   selection: agentModelSelectionSchema
 })

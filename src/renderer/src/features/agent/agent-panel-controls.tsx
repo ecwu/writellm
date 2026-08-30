@@ -1,6 +1,11 @@
 import type { AgentPendingQuestion, AgentStartScope } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import { agentApprovalModeSchema, type AgentApprovalMode } from '../../../../shared/contracts/agent'
+import {
+  agentApprovalModeSchema,
+  agentInteractionModeSchema,
+  type AgentApprovalMode,
+  type AgentInteractionMode
+} from '../../../../shared/contracts/agent'
 import type { AskUserAnswer } from '../../../../shared/contracts/agent-tools'
 import type { LeadingSkillMention } from '../../../../shared/skill-mentions'
 import {
@@ -378,6 +383,54 @@ export function ApprovalModePicker(props: {
                 <span className='block'>{approvalModeLabel(mode)}</span>
                 <span className='block text-xs text-muted-foreground'>
                   {approvalModeDescription(mode)}
+                </span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+const INTERACTION_MODE_COPY: Record<AgentInteractionMode, { label: string; description: string }> =
+  {
+    ask: { label: 'Ask', description: 'Read and answer' },
+    plan: { label: 'Plan', description: 'Build a writing plan' },
+    write: { label: 'Write', description: 'Propose manuscript changes' }
+  }
+
+export function InteractionModePicker(props: {
+  value: AgentInteractionMode
+  disabled: boolean
+  onSelect(mode: AgentInteractionMode): void | Promise<void>
+}): React.JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <InputGroupButton
+          variant='ghost'
+          size='xs'
+          className='shrink-0'
+          disabled={props.disabled}
+          aria-label={`Agent mode: ${INTERACTION_MODE_COPY[props.value].label}`}
+          data-testid='agent-interaction-mode-selector'
+        >
+          <span>{INTERACTION_MODE_COPY[props.value].label}</span>
+          <ChevronDown />
+        </InputGroupButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align='end' side='top'>
+        <DropdownMenuRadioGroup
+          value={props.value}
+          onValueChange={(value) => void props.onSelect(agentInteractionModeSchema.parse(value))}
+        >
+          {(['ask', 'plan', 'write'] as const).map((mode) => (
+            <DropdownMenuRadioItem key={mode} value={mode} className='items-start'>
+              <span className='min-w-0 pr-4'>
+                <span className='block'>{INTERACTION_MODE_COPY[mode].label}</span>
+                <span className='block text-xs text-muted-foreground'>
+                  {INTERACTION_MODE_COPY[mode].description}
                 </span>
               </span>
             </DropdownMenuRadioItem>

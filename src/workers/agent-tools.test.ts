@@ -392,6 +392,55 @@ describe('Pi Agent tool TypeBox schemas', () => {
     bridge.close()
   })
 
+  it.each([
+    [
+      'ask',
+      [
+        'get_writing_context',
+        'read_outline',
+        'read_section',
+        'search_knowledge',
+        'search_manuscript',
+        'read_citations'
+      ]
+    ],
+    [
+      'plan',
+      [
+        'get_writing_context',
+        'read_outline',
+        'read_section',
+        'search_knowledge',
+        'search_manuscript',
+        'read_citations',
+        'read_writing_skill',
+        'ask_user',
+        'inspect_change',
+        'check_draft',
+        'list_review_issues',
+        'get_writing_task',
+        'create_writing_task',
+        'update_writing_task'
+      ]
+    ]
+  ] as const)('advertises the exact %s interaction-mode tools', (mode, expected) => {
+    const { port1 } = createFakeMessageChannel()
+    const bridge = new AgentReadToolBridge(
+      port1 as never,
+      {
+        projectSessionId: UUIDS.project,
+        agentSessionId: UUIDS.session,
+        agentRunId: UUIDS.run
+      },
+      () => UUIDS.model,
+      'writing',
+      mode
+    )
+
+    expect(bridge.tools(['review', 'section', 'image']).map((tool) => tool.name)).toEqual(expected)
+    bridge.close()
+  })
+
   it('keeps concurrent responses correlated and delimits knowledge as untrusted data', async () => {
     const { port1, port2 } = createFakeMessageChannel()
     const bridge = new AgentReadToolBridge(
