@@ -13,7 +13,9 @@ editor-initialization race, and Linux exposed a context-selection settlement rac
 after its full suite passed. Candidate `.40` proved those remediations, then exposed one dropped
 model-picker opening on macOS x64 and one transient KaTeX-internal assertion on Windows; Linux and
 macOS arm64 completed their independent package pipelines. Candidate `.41` contains both
-test-boundary remediations but has not yet received hosted confirmation.
+test-boundary remediations, then exposed three further hosted interaction races plus a slow Windows
+packaged-shell startup. Candidate `.42` contains their consolidated remediation and awaits hosted
+confirmation.
 Recorded: 2026-08-30
 
 This file records only active delivery state. Long-lived system rules live in
@@ -107,6 +109,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   both flaky rows. Linux passed all 47 real-Secret-Service scenarios, its native package gate, and
   artifact upload. Candidate `.41` retries the model-picker trigger until the popover is visibly
   open and verifies the user-visible formula preview rather than KaTeX's transient internal node.
+- Candidate `.41` passed the shared gate and every platform's 1,160-test Electron/build gate.
+  macOS arm64 completed all 47 scenarios, native packaging, and artifact upload. macOS x64 retried
+  two scenarios after a page-level Space missed the focused clarification radio and a remounting
+  Whole manuscript option detached during click. Windows passed all 47 scenarios without retries,
+  then its packaged smoke reached project creation before the Knowledge navigation became visible.
+  Linux retried the grounded Agent scenario after `/section` did not open its slash menu. The
+  no-flake policy rejected both affected E2E rows; Windows and Linux skipped their remaining
+  package work after their own failures. Candidate `.42` sends keyboard input through the radio
+  locator, retries remounting Agent menus until their selected state is visible, and polls the
+  packaged shell until Knowledge is both navigable and loaded.
 
 - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions
   now expose their complete property vocabulary and common required fields at the object root while

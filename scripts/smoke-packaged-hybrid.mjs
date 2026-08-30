@@ -420,8 +420,12 @@ async function runPackagedAppScenarios(resources) {
     // hosted Windows runners the editor can still be loading its initial
     // section here; creating and saving another section concurrently can tear
     // down the workspace before the packaged-smoke navigation begins.
-    await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
-    await page.getByTestId('knowledge-upload-button').waitFor()
+    await pollUntil(async () => {
+      const knowledgeButton = page.getByRole('button', { name: 'Knowledge', exact: true })
+      if (!(await knowledgeButton.isVisible())) return false
+      await knowledgeButton.click({ timeout: 5_000 })
+      return page.getByTestId('knowledge-upload-button').isVisible()
+    }, 120_000)
 
     const durableProject = await page.evaluate(async (pngBase64) => {
       const active = (await window.desktop.projects.lifecycle()).activeProject

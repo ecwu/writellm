@@ -802,6 +802,16 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-30
 
+- Retained immutable `v0.2026.8.41` as failed evidence after run `33289904719` passed the shared
+  gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, packaging,
+  and artifact upload; macOS x64 exposed clarification-keyboard and context-menu remount races,
+  Windows exposed slow packaged-shell navigation after 47/47 E2E, and Linux exposed slash-menu
+  opening after its retry passed. Routed keyboard actions through their locator, retried only until
+  the intended Agent menu state became visible, and polled packaged Knowledge readiness. Passed
+  both focused scenarios, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged
+  smoke categories, 34/34 packaged E2E, and structural local DMG/ZIP checks; advanced release
+  metadata to `0.2026.8.42`.
+
 - Retained immutable `v0.2026.8.40` as failed evidence after run `33287098513` passed the shared
   gate and every platform's 1,160-test Electron/build gate. macOS arm64 and Linux completed all 47
   scenarios, native packaging, and artifact upload. The strict evidence policy rejected one

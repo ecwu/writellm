@@ -770,6 +770,29 @@ and the complete no-identity macOS arm64 package gate: all 27 recovery fixtures,
 smoke categories, all 34 packaged E2E scenarios without retries, and structural DMG/ZIP checks.
 Release metadata advances to `0.2026.8.41`; hosted confirmation remains required.
 
+Hosted candidate evidence (2026-08-30): immutable `v0.2026.8.41` at
+`5d0bdbf0d82037efbe0c945cc5ef31f44b7f8521` completed tag-only run `33289904719` with terminal
+failure. The shared static/fixture gate and every platform's 1,160-test Electron/build gate passed.
+macOS arm64 alone completed all 47 scenarios, native packaging, and artifact upload. macOS x64
+retried clarification after a page-level Space missed the focused radio and retried grounded Agent
+after the Whole manuscript option detached during click. Windows passed all 47 scenarios without
+retries, then packaged smoke reached active project creation but could not see the Knowledge
+navigation within its default 30-second click timeout. Linux retried grounded Agent after
+`/section` did not mount its slash menu. The no-flake policy correctly rejected both affected E2E
+rows; Windows and Linux skipped their remaining package work after their independent failures.
+
+Local post-candidate remediation evidence (2026-08-30): the clarification scenario sends Space and
+Enter through the radio locator and retries only until its checked state is visible. The grounded
+Agent scenario retriggers `/section` until the slash menu and section option exist, and retries the
+context menu until the Whole manuscript chip confirms selection. Packaged smoke polls the shell
+for up to 120 seconds until Knowledge navigation is visible and its upload control proves the
+workspace loaded. Both affected Agent scenarios passed focused without retries. The final source
+passed `check:fast`, 201 Electron-hosted files / 1,160 tests with three intentional benchmark
+skips, a fresh 47/47 full E2E run without retries, and the complete no-identity macOS arm64 package
+gate: all 27 recovery fixtures, all 12 packaged smoke categories, all 34 packaged E2E scenarios
+without retries, and structural DMG/ZIP checks. Release metadata advances to `0.2026.8.42`; hosted
+confirmation remains required.
+
 Hosted candidate evidence (2026-08-09): immutable tag `v0.2026.8.3` at
 `53f4d84c266783f9256f015ec4dfae63aafbee92` started CI run `31339606693`. The static/fixture gate
 and both macOS rows passed. Windows reached the complete test suite and exposed six portability or

@@ -7,7 +7,9 @@ streaming-response overlap, Windows exposed a packaged-smoke initialization race
 failed packaged E2E while its selected section context was still settling. Candidate `.40`
 proved those remediations, then exposed one model-picker opening race on macOS x64 and one
 KaTeX-internal assertion race on Windows. Linux and macOS arm64 completed their independent package
-pipelines; candidate `.41` contains both test-boundary fixes and awaits hosted confirmation.
+pipelines. Candidate `.41` proved those fixes, then exposed three additional hosted interaction
+races and a slow Windows packaged-shell startup. Candidate `.42` contains the consolidated
+remediation and awaits hosted confirmation.
 Recorded: 2026-08-30
 
 This is the short completion and routing index. Active delivery state lives in
@@ -66,8 +68,10 @@ Status markers:
   in its independent package gate while its selected section context was still settling. Candidate
   `.40` proved those fixes; its macOS x64 model picker failed to open once, Windows asserted a
   transient KaTeX internal node despite visible formulas, and Linux plus macOS arm64 completed
-  native packaging and artifact upload. Candidate `.41` contains both narrow test remediations.
-  Release promotion remains disabled.
+  native packaging and artifact upload. Candidate `.41` passed every Electron/build gate and
+  completed the arm64 pipeline, then exposed clarification keyboard delivery, Agent menu remount,
+  slash-menu opening, and packaged-shell startup races across x64, Linux, and Windows. Candidate
+  `.42` contains their narrow remediations. Release promotion remains disabled.
 
 Authoritative detail:
 [`implementation-todo/phase-10.md`](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion).

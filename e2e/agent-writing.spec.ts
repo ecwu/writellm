@@ -670,19 +670,26 @@ test(
           name: /Manual Review every proposed manuscript change/
         })
       ).not.toBeVisible()
-      await panel.getByLabel('Agent message').fill('/section')
+      const agentMessage = panel.getByLabel('Agent message')
       const slashMenu = launched.page.getByTestId('agent-slash-menu')
-      await expect(slashMenu).toBeVisible()
-      await expect(slashMenu.getByRole('option', { name: /This section/ })).toBeVisible()
+      const sectionOption = slashMenu.getByRole('option', { name: /This section/ })
+      await expect(async () => {
+        if (!(await sectionOption.isVisible())) {
+          await agentMessage.fill('')
+          await agentMessage.fill('/section')
+        }
+        await expect(slashMenu).toBeVisible({ timeout: 2_000 })
+        await expect(sectionOption).toBeVisible({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
           path: join(screenshotDirectory, 'cp48-agent-slash-menu.png'),
           animations: 'disabled'
         })
       }
-      await panel.getByLabel('Agent message').press('Enter')
+      await agentMessage.press('Enter')
       await expect(slashMenu).not.toBeVisible()
-      await expect(panel.getByLabel('Agent message')).toHaveValue('')
+      await expect(agentMessage).toHaveValue('')
       await expect(
         panel
           .getByTestId('agent-composer-context-chips')
@@ -690,11 +697,22 @@ test(
       ).toBeEnabled({ timeout: 60_000 })
       const addContextButton = panel.getByTestId('agent-add-menu-trigger')
       await expect(addContextButton).toBeEnabled({ timeout: 60_000 })
-      await addContextButton.click()
-      await launched.page.getByRole('option', { name: /Whole manuscript/ }).click()
-      await panel
-        .getByLabel('Agent message')
-        .fill('Ground the Agent revision target section in the imported evidence.')
+      const wholeManuscriptChip = panel
+        .getByTestId('agent-composer-context-chips')
+        .getByRole('button', { name: 'Whole manuscript', exact: true })
+      const wholeManuscriptOption = launched.page.getByRole('option', {
+        name: /Whole manuscript/
+      })
+      await expect(async () => {
+        if (!(await wholeManuscriptChip.isVisible())) {
+          if (!(await wholeManuscriptOption.isVisible())) {
+            await addContextButton.click()
+          }
+          await wholeManuscriptOption.click()
+        }
+        await expect(wholeManuscriptChip).toBeEnabled({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
+      await agentMessage.fill('Ground the Agent revision target section in the imported evidence.')
       await expect(sendButton).toBeEnabled()
       await expect(panel.getByTestId('agent-context-usage')).toHaveCount(0)
       if (screenshotDirectory !== undefined) {

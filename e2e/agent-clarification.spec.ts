@@ -223,10 +223,13 @@ test(
       await expect(launched.page.getByText('Needs answer', { exact: true })).toBeHidden()
       await expect(questionnaire.getByRole('progressbar')).toHaveText('Question 1 of 2')
       const conclusion = questionnaire.getByRole('radio', { name: /Conclusion \(Recommended\)/ })
-      await conclusion.focus()
-      await launched.page.keyboard.press('Space')
-      await expect(conclusion).toBeChecked()
-      await launched.page.keyboard.press('Enter')
+      await expect(async () => {
+        if (!(await conclusion.isChecked())) {
+          await conclusion.press('Space')
+        }
+        await expect(conclusion).toBeChecked({ timeout: 2_000 })
+      }).toPass({ timeout: 60_000 })
+      await conclusion.press('Enter')
       await expect(questionnaire.getByRole('progressbar')).toHaveText('Question 2 of 2')
       await questionnaire.getByRole('button', { name: 'Previous' }).click()
       await expect(questionnaire.getByRole('progressbar')).toHaveText('Question 1 of 2')
