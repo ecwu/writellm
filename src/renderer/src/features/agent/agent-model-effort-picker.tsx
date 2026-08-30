@@ -2,7 +2,6 @@ import { ArrowLeft, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type {
   AgentModelSelection,
-  AgentProviderCatalog,
   AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
 import { ProviderLogo } from '@/components/provider-logo'
@@ -18,8 +17,11 @@ import {
 import { InputGroupButton } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { thinkingLevelLabel } from './agent-thinking-picker'
+import {
+  type AvailableAgentPreset as AvailablePreset,
+  findAgentModelSelection as findSelection
+} from './agent-model-selection'
 
-type AvailablePreset = AgentProviderCatalog['presets'][number]
 type PickerView = 'summary' | 'models' | 'effort'
 
 export function AgentModelEffortPicker({
@@ -178,14 +180,4 @@ export function modelEffortLabel(
   if (modelName === null) return 'Choose a model'
   const effortUnavailable = levels.length === 1 && levels[0] === 'off'
   return effortUnavailable ? modelName : `${modelName} ${effort}`
-}
-
-function findSelection(
-  presets: AvailablePreset[],
-  selection: AgentModelSelection | null
-): { preset: AvailablePreset; model: AvailablePreset['models'][number] } | null {
-  if (selection === null) return null
-  const preset = presets.find((candidate) => candidate.presetId === selection.presetId)
-  const model = preset?.models.find((candidate) => candidate.id === selection.modelId)
-  return preset === undefined || model === undefined ? null : { preset, model }
 }

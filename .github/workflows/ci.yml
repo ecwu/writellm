@@ -24,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
         with:
@@ -35,6 +37,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
+      - name: Verify tag, release version, revision, and clean checkout
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_REVISION: ${{ github.sha }}
+        run: >-
+          node scripts/verify-release-source.mjs
+          "--tag=${RELEASE_TAG}"
+          "--revision=${RELEASE_REVISION}"
       - name: Frozen dependency install
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify recovery fixtures

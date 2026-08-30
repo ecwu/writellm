@@ -17,6 +17,12 @@ import { runAgentModelRequest } from './agent-model-request'
 import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
+import {
+  extractUtilityProjectSessionId as extractProjectSessionId,
+  extractUtilityRequestId as extractRequestId,
+  findUtilityHttpStatus as findHttpStatus,
+  safeUtilityStack as safeStack
+} from './shared/utility-message'
 
 const parentPort = process.parentPort
 if (parentPort === undefined)
@@ -409,46 +415,6 @@ function isContextOverflowError(error: unknown, depth = 0): boolean {
     (status === 400 && /context|token limit/u.test(message)) ||
     isContextOverflowError(candidate.cause, depth + 1)
   )
-}
-
-function safeStack(stack: string | undefined, message: string): string | undefined {
-  if (stack === undefined) return undefined
-  const frames = stack.split('\n').slice(1).join('\n')
-  return `${message}${frames.length === 0 ? '' : `\n${frames}`}`.slice(0, 32_768)
-}
-
-function findHttpStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || error === null || typeof error !== 'object') return undefined
-  const candidate = error as { status?: unknown; statusCode?: unknown; cause?: unknown }
-  const status = candidate.statusCode ?? candidate.status
-  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
-    ? status
-    : findHttpStatus(candidate.cause, depth + 1)
-}
-
-function extractRequestId(value: unknown): string {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    'requestId' in value &&
-    typeof value.requestId === 'string' &&
-    /^[0-9a-f-]{36}$/i.test(value.requestId)
-  ) {
-    return value.requestId
-  }
-  return '00000000-0000-4000-8000-000000000000'
-}
-
-function extractProjectSessionId(value: unknown): string | null {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    'projectSessionId' in value &&
-    (typeof value.projectSessionId === 'string' || value.projectSessionId === null)
-  ) {
-    return value.projectSessionId
-  }
-  return null
 }
 
 function isLoggingPortMessage(

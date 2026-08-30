@@ -6,6 +6,7 @@ import type {
   ManuscriptAssembly
 } from './contracts/manuscript'
 import { plainTextContentSchema, plainTextContentToString } from './contracts/manuscript'
+import { blockNoteInlinePlainText as inlinePlainText } from './blocknote-inline-text'
 import {
   manuscriptMarkdownLossReportSchema,
   type ManuscriptMarkdownLoss,
@@ -596,18 +597,6 @@ function escapeHeading(value: string): string {
 
 function escapeInline(value: string): string {
   return value.replace(/([\\`*_[\]<>#+\-.!|{}()])/g, '\\$1').replace(/\r?\n/g, '  \n')
-}
-
-function inlinePlainText(content: readonly BlockNoteInlineContent[]): string {
-  return content
-    .map((node) =>
-      node.type === 'link'
-        ? node.content.map((child) => child.text).join('')
-        : node.type === 'math'
-          ? '\uFFFC'
-          : node.text
-    )
-    .join('')
 }
 
 function isMarkdownInlineMathSafe(source: string): boolean {

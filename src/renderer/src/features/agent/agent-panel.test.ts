@@ -19,7 +19,7 @@ import {
   slashCommandQuery,
   writingTaskDockSummary,
   writingTaskNeedsAttention
-} from './agent-panel'
+} from './agent-panel-logic'
 import { agentHeaderStatusLabel, groupAgentConversations } from './agent-view-model'
 
 const activeSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc521'

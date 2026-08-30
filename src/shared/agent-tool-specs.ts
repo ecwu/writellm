@@ -45,10 +45,10 @@ function parameters(schema: z.ZodType, transform?: (schema: unknown) => unknown)
   const normalized = normalizeModelToolSchema(
     z.toJSONSchema(schema, { target: 'draft-7', unrepresentable: 'any' })
   )
-  return ensureObjectRoot(transform?.(normalized) ?? normalized) as TSchema
+  return ensureModelToolObjectRoot(transform?.(normalized) ?? normalized) as TSchema
 }
 
-function ensureObjectRoot(value: unknown): unknown {
+export function ensureModelToolObjectRoot(value: unknown): unknown {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const record = value as Record<string, unknown>
     if (
@@ -62,7 +62,7 @@ function ensureObjectRoot(value: unknown): unknown {
     const projected = projectObjectUnionRoot(record)
     if (projected !== undefined) return { ...projected, allOf: [value] }
   }
-  return { type: 'object', properties: {}, allOf: [value] }
+  throw new Error('Agent tool parameters must have an object root or an object-only root union')
 }
 
 function projectObjectUnionRoot(

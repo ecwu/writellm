@@ -1,4 +1,5 @@
 import type { BlockNoteDocument, BlockNoteInlineContent } from './contracts/manuscript'
+import { blockNoteInlinePlainText as inlinePlainText } from './blocknote-inline-text'
 
 export type ReadableCitationSyntax = 'english' | 'chinese'
 
@@ -168,18 +169,6 @@ function blockTextSegments(block: BlockNoteDocument[number]): string[] {
     return [typeof block.props.caption === 'string' ? block.props.caption : '']
   }
   return []
-}
-
-function inlinePlainText(content: readonly BlockNoteInlineContent[]): string {
-  return content
-    .map((node) =>
-      node.type === 'link'
-        ? node.content.map((child) => child.text).join('')
-        : node.type === 'math'
-          ? '\uFFFC'
-          : node.text
-    )
-    .join('')
 }
 
 function parseBody(

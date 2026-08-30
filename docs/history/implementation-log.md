@@ -818,6 +818,31 @@ maintenance without turning the active tracker back into a historical log.
   inventory verification, and its own unsigned artifact upload. Four non-expired artifacts totaling
   approximately 1.57 GB are retained through 2026-09-29. Hosted database/E2E tests, signing,
   notarization, promotion, and publication did not run under the accepted narrowed scope.
+- Completed a Thermo-Nuclear P0/P1 implementation audit with no P0 finding and three remediated P1
+  findings. Writing Skill installation now registers each staging directory before writes and
+  compensates prior-generation movement and publication in reverse order with diagnostic errors;
+  model-visible Agent schemas reject unsupported roots instead of silently emitting empty
+  `properties`; and tag-only CI reuses the canonical release-source verifier before installation
+  or platform builds. Evidence passed 23 focused tests, recovery fixtures, Biome, Node and Renderer
+  typechecks, 202 Electron-hosted files with 1,163 tests and three intentional benchmark skips, a
+  production build, and the macOS arm64 tag-CI build-only package path with verified native
+  inventory plus DMG/ZIP artifacts. The local pnpm 11.17.0 wrapper could not satisfy the repository
+  `pnpm@12.0.0` pin, so the documented direct canonical runners were used; no package metadata,
+  dependency, candidate, commit, tag, push, hosted run, signing, notarization, or publication was
+  performed.
+- Completed the follow-up Thermo-Nuclear structural remediation. Consolidated duplicated worker
+  message/error projection, knowledge-search filters, BlockNote inline-text traversal, and Agent
+  model selection; reduced the AgentPanel, WritingWorkspace, provider-settings, and preload entry
+  modules to typed facades; separated mutation outline/presentation/storage logic, Agent session
+  event/error/history/projection logic, and project history-restore recovery; and split the 3,877-
+  and 2,570-line Agent tests into behavior suites with shared fixtures. Updated the recovery-fixture
+  manifest to retain source-integrity coverage after the test split. Evidence passed Biome, both
+  typechecks, 211 Electron-hosted test files with 1,167 passing tests and three intentional benchmark
+  skips, the production build, 47/47 unpackaged Electron E2E scenarios, and the full macOS arm64
+  package gate including native inventory, packaged runtime/security smoke, 34/34 packaged E2E
+  scenarios, and inspected DMG/ZIP artifacts. The local pnpm 11.17.0 wrapper did not match the
+  repository `pnpm@12.0.0` pin, so documented npm/direct canonical runners were used; the package
+  gate's incidental lockfile metadata change was removed.
 
 - Retained immutable `v0.2026.8.44` as failed evidence after run `33298003843` exposed a
   five-second macOS x64 timeout in a 600-event rolling-compaction database test. Assigned that

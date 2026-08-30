@@ -19,6 +19,12 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Thermo-Nuclear structural remediation: remove behavior-bearing duplication, decompose the
+  oversized Agent/UI/Main authorities along tested lifecycle and transaction boundaries, and
+  preserve the tag-CI gate.
+- [x] Thermo-Nuclear P1 maintenance: make Writing Skill publication rollback atomic, fail closed
+  on unprojectable Agent tool schema roots, and bind tag-only CI to the canonical release source
+  verifier.
 - [x] Release maintenance: publish `WriteLLM 0.2026.8` from immutable `v0.2026.8.45` as an
   explicitly unsigned four-platform GitHub Release with checksums and per-platform evidence.
 - [x] Maintenance: replace the final Node 20 GitHub Action runtime with the Node 24-based

@@ -8,6 +8,7 @@ import {
 import { open } from 'node:fs/promises'
 import { IndexDatabase } from './index-database'
 import { createPortLogger } from './shared/port-logger'
+import { extractUtilityRequestId as extractRequestId } from './shared/utility-message'
 
 const parentPort = process.parentPort
 if (parentPort === undefined) throw new Error('Index utility requires an Electron parent port')
@@ -220,17 +221,4 @@ async function crashOnceForTest(): Promise<void> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
   }
-}
-
-function extractRequestId(value: unknown): string {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    'requestId' in value &&
-    typeof value.requestId === 'string' &&
-    /^[0-9a-f-]{36}$/i.test(value.requestId)
-  ) {
-    return value.requestId
-  }
-  return '00000000-0000-4000-8000-000000000000'
 }

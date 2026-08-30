@@ -20,6 +20,12 @@ import { runModelsDevRequest } from './models-dev-request'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
 import {
+  extractUtilityProjectSessionId as extractProjectSessionId,
+  extractUtilityRequestId as extractRequestId,
+  findUtilityHttpStatus as findHttpStatus,
+  safeUtilityStack as safeStack
+} from './shared/utility-message'
+import {
   latexImportWorkerErrorSchema,
   latexImportWorkerRequestSchema
 } from '../shared/contracts/latex-import'
@@ -284,20 +290,6 @@ function serializeModelError(
   }
 }
 
-function safeStack(stack: string, message: string): string {
-  const frames = stack.split('\n').slice(1).join('\n')
-  return `${message}${frames.length === 0 ? '' : `\n${frames}`}`.slice(0, 32_768)
-}
-
-function findHttpStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 5 || error === null || typeof error !== 'object') return undefined
-  const candidate = error as { status?: unknown; statusCode?: unknown; cause?: unknown }
-  const status = candidate.statusCode ?? candidate.status
-  return typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
-    ? status
-    : findHttpStatus(candidate.cause, depth + 1)
-}
-
 function findProviderCode(error: unknown, depth = 0): string | undefined {
   if (depth > 5 || error === null || typeof error !== 'object') return undefined
   const candidate = error as { providerCode?: unknown; cause?: unknown }
@@ -308,31 +300,6 @@ function findProviderCode(error: unknown, depth = 0): string | undefined {
     return candidate.providerCode
   }
   return findProviderCode(candidate.cause, depth + 1)
-}
-
-function extractRequestId(value: unknown): string {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    'requestId' in value &&
-    typeof value.requestId === 'string' &&
-    /^[0-9a-f-]{36}$/i.test(value.requestId)
-  ) {
-    return value.requestId
-  }
-  return '00000000-0000-4000-8000-000000000000'
-}
-
-function extractProjectSessionId(value: unknown): string | null {
-  if (
-    value !== null &&
-    typeof value === 'object' &&
-    'projectSessionId' in value &&
-    (typeof value.projectSessionId === 'string' || value.projectSessionId === null)
-  ) {
-    return value.projectSessionId
-  }
-  return null
 }
 
 function isLoggingPortMessage(

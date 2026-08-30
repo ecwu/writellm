@@ -61,6 +61,19 @@ interface SkillPackage {
   files: readonly DownloadedFile[]
 }
 
+interface SkillPublishState {
+  package: SkillPackage
+  stage: string
+  target: string
+  prior: string | null
+  priorMoved: boolean
+  published: boolean
+}
+
+export interface SkillServiceFaults {
+  beforePublishRename?: (skillId: string) => void | Promise<void>
+}
+
 interface InspectionRecord {
   expiresAt: number
   value: InspectGithubSkillResult
@@ -107,7 +120,8 @@ export class SkillService {
     private readonly database: AppDatabase,
     private readonly root: string,
     private readonly log: Logger,
-    private readonly fetchImpl: typeof fetch = fetch
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly faults: SkillServiceFaults = {}
   ) {
     validateCuratedSkillCatalog()
   }
@@ -774,12 +788,7 @@ export class SkillService {
   }
 
   async #publish(packages: readonly SkillPackage[]): Promise<void> {
-    const staged: Array<{
-      package: SkillPackage
-      stage: string
-      target: string
-      prior: string | null
-    }> = []
+    const staged: SkillPublishState[] = []
     await mkdir(this.root, { recursive: true })
     try {
       for (const skillPackage of packages) {
@@ -787,6 +796,15 @@ export class SkillService {
         await mkdir(parent, { recursive: true })
         const stage = join(parent, `.install-${randomUUID()}`)
         await mkdir(stage, { recursive: false })
+        const state: SkillPublishState = {
+          package: skillPackage,
+          stage,
+          target: join(parent, skillPackage.commit),
+          prior: null,
+          priorMoved: false,
+          published: false
+        }
+        staged.push(state)
         for (const file of skillPackage.files) {
           const destination = join(stage, ...file.path.split('/'))
           await mkdir(dirname(destination), { recursive: true })
@@ -797,11 +815,14 @@ export class SkillService {
           flag: 'wx',
           mode: 0o600
         })
-        const target = join(parent, skillPackage.commit)
-        const prior = await existingPriorPath(target, parent)
-        if (prior !== null) await rename(target, prior)
-        await rename(stage, target)
-        staged.push({ package: skillPackage, stage, target, prior })
+        state.prior = await existingPriorPath(state.target, parent)
+        if (state.prior !== null) {
+          await rename(state.target, state.prior)
+          state.priorMoved = true
+        }
+        await this.faults.beforePublishRename?.(skillPackage.skillId)
+        await rename(stage, state.target)
+        state.published = true
       }
 
       this.database.immediate((native) => {
@@ -857,10 +878,7 @@ export class SkillService {
         { event: 'skill.install.failed', err, skillIds: packages.map((item) => item.skillId) },
         'Writing skill installation failed'
       )
-      for (const item of staged.reverse()) {
-        await rm(item.target, { recursive: true, force: true }).catch(() => undefined)
-        if (item.prior !== null) await rename(item.prior, item.target).catch(() => undefined)
-      }
+      await this.#rollbackPublish(staged)
       throw new SkillServiceError('skill_install_failed', 'Writing skill installation failed', {
         cause: err
       })
@@ -885,6 +903,38 @@ export class SkillService {
       'Writing skills installed'
     )
     this.#changed()
+  }
+
+  async #rollbackPublish(staged: readonly SkillPublishState[]): Promise<void> {
+    for (const item of staged.toReversed()) {
+      await this.#rollbackStep(item, 'stage', () =>
+        rm(item.stage, { recursive: true, force: true })
+      )
+      if (item.published) {
+        await this.#rollbackStep(item, 'published_target', () =>
+          rm(item.target, { recursive: true, force: true })
+        )
+      }
+      if (item.priorMoved && item.prior !== null) {
+        const prior = item.prior
+        await this.#rollbackStep(item, 'prior_generation', () => rename(prior, item.target))
+      }
+    }
+  }
+
+  async #rollbackStep(
+    item: SkillPublishState,
+    step: 'stage' | 'published_target' | 'prior_generation',
+    rollback: () => Promise<unknown>
+  ): Promise<void> {
+    try {
+      await rollback()
+    } catch (err) {
+      this.log.error(
+        { event: 'skill.install.rollback_failed', err, skillId: item.package.skillId, step },
+        'Writing skill installation rollback step failed'
+      )
+    }
   }
 
   async #tree(repository: string, commit: string, signal: AbortSignal): Promise<GitHubTreeItem[]> {

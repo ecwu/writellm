@@ -35,6 +35,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   disabled release-candidate definition pin `pnpm/action-setup` v6.0.10, whose JavaScript action
   runs on Node 24. Project commands remain pinned to Node 24.15.0, matching Electron 43's embedded
   Node major.
+- Thermo-Nuclear P1 maintenance is complete. Writing Skill publication now tracks staging,
+  prior-generation movement, and publication as one compensating transaction; Agent tool schema
+  construction rejects unsupported roots instead of exposing empty grammar-sampler fields; and
+  tag-only CI verifies the canonical release tag, version, revision, and clean checkout before
+  dependency installation or platform builds.
+- Thermo-Nuclear structural remediation is complete. Shared worker protocol/error projection,
+  knowledge-filter SQL, BlockNote inline-text projection, and Agent model selection now have one
+  implementation each. AgentPanel, WritingWorkspace, provider settings, preload, Agent
+  session/mutation helpers, project history-restore recovery, and the two largest Agent test suites
+  are decomposed behind typed boundaries without changing product behavior.
 - Candidates `.31`–`.33` show that a standalone Linux Electron safeStorage probe is not evidence
   for the later application process: the probe selected `gnome_libsecret`, while every provider
   scenario later observed `basic_text`. The wrapper now reserves standalone Electron probing for

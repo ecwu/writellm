@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
@@ -162,6 +162,57 @@ describe('SkillService', () => {
 
     await service.reinstall(skillId)
     expect(service.snapshot().installed[0]?.enabled).toBe(false)
+    fixture.database.close()
+  })
+
+  it('restores the prior skill generation when publication fails after moving it aside', async () => {
+    const fixture = await createFixture()
+    const service = new SkillService(fixture.database, fixture.skillRoot, log, fixture.fetch)
+    await service.initialize()
+    await service.installE2eFixture({
+      repository: fixture.repository,
+      directory: fixture.directory,
+      commit: fixture.commit,
+      license: 'MIT',
+      files: [
+        {
+          path: 'SKILL.md',
+          bytes: Buffer.from(
+            '---\nname: demo-skill\ndescription: Original skill.\n---\nOriginal body.'
+          )
+        }
+      ]
+    })
+    const installed = service.snapshot().installed[0]
+    if (installed === undefined) throw new Error('Expected installed skill')
+    const parent = join(fixture.skillRoot, encodeURIComponent(installed.skillId))
+    const entrypoint = join(parent, fixture.commit, 'SKILL.md')
+    const original = await readFile(entrypoint)
+    const failing = new SkillService(fixture.database, fixture.skillRoot, log, fixture.fetch, {
+      beforePublishRename: () => {
+        throw new Error('injected publication failure')
+      }
+    })
+
+    await expect(
+      failing.installE2eFixture({
+        repository: fixture.repository,
+        directory: fixture.directory,
+        commit: fixture.commit,
+        license: 'MIT',
+        files: [
+          {
+            path: 'SKILL.md',
+            bytes: Buffer.from(
+              '---\nname: demo-skill\ndescription: Replacement skill.\n---\nReplacement body.'
+            )
+          }
+        ]
+      })
+    ).rejects.toMatchObject({ code: 'skill_install_failed' })
+
+    expect(await readFile(entrypoint)).toEqual(original)
+    expect(await readdir(parent)).toEqual([fixture.commit])
     fixture.database.close()
   })
 

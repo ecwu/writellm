@@ -1,9 +1,6 @@
 import { ArrowLeft, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type {
-  AgentModelSelection,
-  AgentProviderCatalog
-} from '../../../../shared/contracts/providers'
+import type { AgentModelSelection } from '../../../../shared/contracts/providers'
 import { ProviderLogo } from '@/components/provider-logo'
 import { Button } from '@/components/ui/button'
 import {
@@ -15,8 +12,10 @@ import {
   CommandList
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-
-type AvailablePreset = AgentProviderCatalog['presets'][number]
+import {
+  type AvailableAgentPreset as AvailablePreset,
+  findAgentModelSelection as findSelection
+} from './agent-model-selection'
 
 export function AgentModelPicker({
   presets,
@@ -154,14 +153,4 @@ export function AgentModelPicker({
       </PopoverContent>
     </Popover>
   )
-}
-
-function findSelection(
-  presets: AvailablePreset[],
-  selection: AgentModelSelection | null
-): { preset: AvailablePreset; model: AvailablePreset['models'][number] } | null {
-  if (selection === null) return null
-  const preset = presets.find((candidate) => candidate.presetId === selection.presetId)
-  const model = preset?.models.find((candidate) => candidate.id === selection.modelId)
-  return preset === undefined || model === undefined ? null : { preset, model }
 }

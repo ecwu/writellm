@@ -165,24 +165,56 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "0199fd2afffa96b955bb0641f1a58a65a6586965fbb006dbf701e2bf4bca7388",
+      "sourceSha256": "798110fee1f0ba0832a62c54efe5c963c90bd719fd6cac5df469dd877379db91",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",
-        "releases a reserved slot when asynchronous run preparation fails",
+        "releases a reserved slot when asynchronous run preparation fails"
+      ]
+    },
+    {
+      "id": "agent-interruption-messages-and-recovery",
+      "category": "agent",
+      "source": "src/main/agent/session-service.messages.test.ts",
+      "sourceSha256": "af85dff6c4251186bffbcacaec3ad6d7629917feef51282c22b62b913a4cd144",
+      "tests": [
         "fails closed without publishing an answer when requested Skills were not loaded",
         "retries one provider overflow only before activity and records a fresh model request",
         "does not replay a provider overflow after assistant activity",
         "records an exhausted active read batch without replaying prior tool activity",
-        "authorizes exactly one tool-free finalization call after a run reaches 180 events",
-        "rejects a run above the 2,000-event compaction ceiling without calling the provider",
         "recovers running rows after relaunch without claiming a false completion",
         "closes an unmatched compaction start as process_restarted without resuming model work",
-        "persists partial output as interrupted and aborts the model request on project close",
+        "persists partial output as interrupted and aborts the model request on project close"
+      ]
+    },
+    {
+      "id": "agent-review-and-compaction-recovery",
+      "category": "agent",
+      "source": "src/main/agent/session-service.review.test.ts",
+      "sourceSha256": "1f1fed98717f63b7b5f3266404371eeb67c82a6b573682e9b9e83897edf45c7e",
+      "tests": [
         "persists manual review as a completed wait state and locks only that conversation",
-        "persists tool provenance and authorizes exactly one linked post-tool model call",
-        "rejects a tool request carrying a mismatched project-session capability",
         "stops before provider work when automatic failure would omit a user turn",
+        "rejects a run above the 2,000-event compaction ceiling without calling the provider"
+      ]
+    },
+    {
+      "id": "agent-tool-capability-recovery",
+      "category": "agent",
+      "source": "src/main/agent/session-service.tools.test.ts",
+      "sourceSha256": "b544e3f8b357233813f0000c846b3a638fd0273864d716a73399487a74bc4e75",
+      "tests": [
+        "persists tool provenance and authorizes exactly one linked post-tool model call",
+        "authorizes exactly one tool-free finalization call after a run reaches 180 events",
+        "rejects a tool request carrying a mismatched project-session capability"
+      ]
+    },
+    {
+      "id": "agent-history-title-and-archive-recovery",
+      "category": "agent",
+      "source": "src/main/agent/session-service.compaction.test.ts",
+      "sourceSha256": "4c583a0deceb8fad63f70db36c7bbe649dfe1932e762665ac04fadfaa408179a",
+      "tests": [
         "keeps the latest successful rolling checkpoint when a later step fails",
         "keeps the fallback on title failure and cancels an in-flight title request on close",
         "archives and restores idle conversations idempotently while rejecting archived writes"

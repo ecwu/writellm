@@ -6,6 +6,7 @@ import {
   AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES,
   AGENT_MODEL_VISIBLE_TOOL_ENVELOPE,
   AGENT_MODEL_VISIBLE_TOOL_SPECS,
+  ensureModelToolObjectRoot,
   WRITING_CORE_TOOL_NAMES,
   WRITING_TOOL_GROUP_TOOL_NAMES
 } from '../shared/agent-tool-specs'
@@ -171,6 +172,12 @@ describe('Pi Agent tool TypeBox schemas', () => {
         }
       })
     ).not.toThrow()
+  })
+
+  it('fails closed instead of publishing an empty object root for an unsupported schema', () => {
+    expect(() =>
+      ensureModelToolObjectRoot({ anyOf: [{ type: 'string' }, { type: 'number' }] })
+    ).toThrow('object root or an object-only root union')
   })
 
   it('matches the authoritative Zod field and bound surface', () => {
