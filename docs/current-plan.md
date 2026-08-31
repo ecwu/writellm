@@ -28,12 +28,13 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Candidate `v0.2026.8.49` is fully built and locally verified for the completed Reference citekey
-  migration maintenance, pending the authorized source commit, annotated tag, and atomic GitHub
-  push of `main` plus the tag. The no-Team-ID macOS arm64 gate verified 31 recovery fixtures from
-  29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34 packaged Electron
-  scenarios. It produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`. Signing,
-  notarization, GitHub Release creation, promotion, and publication remain outside scope.
+- Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the
+  completed Reference citekey migration maintenance. The no-Team-ID macOS arm64 gate verified 31
+  recovery fixtures from 29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34
+  packaged Electron scenarios. It produced the unpacked App, DMG, and ZIP under
+  `dist/macos-arm64`. Commit `39e9a84` and annotated tag `v0.2026.8.49` were atomically pushed to
+  GitHub. Signing, notarization, GitHub Release creation, promotion, and publication remain outside
+  scope.
 
 - Reference citekey migration maintenance is complete. Citation Coverage now resolves canonical
   manuscript citations by exact project citekey and presents Reference title/citekey ahead of the

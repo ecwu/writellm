@@ -1234,3 +1234,7 @@ maintenance without turning the active tracker back into a historical log.
   `dist/macos-arm64`. The recovery fixture manifest was refreshed for the migrated Citation
   Coverage E2E assertions. Source commit, tag, and push remain pending; Developer ID signing,
   notarization, GitHub Release creation, promotion, and publication were not performed.
+- Committed the verified source as `39e9a84`, created annotated tag `v0.2026.8.49`, and atomically
+  pushed `main` plus the tag to GitHub under explicit authorization. The immutable tag points to
+  the verified source commit. Apple Developer ID signing, notarization, GitHub Release creation,
+  promotion, and publication were not performed.

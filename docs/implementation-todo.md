@@ -19,7 +19,7 @@ Status markers:
 
 ## Active and paused work
 
-- [~] Candidate `v0.2026.8.49`: verify and package the completed Reference citekey migration as a
+- [x] Candidate `v0.2026.8.49`: verify and package the completed Reference citekey migration as a
   no-Team-ID macOS arm64 trial App, then commit, create an annotated tag, and atomically push
   `main` plus the tag to GitHub under explicit authorization.
 
