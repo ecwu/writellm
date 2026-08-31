@@ -34,12 +34,10 @@ import {
 } from '../shared/contracts/search'
 import {
   bibliographyChooseInputSchema,
-  bibliographyImportInputSchema,
-  bibliographyImportResultSchema,
-  bibliographyAttachmentPreviewInputSchema,
-  bibliographyAttachmentPreviewSchema,
-  bibliographyAttachmentConfirmInputSchema,
-  bibliographyAttachmentConfirmResultSchema,
+  bibliographyPrepareImportInputSchema,
+  bibliographyImportPlanSchema,
+  bibliographyConfirmImportInputSchema,
+  bibliographyConfirmImportResultSchema,
   bibliographyExportInputSchema,
   bibliographyExportResultSchema,
   legacyCitationConversionPlanInputSchema,
@@ -88,27 +86,19 @@ export const knowledgeApi: DesktopApi['knowledge'] = {
       )
     )
   },
-  async importReferences(input) {
-    return bibliographyImportResultSchema.parse(
+  async prepareReferenceImport(input) {
+    return bibliographyImportPlanSchema.parse(
       await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceImportCandidates,
-        bibliographyImportInputSchema.parse(input)
+        IPC_CHANNELS.referencePrepareImport,
+        bibliographyPrepareImportInputSchema.parse(input)
       )
     )
   },
-  async previewReferenceAttachments(input) {
-    return bibliographyAttachmentPreviewSchema.parse(
+  async confirmReferenceImport(input) {
+    return bibliographyConfirmImportResultSchema.parse(
       await ipcRenderer.invoke(
-        IPC_CHANNELS.referencePreviewAttachments,
-        bibliographyAttachmentPreviewInputSchema.parse(input)
-      )
-    )
-  },
-  async confirmReferenceAttachments(input) {
-    return bibliographyAttachmentConfirmResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceConfirmAttachments,
-        bibliographyAttachmentConfirmInputSchema.parse(input)
+        IPC_CHANNELS.referenceConfirmImport,
+        bibliographyConfirmImportInputSchema.parse(input)
       )
     )
   },

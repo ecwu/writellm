@@ -8,6 +8,7 @@ import {
   referenceItemSchema,
   referenceListResultSchema,
   type BibliographyConnector,
+  type BibliographyImportTarget,
   type BibliographySnapshot,
   type CslItem,
   type ReferenceItem,
@@ -150,6 +151,31 @@ export class ReferenceLibraryService {
         customStyleSha256: row.custom_style_sha256
       }
     })
+  }
+
+  eligibleImportTargets(): BibliographyImportTarget[] {
+    const targets: BibliographyImportTarget[] = []
+    for (const reference of this.list()) {
+      if (reference.metadataCompleteness === 'incomplete' && reference.syncStatus === 'unbound') {
+        targets.push({
+          referenceId: reference.referenceId,
+          citationKey: reference.citationKey,
+          title: reference.title,
+          kind: 'complete_incomplete',
+          knowledgeItemIds: reference.knowledgeItemIds
+        })
+      }
+      if (reference.syncStatus === 'relink_required') {
+        targets.push({
+          referenceId: reference.referenceId,
+          citationKey: reference.citationKey,
+          title: reference.title,
+          kind: 'relink',
+          knowledgeItemIds: reference.knowledgeItemIds
+        })
+      }
+    }
+    return targets
   }
 
   setSettings(styleId: string, locale: string): ReferenceSettings {
@@ -370,6 +396,195 @@ export class ReferenceLibraryService {
     return this.list()
   }
 
+  materializeCandidate(options: {
+    connectorId: string
+    sourceFormat: 'better-csl-json' | 'bibtex'
+    sourceItem: ParsedReferenceSourceItem
+    targetReferenceId: string | null
+  }): string {
+    const referenceId = this.#database.immediate((database) => {
+      const now = new Date().toISOString()
+      const transaction = database.transaction(() => {
+        const upstreamOwner = database
+          .prepare(
+            `SELECT reference_id FROM reference_import_bindings
+              WHERE connector_id = ? AND upstream_key = ?`
+          )
+          .pluck()
+          .get(options.connectorId, options.sourceItem.upstreamKey) as string | undefined
+        if (upstreamOwner !== undefined) {
+          if (options.targetReferenceId !== null && options.targetReferenceId !== upstreamOwner) {
+            throw new Error('Bibliography candidate is already bound to another Reference')
+          }
+          return upstreamOwner
+        }
+
+        if (options.targetReferenceId !== null) {
+          const target = database
+            .prepare(
+              `SELECT item.metadata_completeness, binding.connector_id, binding.sync_status
+                 FROM reference_items AS item
+                 LEFT JOIN reference_import_bindings AS binding USING (reference_id)
+                WHERE item.reference_id = ?`
+            )
+            .get(options.targetReferenceId) as
+            | {
+                metadata_completeness: 'complete' | 'partial' | 'incomplete'
+                connector_id: string | null
+                sync_status: 'synced' | 'changed' | 'relink_required' | 'source_unavailable' | null
+              }
+            | undefined
+          const mayComplete =
+            target?.metadata_completeness === 'incomplete' && target.connector_id === null
+          const mayRelink =
+            target?.connector_id === options.connectorId && target.sync_status === 'relink_required'
+          if (!mayComplete && !mayRelink) {
+            throw new Error('Selected Reference is not eligible for completion or relinking')
+          }
+          updateReferenceMetadata(database, options.targetReferenceId, options.sourceItem.item, now)
+          if (mayRelink) {
+            database
+              .prepare(
+                `UPDATE reference_import_bindings
+                    SET upstream_key = ?, source_format = ?, source_fingerprint = ?,
+                        sync_status = 'synced', last_synced_at = ?, updated_at = ?
+                  WHERE reference_id = ?`
+              )
+              .run(
+                options.sourceItem.upstreamKey,
+                options.sourceFormat,
+                options.sourceItem.fingerprint,
+                now,
+                now,
+                options.targetReferenceId
+              )
+          } else {
+            database
+              .prepare(
+                `INSERT INTO reference_import_bindings (
+                  reference_id, connector_id, upstream_key, source_format, source_fingerprint,
+                  sync_status, last_synced_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, 'synced', ?, ?, ?)`
+              )
+              .run(
+                options.targetReferenceId,
+                options.connectorId,
+                options.sourceItem.upstreamKey,
+                options.sourceFormat,
+                options.sourceItem.fingerprint,
+                now,
+                now,
+                now
+              )
+          }
+          return options.targetReferenceId
+        }
+
+        const reservedKeys = new Set(
+          database.prepare('SELECT citation_key FROM reference_items').pluck().all() as string[]
+        )
+        const createdReferenceId = randomUUID()
+        const citationKey = createCitationKey({ ...options.sourceItem, reservedKeys })
+        insertReference(database, createdReferenceId, citationKey, options.sourceItem, now)
+        database
+          .prepare(
+            `INSERT INTO reference_import_bindings (
+              reference_id, connector_id, upstream_key, source_format, source_fingerprint,
+              sync_status, last_synced_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 'synced', ?, ?, ?)`
+          )
+          .run(
+            createdReferenceId,
+            options.connectorId,
+            options.sourceItem.upstreamKey,
+            options.sourceFormat,
+            options.sourceItem.fingerprint,
+            now,
+            now,
+            now
+          )
+        return createdReferenceId
+      })
+      return transaction.immediate()
+    })
+    this.#log.info(
+      {
+        event: 'reference.import.materialized',
+        connectorId: options.connectorId,
+        referenceId,
+        targetMode: options.targetReferenceId === null ? 'new' : 'existing'
+      },
+      'Bibliography Reference materialized'
+    )
+    return referenceId
+  }
+
+  attachKnowledgeFailClosed(
+    referenceId: string,
+    knowledgeItemId: string,
+    relationship: 'primary' | 'supplement'
+  ): { state: 'linked' | 'already' | 'conflict'; conflictingReferenceId: string | null } {
+    const result = this.#database.immediate((database) => {
+      const existing = database
+        .prepare(
+          `SELECT reference_id, relationship FROM knowledge_reference_links
+            WHERE knowledge_item_id = ?`
+        )
+        .get(knowledgeItemId) as
+        | { reference_id: string; relationship: 'primary' | 'supplement' }
+        | undefined
+      if (existing !== undefined && existing.reference_id !== referenceId) {
+        return { state: 'conflict' as const, conflictingReferenceId: existing.reference_id }
+      }
+      const now = new Date().toISOString()
+      const transaction = database.transaction(() => {
+        if (relationship === 'primary') {
+          database
+            .prepare(
+              `UPDATE knowledge_reference_links SET relationship = 'supplement'
+                WHERE reference_id = ? AND relationship = 'primary'`
+            )
+            .run(referenceId)
+        }
+        if (existing === undefined) {
+          database
+            .prepare(
+              `INSERT INTO knowledge_reference_links
+                (reference_id, knowledge_item_id, relationship, created_at)
+               VALUES (?, ?, ?, ?)`
+            )
+            .run(referenceId, knowledgeItemId, relationship, now)
+        } else if (existing.relationship !== relationship) {
+          database
+            .prepare(
+              `UPDATE knowledge_reference_links SET relationship = ?
+                WHERE reference_id = ? AND knowledge_item_id = ?`
+            )
+            .run(relationship, referenceId, knowledgeItemId)
+        }
+      })
+      transaction.immediate()
+      return {
+        state:
+          existing !== undefined && existing.relationship === relationship
+            ? ('already' as const)
+            : ('linked' as const),
+        conflictingReferenceId: null
+      }
+    })
+    this.#log.info(
+      {
+        event: 'reference.knowledge_attachment.resolved',
+        referenceId,
+        knowledgeItemId,
+        relationship,
+        resolution: result.state
+      },
+      'Knowledge attachment association resolved'
+    )
+    return result
+  }
+
   referenceIdForBinding(connectorId: string, upstreamKey: string): string | null {
     return this.#database.immediate(
       (database) =>
@@ -380,6 +595,16 @@ export class ReferenceLibraryService {
           )
           .pluck()
           .get(connectorId, upstreamKey) as string | undefined) ?? null
+    )
+  }
+
+  referenceIdForKnowledge(knowledgeItemId: string): string | null {
+    return this.#database.immediate(
+      (database) =>
+        (database
+          .prepare(`SELECT reference_id FROM knowledge_reference_links WHERE knowledge_item_id = ?`)
+          .pluck()
+          .get(knowledgeItemId) as string | undefined) ?? null
     )
   }
 

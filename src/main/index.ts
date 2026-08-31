@@ -13,7 +13,10 @@ import { registerAppProtocol, registerAppScheme } from './bootstrap/protocol'
 import { createShutdownCoordinator } from './bootstrap/shutdown-coordinator'
 import { createWindow } from './bootstrap/windows'
 import { createProjectDialogTestSelection } from './ipc/project-dialog-test-seam'
-import { createKnowledgeDialogTestSelection } from './ipc/knowledge-dialog-test-seam'
+import {
+  createBibliographyDialogTestSelection,
+  createKnowledgeDialogTestSelection
+} from './ipc/knowledge-dialog-test-seam'
 import { registerProjectIpc } from './ipc/project-ipc'
 import { registerJobIpc } from './ipc/job-ipc'
 import { registerEditorIpc } from './ipc/editor-ipc'
@@ -756,6 +759,9 @@ if (!hasSingleInstanceLock) {
         ),
         pdfPreview,
         bibliographyConnectors,
+        selectBibliographyForTest: createBibliographyDialogTestSelection(
+          loggerSystem.createModuleLogger('ipc', 'bibliography-dialog')
+        ),
         citationFormatting
       })
       const unregisterProviderIpc = registerProviderIpc({

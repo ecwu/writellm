@@ -195,7 +195,9 @@ import type {
   NotebookSourceScope
 } from '../shared/contracts/notebook'
 import type {
-  BibliographyAttachmentPreview,
+  BibliographyConfirmImportSelection,
+  BibliographyImportPlan,
+  BibliographyImportOutcome,
   BibliographySnapshot,
   FormattedReferenceSnapshot,
   LegacyCitationConversionPlan,
@@ -543,24 +545,19 @@ export interface DesktopApi {
     bibliographySnapshot(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
     chooseBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
     refreshBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
-    importReferences(input: {
+    prepareReferenceImport(input: {
       projectSessionId: string
       connectorId: string
       candidateIds: string[]
-      importPdf?: boolean
-    }): Promise<ReferenceItem[]>
-    previewReferenceAttachments(input: {
-      projectSessionId: string
-      connectorId: string
-      candidateIds: string[]
-    }): Promise<BibliographyAttachmentPreview>
-    confirmReferenceAttachments(input: {
+      includePdf: boolean
+    }): Promise<BibliographyImportPlan>
+    confirmReferenceImport(input: {
       projectSessionId: string
       previewId: string
-      attachmentIds: string[]
+      selections: BibliographyConfirmImportSelection[]
     }): Promise<{
       references: ReferenceItem[]
-      importedKnowledgeItemIds: string[]
+      outcomes: BibliographyImportOutcome[]
     }>
     exportBibliography(input: {
       projectSessionId: string

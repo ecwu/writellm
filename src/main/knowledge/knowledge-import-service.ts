@@ -35,7 +35,10 @@ export class KnowledgeImportService {
   readonly #database: ProjectDatabase
   readonly #log: Pick<Logger, 'info' | 'error'>
   readonly #faults: { beforeTempOpen?(): void | Promise<void>; beforeImportRowCreate?(): void }
-  readonly #onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
+  readonly #onStored?: (
+    knowledgeItem: KnowledgeItem,
+    context: { ensureIncompleteReference: boolean }
+  ) => void | Promise<void>
   readonly #onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   readonly #controllers = new Map<string, AbortController>()
   readonly #operations = new Map<string, Promise<KnowledgeItem>>()
@@ -50,7 +53,10 @@ export class KnowledgeImportService {
     database: ProjectDatabase
     log: Pick<Logger, 'info' | 'error'>
     faults?: { beforeTempOpen?(): void | Promise<void>; beforeImportRowCreate?(): void }
-    onStored?: (knowledgeItem: KnowledgeItem) => void | Promise<void>
+    onStored?: (
+      knowledgeItem: KnowledgeItem,
+      context: { ensureIncompleteReference: boolean }
+    ) => void | Promise<void>
     onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   }) {
     this.#filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot)
@@ -124,8 +130,11 @@ export class KnowledgeImportService {
     return this.list()
   }
 
-  async importPathWithIdentity(path: string): Promise<KnowledgeItem> {
-    const [started] = await this.startImportPaths([path])
+  async importPathWithIdentity(
+    path: string,
+    options: { ensureIncompleteReference?: boolean } = {}
+  ): Promise<KnowledgeItem> {
+    const [started] = await this.startImportPaths([path], options)
     if (started === undefined) throw new Error('Knowledge import did not create an item')
     const operation = this.#operations.get(started.knowledgeItemId)
     if (operation !== undefined) await operation
@@ -138,7 +147,10 @@ export class KnowledgeImportService {
     return item
   }
 
-  async startImportPaths(paths: readonly string[]): Promise<KnowledgeItem[]> {
+  async startImportPaths(
+    paths: readonly string[],
+    options: { ensureIncompleteReference?: boolean } = {}
+  ): Promise<KnowledgeItem[]> {
     if (paths.length === 0 || paths.length > 50) {
       throw new KnowledgeImportError('batch_count_invalid', 'Choose between 1 and 50 files')
     }
@@ -152,7 +164,7 @@ export class KnowledgeImportService {
           if (!this.#acceptingImports) {
             throw new KnowledgeImportError('project_closing', 'The project is closing')
           }
-          this.#startImport(path)
+          this.#startImport(path, options.ensureIncompleteReference !== false)
         })
       } catch (err) {
         if (err instanceof KnowledgeImportError && err.code === 'project_closing') throw err
@@ -293,7 +305,7 @@ export class KnowledgeImportService {
     }
   }
 
-  #startImport(sourcePath: string): void {
+  #startImport(sourcePath: string, ensureIncompleteReference: boolean): void {
     this.#faults.beforeImportRowCreate?.()
     const knowledgeItemId = randomUUID()
     const importId = randomUUID()
@@ -326,6 +338,7 @@ export class KnowledgeImportService {
       displayName,
       knowledgeItemId,
       importId,
+      ensureIncompleteReference,
       signal: controller.signal
     })
     this.#operations.set(knowledgeItemId, operation)
@@ -343,6 +356,7 @@ export class KnowledgeImportService {
     displayName: string
     knowledgeItemId: string
     importId: string
+    ensureIncompleteReference: boolean
     signal: AbortSignal
   }): Promise<KnowledgeItem> {
     const startedAt = Date.now()
@@ -469,7 +483,9 @@ export class KnowledgeImportService {
       })
       if (publication.duplicate) return publication.item
       const stored = publication.item
-      await this.#onStored?.(stored)
+      await this.#onStored?.(stored, {
+        ensureIncompleteReference: input.ensureIncompleteReference
+      })
       this.#log.info(
         {
           event: 'knowledge.import.stored',

@@ -12,6 +12,7 @@ import {
 
 export const PROJECT_DIALOG_PATHS_ENV = 'WRITELLM_E2E_PROJECT_DIALOG_PATHS'
 export const KNOWLEDGE_DIALOG_PATHS_ENV = 'WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS'
+export const BIBLIOGRAPHY_DIALOG_PATH_ENV = 'WRITELLM_E2E_BIBLIOGRAPHY_DIALOG_PATH'
 export const WINDOW_PRESENTATION_ENV = 'WRITELLM_E2E_WINDOW_MODE'
 export const EXECUTABLE_PATH_ENV = 'WRITELLM_E2E_EXECUTABLE_PATH'
 
@@ -21,6 +22,7 @@ export interface AppLaunchOptions {
   userData: string
   dialogPaths?: string[]
   knowledgeDialogPaths?: string[]
+  bibliographyDialogPath?: string
   windowPresentation?: WindowPresentation
   onboarding?: 'complete' | 'show'
   env?: Record<string, string>
@@ -67,7 +69,8 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       TZ: 'Europe/Dublin',
       [WINDOW_PRESENTATION_ENV]: windowPresentation === 'interactive' ? 'interactive' : 'silent',
       [PROJECT_DIALOG_PATHS_ENV]: JSON.stringify(options.dialogPaths ?? []),
-      [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? [])
+      [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? []),
+      [BIBLIOGRAPHY_DIALOG_PATH_ENV]: options.bibliographyDialogPath
     }
   })
   if (process.platform === 'linux') {

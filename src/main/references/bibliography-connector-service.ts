@@ -5,8 +5,11 @@ import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 import type { Logger } from 'pino'
 import {
   BIBLIOGRAPHY_SOURCE_MAX_BYTES,
+  bibliographyImportPlanSchema,
   type BibliographyConnector,
-  type BibliographyAttachmentPreview,
+  type BibliographyConfirmImportSelection,
+  type BibliographyImportOutcome,
+  type BibliographyImportPlan,
   type BibliographySnapshot
 } from '../../shared/contracts/references'
 import type { KnowledgeImportService } from '../knowledge/knowledge-import-service'
@@ -24,16 +27,17 @@ interface ActiveSnapshot {
   readonly snapshot: BibliographySnapshot
 }
 
-interface PrivateAttachmentPreview {
+interface PrivateImportPlan {
   readonly projectId: string
   readonly connectorId: string
   readonly candidateIds: ReadonlySet<string>
+  readonly sourceFingerprint: string
   readonly expiresAt: number
   readonly attachments: ReadonlyMap<
     string,
     { candidateId: string; upstreamKey: string; path: string }
   >
-  readonly public: BibliographyAttachmentPreview
+  readonly public: BibliographyImportPlan
 }
 
 export class BibliographyConnectorService {
@@ -41,22 +45,25 @@ export class BibliographyConnectorService {
   readonly #log: ConnectorLog
   readonly #resolveLibrary: (projectId: string) => ReferenceLibraryService | null
   readonly #resolveKnowledgeImports: (projectId: string) => KnowledgeImportService | null
+  readonly #resolveAttachmentPaths: (citationKey: string) => Promise<string[]>
   readonly #snapshots = new Map<string, ActiveSnapshot>()
   readonly #watchers = new Map<string, FSWatcher>()
   readonly #watchedPaths = new Map<string, string>()
   readonly #debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  readonly #attachmentPreviews = new Map<string, PrivateAttachmentPreview>()
+  readonly #importPlans = new Map<string, PrivateImportPlan>()
 
   constructor(options: {
     repository: BibliographyConnectorRepository
     log: ConnectorLog
     resolveLibrary: (projectId: string) => ReferenceLibraryService | null
     resolveKnowledgeImports: (projectId: string) => KnowledgeImportService | null
+    resolveAttachmentPaths?: (citationKey: string) => Promise<string[]>
   }) {
     this.#repository = options.repository
     this.#log = options.log
     this.#resolveLibrary = options.resolveLibrary
     this.#resolveKnowledgeImports = options.resolveKnowledgeImports
+    this.#resolveAttachmentPaths = options.resolveAttachmentPaths ?? betterBibtexAttachmentPaths
   }
 
   async connect(projectId: string, selectedPath: string): Promise<BibliographySnapshot> {
@@ -135,11 +142,12 @@ export class BibliographyConnectorService {
     }
   }
 
-  importCandidates(options: {
+  async prepareImport(options: {
     projectId: string
     connectorId: string
     candidateIds: ReadonlySet<string>
-  }): ReturnType<ReferenceLibraryService['importCandidates']> {
+    includePdf: boolean
+  }): Promise<BibliographyImportPlan> {
     const connector = this.#repository.find(options.connectorId)
     const active = this.#snapshots.get(options.connectorId)
     const library = this.#resolveLibrary(options.projectId)
@@ -151,42 +159,33 @@ export class BibliographyConnectorService {
     ) {
       throw new Error('Bibliography snapshot is unavailable or stale')
     }
-    return library.importCandidates({
-      connectorId: options.connectorId,
-      sourceFormat: connector.sourceFormat,
-      source: active.parsed,
-      candidateIds: options.candidateIds
-    })
-  }
-
-  async previewAttachments(options: {
-    projectId: string
-    connectorId: string
-    candidateIds: ReadonlySet<string>
-  }): Promise<BibliographyAttachmentPreview> {
-    const connector = this.#repository.find(options.connectorId)
-    const active = this.#snapshots.get(options.connectorId)
-    if (connector === null || connector.projectId !== options.projectId || active === undefined) {
-      throw new Error('Bibliography snapshot is unavailable or stale')
+    if (options.includePdf && options.candidateIds.size > 50) {
+      throw new Error('PDF import review is limited to 50 References')
     }
     const selected = active.parsed.items.filter((item) =>
       options.candidateIds.has(item.fingerprint)
     )
     if (selected.length !== options.candidateIds.size) {
-      throw new Error('One or more attachment candidates are stale')
+      throw new Error('One or more bibliography candidates are stale')
     }
     const previewId = randomUUID()
     const attachments = new Map<
       string,
       { candidateId: string; upstreamKey: string; path: string }
     >()
-    const publicAttachments: BibliographyAttachmentPreview['attachments'] = []
-    const unavailableCandidateIds: string[] = []
+    const candidates = new Map(
+      active.snapshot.candidates.map((candidate) => [candidate.candidateId, candidate])
+    )
+    const items: BibliographyImportPlan['items'] = []
     for (const item of selected) {
-      let rawPaths: readonly string[] = item.attachmentPaths
-      if (connector.sourceFormat === 'better-csl-json') {
+      const candidate = candidates.get(item.fingerprint)
+      if (candidate === undefined || candidate.alreadyImportedReferenceId !== null) {
+        throw new Error('Bibliography candidate is already imported or unavailable')
+      }
+      let rawPaths: readonly string[] = options.includePdf ? item.attachmentPaths : []
+      if (options.includePdf && connector.sourceFormat === 'better-csl-json') {
         try {
-          rawPaths = await betterBibtexAttachmentPaths(item.upstreamKey)
+          rawPaths = await this.#resolveAttachmentPaths(item.upstreamKey)
         } catch (err) {
           this.#log.warn(
             {
@@ -200,8 +199,9 @@ export class BibliographyConnectorService {
           rawPaths = []
         }
       }
-      let validForItem = 0
+      const publicAttachments: BibliographyImportPlan['items'][number]['attachments'] = []
       for (const rawPath of rawPaths.slice(0, 20)) {
+        if (attachments.size >= 100) break
         try {
           const candidatePath = isAbsolute(rawPath)
             ? rawPath
@@ -219,7 +219,6 @@ export class BibliographyConnectorService {
             fileName: basename(inspected.path),
             byteSize: inspected.byteSize
           })
-          validForItem += 1
         } catch (err) {
           this.#log.warn(
             {
@@ -232,34 +231,46 @@ export class BibliographyConnectorService {
           )
         }
       }
-      if (validForItem === 0) unavailableCandidateIds.push(item.fingerprint)
+      items.push({
+        ...candidate,
+        pdfStatus: options.includePdf
+          ? publicAttachments.length > 0
+            ? 'available'
+            : 'unavailable'
+          : 'not_requested',
+        attachments: publicAttachments
+      })
     }
-    const publicPreview = {
+    const expiresAt = Date.now() + 10 * 60_000
+    const publicPreview = bibliographyImportPlanSchema.parse({
       previewId,
-      attachments: publicAttachments,
-      unavailableCandidateIds
-    }
-    this.#attachmentPreviews.set(previewId, {
+      includePdf: options.includePdf,
+      items,
+      eligibleTargets: library.eligibleImportTargets(),
+      expiresAt: new Date(expiresAt).toISOString()
+    })
+    this.#importPlans.set(previewId, {
       projectId: options.projectId,
       connectorId: options.connectorId,
       candidateIds: options.candidateIds,
-      expiresAt: Date.now() + 10 * 60_000,
+      sourceFingerprint: active.parsed.sourceFingerprint,
+      expiresAt,
       attachments,
       public: publicPreview
     })
     return publicPreview
   }
 
-  async confirmAttachments(options: {
+  async confirmImport(options: {
     projectId: string
     previewId: string
-    attachmentIds: ReadonlySet<string>
+    selections: readonly BibliographyConfirmImportSelection[]
   }): Promise<{
     references: ReturnType<ReferenceLibraryService['list']>
-    importedKnowledgeItemIds: string[]
+    outcomes: BibliographyImportOutcome[]
   }> {
-    const preview = this.#attachmentPreviews.get(options.previewId)
-    this.#attachmentPreviews.delete(options.previewId)
+    const preview = this.#importPlans.get(options.previewId)
+    this.#importPlans.delete(options.previewId)
     if (
       preview === undefined ||
       preview.projectId !== options.projectId ||
@@ -270,29 +281,220 @@ export class BibliographyConnectorService {
     const library = this.#resolveLibrary(options.projectId)
     const imports = this.#resolveKnowledgeImports(options.projectId)
     if (library === null || imports === null) throw new Error('Bibliography project is not active')
-    this.importCandidates({
-      projectId: options.projectId,
-      connectorId: preview.connectorId,
-      candidateIds: preview.candidateIds
-    })
-    const importedKnowledgeItemIds: string[] = []
-    const primaryReferenceIds = new Set<string>()
-    for (const attachmentId of options.attachmentIds) {
-      const attachment = preview.attachments.get(attachmentId)
-      if (attachment === undefined) throw new Error('Attachment selection is stale')
-      await inspectPdfAttachment(attachment.path)
-      const knowledge = await imports.importPathWithIdentity(attachment.path)
-      const referenceId = library.referenceIdForBinding(preview.connectorId, attachment.upstreamKey)
-      if (referenceId === null) throw new Error('Imported Reference binding is unavailable')
-      library.linkKnowledge(
-        referenceId,
-        knowledge.knowledgeItemId,
-        primaryReferenceIds.has(referenceId) ? 'supplement' : 'primary'
-      )
-      primaryReferenceIds.add(referenceId)
-      importedKnowledgeItemIds.push(knowledge.knowledgeItemId)
+    const connector = this.#repository.find(preview.connectorId)
+    const active = this.#snapshots.get(preview.connectorId)
+    if (
+      connector === null ||
+      connector.projectId !== options.projectId ||
+      active === undefined ||
+      active.parsed.sourceFingerprint !== preview.sourceFingerprint
+    ) {
+      throw new Error('Bibliography snapshot changed; review the import again')
     }
-    return { references: library.list(), importedKnowledgeItemIds }
+    if (options.selections.length !== preview.candidateIds.size) {
+      throw new Error('Every prepared Reference must be confirmed exactly once')
+    }
+    const sourceItems = new Map(
+      active.parsed.items.map((item) => [item.fingerprint, item] as const)
+    )
+    const eligibleTargets = new Set(
+      library.eligibleImportTargets().map((target) => target.referenceId)
+    )
+    const selectedAttachmentIds = new Set<string>()
+    for (const selection of options.selections) {
+      if (!preview.candidateIds.has(selection.candidateId)) {
+        throw new Error('Confirmed Reference is not part of this import plan')
+      }
+      if (
+        selection.targetReferenceId !== null &&
+        !eligibleTargets.has(selection.targetReferenceId)
+      ) {
+        throw new Error('Selected Reference target is no longer eligible')
+      }
+      for (const attachmentId of [
+        selection.primaryAttachmentId,
+        ...selection.supplementAttachmentIds
+      ]) {
+        if (attachmentId === null) continue
+        const attachment = preview.attachments.get(attachmentId)
+        if (
+          attachment === undefined ||
+          attachment.candidateId !== selection.candidateId ||
+          selectedAttachmentIds.has(attachmentId)
+        ) {
+          throw new Error('Attachment selection is stale or belongs to another Reference')
+        }
+        selectedAttachmentIds.add(attachmentId)
+      }
+    }
+
+    const outcomes: BibliographyImportOutcome[] = []
+    for (const selection of options.selections) {
+      const sourceItem = sourceItems.get(selection.candidateId)
+      if (sourceItem === undefined) {
+        outcomes.push(failedOutcome(selection.candidateId, 'candidate_stale'))
+        continue
+      }
+      let primaryKnowledgeId: string | null = null
+      let attachmentError: BibliographyImportOutcome['errorCode'] = null
+      if (selection.primaryAttachmentId !== null) {
+        const primary = preview.attachments.get(selection.primaryAttachmentId)
+        if (primary === undefined) {
+          outcomes.push(failedOutcome(selection.candidateId, 'attachment_unavailable'))
+          continue
+        }
+        try {
+          await inspectPdfAttachment(primary.path)
+          const knowledge = await imports.importPathWithIdentity(primary.path, {
+            ensureIncompleteReference: false
+          })
+          const owner = library.referenceIdForKnowledge(knowledge.knowledgeItemId)
+          if (owner !== null && owner !== selection.targetReferenceId) {
+            outcomes.push(failedOutcome(selection.candidateId, 'pdf_already_linked'))
+            continue
+          }
+          primaryKnowledgeId = knowledge.knowledgeItemId
+        } catch (err) {
+          this.#log.error(
+            {
+              event: 'reference.import.primary_pdf_failed',
+              err,
+              connectorId: preview.connectorId,
+              candidateId: selection.candidateId
+            },
+            'Primary bibliography PDF import failed'
+          )
+          attachmentError = 'attachment_unavailable'
+        }
+      }
+
+      let referenceId: string
+      try {
+        referenceId = library.materializeCandidate({
+          connectorId: preview.connectorId,
+          sourceFormat: connector.sourceFormat,
+          sourceItem,
+          targetReferenceId: selection.targetReferenceId
+        })
+      } catch (err) {
+        this.#log.error(
+          {
+            event: 'reference.import.metadata_failed',
+            err,
+            connectorId: preview.connectorId,
+            candidateId: selection.candidateId,
+            targetReferenceId: selection.targetReferenceId
+          },
+          'Bibliography Reference materialization failed'
+        )
+        if (
+          primaryKnowledgeId !== null &&
+          library.referenceIdForKnowledge(primaryKnowledgeId) === null
+        ) {
+          const knowledge = imports
+            .list()
+            .find((item) => item.knowledgeItemId === primaryKnowledgeId)
+          if (knowledge !== undefined) {
+            try {
+              library.ensureIncompleteForKnowledge(knowledge)
+            } catch (recoveryErr) {
+              this.#log.error(
+                {
+                  event: 'reference.import.incomplete_recovery_failed',
+                  err: recoveryErr,
+                  connectorId: preview.connectorId,
+                  candidateId: selection.candidateId,
+                  knowledgeItemId: primaryKnowledgeId
+                },
+                'Failed to recover an incomplete Reference after metadata import failure'
+              )
+            }
+          }
+        }
+        outcomes.push(failedOutcome(selection.candidateId, 'target_unavailable'))
+        continue
+      }
+
+      const importedKnowledgeItemIds: string[] = []
+      if (primaryKnowledgeId !== null) {
+        const linked = library.attachKnowledgeFailClosed(referenceId, primaryKnowledgeId, 'primary')
+        if (linked.state === 'conflict') {
+          outcomes.push(failedOutcome(selection.candidateId, 'pdf_already_linked'))
+          continue
+        }
+        importedKnowledgeItemIds.push(primaryKnowledgeId)
+      }
+      for (const attachmentId of selection.supplementAttachmentIds) {
+        const supplement = preview.attachments.get(attachmentId)
+        if (supplement === undefined) continue
+        let supplementKnowledgeId: string | null = null
+        try {
+          await inspectPdfAttachment(supplement.path)
+          const knowledge = await imports.importPathWithIdentity(supplement.path, {
+            ensureIncompleteReference: false
+          })
+          supplementKnowledgeId = knowledge.knowledgeItemId
+          const linked = library.attachKnowledgeFailClosed(
+            referenceId,
+            knowledge.knowledgeItemId,
+            'supplement'
+          )
+          if (linked.state === 'conflict') {
+            attachmentError = 'pdf_already_linked'
+            continue
+          }
+          importedKnowledgeItemIds.push(knowledge.knowledgeItemId)
+        } catch (err) {
+          this.#log.error(
+            {
+              event: 'reference.import.supplement_pdf_failed',
+              err,
+              connectorId: preview.connectorId,
+              candidateId: selection.candidateId
+            },
+            'Supplemental bibliography PDF import failed'
+          )
+          if (
+            supplementKnowledgeId !== null &&
+            library.referenceIdForKnowledge(supplementKnowledgeId) === null
+          ) {
+            const knowledge = imports
+              .list()
+              .find((item) => item.knowledgeItemId === supplementKnowledgeId)
+            if (knowledge !== undefined) {
+              try {
+                library.ensureIncompleteForKnowledge(knowledge)
+              } catch (recoveryErr) {
+                this.#log.error(
+                  {
+                    event: 'reference.import.supplement_recovery_failed',
+                    err: recoveryErr,
+                    connectorId: preview.connectorId,
+                    candidateId: selection.candidateId,
+                    knowledgeItemId: supplementKnowledgeId
+                  },
+                  'Failed to recover an incomplete Reference for a supplemental PDF'
+                )
+              }
+            }
+          }
+          attachmentError = 'attachment_unavailable'
+        }
+      }
+      outcomes.push({
+        candidateId: selection.candidateId,
+        referenceId,
+        state:
+          attachmentError !== null
+            ? 'partial'
+            : importedKnowledgeItemIds.length > 0
+              ? 'complete'
+              : 'citation_only',
+        errorCode: attachmentError,
+        importedKnowledgeItemIds
+      })
+    }
+    return { references: library.list(), outcomes }
   }
 
   close(): void {
@@ -302,7 +504,7 @@ export class BibliographyConnectorService {
     this.#watchedPaths.clear()
     this.#debounceTimers.clear()
     this.#snapshots.clear()
-    this.#attachmentPreviews.clear()
+    this.#importPlans.clear()
   }
 
   #replaceWatcher(connectorId: string, sourcePath: string): void {
@@ -342,6 +544,19 @@ export function shouldRefreshBibliographyWatch(
   expectedName: string
 ): boolean {
   return (event === 'change' || event === 'rename') && filename?.toString() === expectedName
+}
+
+function failedOutcome(
+  candidateId: string,
+  errorCode: NonNullable<BibliographyImportOutcome['errorCode']>
+): BibliographyImportOutcome {
+  return {
+    candidateId,
+    referenceId: null,
+    state: 'failed',
+    errorCode,
+    importedKnowledgeItemIds: []
+  }
 }
 
 async function betterBibtexAttachmentPaths(citationKey: string): Promise<string[]> {

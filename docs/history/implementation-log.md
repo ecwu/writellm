@@ -1175,3 +1175,18 @@ maintenance without turning the active tracker back into a historical log.
   3 skipped benchmark files and 1,194 tests / 3 skipped benchmark tests, followed by a successful
   production build. `git diff --check` passed. No staged-loading redesign, protocol version,
   database migration, dependency, package, release, commit, tag, or push action was performed.
+
+## 2026-08-31 — Checkpoint 79 unified Reference import
+
+- Completed Phase 28 Checkpoint 79 under ADR 070. Zotero/Better BibTeX import now uses one bounded,
+  Reference-first prepare/confirm flow with explicit PDF-query consent, citation-only import,
+  primary and supplementary attachment selection, user-selected completion of incomplete
+  References, and explicit `relink_required` recovery. Bibliography PDFs continue through the
+  existing Knowledge copy/hash/parse pipeline without leaving orphan `doc-*` References, while
+  cross-Reference PDF ownership fails closed. No database migration, RAG, embedding, or
+  `index.sqlite` change was introduced.
+- `pnpm check:fast` passed. The canonical Electron suite passed 1,232 tests with three benchmark
+  skips and the production build succeeded. All 48 fresh Electron E2E scenarios passed, including
+  the unified `.bib` plus relative-PDF import fixture; the scoped Impeccable detector and
+  `git diff --check` passed. No package, release, commit, tag, push, signing, notarization,
+  promotion, or publication action was performed.

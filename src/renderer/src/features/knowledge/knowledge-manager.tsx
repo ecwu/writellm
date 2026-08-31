@@ -1,7 +1,9 @@
 import type { KnowledgeIndexStatus, KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import type { JobStatus } from '../../../../shared/contracts/jobs'
 import type {
-  BibliographyAttachmentPreview,
+  BibliographyConfirmImportSelection,
+  BibliographyImportOutcome,
+  BibliographyImportPlan,
   BibliographySnapshot,
   LegacyCitationConversionPlan,
   ReferenceItem
@@ -55,6 +57,13 @@ import {
   BreadcrumbPage
 } from '@/components/ui/breadcrumb'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 import {
   Sidebar,
@@ -158,11 +167,12 @@ export function KnowledgeManager(props: {
   const [selectedReferenceId, setSelectedReferenceId] = useState<string | null>(null)
   const [importSnapshot, setImportSnapshot] = useState<BibliographySnapshot | null>(null)
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set())
-  const [importPdf, setImportPdf] = useState(false)
-  const [attachmentPreview, setAttachmentPreview] = useState<BibliographyAttachmentPreview | null>(
-    null
-  )
-  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<Set<string>>(new Set())
+  const [importPdf, setImportPdf] = useState(true)
+  const [importPlan, setImportPlan] = useState<BibliographyImportPlan | null>(null)
+  const [importSelections, setImportSelections] = useState<
+    Map<string, BibliographyConfirmImportSelection>
+  >(new Map())
+  const [importOutcomes, setImportOutcomes] = useState<BibliographyImportOutcome[] | null>(null)
   const [conversionPlan, setConversionPlan] = useState<LegacyCitationConversionPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
@@ -226,6 +236,9 @@ export function KnowledgeManager(props: {
       if (snapshot === null) return
       queryClient.setQueryData(connectorKey, snapshot)
       setImportSnapshot(snapshot)
+      setImportPlan(null)
+      setImportOutcomes(null)
+      setImportPdf(true)
       setSelectedCandidateIds(
         new Set(
           snapshot.candidates
@@ -254,55 +267,92 @@ export function KnowledgeManager(props: {
       setBusy(false)
     }
   }
-  const importSelectedReferences = async (): Promise<void> => {
-    if (importSnapshot === null || selectedCandidateIds.size === 0) return
+  const prepareReferenceImport = async (
+    candidateIds: Set<string> = selectedCandidateIds
+  ): Promise<void> => {
+    if (importSnapshot === null || candidateIds.size === 0) return
+    if (importPdf && candidateIds.size > 50) {
+      props.onError(
+        'PDF review supports up to 50 references at once. Select fewer or turn off PDF import.'
+      )
+      return
+    }
     setBusy(true)
     try {
-      if (importPdf) {
-        const preview = await window.desktop.knowledge.previewReferenceAttachments({
-          projectSessionId: props.projectSessionId,
-          connectorId: importSnapshot.connector.connectorId,
-          candidateIds: [...selectedCandidateIds]
-        })
-        setAttachmentPreview(preview)
-        setSelectedAttachmentIds(new Set(preview.attachments.map((item) => item.attachmentId)))
-        setImportSnapshot(null)
-        return
-      }
-      await window.desktop.knowledge.importReferences({
+      const plan = await window.desktop.knowledge.prepareReferenceImport({
         projectSessionId: props.projectSessionId,
         connectorId: importSnapshot.connector.connectorId,
-        candidateIds: [...selectedCandidateIds],
-        importPdf: false
+        candidateIds: [...candidateIds],
+        includePdf: importPdf
       })
-      setImportSnapshot(null)
-      await queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] })
+      setSelectedCandidateIds(candidateIds)
+      setImportPlan(plan)
+      setImportOutcomes(null)
+      setImportSelections(
+        new Map(
+          plan.items.map((item) => [
+            item.candidateId,
+            {
+              candidateId: item.candidateId,
+              targetReferenceId: null,
+              primaryAttachmentId: item.attachments[0]?.attachmentId ?? null,
+              supplementAttachmentIds: []
+            }
+          ])
+        )
+      )
     } catch {
-      props.onError('The selected references could not be imported.')
+      props.onError(
+        'The references could not be prepared. The bibliography may have changed; review the list again.'
+      )
     } finally {
       setBusy(false)
     }
   }
-  const confirmAttachmentImport = async (): Promise<void> => {
-    if (attachmentPreview === null) return
+  const confirmReferenceImport = async (): Promise<void> => {
+    if (importPlan === null) return
     setBusy(true)
     try {
-      await window.desktop.knowledge.confirmReferenceAttachments({
+      const result = await window.desktop.knowledge.confirmReferenceImport({
         projectSessionId: props.projectSessionId,
-        previewId: attachmentPreview.previewId,
-        attachmentIds: [...selectedAttachmentIds]
+        previewId: importPlan.previewId,
+        selections: importPlan.items.map((item) => {
+          const selection = importSelections.get(item.candidateId)
+          if (selection === undefined) throw new Error('Import selection is incomplete')
+          return selection
+        })
       })
-      setAttachmentPreview(null)
+      setImportOutcomes(result.outcomes)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] }),
         queryClient.invalidateQueries({ queryKey: key }),
         queryClient.invalidateQueries({ queryKey: jobsKey })
       ])
     } catch {
-      props.onError('The confirmed PDF attachments could not be imported.')
+      setImportPlan(null)
+      setImportOutcomes(null)
+      props.onError(
+        'The import review expired or the bibliography changed. Your selected references are preserved; review them again.'
+      )
     } finally {
       setBusy(false)
     }
+  }
+  const closeReferenceImport = (): void => {
+    setImportSnapshot(null)
+    setImportPlan(null)
+    setImportOutcomes(null)
+    setImportSelections(new Map())
+  }
+  const reviewFailedReferences = (): void => {
+    const retryIds = new Set(
+      (importOutcomes ?? [])
+        .filter((outcome) => outcome.state === 'failed' || outcome.state === 'partial')
+        .map((outcome) => outcome.candidateId)
+    )
+    setImportPlan(null)
+    setImportOutcomes(null)
+    void prepareReferenceImport(retryIds)
   }
   const importDropped = (files: File[]): void => {
     if (files.length === 0) return
@@ -524,7 +574,7 @@ export function KnowledgeManager(props: {
               disabled={busy}
               onClick={() => void chooseBibliography()}
             >
-              <Link2 /> Connect Zotero
+              <Link2 /> Connect Zotero export…
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -669,21 +719,23 @@ export function KnowledgeManager(props: {
       </SidebarInset>
       <ReferenceImportDialog
         snapshot={importSnapshot}
+        plan={importPlan}
+        outcomes={importOutcomes}
         selectedIds={selectedCandidateIds}
+        selections={importSelections}
         busy={busy}
         importPdf={importPdf}
         onImportPdfChange={setImportPdf}
         onSelectedIdsChange={setSelectedCandidateIds}
-        onClose={() => setImportSnapshot(null)}
-        onImport={() => void importSelectedReferences()}
-      />
-      <AttachmentImportDialog
-        preview={attachmentPreview}
-        selectedIds={selectedAttachmentIds}
-        busy={busy}
-        onSelectedIdsChange={setSelectedAttachmentIds}
-        onClose={() => setAttachmentPreview(null)}
-        onImport={() => void confirmAttachmentImport()}
+        onSelectionsChange={setImportSelections}
+        onBack={() => {
+          setImportPlan(null)
+          setImportOutcomes(null)
+        }}
+        onClose={closeReferenceImport}
+        onReview={() => void prepareReferenceImport()}
+        onConfirm={() => void confirmReferenceImport()}
+        onReviewAgain={reviewFailedReferences}
       />
       <LegacyConversionDialog
         plan={conversionPlan}
@@ -852,16 +904,16 @@ function KnowledgeSidebar(props: {
                     <span className='block truncate text-[10px] text-muted-foreground'>
                       {reference.creators.find((creator) => creator.role === 'author')?.family ??
                         reference.containerTitle ??
-                        'Metadata incomplete'}{' '}
+                        'Citation details incomplete'}{' '}
                       · @{reference.citationKey}
                     </span>
                   </span>
                   <Badge variant='outline' className='h-5 px-1 text-[9px]'>
                     {reference.evidenceAvailable
-                      ? 'indexed'
+                      ? 'Evidence ready'
                       : item === undefined
-                        ? 'metadata'
-                        : 'PDF'}
+                        ? 'Citation only'
+                        : 'PDF processing'}
                   </Badge>
                 </button>
               )
@@ -889,9 +941,7 @@ function KnowledgeSidebar(props: {
                   <span className='min-w-0 flex-1'>
                     <span className='block truncate'>{item.displayName}</span>
                     <span className='block truncate text-[10px] text-muted-foreground'>
-                      {item.state === 'importing'
-                        ? 'Importing file'
-                        : 'Preparing reference metadata'}
+                      {item.state === 'importing' ? 'Importing file' : 'Preparing citation details'}
                     </span>
                   </span>
                   <Badge variant='outline' className='h-5 px-1 text-[9px]'>
@@ -948,7 +998,11 @@ function ReferenceDetails(props: {
         <div className='min-w-0'>
           <div className='mb-2 flex flex-wrap items-center gap-2'>
             <Badge variant={props.reference.evidenceAvailable ? 'default' : 'secondary'}>
-              {props.reference.evidenceAvailable ? 'Evidence available' : 'Metadata only'}
+              {props.reference.evidenceAvailable
+                ? 'Evidence ready'
+                : props.reference.knowledgeItemIds.length > 0
+                  ? 'PDF processing'
+                  : 'Citation only'}
             </Badge>
             <Badge variant='outline'>{props.reference.metadataCompleteness}</Badge>
             <Badge variant='outline'>{props.reference.syncStatus.replace('_', ' ')}</Badge>
@@ -957,7 +1011,7 @@ function ReferenceDetails(props: {
           <p className='mt-2 text-sm text-muted-foreground'>
             {[authors, props.reference.containerTitle, props.reference.issuedYear]
               .filter((value) => value !== null && value !== '')
-              .join(' · ') || 'Bibliographic metadata is incomplete.'}
+              .join(' · ') || 'Citation details are incomplete.'}
           </p>
         </div>
         <Button variant='ghost' size='icon-sm' aria-label='Close reference' onClick={props.onClose}>
@@ -965,21 +1019,31 @@ function ReferenceDetails(props: {
         </Button>
       </div>
       <div className='grid gap-6 py-6 md:grid-cols-[minmax(0,1fr)_auto]'>
-        <dl className='grid gap-4 text-sm sm:grid-cols-2'>
-          <MetadataField label='Citation key' value={`@${props.reference.citationKey}`} />
-          <MetadataField label='Type' value={props.reference.cslType} />
-          <MetadataField label='DOI' value={props.reference.doi ?? '—'} />
-          <MetadataField label='ISBN' value={props.reference.isbn ?? '—'} />
-          <MetadataField label='URL' value={props.reference.url ?? '—'} />
-          <MetadataField
-            label='Attachment'
-            value={
-              props.reference.knowledgeItemIds.length === 0
-                ? 'No PDF attached'
-                : `${props.reference.knowledgeItemIds.length} linked source${props.reference.knowledgeItemIds.length === 1 ? '' : 's'}`
-            }
-          />
-        </dl>
+        <div className='grid gap-6'>
+          <div>
+            <h2 className='text-sm font-semibold'>Citation details</h2>
+            <dl className='mt-3 grid gap-4 text-sm sm:grid-cols-2'>
+              <MetadataField label='Citation key' value={`@${props.reference.citationKey}`} />
+              <MetadataField label='Type' value={props.reference.cslType} />
+              <MetadataField label='DOI' value={props.reference.doi ?? '—'} />
+              <MetadataField label='ISBN' value={props.reference.isbn ?? '—'} />
+              <MetadataField label='URL' value={props.reference.url ?? '—'} />
+            </dl>
+          </div>
+          <div>
+            <h2 className='text-sm font-semibold'>Files</h2>
+            <dl className='mt-3 grid gap-4 text-sm sm:grid-cols-2'>
+              <MetadataField
+                label='Primary PDF and supplementary files'
+                value={
+                  props.reference.knowledgeItemIds.length === 0
+                    ? 'No PDF attached'
+                    : `${props.reference.knowledgeItemIds.length} linked file${props.reference.knowledgeItemIds.length === 1 ? '' : 's'}`
+                }
+              />
+            </dl>
+          </div>
+        </div>
         <div className='flex flex-wrap content-start gap-2 md:w-48 md:flex-col'>
           <Button onClick={() => void copyCitation()}>
             <Link2 /> Copy citation
@@ -991,8 +1055,8 @@ function ReferenceDetails(props: {
             Insert in editor
           </Button>
           <p className='text-xs text-muted-foreground'>
-            Metadata-only references can be cited manually but are never offered to the Agent as
-            evidence.
+            Citation-only references can be used manually and exported, but are never offered to the
+            Agent as evidence.
           </p>
         </div>
       </div>
@@ -1011,13 +1075,20 @@ function MetadataField(props: { label: string; value: string }): React.JSX.Eleme
 
 function ReferenceImportDialog(props: {
   snapshot: BibliographySnapshot | null
+  plan: BibliographyImportPlan | null
+  outcomes: BibliographyImportOutcome[] | null
   selectedIds: Set<string>
+  selections: Map<string, BibliographyConfirmImportSelection>
   busy: boolean
   importPdf: boolean
   onImportPdfChange(value: boolean): void
   onSelectedIdsChange(ids: Set<string>): void
+  onSelectionsChange(selections: Map<string, BibliographyConfirmImportSelection>): void
+  onBack(): void
   onClose(): void
-  onImport(): void
+  onReview(): void
+  onConfirm(): void
+  onReviewAgain(): void
 }): React.JSX.Element {
   const available =
     props.snapshot?.candidates.filter(
@@ -1029,146 +1100,335 @@ function ReferenceImportDialog(props: {
     else next.add(candidateId)
     props.onSelectedIdsChange(next)
   }
+  const updateSelection = (
+    candidateId: string,
+    update: (selection: BibliographyConfirmImportSelection) => BibliographyConfirmImportSelection
+  ): void => {
+    const current = props.selections.get(candidateId)
+    if (current === undefined) return
+    const next = new Map(props.selections)
+    next.set(candidateId, update(current))
+    props.onSelectionsChange(next)
+  }
+  const hasRetryableOutcomes =
+    props.outcomes?.some((outcome) => outcome.state === 'failed' || outcome.state === 'partial') ??
+    false
   return (
     <Dialog open={props.snapshot !== null} onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent className='max-h-[80dvh] overflow-hidden sm:max-w-3xl'>
+      <DialogContent className='max-h-[85dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-3xl'>
         <DialogHeader>
-          <DialogTitle>Import Zotero references</DialogTitle>
+          <DialogTitle>
+            {props.outcomes !== null
+              ? hasRetryableOutcomes
+                ? 'Import needs attention'
+                : 'References imported'
+              : props.plan !== null
+                ? 'Review references and PDFs'
+                : 'Import references from Zotero'}
+          </DialogTitle>
           <DialogDescription>
-            Select metadata to copy into this project. Existing project citation keys will not
-            change.
+            {props.outcomes !== null
+              ? 'Each result belongs to one project Reference. PDF processing continues in Knowledge.'
+              : props.plan !== null
+                ? 'Confirm citation details, the primary PDF, and any supplementary files before importing.'
+                : `Choose references from ${props.snapshot?.connector.sourceName ?? 'the selected Zotero export'}. PDF lookup starts only when you review this selection.`}
           </DialogDescription>
         </DialogHeader>
-        <div className='min-h-0 overflow-y-auto border-y py-2'>
-          {available.map((candidate) => (
-            <label
-              key={candidate.candidateId}
-              htmlFor={`reference-candidate-${candidate.candidateId}`}
-              className='flex cursor-pointer items-start gap-3 px-2 py-3 hover:bg-muted/50'
-            >
-              <Checkbox
-                id={`reference-candidate-${candidate.candidateId}`}
-                className='mt-0.5'
-                checked={props.selectedIds.has(candidate.candidateId)}
-                onCheckedChange={() => toggle(candidate.candidateId)}
-              />
-              <span className='min-w-0 flex-1'>
-                <span className='block text-sm font-medium'>{candidate.title}</span>
-                <span className='mt-0.5 block text-xs text-muted-foreground'>
-                  {[candidate.authors.join(', '), candidate.containerTitle, candidate.issuedYear]
-                    .filter((value) => value !== null && value !== '')
-                    .join(' · ')}
-                </span>
-                <span className='mt-1 block font-mono text-[11px] text-muted-foreground'>
-                  @{candidate.proposedCitationKey}
-                  {candidate.attachmentCount > 0
-                    ? ` · ${candidate.attachmentCount} attachment candidate${candidate.attachmentCount === 1 ? '' : 's'}`
-                    : ''}
-                </span>
-              </span>
-            </label>
-          ))}
-          {available.length === 0 ? (
+        <div className='min-h-0 overscroll-contain overflow-y-auto border-y py-2'>
+          {props.outcomes !== null && props.plan !== null
+            ? props.outcomes.map((outcome) => {
+                const item = props.plan?.items.find(
+                  (candidate) => candidate.candidateId === outcome.candidateId
+                )
+                return (
+                  <div key={outcome.candidateId} className='flex items-start gap-3 px-3 py-4'>
+                    {outcome.state === 'complete' || outcome.state === 'citation_only' ? (
+                      <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-success' />
+                    ) : (
+                      <AlertCircle className='mt-0.5 size-4 shrink-0 text-destructive' />
+                    )}
+                    <div className='min-w-0 flex-1'>
+                      <div className='flex flex-wrap items-center gap-2'>
+                        <p className='text-sm font-medium'>{item?.title ?? 'Reference'}</p>
+                        <Badge variant='outline'>{importOutcomeLabel(outcome)}</Badge>
+                      </div>
+                      <p className='mt-1 text-xs text-muted-foreground'>
+                        {importOutcomeDescription(outcome)}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })
+            : props.plan !== null
+              ? props.plan.items.map((item) => {
+                  const selection = props.selections.get(item.candidateId)
+                  if (selection === undefined) return null
+                  const selectedTarget = props.plan?.eligibleTargets.find(
+                    (target) => target.referenceId === selection.targetReferenceId
+                  )
+                  return (
+                    <div key={item.candidateId} className='px-3 py-4 not-last:border-b'>
+                      <div className='flex flex-wrap items-start justify-between gap-2'>
+                        <div className='min-w-0 flex-1'>
+                          <p className='text-sm font-medium'>{item.title}</p>
+                          <p className='mt-1 text-xs text-muted-foreground'>
+                            {[item.authors.join(', '), item.containerTitle, item.issuedYear]
+                              .filter((value) => value !== null && value !== '')
+                              .join(' · ')}
+                          </p>
+                          <p className='mt-1 text-xs text-muted-foreground'>
+                            @{item.proposedCitationKey}
+                          </p>
+                        </div>
+                        <Badge variant={item.pdfStatus === 'available' ? 'secondary' : 'outline'}>
+                          {item.pdfStatus === 'available'
+                            ? 'PDF ready'
+                            : item.pdfStatus === 'not_requested'
+                              ? 'Citation only'
+                              : 'PDF unavailable'}
+                        </Badge>
+                      </div>
+                      <div className='mt-4 grid gap-3 sm:grid-cols-2'>
+                        <div className='grid gap-1.5 text-xs font-medium'>
+                          <span>Reference identity</span>
+                          <Select
+                            value={selection.targetReferenceId ?? 'new'}
+                            onValueChange={(value) => {
+                              const target = props.plan?.eligibleTargets.find(
+                                (candidate) => candidate.referenceId === value
+                              )
+                              updateSelection(item.candidateId, (current) => ({
+                                ...current,
+                                targetReferenceId: value === 'new' ? null : value,
+                                primaryAttachmentId:
+                                  target !== undefined && target.knowledgeItemIds.length > 0
+                                    ? null
+                                    : current.primaryAttachmentId,
+                                supplementAttachmentIds:
+                                  target !== undefined && target.knowledgeItemIds.length > 0
+                                    ? []
+                                    : current.supplementAttachmentIds
+                              }))
+                            }}
+                          >
+                            <SelectTrigger size='sm'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='new'>Create a new Reference</SelectItem>
+                              {props.plan?.eligibleTargets.map((target) => (
+                                <SelectItem key={target.referenceId} value={target.referenceId}>
+                                  {target.kind === 'relink' ? 'Reconnect' : 'Use project PDF'}:{' '}
+                                  {target.title} · @{target.citationKey}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className='grid gap-1.5 text-xs font-medium'>
+                          <span>Primary PDF</span>
+                          <Select
+                            value={selection.primaryAttachmentId ?? 'none'}
+                            onValueChange={(value) =>
+                              updateSelection(item.candidateId, (current) => ({
+                                ...current,
+                                primaryAttachmentId: value === 'none' ? null : value,
+                                supplementAttachmentIds: current.supplementAttachmentIds.filter(
+                                  (attachmentId) => attachmentId !== value
+                                )
+                              }))
+                            }
+                          >
+                            <SelectTrigger size='sm'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='none'>
+                                {selectedTarget !== undefined &&
+                                selectedTarget.knowledgeItemIds.length > 0
+                                  ? 'Keep existing project PDF'
+                                  : 'Citation only — no PDF'}
+                              </SelectItem>
+                              {item.attachments.map((attachment) => (
+                                <SelectItem
+                                  key={attachment.attachmentId}
+                                  value={attachment.attachmentId}
+                                >
+                                  {attachment.fileName} · {formatBytes(attachment.byteSize)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      {item.attachments.some(
+                        (attachment) => attachment.attachmentId !== selection.primaryAttachmentId
+                      ) ? (
+                        <div className='mt-3 grid gap-2'>
+                          <p className='text-xs font-medium'>Supplementary files</p>
+                          {item.attachments
+                            .filter(
+                              (attachment) =>
+                                attachment.attachmentId !== selection.primaryAttachmentId
+                            )
+                            .map((attachment) => (
+                              <label
+                                key={attachment.attachmentId}
+                                htmlFor={`supplement-${attachment.attachmentId}`}
+                                className='flex items-center gap-2 text-xs text-muted-foreground'
+                              >
+                                <Checkbox
+                                  id={`supplement-${attachment.attachmentId}`}
+                                  checked={selection.supplementAttachmentIds.includes(
+                                    attachment.attachmentId
+                                  )}
+                                  disabled={selection.primaryAttachmentId === null}
+                                  onCheckedChange={(checked) =>
+                                    updateSelection(item.candidateId, (current) => ({
+                                      ...current,
+                                      supplementAttachmentIds:
+                                        checked === true
+                                          ? [
+                                              ...current.supplementAttachmentIds,
+                                              attachment.attachmentId
+                                            ]
+                                          : current.supplementAttachmentIds.filter(
+                                              (id) => id !== attachment.attachmentId
+                                            )
+                                    }))
+                                  }
+                                />
+                                <span className='min-w-0 flex-1 truncate'>
+                                  {attachment.fileName}
+                                </span>
+                                <span className='tabular-nums'>
+                                  {formatBytes(attachment.byteSize)}
+                                </span>
+                              </label>
+                            ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  )
+                })
+              : available.map((candidate) => (
+                  <label
+                    key={candidate.candidateId}
+                    htmlFor={`reference-candidate-${candidate.candidateId}`}
+                    className='flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-muted/50'
+                  >
+                    <Checkbox
+                      id={`reference-candidate-${candidate.candidateId}`}
+                      className='mt-0.5'
+                      checked={props.selectedIds.has(candidate.candidateId)}
+                      onCheckedChange={() => toggle(candidate.candidateId)}
+                    />
+                    <span className='min-w-0 flex-1'>
+                      <span className='block text-sm font-medium'>{candidate.title}</span>
+                      <span className='mt-0.5 block text-xs text-muted-foreground'>
+                        {[
+                          candidate.authors.join(', '),
+                          candidate.containerTitle,
+                          candidate.issuedYear
+                        ]
+                          .filter((value) => value !== null && value !== '')
+                          .join(' · ')}
+                      </span>
+                      <span className='mt-1 block text-xs text-muted-foreground'>
+                        @{candidate.proposedCitationKey}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+          {props.plan === null && props.outcomes === null && available.length === 0 ? (
             <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
-              No new references are available in this snapshot.
+              No new references are available in this export.
             </p>
           ) : null}
         </div>
-        {props.snapshot !== null && props.snapshot.issues.length > 0 ? (
-          <p className='text-xs text-amber-700 dark:text-amber-400'>
-            {props.snapshot.issues.length} malformed{' '}
-            {props.snapshot.issues.length === 1 ? 'entry was' : 'entries were'} skipped.
-          </p>
-        ) : null}
-        <label htmlFor='reference-import-pdf' className='flex items-start gap-3 text-sm'>
-          <Checkbox
-            id='reference-import-pdf'
-            className='mt-0.5'
-            checked={props.importPdf}
-            onCheckedChange={(checked) => props.onImportPdfChange(checked === true)}
-          />
-          <span>
-            Import PDF attachments
-            <span className='block text-xs text-muted-foreground'>
-              You will review filenames and sizes before any attachment is copied into Knowledge.
-            </span>
-          </span>
-        </label>
         <DialogFooter>
-          <Button variant='outline' onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button disabled={props.busy || props.selectedIds.size === 0} onClick={props.onImport}>
-            {props.busy ? <Spinner /> : <Upload />}
-            Import {props.selectedIds.size || ''}
-          </Button>
+          {props.outcomes !== null ? (
+            <>
+              {hasRetryableOutcomes ? (
+                <Button variant='outline' disabled={props.busy} onClick={props.onReviewAgain}>
+                  <RefreshCw /> Review again
+                </Button>
+              ) : null}
+              <Button onClick={props.onClose}>Done</Button>
+            </>
+          ) : props.plan !== null ? (
+            <>
+              <Button variant='outline' disabled={props.busy} onClick={props.onBack}>
+                Back
+              </Button>
+              <Button disabled={props.busy} onClick={props.onConfirm}>
+                {props.busy ? <Spinner /> : <Upload />}
+                Import {props.plan.items.length} references
+              </Button>
+            </>
+          ) : (
+            <>
+              <label
+                htmlFor='reference-import-pdf'
+                className='mr-auto flex items-start gap-2 text-left text-xs'
+              >
+                <Checkbox
+                  id='reference-import-pdf'
+                  checked={props.importPdf}
+                  onCheckedChange={(checked) => props.onImportPdfChange(checked === true)}
+                />
+                <span>
+                  Include one primary PDF when available
+                  <span className='block text-muted-foreground'>
+                    Zotero is queried only after you click Review.
+                  </span>
+                </span>
+              </label>
+              <Button variant='outline' onClick={props.onClose}>
+                Cancel
+              </Button>
+              <Button
+                disabled={props.busy || props.selectedIds.size === 0}
+                onClick={props.onReview}
+              >
+                {props.busy ? <Spinner /> : <Upload />}
+                {props.importPdf ? 'Review references and PDFs' : 'Review references'}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
-function AttachmentImportDialog(props: {
-  preview: BibliographyAttachmentPreview | null
-  selectedIds: Set<string>
-  busy: boolean
-  onSelectedIdsChange(ids: Set<string>): void
-  onClose(): void
-  onImport(): void
-}): React.JSX.Element {
-  const toggle = (attachmentId: string): void => {
-    const next = new Set(props.selectedIds)
-    if (next.has(attachmentId)) next.delete(attachmentId)
-    else next.add(attachmentId)
-    props.onSelectedIdsChange(next)
+function importOutcomeLabel(outcome: BibliographyImportOutcome): string {
+  if (outcome.state === 'complete') return 'PDF processing'
+  if (outcome.state === 'citation_only') return 'Citation only'
+  if (outcome.state === 'partial') return 'Partially imported'
+  return 'Not imported'
+}
+
+function importOutcomeDescription(outcome: BibliographyImportOutcome): string {
+  if (outcome.errorCode === 'pdf_already_linked') {
+    return 'The selected PDF already belongs to another Reference. Choose that project Reference explicitly or import citation details only.'
   }
-  return (
-    <Dialog open={props.preview !== null} onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent className='sm:max-w-xl'>
-        <DialogHeader>
-          <DialogTitle>Review PDF attachments</DialogTitle>
-          <DialogDescription>
-            Only the selected regular PDF files will be copied into this project and parsed through
-            the existing Knowledge pipeline.
-          </DialogDescription>
-        </DialogHeader>
-        <div className='max-h-[45dvh] overflow-y-auto border-y py-2'>
-          {props.preview?.attachments.map((attachment) => (
-            <label
-              key={attachment.attachmentId}
-              htmlFor={`reference-attachment-${attachment.attachmentId}`}
-              className='flex items-center gap-3 px-2 py-3 hover:bg-muted/50'
-            >
-              <Checkbox
-                id={`reference-attachment-${attachment.attachmentId}`}
-                checked={props.selectedIds.has(attachment.attachmentId)}
-                onCheckedChange={() => toggle(attachment.attachmentId)}
-              />
-              <span className='min-w-0 flex-1 truncate text-sm'>{attachment.fileName}</span>
-              <span className='text-xs tabular-nums text-muted-foreground'>
-                {formatBytes(attachment.byteSize)}
-              </span>
-            </label>
-          ))}
-          {props.preview?.attachments.length === 0 ? (
-            <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
-              No valid PDF attachments were found. You can still import the metadata by returning to
-              the bibliography list.
-            </p>
-          ) : null}
-        </div>
-        <DialogFooter>
-          <Button variant='outline' onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button disabled={props.busy} onClick={props.onImport}>
-            {props.busy ? <Spinner /> : <FileUp />}
-            Import metadata{props.selectedIds.size > 0 ? ` + ${props.selectedIds.size} PDF` : ''}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+  if (outcome.errorCode === 'attachment_unavailable') {
+    return 'Citation details were retained, but one or more PDF files were unavailable.'
+  }
+  if (outcome.errorCode === 'target_unavailable') {
+    return 'The selected project Reference is no longer available for completion or reconnection.'
+  }
+  if (outcome.errorCode === 'candidate_stale') {
+    return 'The Zotero export changed. Review the current bibliography before trying again.'
+  }
+  if (outcome.state === 'complete') {
+    return `${outcome.importedKnowledgeItemIds.length} PDF file${outcome.importedKnowledgeItemIds.length === 1 ? '' : 's'} added to Knowledge.`
+  }
+  if (outcome.state === 'citation_only') {
+    return 'Citation details are available for writing and export; Agent evidence requires a parsed PDF.'
+  }
+  return 'The Reference could not be imported. Review the source and try again.'
 }
 
 function LegacyConversionDialog(props: {

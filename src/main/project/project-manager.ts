@@ -1551,8 +1551,8 @@ export class ProjectManager {
         projectId: manifest.projectId,
         database,
         log: this.#logger,
-        onStored: async (item) => {
-          references.ensureIncompleteForKnowledge(item)
+        onStored: async (item, importContext) => {
+          if (importContext.ensureIncompleteReference) references.ensureIncompleteForKnowledge(item)
           if (knowledgeRuntime === undefined) return
           try {
             await knowledgeRuntime.mineruWorkflow.start(item.knowledgeItemId)

@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Phase 27 Checkpoint 78 is complete under ADR 070.
+Status: Phase 28 Checkpoint 79 is complete under ADR 070.
 Checkpoint 77 remains independently paused; CP78 is authorized to run ahead. Immutable tag-only candidates
 `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
@@ -27,6 +27,14 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Checkpoint 79 is complete. It unifies the split Zotero metadata/PDF dialogs into one
+  Reference-first prepare/confirm workflow, adds explicit completion and relink targets, and
+  prevents bibliography attachment imports from leaving orphan incomplete References. It retains
+  ADR 070's connector, citekey, Reference/Knowledge, RAG, and index boundaries. The canonical suite
+  passed 1,232 tests with three benchmark skips, the production build and `check:fast` passed, and
+  all 48 fresh Electron E2E scenarios passed. Detailed evidence lives in
+  [`implementation-todo/phase-28.md`](implementation-todo/phase-28.md).
 
 - Checkpoint 78 is complete. WriteLLM now has project-authoritative Reference metadata with stable
   citekeys, a bounded single-file Zotero/Better BibTeX connector, explicit PDF attachment review,

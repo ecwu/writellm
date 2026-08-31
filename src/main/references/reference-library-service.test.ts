@@ -40,8 +40,8 @@ describe('ReferenceLibraryService', () => {
       projectId,
       database,
       log: pino({ level: 'silent' }),
-      onStored: (item) => {
-        references.ensureIncompleteForKnowledge(item)
+      onStored: (item, context) => {
+        if (context.ensureIncompleteReference) references.ensureIncompleteForKnowledge(item)
       }
     })
     const source = join(parent, 'New evidence.pdf')
@@ -57,6 +57,73 @@ describe('ReferenceLibraryService', () => {
         knowledgeItemIds: [item?.knowledgeItemId]
       }
     ])
+
+    const completion = parseReferenceSource(
+      JSON.stringify([
+        {
+          id: 'completed-local',
+          'citation-key': 'upstream-local-key',
+          type: 'article-journal',
+          title: 'Completed local evidence',
+          author: [{ family: 'Wu' }],
+          issued: { 'date-parts': [[2026]] }
+        }
+      ]),
+      'better-csl-json'
+    )
+    const completionItem = completion.items[0]
+    if (completionItem === undefined) throw new Error('Completion fixture did not parse')
+    references.materializeCandidate({
+      connectorId: '44444444-4444-4444-8444-444444444444',
+      sourceFormat: 'better-csl-json',
+      sourceItem: completionItem,
+      targetReferenceId: item?.knowledgeItemId ?? null
+    })
+    expect(references.list()[0]).toMatchObject({
+      referenceId: item?.knowledgeItemId,
+      citationKey: `doc-${item?.knowledgeItemId.replaceAll('-', '')}`,
+      title: 'Completed local evidence',
+      syncStatus: 'synced'
+    })
+
+    const bibliographyPdf = join(parent, 'Bibliography evidence.pdf')
+    await writeFile(bibliographyPdf, '%PDF-1.7\nbibliography evidence')
+    const imported = await imports.importPathWithIdentity(bibliographyPdf, {
+      ensureIncompleteReference: false
+    })
+    expect(references.list()).toHaveLength(1)
+    const parsed = parseReferenceSource(
+      JSON.stringify([
+        {
+          id: 'unified-import',
+          'citation-key': 'unified2026',
+          type: 'article-journal',
+          title: 'Unified import',
+          author: [{ family: 'Wu' }],
+          issued: { 'date-parts': [[2026]] }
+        }
+      ]),
+      'better-csl-json'
+    )
+    const parsedItem = parsed.items[0]
+    if (parsedItem === undefined) throw new Error('Bibliography fixture did not parse')
+    const referenceId = references.materializeCandidate({
+      connectorId: '55555555-5555-4555-8555-555555555555',
+      sourceFormat: 'better-csl-json',
+      sourceItem: parsedItem,
+      targetReferenceId: null
+    })
+    expect(
+      references.attachKnowledgeFailClosed(referenceId, imported.knowledgeItemId, 'primary')
+    ).toMatchObject({ state: 'linked' })
+    expect(references.list()).toHaveLength(2)
+    expect(
+      references.list().find((reference) => reference.referenceId === referenceId)
+    ).toMatchObject({
+      citationKey: 'unified2026',
+      title: 'Unified import',
+      knowledgeItemIds: [imported.knowledgeItemId]
+    })
     database.close()
   })
 
@@ -143,6 +210,24 @@ describe('ReferenceLibraryService', () => {
         citationKey: 'smith2024',
         title: 'Initial title',
         syncStatus: 'relink_required'
+      }
+    ])
+    const existingReferenceId = service.list()[0]?.referenceId
+    expect(existingReferenceId).toBeDefined()
+    const changedItem = changed.items[0]
+    if (changedItem === undefined) throw new Error('Changed fixture did not parse')
+    service.materializeCandidate({
+      connectorId: connector.connectorId,
+      sourceFormat: 'better-csl-json',
+      sourceItem: changedItem,
+      targetReferenceId: existingReferenceId ?? null
+    })
+    expect(service.list()).toMatchObject([
+      {
+        referenceId: existingReferenceId,
+        citationKey: 'smith2024',
+        title: 'Synchronized title',
+        syncStatus: 'synced'
       }
     ])
     database.close()

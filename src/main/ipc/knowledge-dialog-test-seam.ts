@@ -1,6 +1,7 @@
 import type { Logger } from 'pino'
 
 export const E2E_KNOWLEDGE_DIALOG_PATHS_ENV = 'WRITELLM_E2E_KNOWLEDGE_DIALOG_PATHS'
+export const E2E_BIBLIOGRAPHY_DIALOG_PATH_ENV = 'WRITELLM_E2E_BIBLIOGRAPHY_DIALOG_PATH'
 
 export function createKnowledgeDialogTestSelection(
   logger: Pick<Logger, 'info' | 'error'>
@@ -28,5 +29,30 @@ export function createKnowledgeDialogTestSelection(
       'Invalid knowledge dialog E2E selection configuration'
     )
     throw err
+  }
+}
+
+export function createBibliographyDialogTestSelection(
+  logger: Pick<Logger, 'info' | 'error'>
+): (() => Promise<string | null>) | undefined {
+  const selectedPath = process.env[E2E_BIBLIOGRAPHY_DIALOG_PATH_ENV]
+  if (selectedPath === undefined) return undefined
+  if (selectedPath === '') {
+    const err = new TypeError(`${E2E_BIBLIOGRAPHY_DIALOG_PATH_ENV} must not be empty`)
+    logger.error(
+      { event: 'ipc.bibliography_dialog_test_seam.invalid', err },
+      'Invalid bibliography dialog E2E selection configuration'
+    )
+    throw err
+  }
+  let consumed = false
+  logger.info(
+    { event: 'ipc.bibliography_dialog_test_seam.enabled' },
+    'Enabled Main-owned bibliography dialog E2E selection seam'
+  )
+  return async () => {
+    if (consumed) return null
+    consumed = true
+    return selectedPath
   }
 }

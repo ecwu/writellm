@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 27 Checkpoint 78 is complete under ADR 070; Checkpoint 77 remains
+Status: Phase 28 Checkpoint 79 is complete under ADR 070; Checkpoint 77 remains
 independently paused. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
@@ -18,6 +18,10 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Checkpoint 79: unify Zotero metadata and PDF attachment import around one Reference-first
+  prepare/confirm flow, explicit incomplete/relink targets, and orphan-free Knowledge association.
+  Authoritative detail: [`implementation-todo/phase-28.md`](implementation-todo/phase-28.md).
 
 - [x] Checkpoint 78: stable Reference authority, one user-selected Zotero bibliography connector,
   bilingual citekeys, evidence enforcement, CSL formatting, and bibliography-aware export under
@@ -343,4 +347,5 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 20](implementation-todo/phase-20.md)
 - [Phase 21](implementation-todo/phase-21.md)
 - [Phase 22](implementation-todo/phase-22.md)
+- [Phase 28](implementation-todo/phase-28.md)
 - [Implementation history](history/implementation-log.md)

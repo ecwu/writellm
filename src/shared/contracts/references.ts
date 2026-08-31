@@ -143,59 +143,150 @@ export const bibliographySnapshotResultSchema = bibliographySnapshotSchema.nulla
 
 export const bibliographyChooseInputSchema = editorSessionInputSchema
 export const bibliographySnapshotInputSchema = editorSessionInputSchema
-export const bibliographyImportInputSchema = editorSessionInputSchema
+export const bibliographyPrepareImportInputSchema = editorSessionInputSchema
   .extend({
     connectorId: z.uuid(),
     candidateIds: z
       .array(z.string().regex(/^[a-f0-9]{64}$/u))
       .min(1)
       .max(500),
-    importPdf: z.boolean().default(false)
+    includePdf: z.boolean().default(true)
   })
   .strict()
-export const bibliographyImportResultSchema = referenceListResultSchema
+  .superRefine((value, context) => {
+    if (value.includePdf && value.candidateIds.length > 50) {
+      context.addIssue({
+        code: 'too_big',
+        maximum: 50,
+        origin: 'array',
+        path: ['candidateIds'],
+        message: 'PDF import review is limited to 50 references'
+      })
+    }
+  })
 
-export const bibliographyAttachmentPreviewInputSchema = editorSessionInputSchema
-  .extend({
-    connectorId: z.uuid(),
-    candidateIds: z
-      .array(z.string().regex(/^[a-f0-9]{64}$/u))
-      .min(1)
-      .max(50)
+export const bibliographyImportAttachmentSchema = z
+  .object({
+    attachmentId: z.uuid(),
+    candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
+    fileName: z.string().min(1).max(1024),
+    byteSize: z
+      .number()
+      .int()
+      .positive()
+      .max(200 * 1024 * 1024)
   })
   .strict()
-export const bibliographyAttachmentPreviewSchema = z
+
+export const bibliographyImportTargetSchema = z
+  .object({
+    referenceId: z.uuid(),
+    citationKey: citationKeySchema,
+    title: z.string().min(1).max(4096),
+    kind: z.enum(['complete_incomplete', 'relink']),
+    knowledgeItemIds: z.array(z.uuid()).max(100)
+  })
+  .strict()
+
+export const bibliographyImportPlanItemSchema = bibliographyImportCandidateSchema
+  .extend({
+    pdfStatus: z.enum(['available', 'unavailable', 'not_requested']),
+    attachments: z.array(bibliographyImportAttachmentSchema).max(20)
+  })
+  .strict()
+
+export const bibliographyImportPlanSchema = z
   .object({
     previewId: z.uuid(),
-    attachments: z
-      .array(
-        z
-          .object({
-            attachmentId: z.uuid(),
-            candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
-            fileName: z.string().min(1).max(1024),
-            byteSize: z
-              .number()
-              .int()
-              .positive()
-              .max(200 * 1024 * 1024)
-          })
-          .strict()
-      )
-      .max(100),
-    unavailableCandidateIds: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).max(50)
+    includePdf: z.boolean(),
+    items: z.array(bibliographyImportPlanItemSchema).min(1).max(500),
+    eligibleTargets: z.array(bibliographyImportTargetSchema).max(10_000),
+    expiresAt: z.iso.datetime()
   })
   .strict()
-export const bibliographyAttachmentConfirmInputSchema = editorSessionInputSchema
+
+export const bibliographyConfirmImportSelectionSchema = z
+  .object({
+    candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
+    targetReferenceId: z.uuid().nullable(),
+    primaryAttachmentId: z.uuid().nullable(),
+    supplementAttachmentIds: z.array(z.uuid()).max(49)
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.primaryAttachmentId === null ||
+      !value.supplementAttachmentIds.includes(value.primaryAttachmentId),
+    { message: 'The primary attachment cannot also be supplemental' }
+  )
+  .refine(
+    (value) => value.primaryAttachmentId !== null || value.supplementAttachmentIds.length === 0,
+    { message: 'Supplemental attachments require a primary attachment' }
+  )
+
+export const bibliographyConfirmImportInputSchema = editorSessionInputSchema
   .extend({
     previewId: z.uuid(),
-    attachmentIds: z.array(z.uuid()).max(50)
+    selections: z.array(bibliographyConfirmImportSelectionSchema).min(1).max(50)
   })
   .strict()
-export const bibliographyAttachmentConfirmResultSchema = z
+  .superRefine((value, context) => {
+    const candidateIds = new Set<string>()
+    const targetIds = new Set<string>()
+    let attachmentCount = 0
+    for (const [index, selection] of value.selections.entries()) {
+      if (candidateIds.has(selection.candidateId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['selections', index, 'candidateId'],
+          message: 'Each candidate may be confirmed only once'
+        })
+      }
+      candidateIds.add(selection.candidateId)
+      if (selection.targetReferenceId !== null) {
+        if (targetIds.has(selection.targetReferenceId)) {
+          context.addIssue({
+            code: 'custom',
+            path: ['selections', index, 'targetReferenceId'],
+            message: 'Each existing Reference may be selected only once'
+          })
+        }
+        targetIds.add(selection.targetReferenceId)
+      }
+      attachmentCount +=
+        selection.supplementAttachmentIds.length + (selection.primaryAttachmentId === null ? 0 : 1)
+    }
+    if (attachmentCount > 50) {
+      context.addIssue({
+        code: 'custom',
+        path: ['selections'],
+        message: 'At most 50 PDF attachments may be imported at once'
+      })
+    }
+  })
+
+export const bibliographyImportOutcomeSchema = z
+  .object({
+    candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
+    referenceId: z.uuid().nullable(),
+    state: z.enum(['complete', 'citation_only', 'partial', 'failed']),
+    errorCode: z
+      .enum([
+        'pdf_already_linked',
+        'attachment_unavailable',
+        'target_unavailable',
+        'candidate_stale',
+        'import_failed'
+      ])
+      .nullable(),
+    importedKnowledgeItemIds: z.array(z.uuid()).max(50)
+  })
+  .strict()
+
+export const bibliographyConfirmImportResultSchema = z
   .object({
     references: referenceListResultSchema,
-    importedKnowledgeItemIds: z.array(z.uuid()).max(50)
+    outcomes: z.array(bibliographyImportOutcomeSchema).min(1).max(50)
   })
   .strict()
 
@@ -283,7 +374,12 @@ export type CslItem = z.infer<typeof cslItemSchema>
 export type ReferenceItem = z.infer<typeof referenceItemSchema>
 export type BibliographyConnector = z.infer<typeof bibliographyConnectorSchema>
 export type BibliographySnapshot = z.infer<typeof bibliographySnapshotSchema>
-export type BibliographyAttachmentPreview = z.infer<typeof bibliographyAttachmentPreviewSchema>
+export type BibliographyImportPlan = z.infer<typeof bibliographyImportPlanSchema>
+export type BibliographyImportTarget = z.infer<typeof bibliographyImportTargetSchema>
+export type BibliographyConfirmImportSelection = z.infer<
+  typeof bibliographyConfirmImportSelectionSchema
+>
+export type BibliographyImportOutcome = z.infer<typeof bibliographyImportOutcomeSchema>
 export type ReferenceSettings = z.infer<typeof referenceSettingsSchema>
 export type FormattedReferenceSnapshot = z.infer<typeof formattedReferenceSnapshotSchema>
 export type LegacyCitationConversionPlan = z.infer<typeof legacyCitationConversionPlanSchema>

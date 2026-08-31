@@ -37,12 +37,10 @@ import type { BibliographyConnectorService } from '../references/bibliography-co
 import type { CitationFormattingService } from '../references/citation-formatting-service'
 import {
   bibliographyChooseInputSchema,
-  bibliographyImportInputSchema,
-  bibliographyImportResultSchema,
-  bibliographyAttachmentPreviewInputSchema,
-  bibliographyAttachmentPreviewSchema,
-  bibliographyAttachmentConfirmInputSchema,
-  bibliographyAttachmentConfirmResultSchema,
+  bibliographyPrepareImportInputSchema,
+  bibliographyImportPlanSchema,
+  bibliographyConfirmImportInputSchema,
+  bibliographyConfirmImportResultSchema,
   bibliographyExportInputSchema,
   bibliographyExportResultSchema,
   legacyCitationConversionPlanInputSchema,
@@ -153,55 +151,66 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceImportCandidates, (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.referencePrepareImport, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = bibliographyImportInputSchema.parse(input)
+    const parsed = bibliographyPrepareImportInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
-    if (parsed.importPdf) {
-      throw new Error('Review PDF attachment candidates before importing them')
+    try {
+      return bibliographyImportPlanSchema.parse(
+        await options.bibliographyConnectors.prepareImport({
+          projectId: context.manifest.projectId,
+          connectorId: parsed.connectorId,
+          candidateIds: new Set(parsed.candidateIds),
+          includePdf: parsed.includePdf
+        })
+      )
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'reference.import_prepare.failed',
+          err,
+          projectId: context.manifest.projectId,
+          connectorId: parsed.connectorId,
+          candidateCount: parsed.candidateIds.length,
+          includePdf: parsed.includePdf
+        },
+        'Failed to prepare unified Reference import'
+      )
+      throw new Error('REFERENCE_IMPORT_PREPARE_FAILED', { cause: err })
     }
-    return bibliographyImportResultSchema.parse(
-      options.bibliographyConnectors.importCandidates({
-        projectId: context.manifest.projectId,
-        connectorId: parsed.connectorId,
-        candidateIds: new Set(parsed.candidateIds)
-      })
-    )
   })
 
-  ipc.handle(IPC_CHANNELS.referencePreviewAttachments, async (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.referenceConfirmImport, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = bibliographyAttachmentPreviewInputSchema.parse(input)
+    const parsed = bibliographyConfirmImportInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
-    return bibliographyAttachmentPreviewSchema.parse(
-      await options.bibliographyConnectors.previewAttachments({
-        projectId: context.manifest.projectId,
-        connectorId: parsed.connectorId,
-        candidateIds: new Set(parsed.candidateIds)
-      })
-    )
-  })
-
-  ipc.handle(IPC_CHANNELS.referenceConfirmAttachments, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const parsed = bibliographyAttachmentConfirmInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    if (options.bibliographyConnectors === undefined) {
-      throw new Error('Bibliography connectors are unavailable')
+    try {
+      return bibliographyConfirmImportResultSchema.parse(
+        await options.bibliographyConnectors.confirmImport({
+          projectId: context.manifest.projectId,
+          previewId: parsed.previewId,
+          selections: parsed.selections
+        })
+      )
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'reference.import_confirm.failed',
+          err,
+          projectId: context.manifest.projectId,
+          previewId: parsed.previewId,
+          referenceCount: parsed.selections.length
+        },
+        'Failed to confirm unified Reference import'
+      )
+      throw new Error('REFERENCE_IMPORT_CONFIRM_FAILED', { cause: err })
     }
-    return bibliographyAttachmentConfirmResultSchema.parse(
-      await options.bibliographyConnectors.confirmAttachments({
-        projectId: context.manifest.projectId,
-        previewId: parsed.previewId,
-        attachmentIds: new Set(parsed.attachmentIds)
-      })
-    )
   })
 
   ipc.handle(IPC_CHANNELS.referenceExportBibliography, async (event, input: unknown) => {
@@ -844,9 +853,8 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.referenceChooseBibliography,
       IPC_CHANNELS.referenceBibliographySnapshot,
       IPC_CHANNELS.referenceRefreshBibliography,
-      IPC_CHANNELS.referenceImportCandidates,
-      IPC_CHANNELS.referencePreviewAttachments,
-      IPC_CHANNELS.referenceConfirmAttachments,
+      IPC_CHANNELS.referencePrepareImport,
+      IPC_CHANNELS.referenceConfirmImport,
       IPC_CHANNELS.referenceExportBibliography,
       IPC_CHANNELS.referencePlanLegacyConversion,
       IPC_CHANNELS.referenceApplyLegacyConversion,

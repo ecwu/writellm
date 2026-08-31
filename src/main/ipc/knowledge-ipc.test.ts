@@ -92,7 +92,44 @@ function harness() {
     }))
   }
   const releaseOperation = vi.fn()
+  const bibliographyConnectors = {
+    prepareImport: vi.fn(async () => ({
+      previewId: '88888888-8888-4888-8888-888888888888',
+      includePdf: false,
+      items: [
+        {
+          candidateId: 'a'.repeat(64),
+          upstreamKey: 'paper',
+          proposedCitationKey: 'paper',
+          title: 'Paper',
+          authors: [],
+          containerTitle: null,
+          issuedYear: null,
+          alreadyImportedReferenceId: null,
+          attachmentCount: 0,
+          pdfStatus: 'not_requested' as const,
+          attachments: []
+        }
+      ],
+      eligibleTargets: [],
+      expiresAt: '2026-08-31T01:00:00.000Z'
+    })),
+    confirmImport: vi.fn(async () => ({
+      references: [],
+      outcomes: [
+        {
+          candidateId: 'a'.repeat(64),
+          referenceId: '99999999-9999-4999-8999-999999999999',
+          state: 'citation_only' as const,
+          errorCode: null,
+          importedKnowledgeItemIds: []
+        }
+      ]
+    }))
+  }
   const context = {
+    manifest: { projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+    references: { list: vi.fn(() => []) },
     projectRoot: '/private/project.writellm',
     mineruWorkflow,
     jobs: {
@@ -151,7 +188,8 @@ function harness() {
     getWindow: () => null,
     logger: pino({ level: 'silent' }),
     developmentUrl: 'http://localhost:5173',
-    ipc
+    ipc,
+    bibliographyConnectors: bibliographyConnectors as never
   })
   const event = {
     senderFrame: { url: 'http://localhost:5173/' }
@@ -162,6 +200,7 @@ function harness() {
     mineruWorkflow,
     knowledgeNormalization,
     projectIndex,
+    bibliographyConnectors,
     context,
     releaseOperation,
     revoke: () => {
@@ -173,6 +212,51 @@ function harness() {
 }
 
 describe('knowledge IPC', () => {
+  it('routes bounded unified Reference prepare and confirm requests', async () => {
+    const { invoke, bibliographyConnectors } = harness()
+    await expect(
+      invoke(IPC_CHANNELS.referencePrepareImport, {
+        projectSessionId,
+        connectorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        candidateIds: ['a'.repeat(64)],
+        includePdf: false
+      })
+    ).resolves.toMatchObject({ includePdf: false })
+    expect(bibliographyConnectors.prepareImport).toHaveBeenCalledWith({
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      connectorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      candidateIds: new Set(['a'.repeat(64)]),
+      includePdf: false
+    })
+
+    await expect(
+      invoke(IPC_CHANNELS.referenceConfirmImport, {
+        projectSessionId,
+        previewId: '88888888-8888-4888-8888-888888888888',
+        selections: [
+          {
+            candidateId: 'a'.repeat(64),
+            targetReferenceId: null,
+            primaryAttachmentId: null,
+            supplementAttachmentIds: []
+          }
+        ]
+      })
+    ).resolves.toMatchObject({ outcomes: [{ state: 'citation_only' }] })
+    expect(bibliographyConnectors.confirmImport).toHaveBeenCalledOnce()
+
+    await expect(
+      invoke(IPC_CHANNELS.referencePrepareImport, {
+        projectSessionId,
+        connectorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        candidateIds: Array.from({ length: 51 }, (_, index) =>
+          index.toString(16).padStart(64, '0')
+        ),
+        includePdf: true
+      })
+    ).rejects.toThrow()
+  })
+
   it('starts parsing and returns bounded metadata, block, Markdown, and asset data', async () => {
     const { invoke, mineruWorkflow, knowledgeNormalization, projectIndex } = harness()
     await invoke(IPC_CHANNELS.knowledgeStartParse, { projectSessionId, knowledgeItemId })

@@ -1456,6 +1456,84 @@ test(
 )
 
 test(
+  'imports one Zotero Reference with its primary PDF through a unified review',
+  scenario('knowledge.unified-reference-import'),
+  async ({ testRoot }) => {
+    const bibliographyDirectory = join(testRoot, 'zotero-export')
+    await mkdir(bibliographyDirectory)
+    const pdfPath = join(bibliographyDirectory, 'paper.pdf')
+    await writeFile(pdfPath, '%PDF-1.7\nUnified bibliography attachment')
+    const bibliographyPath = join(bibliographyDirectory, 'library.bib')
+    await writeFile(
+      bibliographyPath,
+      `@article{unified2026,
+  title = {A Unified Reference Import},
+  author = {Wu, Zhenghao},
+  year = {2026},
+  journal = {WriteLLM Studies},
+  file = {Paper:paper.pdf:application/pdf}
+}`
+    )
+    const projectName = 'Unified reference import'
+    const projectRoot = join(testRoot, `${projectName}.writellm`)
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot, projectRoot],
+      bibliographyDialogPath: bibliographyPath
+    })
+    try {
+      await createProject(launched.page, projectName)
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      const knowledge = launched.page.getByTestId('knowledge-workspace')
+      await knowledge.getByRole('button', { name: 'Connect Zotero export…' }).click()
+      const importDialog = launched.page.getByRole('dialog', {
+        name: 'Import references from Zotero'
+      })
+      await expect(
+        importDialog.getByText('A Unified Reference Import', { exact: true })
+      ).toBeVisible()
+      await expect(importDialog.getByLabel('Include one primary PDF when available')).toBeChecked()
+      await importDialog.getByRole('button', { name: 'Review references and PDFs' }).click()
+      await expect(
+        launched.page.getByRole('dialog', { name: 'Review references and PDFs' })
+      ).toBeVisible()
+      await expect(launched.page.getByText('PDF ready', { exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Import 1 references' }).click()
+      await expect(launched.page.getByRole('dialog', { name: 'References imported' })).toBeVisible({
+        timeout: 20_000
+      })
+      await launched.page.getByRole('button', { name: 'Done', exact: true }).click()
+      await expect
+        .poll(async () =>
+          launched.page.evaluate(async () => {
+            const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+              ?.projectSessionId
+            if (projectSessionId === undefined) return []
+            return window.desktop.knowledge.listReferences({ projectSessionId })
+          })
+        )
+        .toMatchObject([
+          {
+            citationKey: 'unified2026',
+            title: 'A Unified Reference Import',
+            knowledgeItemIds: [expect.any(String)]
+          }
+        ])
+      const references = await launched.page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        return projectSessionId === undefined
+          ? []
+          : window.desktop.knowledge.listReferences({ projectSessionId })
+      })
+      expect(references.some((reference) => reference.citationKey.startsWith('doc-'))).toBe(false)
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
   'renders and reopens project images, Mermaid, and block LaTeX with Markdown export',
   scenario('manuscript.rich-media-reopen-export', ['@packaged']),
   async ({ testRoot }) => {
