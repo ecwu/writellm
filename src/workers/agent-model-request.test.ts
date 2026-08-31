@@ -80,7 +80,20 @@ describe('runAgentModelRequest', () => {
       }
     }
     const deltas: string[] = []
-    const result = await runAgentModelRequest(request, (delta) => deltas.push(delta))
+    const captures: Array<{
+      apiId: string
+      physicalAttempt: number
+      documents: Array<{ kind: string; value: unknown }>
+    }> = []
+    const result = await runAgentModelRequest(
+      request,
+      (delta) => deltas.push(delta),
+      undefined,
+      async (capture) => {
+        expect(fetchMock).toHaveBeenCalledTimes(captures.length)
+        captures.push(capture)
+      }
+    )
 
     expect(authorization).toBe('Bearer agent-secret')
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -105,6 +118,18 @@ describe('runAgentModelRequest', () => {
     })
     expect(JSON.stringify(result)).not.toContain('agent-secret')
     expect(JSON.stringify(result)).not.toContain('Write a line.')
+    expect(captures.map((capture) => capture.physicalAttempt)).toEqual([1, 2, 2])
+    expect(
+      captures.flatMap((capture) => capture.documents.map((document) => document.kind))
+    ).toEqual([
+      'harness_request',
+      'provider_request',
+      'harness_request',
+      'provider_request',
+      'provider_response'
+    ])
+    expect(JSON.stringify(captures)).toContain('Write a line.')
+    expect(JSON.stringify(captures)).not.toContain('agent-secret')
   })
 
   it('preserves the provider diagnostic when a utility request fails', async () => {

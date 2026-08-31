@@ -30,6 +30,11 @@ import {
 import type { ProviderService } from './provider-service'
 import type { ModelMetadataService } from './model-metadata-service'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
+import { AgentTraceRepository } from '../agent/trace-repository'
+import {
+  effectiveGoogleGeminiImageSize,
+  effectiveGoogleVertexImageSize
+} from '../../shared/contracts/providers'
 
 export interface ModelExecutionServiceOptions {
   providers: ProviderService
@@ -107,7 +112,13 @@ export class ModelExecutionService {
     },
     signal: AbortSignal,
     onEvent: (event: AgentStreamEvent) => void = () => undefined,
-    options: { retention?: 'standard' | 'metadata_only' } = {}
+    options: {
+      retention?: 'standard' | 'metadata_only'
+      tracePurpose?: 'compaction'
+      agentSessionId?: string
+      compactionId?: string
+      compactionSource?: unknown
+    } = {}
   ): Promise<{ result: AgentRunResult; modelRequestId: string }> {
     const input = agentRunInputSchema.parse(rawInput)
     const repository = new ModelRequestRepository(database, this.options.log)
@@ -119,6 +130,28 @@ export class ModelExecutionService {
       ...(options.retention === undefined ? {} : { retention: options.retention }),
       ...correlation
     })
+    const trace =
+      options.tracePurpose === undefined
+        ? undefined
+        : new AgentTraceRepository(database, this.options.log)
+    if (trace !== undefined && options.compactionSource !== undefined) {
+      trace.capture({
+        modelRequestId: record.modelRequestId,
+        purpose: 'compaction',
+        apiId: resolved.config.api ?? 'openai-completions',
+        traceId:
+          options.compactionId ??
+          correlation.agentRunId ??
+          correlation.operationId ??
+          record.modelRequestId,
+        spanId: record.modelRequestId,
+        ...(options.agentSessionId === undefined ? {} : { agentSessionId: options.agentSessionId }),
+        ...(correlation.agentRunId === undefined ? {} : { agentRunId: correlation.agentRunId }),
+        ...(options.compactionId === undefined ? {} : { compactionId: options.compactionId }),
+        physicalAttempt: 1,
+        documents: [{ kind: 'compaction_source', value: options.compactionSource }]
+      })
+    }
     try {
       const result = await this.options.agent.run(
         resolved.config,
@@ -127,8 +160,40 @@ export class ModelExecutionService {
         signal,
         onEvent,
         correlation.projectSessionId,
-        resolved.modelLimits
+        resolved.modelLimits,
+        trace === undefined
+          ? undefined
+          : {
+              context: {
+                modelRequestId: record.modelRequestId,
+                purpose: options.tracePurpose as 'compaction',
+                traceId:
+                  options.compactionId ??
+                  correlation.agentRunId ??
+                  correlation.operationId ??
+                  record.modelRequestId,
+                spanId: record.modelRequestId,
+                ...(options.agentSessionId === undefined
+                  ? {}
+                  : { agentSessionId: options.agentSessionId }),
+                ...(correlation.agentRunId === undefined
+                  ? {}
+                  : { agentRunId: correlation.agentRunId }),
+                ...(options.compactionId === undefined
+                  ? {}
+                  : { compactionId: options.compactionId })
+              },
+              capture: (capture) => {
+                trace.capture(capture)
+              }
+            }
       )
+      if (trace?.exists(record.modelRequestId)) {
+        trace.complete({
+          modelRequestId: record.modelRequestId,
+          physicalAttemptCount: result.metadata.retryCount + 1
+        })
+      }
       await repository.succeed(
         record.modelRequestId,
         {
@@ -169,6 +234,16 @@ export class ModelExecutionService {
           },
           'Failed to persist resolved Agent model execution failure'
         )
+      }
+      if (trace?.exists(record.modelRequestId)) {
+        trace.fail({
+          modelRequestId: record.modelRequestId,
+          physicalAttemptCount: 1,
+          failureCode:
+            err instanceof Error && 'code' in err && typeof err.code === 'string'
+              ? err.code
+              : 'provider_request_failed'
+        })
       }
       throw err
     }
@@ -247,6 +322,32 @@ export class ModelExecutionService {
         inputItems: 1,
         ...correlation
       })
+      const trace =
+        correlation.agentRunId === undefined ||
+        !database.immediate(
+          (native) =>
+            native
+              .prepare('SELECT 1 FROM agent_runs WHERE agent_run_id = ?')
+              .pluck()
+              .get(correlation.agentRunId) === 1
+        )
+          ? undefined
+          : new AgentTraceRepository(database, this.options.log)
+      if (trace !== undefined) {
+        trace.capture({
+          modelRequestId: record.modelRequestId,
+          purpose: 'agent_image',
+          apiId: config.providerId,
+          traceId: correlation.agentRunId as string,
+          spanId: record.modelRequestId,
+          agentRunId: correlation.agentRunId as string,
+          physicalAttempt: 1,
+          documents: [
+            { kind: 'harness_request', value: input },
+            { kind: 'provider_request', value: imageProviderPayload(config, input) }
+          ]
+        })
+      }
       try {
         const result = await images.generateImage(
           config,
@@ -259,6 +360,32 @@ export class ModelExecutionService {
           metadata: result.metadata,
           outputItems: 1
         })
+        if (trace !== undefined) {
+          trace.capture({
+            modelRequestId: record.modelRequestId,
+            purpose: 'agent_image',
+            apiId: config.providerId,
+            traceId: correlation.agentRunId as string,
+            spanId: record.modelRequestId,
+            agentRunId: correlation.agentRunId,
+            physicalAttempt: 1,
+            documents: [
+              {
+                kind: 'provider_response',
+                value: {
+                  mimeType: result.mimeType,
+                  effectiveImageSize: result.effectiveImageSize,
+                  metadata: result.metadata,
+                  binary: {
+                    omitted: true,
+                    byteSize: Buffer.from(result.dataBase64, 'base64').byteLength
+                  }
+                }
+              }
+            ]
+          })
+          trace.complete({ modelRequestId: record.modelRequestId, physicalAttemptCount: 1 })
+        }
         return { ...result, modelRequestId: record.modelRequestId }
       } catch (err) {
         this.options.log.error(
@@ -270,6 +397,13 @@ export class ModelExecutionService {
           },
           'Image model execution failed'
         )
+        if (trace?.exists(record.modelRequestId)) {
+          trace.fail({
+            modelRequestId: record.modelRequestId,
+            physicalAttemptCount: 1,
+            failureCode: 'image_generation_failed'
+          })
+        }
         if (signal.aborted || isAbortError(err)) await repository.abort(record.modelRequestId)
         else await repository.fail(record.modelRequestId, classifySafeError(err))
         throw err
@@ -330,6 +464,63 @@ export class ModelExecutionService {
         throw err
       }
     })
+  }
+}
+
+function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInput): unknown {
+  if (config.role !== 'image') throw new Error('Image provider role is required')
+  if (config.providerId === 'google-gemini') {
+    return {
+      model: config.model,
+      input: input.prompt,
+      response_format: {
+        type: 'image',
+        mime_type: 'image/jpeg',
+        ...(input.aspectRatio === 'auto' ? {} : { aspect_ratio: input.aspectRatio }),
+        image_size: effectiveGoogleGeminiImageSize(config.model, input.imageSize)
+      }
+    }
+  }
+  if (config.providerId === 'google-vertex') {
+    return {
+      model: config.model,
+      contents: input.prompt,
+      config: {
+        candidateCount: 1,
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: {
+          ...(input.aspectRatio === 'auto' ? {} : { aspectRatio: input.aspectRatio }),
+          imageSize: effectiveGoogleVertexImageSize(config.model, input.imageSize)
+        }
+      }
+    }
+  }
+  if (config.providerId === 'openai') {
+    return {
+      model: config.model,
+      prompt: input.prompt,
+      n: 1,
+      quality: 'auto',
+      output_format: 'png',
+      size:
+        input.aspectRatio === 'auto'
+          ? 'auto'
+          : input.aspectRatio === '1:1'
+            ? input.imageSize === '1K'
+              ? '1024x1024'
+              : '2048x2048'
+            : input.imageSize === '1K'
+              ? '1280x720'
+              : '2048x1152'
+    }
+  }
+  return {
+    model: config.model,
+    prompt: input.prompt,
+    n: 1,
+    response_format: 'b64_json',
+    aspect_ratio: input.aspectRatio,
+    resolution: input.imageSize.toLowerCase()
   }
 }
 

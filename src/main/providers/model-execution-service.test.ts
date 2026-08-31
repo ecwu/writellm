@@ -140,12 +140,35 @@ describe('ModelExecutionService', () => {
   it('returns the exact model request ID for concurrent resolved-model calls', async () => {
     const project = await database()
     const agent: AgentModelRuntime = {
-      run: vi.fn(async (_config, _credential, input) => {
-        if (input.prompt === 'slow compaction') {
-          await new Promise((resolve) => setTimeout(resolve, 10))
+      run: vi.fn(
+        async (_config, _credential, input, _signal, _onEvent, _session, _limits, trace) => {
+          if (input.prompt === 'slow compaction') {
+            await new Promise((resolve) => setTimeout(resolve, 10))
+          }
+          await trace?.capture({
+            ...trace.context,
+            apiId: 'openai-completions',
+            physicalAttempt: 1,
+            documents: [
+              { kind: 'harness_request', value: input },
+              { kind: 'provider_request', value: { messages: [input.prompt] } }
+            ]
+          })
+          await trace?.capture({
+            ...trace.context,
+            apiId: 'openai-completions',
+            physicalAttempt: 1,
+            documents: [
+              {
+                kind: 'provider_response',
+                value: { text: input.prompt },
+                metadata: { httpStatus: 200, ttftMs: 4, totalDurationMs: 9 }
+              }
+            ]
+          })
+          return { text: input.prompt, stopReason: 'stop' as const, metadata: metadata('writer') }
         }
-        return { text: input.prompt, stopReason: 'stop' as const, metadata: metadata('writer') }
-      })
+      )
     }
     const execution = service({ agent })
     const resolved = {
@@ -177,7 +200,13 @@ describe('ModelExecutionService', () => {
         { systemPrompt: 'summarize', prompt: 'slow compaction', maxOutputTokens: 1_000 },
         { operationId: 'compaction-id', projectSessionId: 'project-session-id' },
         resolved,
-        signal
+        signal,
+        () => undefined,
+        {
+          tracePurpose: 'compaction',
+          compactionId: 'compaction-id',
+          compactionSource: { trigger: 'automatic', coveredThroughSequence: 9 }
+        }
       ),
       execution.runAgentWithResolvedProvider(
         project,
@@ -204,6 +233,37 @@ describe('ModelExecutionService', () => {
       },
       { model_request_id: title.modelRequestId, operation_id: 'title-id', status: 'succeeded' }
     ])
+    const trace = project.immediate(
+      (native) =>
+        native
+          .prepare(
+            `SELECT capture_status, ttft_ms, harness_request_json, provider_requests_json,
+                    provider_response_json
+               FROM agent_model_request_trace_v WHERE model_request_id = ?`
+          )
+          .get(compaction.modelRequestId) as Record<string, unknown>
+    )
+    expect(trace).toMatchObject({ capture_status: 'complete', ttft_ms: 4 })
+    expect(JSON.parse(trace.harness_request_json as string)).toMatchObject({
+      prompt: 'slow compaction'
+    })
+    expect(JSON.parse(trace.provider_requests_json as string)).toEqual([
+      { messages: ['slow compaction'] }
+    ])
+    expect(JSON.parse(trace.provider_response_json as string)).toEqual({ text: 'slow compaction' })
+    expect(
+      project.immediate((native) =>
+        Number(
+          native
+            .prepare(
+              `SELECT COUNT(*) FROM agent_trace_records
+                  WHERE model_request_id = ? AND document_kind = 'compaction_source'`
+            )
+            .pluck()
+            .get(compaction.modelRequestId)
+        )
+      )
+    ).toBeGreaterThan(0)
     project.close()
   })
 
@@ -255,6 +315,29 @@ describe('ModelExecutionService', () => {
 
   it('records request-scoped image generation without persisting prompt or bytes', async () => {
     const project = await database()
+    project.immediate((native) => {
+      const now = '2026-08-31T00:00:00.000Z'
+      native
+        .prepare(
+          `INSERT INTO agent_sessions (
+             agent_session_id, title, pi_runtime_version, event_schema_version, status,
+             created_at, updated_at, archived_at
+           ) VALUES ('agent-session-image', 'Image', 'test', 3, 'active', ?, ?, NULL)`
+        )
+        .run(now, now)
+      native
+        .prepare(
+          `INSERT INTO agent_runs (
+             agent_run_id, agent_session_id, status, provider_id, model_id,
+             provider_fingerprint, model_fingerprint, editor_context_json, error_json,
+             started_at, completed_at, created_at, updated_at
+           ) VALUES (
+             'agent-run-image', 'agent-session-image', 'running', 'provider', 'model',
+             ?, ?, '{}', NULL, ?, NULL, ?, ?
+           )`
+        )
+        .run('a'.repeat(64), 'b'.repeat(64), now, now, now)
+    })
     const result = await service({
       imageConfig: {
         role: 'image',
@@ -296,6 +379,21 @@ describe('ModelExecutionService', () => {
     })
     expect(JSON.stringify(row)).not.toContain('PRIVATE-IMAGE-PROMPT')
     expect(JSON.stringify(row)).not.toContain('aW1hZ2U=')
+    const trace = project.immediate(
+      (native) =>
+        native
+          .prepare(
+            `SELECT capture_status, harness_request_json, provider_requests_json,
+                    provider_response_json
+               FROM agent_model_request_trace_v WHERE model_request_id = ?`
+          )
+          .get(result.modelRequestId) as Record<string, unknown>
+    )
+    expect(trace.capture_status).toBe('complete')
+    expect(trace.harness_request_json).toContain('PRIVATE-IMAGE-PROMPT')
+    expect(trace.provider_requests_json).toContain('PRIVATE-IMAGE-PROMPT')
+    expect(trace.provider_response_json).not.toContain('aW1hZ2U=')
+    expect(trace.provider_response_json).toContain('"omitted":true')
     project.close()
   })
 

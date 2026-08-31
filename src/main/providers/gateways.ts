@@ -37,7 +37,34 @@ export interface AgentModelRuntime {
     signal: AbortSignal,
     onEvent: (event: AgentStreamEvent) => void,
     projectSessionId?: string,
-    modelLimits?: AgentModelLimits
+    modelLimits?: AgentModelLimits,
+    trace?: {
+      context: {
+        modelRequestId: string
+        purpose: 'session_title' | 'compaction'
+        traceId: string
+        spanId: string
+        agentSessionId?: string | null
+        agentRunId?: string | null
+        compactionId?: string | null
+      }
+      capture(input: {
+        modelRequestId: string
+        purpose: 'session_title' | 'compaction'
+        apiId: string
+        traceId: string
+        spanId: string
+        agentSessionId?: string | null
+        agentRunId?: string | null
+        compactionId?: string | null
+        physicalAttempt: number
+        documents: ReadonlyArray<{
+          kind: 'harness_request' | 'provider_request' | 'provider_response'
+          value: unknown
+          metadata?: Record<string, unknown>
+        }>
+      }): void | Promise<void>
+    }
   ): Promise<AgentRunResult>
 }
 
@@ -55,6 +82,7 @@ export interface AgentSessionRunInput {
   interactionMode?: AgentInteractionMode
   activeToolGroups?: WritingToolGroup[]
   runtimeMessageBudgetTokens?: number
+  traceCapture?: boolean
   thinkingLevel?: AgentThinkingLevel
   runtimeModel?: AgentRuntimeModel
   temperature?: number

@@ -524,6 +524,7 @@ export class KnowledgeChatService {
   }
 
   async #handleRuntimeEvent(active: ActiveNotebookTurn, event: AgentRuntimeEvent): Promise<void> {
+    if (event.type === 'model_trace_capture_requested') return
     if (active.detached || this.#activeTurn !== active) return
     if (event.type === 'assistant_delta') {
       if (this.#phase !== 'generating') {

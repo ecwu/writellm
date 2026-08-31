@@ -21,6 +21,25 @@ export const agentEventIdSchema = z.uuid()
 export const agentModelRequestIdSchema = z.uuid()
 export const agentPendingMessageIdSchema = z.uuid()
 export const agentQueueActionIdSchema = z.uuid()
+export const agentTraceCaptureIdSchema = z.uuid()
+
+export const agentTracePurposeSchema = z.enum([
+  'agent_prompt',
+  'agent_steer',
+  'agent_follow_up',
+  'tool_continuation',
+  'session_title',
+  'compaction',
+  'agent_image'
+])
+export const agentTraceDocumentKindSchema = z.enum([
+  'harness_request',
+  'provider_request',
+  'provider_response',
+  'tool_attempt',
+  'skill_content',
+  'compaction_source'
+])
 
 export const AGENT_PENDING_MESSAGE_LIMIT = 20
 export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
@@ -199,6 +218,7 @@ export const agentRunStartSchema = z
     interactionMode: agentInteractionModeSchema.default('write'),
     activeToolGroups: activeWritingToolGroupsSchema.default([]),
     runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
+    traceCapture: z.boolean().default(false),
     thinkingLevel: agentThinkingLevelSchema.default('off'),
     runtimeModel: agentRuntimeModelSchema.optional(),
     maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),
@@ -294,6 +314,19 @@ export const agentModelCallAuthorizationSchema = z
   })
   .strict()
 
+export const agentTraceCaptureAckSchema = z
+  .object({
+    operation: z.literal('ack_trace_capture'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    agentSessionId: agentSessionIdSchema,
+    agentRunId: agentRunIdSchema,
+    captureId: agentTraceCaptureIdSchema,
+    ok: z.boolean(),
+    errorCode: z.string().min(1).max(100).optional()
+  })
+  .strict()
+
 export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('assistant_delta'), delta: z.string().min(1).max(65_536) }).strict(),
   z
@@ -305,13 +338,38 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
+      type: z.literal('model_trace_capture_requested'),
+      captureId: agentTraceCaptureIdSchema,
+      modelRequestId: agentModelRequestIdSchema,
+      purpose: agentTracePurposeSchema,
+      apiId: piApiSchema,
+      physicalAttempt: z.number().int().min(1).max(20),
+      documents: z
+        .array(
+          z
+            .object({
+              kind: agentTraceDocumentKindSchema,
+              value: z.json(),
+              metadata: z.record(z.string(), z.json()).optional()
+            })
+            .strict()
+        )
+        .min(1)
+        .max(3)
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal('model_call_finished'),
       modelRequestId: agentModelRequestIdSchema,
       outcome: z.enum(['succeeded', 'failed', 'aborted', 'timed_out']),
       metadata: modelExecutionMetadataSchema,
       httpStatus: z.number().int().min(100).max(599).optional(),
       failureCode: z.enum(['provider_retries_exhausted', 'provider_request_failed']).optional(),
-      retryable: z.boolean().optional()
+      retryable: z.boolean().optional(),
+      physicalAttemptCount: z.number().int().min(1).max(20).optional(),
+      ttftMs: z.number().int().nonnegative().max(86_400_000).optional(),
+      totalDurationMs: z.number().int().nonnegative().max(86_400_000).optional()
     })
     .strict(),
   z
@@ -386,7 +444,13 @@ const agentRuntimeDiagnosticErrorSchema = z
     stack: z.string().max(32_768).optional(),
     httpStatus: z.number().int().min(100).max(599).optional(),
     code: z
-      .enum(['context_overflow', 'tool_batch_context_exhausted', 'continuation_lost'])
+      .enum([
+        'context_overflow',
+        'tool_batch_context_exhausted',
+        'continuation_lost',
+        'trace_capture_failed',
+        'trace_payload_too_large'
+      ])
       .optional()
   })
   .strict()
@@ -566,6 +630,8 @@ export type AgentFollowUpConsumptionAuthorization = z.infer<
 >
 export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>
 export type AgentModelCallAuthorization = z.infer<typeof agentModelCallAuthorizationSchema>
+export type AgentTraceCaptureAck = z.infer<typeof agentTraceCaptureAckSchema>
+export type AgentTracePurpose = z.infer<typeof agentTracePurposeSchema>
 export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>
 export type AgentRuntimeMessage = z.infer<typeof agentRuntimeMessageSchema>
 export type AgentSessionRunResult = z.infer<typeof agentSessionRunResultSchema>

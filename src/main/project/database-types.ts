@@ -152,6 +152,60 @@ export interface ModelRequestTable {
   updated_at: string
 }
 
+export interface AgentTracePayloadTable {
+  payload_sha256: string
+  schema_version: number
+  payload_json: string
+  byte_size: number
+  created_at: string
+}
+
+export interface ModelRequestTraceTable {
+  model_request_id: string
+  purpose:
+    | 'agent_prompt'
+    | 'agent_steer'
+    | 'agent_follow_up'
+    | 'tool_continuation'
+    | 'session_title'
+    | 'compaction'
+    | 'agent_image'
+  api_id: string
+  trace_id: string
+  span_id: string
+  parent_span_id: string | null
+  capture_status: 'capturing' | 'complete' | 'failed'
+  physical_attempt_count: number
+  http_status: number | null
+  ttft_ms: number | null
+  total_duration_ms: number | null
+  failure_code: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentTraceRecordTable {
+  agent_trace_record_id: string
+  agent_session_id: string | null
+  agent_run_id: string | null
+  model_request_id: string
+  tool_call_id: string | null
+  compaction_id: string | null
+  physical_attempt: number
+  document_kind:
+    | 'harness_request'
+    | 'provider_request'
+    | 'provider_response'
+    | 'tool_attempt'
+    | 'skill_content'
+    | 'compaction_source'
+  ordinal: number
+  json_path: string
+  payload_sha256: string
+  metadata_json: string
+  created_at: string
+}
+
 export interface AgentSessionTable {
   agent_session_id: string
   title: string
@@ -206,6 +260,9 @@ export interface AgentEventTable {
   type:
     | 'user_message'
     | 'assistant_message'
+    | 'tool_attempted'
+    | 'tool_preflight_failed'
+    | 'approval_decision'
     | 'tool_call'
     | 'tool_result'
     | 'run_interrupted'
@@ -559,6 +616,9 @@ export interface ProjectDatabaseSchema {
   knowledge_items: KnowledgeItemTable
   imports: ImportTable
   model_requests: ModelRequestTable
+  agent_trace_payloads: AgentTracePayloadTable
+  model_request_traces: ModelRequestTraceTable
+  agent_trace_records: AgentTraceRecordTable
   agent_sessions: AgentSessionTable
   agent_runs: AgentRunTable
   agent_events: AgentEventTable

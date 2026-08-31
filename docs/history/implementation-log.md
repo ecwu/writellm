@@ -1102,6 +1102,18 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-31
 
+- Completed Phase 26 Checkpoint 76.1 under ADR 069. Project SQLite now permanently retains
+  content-addressed model-visible harness context, exact Pi provider bodies, structured provider
+  responses, raw invalid tool attempts, injected Skill sources, compaction evidence, titles, and
+  Agent image metadata. Every traced provider attempt waits for Main's transactional persistence
+  ACK before network dispatch; retries and correlation identifiers remain explicit across process
+  boundaries, while ordinary logs retain only safe metadata. SQL views reconstruct request JSON
+  and merge traces with authoritative Agent events; legacy requests remain explicitly unavailable.
+  A 7,936,308-byte repeated-history sample stored 330,580 payload bytes after deduplication
+  (95.83% reduction) and reconstructed 12 requests in about 1.73 seconds. `check:fast`, 1,204
+  canonical tests with three benchmark skips, the Electron/build gate, all 47 fresh E2E scenarios,
+  and the complete no-Team-ID package gate with 12 smoke and 34 packaged E2E scenarios passed. No
+  release signing, notarization, commit, tag, push, promotion, or publication was performed.
 - Built the separately authorized local `v0.2026.8.46` candidate after aligning tag CI with the
   accepted pnpm 11.17.0 runtime. `check:fast`, 31 recovery fixtures from 29 sources, 1,194
   Electron-hosted tests with three benchmark skips plus the production build, and all 47 fresh

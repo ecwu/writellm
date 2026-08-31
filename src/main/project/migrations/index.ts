@@ -37,6 +37,7 @@ import { migration0036 } from './0036-manuscript-annotations'
 import { migration0037 } from './0037-inline-math-schema-v4'
 import { migration0038 } from './0038-native-block-math-diagram-schema-v5'
 import { migration0039 } from './0039-agent-interaction-modes'
+import { migration0040 } from './0040-agent-request-traces'
 
 export const projectMigrations = [
   migration0001,
@@ -77,5 +78,6 @@ export const projectMigrations = [
   migration0036,
   migration0037,
   migration0038,
-  migration0039
+  migration0039,
+  migration0040
 ] as const

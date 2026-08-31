@@ -89,6 +89,81 @@ afterEach(() => {
 })
 
 describe('runAgentSession', () => {
+  it('waits for durable trace acknowledgement before a writing provider call', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'response-trace'))
+    vi.stubGlobal('fetch', fetchMock)
+    let control: AgentSessionRunControl | undefined
+    const traceEvents: AgentRuntimeEvent[] = []
+    const running = runAgentSession(
+      { ...request, traceCapture: true },
+      (event) => {
+        if (event.type !== 'model_trace_capture_requested') return
+        expect(fetchMock).toHaveBeenCalledTimes(traceEvents.length === 0 ? 0 : 1)
+        traceEvents.push(event)
+        control?.acknowledgeTraceCapture({
+          operation: 'ack_trace_capture',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          captureId: event.captureId,
+          ok: true
+        })
+      },
+      (registered) => {
+        control = registered
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+
+    await expect(running).resolves.toEqual({ outcome: 'finished' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(traceEvents).toHaveLength(2)
+    expect(traceEvents[0]).toMatchObject({
+      type: 'model_trace_capture_requested',
+      physicalAttempt: 1,
+      documents: [{ kind: 'harness_request' }, { kind: 'provider_request' }]
+    })
+    expect(traceEvents[1]).toMatchObject({
+      type: 'model_trace_capture_requested',
+      documents: [{ kind: 'provider_response' }]
+    })
+  })
+
+  it('fails closed before network I/O when Main rejects trace persistence', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    let control: AgentSessionRunControl | undefined
+    const running = runAgentSession(
+      { ...request, traceCapture: true },
+      (event) => {
+        if (event.type !== 'model_trace_capture_requested') return
+        control?.acknowledgeTraceCapture({
+          operation: 'ack_trace_capture',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          captureId: event.captureId,
+          ok: false,
+          errorCode: 'trace_capture_failed'
+        })
+      },
+      (registered) => {
+        control = registered
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+
+    await expect(running).rejects.toMatchObject({
+      name: 'AgentTracePersistenceError',
+      code: 'trace_capture_failed'
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('recovers one authorized continuation or fails explicitly when Pi cannot consume it', async () => {
     let pending = 1
     const recoveredLog = vi.fn()
@@ -586,8 +661,20 @@ describe('runAgentSession', () => {
     })
     let control: AgentSessionRunControl | undefined
     await runAgentSession(
-      request,
+      { ...request, traceCapture: true },
       (event) => {
+        if (event.type === 'model_trace_capture_requested') {
+          control?.acknowledgeTraceCapture({
+            operation: 'ack_trace_capture',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            captureId: event.captureId,
+            ok: true
+          })
+          return
+        }
         if (event.type !== 'model_call_requested') return
         control?.authorizeModelCall({
           operation: 'authorize_model_call',

@@ -15,7 +15,16 @@ import {
 export async function runAgentModelRequest(
   request: AgentUtilityRequest,
   onTextDelta: (delta: string) => void,
-  externalSignal?: AbortSignal
+  externalSignal?: AbortSignal,
+  onTraceCapture?: (input: {
+    apiId: string
+    physicalAttempt: number
+    documents: Array<{
+      kind: 'harness_request' | 'provider_request' | 'provider_response'
+      value: unknown
+      metadata?: Record<string, unknown>
+    }>
+  }) => Promise<void>
 ): Promise<AgentRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
@@ -30,7 +39,12 @@ export async function runAgentModelRequest(
   })
   let lastResponseStatus: number | undefined
   let retryAfterMs: number | undefined
+  let responseHeaders: Record<string, string> = {}
   let retryState: AgentProviderRetryState | undefined
+  let physicalAttempt = 0
+  const startedAt = Date.now()
+  let ttftMs: number | undefined
+  let terminalTraceError: Error | undefined
   const agent = new Agent({
     initialState: {
       systemPrompt: request.input.systemPrompt,
@@ -45,8 +59,11 @@ export async function runAgentModelRequest(
       const retrying = createRetryingAgentProviderStream({
         signal: options?.signal,
         startAttempt: () => {
+          physicalAttempt += 1
+          const attempt = physicalAttempt
           lastResponseStatus = undefined
           retryAfterMs = undefined
+          responseHeaders = {}
           return streamSimple(activeModel, context, {
             ...options,
             ...(request.input.temperature === undefined
@@ -58,9 +75,39 @@ export async function runAgentModelRequest(
             env: request.credential.env,
             maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
             timeoutMs: undefined,
+            onPayload: async (payload, payloadModel) => {
+              const transformed = await options?.onPayload?.(payload, payloadModel)
+              if (onTraceCapture !== undefined) {
+                try {
+                  await onTraceCapture({
+                    apiId: payloadModel.api,
+                    physicalAttempt: attempt,
+                    documents: [
+                      {
+                        kind: 'harness_request',
+                        value: jsonValue({
+                          systemPrompt: context.systemPrompt,
+                          messages: context.messages,
+                          tools: context.tools
+                        })
+                      },
+                      {
+                        kind: 'provider_request',
+                        value: jsonValue(transformed === undefined ? payload : transformed)
+                      }
+                    ]
+                  })
+                } catch (err) {
+                  terminalTraceError = traceErrorFrom(err)
+                  throw terminalTraceError
+                }
+              }
+              return transformed
+            },
             onResponse: async (response, responseModel) => {
               lastResponseStatus = response.status
               retryAfterMs = parseRetryAfterMs(response.headers)
+              responseHeaders = safeProviderResponseHeaders(response.headers)
               await options?.onResponse?.(response, responseModel)
             }
           })
@@ -68,6 +115,9 @@ export async function runAgentModelRequest(
         responseStatus: () => lastResponseStatus,
         retryAfterMs: () => retryAfterMs,
         createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        onFirstAssistantContent: () => {
+          ttftMs ??= Math.max(0, Date.now() - startedAt)
+        },
         onRetry: () => undefined
       })
       retryState = retrying.state
@@ -98,8 +148,27 @@ export async function runAgentModelRequest(
   const finalMessage = [...agent.state.messages]
     .reverse()
     .find((message) => message.role === 'assistant')
+  if (terminalTraceError !== undefined) throw terminalTraceError
   if (finalMessage === undefined || finalMessage.role !== 'assistant') {
     throw new Error('Agent completed without an assistant response')
+  }
+  if (onTraceCapture !== undefined) {
+    await onTraceCapture({
+      apiId: model.api,
+      physicalAttempt: Math.max(1, physicalAttempt),
+      documents: [
+        {
+          kind: 'provider_response',
+          value: jsonValue(finalMessage),
+          metadata: {
+            ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
+            responseHeaders,
+            ...(ttftMs === undefined ? {} : { ttftMs }),
+            totalDurationMs: Math.max(0, Date.now() - startedAt)
+          }
+        }
+      ]
+    })
   }
   if (finalMessage.stopReason === 'error') {
     const error: Error & { status?: number } = new Error(
@@ -137,6 +206,61 @@ export async function runAgentModelRequest(
       providerModelId: finalMessage.responseModel ?? finalMessage.model
     }
   }
+}
+
+function traceErrorFrom(error: unknown): Error & { code: string } {
+  if (
+    error instanceof Error &&
+    'code' in error &&
+    (error.code === 'trace_capture_failed' || error.code === 'trace_payload_too_large')
+  ) {
+    return error as Error & { code: string }
+  }
+  return traceError('trace_capture_failed', { cause: error })
+}
+
+function safeProviderResponseHeaders(
+  headers: Readonly<Record<string, string>>
+): Record<string, string> {
+  const allowed = new Set([
+    'request-id',
+    'x-request-id',
+    'openai-request-id',
+    'retry-after',
+    'retry-after-ms',
+    'server-timing',
+    'x-ratelimit-limit-requests',
+    'x-ratelimit-limit-tokens',
+    'x-ratelimit-remaining-requests',
+    'x-ratelimit-remaining-tokens',
+    'x-ratelimit-reset-requests',
+    'x-ratelimit-reset-tokens'
+  ])
+  return Object.fromEntries(
+    Object.entries(headers)
+      .map(([name, value]) => [name.toLowerCase(), value] as const)
+      .filter(([name]) => allowed.has(name))
+      .map(([name, value]) => [name, value.slice(0, 2_048)])
+  )
+}
+
+function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) throw traceError('trace_capture_failed')
+  return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
+}
+
+function traceError(
+  code: 'trace_capture_failed' | 'trace_payload_too_large',
+  options?: ErrorOptions
+): Error & { code: string } {
+  const error: Error & { code: string } = new Error(
+    'Agent request trace could not be persisted',
+    options
+  )
+  error.name = 'AgentTracePersistenceError'
+  error.code = code
+  return error
 }
 
 function providerErrorMessage(

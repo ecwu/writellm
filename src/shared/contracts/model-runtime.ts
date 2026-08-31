@@ -155,11 +155,45 @@ export const agentUtilityRequestSchema = z.object({
   config: providerConfigSchema.refine((config) => config.role === 'agent'),
   credential: agentRuntimeAuthSchema,
   modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
-  input: agentRunInputSchema
+  input: agentRunInputSchema,
+  trace: z
+    .object({
+      modelRequestId: z.uuid(),
+      purpose: z.enum(['session_title', 'compaction']),
+      traceId: z.string().min(1).max(100),
+      spanId: z.string().min(1).max(100),
+      agentSessionId: z.uuid().nullable().optional(),
+      agentRunId: z.uuid().nullable().optional(),
+      compactionId: z.uuid().nullable().optional()
+    })
+    .strict()
+    .optional()
 })
 export type AgentUtilityRequest = z.infer<typeof agentUtilityRequestSchema>
 
 export const agentUtilityMessageSchema = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('trace-capture'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    captureId: z.uuid(),
+    modelRequestId: z.uuid(),
+    purpose: z.enum(['session_title', 'compaction']),
+    apiId: z.string().min(1).max(100),
+    physicalAttempt: z.number().int().min(1).max(20),
+    documents: z
+      .array(
+        z
+          .object({
+            kind: z.enum(['harness_request', 'provider_request', 'provider_response']),
+            value: z.json(),
+            metadata: z.record(z.string(), z.json()).optional()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(3)
+  }),
   z.object({
     type: z.literal('text-delta'),
     requestId: z.uuid(),
@@ -180,6 +214,17 @@ export const agentUtilityMessageSchema = z.discriminatedUnion('type', [
   })
 ])
 export type AgentUtilityMessage = z.infer<typeof agentUtilityMessageSchema>
+
+export const agentUtilityTraceAckSchema = z
+  .object({
+    type: z.literal('trace-ack'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    captureId: z.uuid(),
+    ok: z.boolean(),
+    errorCode: z.string().min(1).max(100).optional()
+  })
+  .strict()
 
 export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
   z.object({

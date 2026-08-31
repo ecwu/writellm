@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 068
-Recorded: 2026-07-31; amended through 2026-08-30
+Status: accepted implementation baseline, amended through accepted ADR 069
+Recorded: 2026-07-31; amended through 2026-08-31
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,18 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-08-31 Agent diagnostic trace amendment
+
+ADR 069 adds project-local, permanent diagnostic evidence for Agent model traffic. Immutable
+canonical JSON payloads are content-addressed and referenced by ordered trace records; stable SQL
+views reconstruct a model request or merge one Agent run with authoritative `agent_events`.
+
+The Worker must receive Main's durable SQLite acknowledgement for the exact Pi context and
+provider-transformed body before network I/O. Every physical retry is captured separately. Trace
+serialization, capacity, or persistence failure is fail-closed. Trace tables are diagnostic only:
+they never provide Agent recovery, context, mutation authority, or audit state. Private bodies are
+permitted only in these trace tables and remain prohibited from Pino. See ADR 069.
 
 ## 2026-07-16 Architecture Amendment
 
@@ -43,7 +55,12 @@ The following rules are now the current target. Any older section in this docume
   tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan may also
   mutate Writing Task collaboration metadata, and only Write can activate proposal groups. See ADR
   068.
-- Core Agent persistence remains `agent_sessions`, `agent_runs`, `agent_events`, `mutation_proposals`, and `model_requests`. ADR 024 adds project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals. These are user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
+- Core Agent runtime persistence remains `agent_sessions`, `agent_runs`, `agent_events`,
+  `mutation_proposals`, and `model_requests`. ADR 069 adds diagnostic-only trace payload, request,
+  and record tables that cannot participate in recovery or authorization. ADR 024 adds
+  project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks`
+  current-state table plus exact task/step correlation on runs and proposals. These are
+  user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.

@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 25 Checkpoint 76 Ask, Plan, and Write interaction-mode ceilings are complete under
-ADR 068. Checkpoint 77 is paused pending separate authorization. Immutable tag-only candidates
+Status: Phase 26 Checkpoint 76.1 Agent request diagnostic traces are complete under ADR 069.
+Checkpoint 77 remains paused pending separate authorization. Immutable tag-only candidates
 `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
 Candidate `.37` proved both independent macOS pipelines through artifact upload, while Windows and
@@ -27,6 +27,19 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Candidate `v0.2026.8.47` has passed its fresh no-Team-ID macOS arm64 package gate for the
+  completed Checkpoint 76.1 trace work; the source commit, annotated tag, and push of `main` plus
+  that tag to GitHub remain in progress. Signing, notarization, GitHub Release creation,
+  promotion, and publication remain outside this authorization.
+- Checkpoint 76.1 is complete. Project-local content-addressed Agent traces, SQL reconstruction
+  views, fail-closed Worker/Main persistence acknowledgements, physical retry evidence, and tool,
+  Skill, compaction, title, and image correlations are implemented without putting private bodies
+  in Pino. The canonical suite passed 1,204 tests with three benchmark skips; `check:fast`, the
+  Electron build gate, all 47 fresh Electron E2E scenarios, and the complete no-Team-ID package
+  gate with 34 packaged scenarios passed. A 7,936,308-byte repeated-history sample occupied
+  330,580 payload bytes after deduplication (95.83% reduction) and reconstructed 12 requests in
+  about 1.73 seconds on the local Electron runtime.
 
 - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit
   `1f53c5c`; tag-only GitHub Actions run `33341907788` is in progress. The gate verified 31 recovery fixtures from 29 sources,
@@ -483,11 +496,9 @@ notarization, GitHub Release, promotion, or publication ran.
 ## Current authorized work
 
 The separately authorized no-Team-ID macOS arm64 App rebuild, source commit, annotated
-`v0.2026.8.46` tag, and atomic push of `main` plus that tag are complete for the maintenance
-snapshot. Tag-only GitHub Actions run `33341907788` uses the repository's accepted pnpm 11.17.0
-pin and is independently building the four unsigned platform rows. Apple Developer ID signing,
-notarization, GitHub Release creation, promotion, and publication remain outside this
-authorization.
+`v0.2026.8.47` tag, and push of `main` plus that tag are in progress for the completed Checkpoint
+76.1 snapshot. Apple Developer ID signing, notarization, GitHub Release creation, promotion, and
+publication remain outside this authorization.
 
 Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
 immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent

@@ -47,6 +47,7 @@ function manifest(projectId: string): ProjectManifest {
 
 function restoreV5ManuscriptSchema(database: Database.Database): void {
   database.pragma('foreign_keys = OFF')
+  dropAgentTraceSchema(database)
   database.exec(`
     DROP TABLE manuscript_annotations;
     DROP TABLE manuscript_asset_variants;
@@ -100,6 +101,17 @@ function restoreV5ManuscriptSchema(database: Database.Database): void {
     ALTER TABLE manuscript_briefs DROP COLUMN schema_version;
   `)
   database.pragma('foreign_keys = ON')
+}
+
+function dropAgentTraceSchema(database: Database.Database): void {
+  database.exec(`
+    DROP VIEW IF EXISTS agent_run_trace_v;
+    DROP VIEW IF EXISTS agent_model_request_trace_v;
+    DROP VIEW IF EXISTS agent_trace_document_v;
+    DROP TABLE IF EXISTS agent_trace_records;
+    DROP TABLE IF EXISTS model_request_traces;
+    DROP TABLE IF EXISTS agent_trace_payloads;
+  `)
 }
 
 afterEach(async () => {
@@ -334,6 +346,7 @@ describe('project database', () => {
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
     native.pragma('foreign_keys = OFF')
+    dropAgentTraceSchema(native)
     native.exec(`
       DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;
@@ -667,6 +680,7 @@ describe('project database', () => {
     const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
     const native = new (await import('better-sqlite3')).default(databasePath)
     native.pragma('foreign_keys = OFF')
+    dropAgentTraceSchema(native)
     native.exec(`
       DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;

@@ -115,6 +115,7 @@ export class ModelRequestRepository {
     this.log.info(
       {
         event: 'model_request.started',
+        traceId: input.agentRunId ?? modelRequestId,
         modelRequestId,
         operation: input.operation,
         providerId: input.provider.providerId,
@@ -157,7 +158,8 @@ export class ModelRequestRepository {
     retention: ModelRequestRetention = 'standard'
   ): Promise<ModelRequestRecord> {
     const completedAt = this.now()
-    const durationMs = await this.durationMs(modelRequestId, completedAt)
+    const context = await this.requestContext(modelRequestId, completedAt)
+    const durationMs = context.durationMs
     const update = await this.database.kysely
       .updateTable('model_requests')
       .set({
@@ -184,9 +186,14 @@ export class ModelRequestRepository {
     this.log.info(
       {
         event: 'model_request.succeeded',
+        traceId: context.agentRunId ?? modelRequestId,
         modelRequestId,
+        operationId: context.operationId,
+        jobId: context.jobId,
+        agentRunId: context.agentRunId,
         retryCount: input.metadata.retryCount,
-        outputItems: input.outputItems
+        outputItems: input.outputItems,
+        durationMs
       },
       'Model request succeeded'
     )
@@ -220,7 +227,8 @@ export class ModelRequestRepository {
   ): Promise<ModelRequestRecord> {
     const completedAt = this.now()
     const safeError = parseSafeError(error)
-    const durationMs = await this.durationMs(modelRequestId, completedAt)
+    const context = await this.requestContext(modelRequestId, completedAt)
+    const durationMs = context.durationMs
     const update = await this.database.kysely
       .updateTable('model_requests')
       .set({
@@ -251,23 +259,41 @@ export class ModelRequestRepository {
     this.log.warn(
       {
         event: `model_request.${status}`,
+        traceId: context.agentRunId ?? modelRequestId,
         modelRequestId,
+        operationId: context.operationId,
+        jobId: context.jobId,
+        agentRunId: context.agentRunId,
         errorCode: safeError.code,
-        ...(metadata === undefined ? {} : { retryCount: metadata.retryCount })
+        ...(metadata === undefined ? {} : { retryCount: metadata.retryCount }),
+        durationMs
       },
       `Model request ${status}`
     )
     return { modelRequestId, status, retention }
   }
 
-  private async durationMs(modelRequestId: string, completedAt: Date): Promise<number> {
+  private async requestContext(
+    modelRequestId: string,
+    completedAt: Date
+  ): Promise<{
+    durationMs: number
+    operationId: string | null
+    jobId: string | null
+    agentRunId: string | null
+  }> {
     const row = await this.database.kysely
       .selectFrom('model_requests')
-      .select('started_at')
+      .select(['started_at', 'operation_id', 'job_id', 'agent_run_id'])
       .where('model_request_id', '=', modelRequestId)
       .executeTakeFirst()
     if (row === undefined) throw new Error('Model request does not exist')
-    return Math.max(0, completedAt.getTime() - new Date(row.started_at).getTime())
+    return {
+      durationMs: Math.max(0, completedAt.getTime() - new Date(row.started_at).getTime()),
+      operationId: row.operation_id,
+      jobId: row.job_id,
+      agentRunId: row.agent_run_id
+    }
   }
 }
 

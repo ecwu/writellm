@@ -12,12 +12,15 @@ import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
   agentModelCallAuthorizationSchema,
+  agentTraceCaptureAckSchema,
   agentQueueActionCommandSchema,
   agentQueueCommandSchema,
   type AgentAssistantMessagePayload,
   type AgentFollowUpConsumptionAuthorization,
   type AgentHistoryMessage,
   type AgentModelCallAuthorization,
+  type AgentTraceCaptureAck,
+  type AgentTracePurpose,
   type AgentQueueActionCommand,
   type AgentQueueCommand,
   type AgentRunStart,
@@ -47,6 +50,7 @@ export interface AgentSessionRunControl {
   queueAction(command: AgentQueueActionCommand): void
   authorizeFollowUpConsumption(command: AgentFollowUpConsumptionAuthorization): void
   authorizeModelCall(command: AgentModelCallAuthorization): void
+  acknowledgeTraceCapture(command: AgentTraceCaptureAck): void
   abort(): void
 }
 
@@ -126,6 +130,9 @@ export async function runAgentSession(
     }
   )
   const modelRequestIds = [request.modelRequestId]
+  const modelRequestPurposes = new Map<string, AgentTracePurpose>([
+    [request.modelRequestId, 'agent_prompt']
+  ])
   const authorizedContinuationRequestIds = new Set<string>()
   const systemPromptByModelRequestId = new Map<string, string>()
   interface QueueEntry {
@@ -155,6 +162,10 @@ export async function runAgentSession(
       reject: (error: Error) => void
     }
   >()
+  const pendingTraceCaptures = new Map<
+    string,
+    { resolve: () => void; reject: (error: Error) => void }
+  >()
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
   const modelVisibleToolsByRequestId = new Map<
@@ -168,9 +179,11 @@ export async function runAgentSession(
   const emittedPreflightDiagnosticsByModelRequestId = new Map<string, Set<string>>()
   const rawArgumentsByToolCallId = new Map<string, unknown>()
   const toolStartedAtByToolCallId = new Map<string, number>()
+  const toolTraceOccurrenceByModelRequestId = new Map<string, number>()
   let lastAssistant: AssistantMessage | undefined
   let lastAssistantRetriesExhausted = false
   let lastAssistantHttpStatus: number | undefined
+  let terminalTraceError: AgentTracePersistenceError | undefined
   let awaitingReview = false
   const toolBridge = new AgentToolBridge(
     toolPort,
@@ -247,6 +260,7 @@ export async function runAgentSession(
         throw new Error('Agent model-call authorization changed the immutable interaction mode')
       }
       modelRequestIds.push(authorization.modelRequestId)
+      modelRequestPurposes.set(authorization.modelRequestId, 'tool_continuation')
       authorizedContinuationRequestIds.add(authorization.modelRequestId)
       activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
       contextBudget.setTokenBudget(
@@ -365,13 +379,21 @@ export async function runAgentSession(
         )
       )
       authorizedContinuationRequestIds.delete(modelRequestId)
+      const tracePurpose = modelRequestPurposes.get(modelRequestId) ?? 'tool_continuation'
       let lastResponseStatus: number | undefined
       let retryAfterMs: number | undefined
+      let responseHeaders: Record<string, string> = {}
+      let physicalAttempt = 0
+      const callStartedAt = Date.now()
+      let ttftMs: number | undefined
       const retrying = createRetryingAgentProviderStream({
         signal: options?.signal,
         startAttempt: () => {
+          physicalAttempt += 1
+          const attempt = physicalAttempt
           lastResponseStatus = undefined
           retryAfterMs = undefined
+          responseHeaders = {}
           return streamSimple(activeModel, context, {
             ...options,
             signal: options?.signal,
@@ -383,9 +405,37 @@ export async function runAgentSession(
             maxTokens: request.maxOutputTokens,
             maxRetries: 0,
             maxRetryDelayMs: AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
+            onPayload: async (payload, payloadModel) => {
+              const transformed = await options?.onPayload?.(payload, payloadModel)
+              const providerRequest = transformed === undefined ? payload : transformed
+              if (request.traceCapture) {
+                try {
+                  await requestTraceCapture(
+                    onEvent,
+                    pendingTraceCaptures,
+                    modelRequestId,
+                    tracePurpose,
+                    payloadModel.api,
+                    attempt,
+                    [
+                      {
+                        kind: 'harness_request',
+                        value: serializableHarnessContext(context)
+                      },
+                      { kind: 'provider_request', value: jsonValue(providerRequest) }
+                    ]
+                  )
+                } catch (err) {
+                  if (err instanceof AgentTracePersistenceError) terminalTraceError = err
+                  throw err
+                }
+              }
+              return transformed
+            },
             onResponse: async (response, responseModel) => {
               lastResponseStatus = response.status
               retryAfterMs = parseRetryAfterMs(response.headers)
+              responseHeaders = safeProviderResponseHeaders(response.headers)
               await options?.onResponse?.(response, responseModel)
             }
           })
@@ -393,6 +443,9 @@ export async function runAgentSession(
         responseStatus: () => lastResponseStatus,
         retryAfterMs: () => retryAfterMs,
         createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        onFirstAssistantContent: () => {
+          ttftMs ??= Math.max(0, Date.now() - callStartedAt)
+        },
         onRetry: ({ completedAttempts, maxAttempts, delayMs, reasonCode }) => {
           onEvent({
             type: 'model_call_retrying',
@@ -405,12 +458,40 @@ export async function runAgentSession(
         }
       })
       const stream = retrying.stream
-      const completion = stream.result().then((message) => {
+      const completion = stream.result().then(async (message) => {
+        if (terminalTraceError !== undefined) throw terminalTraceError
         lastAssistant = message
         lastAssistantRetriesExhausted = retrying.state.exhausted
         lastAssistantHttpStatus = lastResponseStatus
         for (const part of message.content) {
           if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
+        }
+        if (request.traceCapture) {
+          try {
+            await requestTraceCapture(
+              onEvent,
+              pendingTraceCaptures,
+              modelRequestId,
+              tracePurpose,
+              activeModel.api,
+              Math.max(1, physicalAttempt),
+              [
+                {
+                  kind: 'provider_response',
+                  value: jsonValue(message),
+                  metadata: {
+                    ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
+                    responseHeaders,
+                    ...(ttftMs === undefined ? {} : { ttftMs }),
+                    totalDurationMs: Math.max(0, Date.now() - callStartedAt)
+                  }
+                }
+              ]
+            )
+          } catch (err) {
+            if (err instanceof AgentTracePersistenceError) terminalTraceError = err
+            throw err
+          }
         }
         const providerPromptTokens = message.usage.input + message.usage.cacheRead
         const contextTokensEstimated = providerPromptTokens === 0
@@ -434,7 +515,10 @@ export async function runAgentSession(
                 retryable: retrying.state.retryableFailure
               }
             : {}),
-          ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus })
+          ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
+          physicalAttemptCount: Math.max(1, physicalAttempt),
+          ...(ttftMs === undefined ? {} : { ttftMs }),
+          totalDurationMs: Math.max(0, Date.now() - callStartedAt)
         })
         onEvent({ type: 'assistant_message', modelRequestId, message: payload })
       })
@@ -492,6 +576,25 @@ export async function runAgentSession(
       }
       rawArgumentsByToolCallId.set(event.toolCallId, event.args)
       toolStartedAtByToolCallId.set(event.toolCallId, Date.now())
+      if (request.traceCapture) {
+        const traceOccurrence = (toolTraceOccurrenceByModelRequestId.get(modelRequestId) ?? 0) + 1
+        toolTraceOccurrenceByModelRequestId.set(modelRequestId, traceOccurrence)
+        await requestTraceCapture(
+          onEvent,
+          pendingTraceCaptures,
+          modelRequestId,
+          modelRequestPurposes.get(modelRequestId) ?? 'tool_continuation',
+          model.api,
+          traceOccurrence,
+          [
+            {
+              kind: 'tool_attempt',
+              value: jsonValue({ toolName: event.toolName, args: event.args }),
+              metadata: { toolCallId: event.toolCallId }
+            }
+          ]
+        )
+      }
       onEvent({
         type: 'tool_attempted',
         modelRequestId,
@@ -589,6 +692,7 @@ export async function runAgentSession(
         }
         steeringEntries.push(entry)
         modelRequestIds.push(parsed.modelRequestId)
+        modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
         agent.steer(message)
       } else {
@@ -598,6 +702,7 @@ export async function runAgentSession(
           message,
           systemPrompt: parsed.systemPrompt
         })
+        modelRequestPurposes.set(parsed.modelRequestId, 'agent_follow_up')
         loadFollowUpHead()
       }
       onEvent({
@@ -628,6 +733,7 @@ export async function runAgentSession(
         }
         steeringEntries.push(entry)
         modelRequestIds.push(parsed.modelRequestId)
+        modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
         agent.steer(entry.message)
         onEvent({
@@ -687,6 +793,14 @@ export async function runAgentSession(
       pendingModelCallAuthorizations.delete(parsed.continuationId)
       pending.resolve(parsed)
     },
+    acknowledgeTraceCapture(command) {
+      const parsed = agentTraceCaptureAckSchema.parse(command)
+      const pending = pendingTraceCaptures.get(parsed.captureId)
+      if (pending === undefined) throw new Error('Agent trace acknowledgement is stale')
+      pendingTraceCaptures.delete(parsed.captureId)
+      if (parsed.ok) pending.resolve()
+      else pending.reject(new AgentTracePersistenceError(parsed.errorCode))
+    },
     abort: () => agent.abort()
   })
 
@@ -718,10 +832,15 @@ export async function runAgentSession(
       pending.reject(abortError('Agent run ended before Follow-up consumption authorization'))
     }
     pendingFollowUpConsumptions.clear()
+    for (const pending of pendingTraceCaptures.values()) {
+      pending.reject(abortError('Agent run ended before trace persistence acknowledgement'))
+    }
+    pendingTraceCaptures.clear()
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
 
+  if (terminalTraceError !== undefined) throw terminalTraceError
   if (runError !== undefined) throw runError
   const contextError = contextBudget.terminalError()
   if (contextError !== null) throw contextError
@@ -971,6 +1090,98 @@ function requestFollowUpConsumption(
       reject(new Error('Agent Follow-up consumption request failed', { cause: err }))
     }
   })
+}
+
+function requestTraceCapture(
+  onEvent: (event: AgentRuntimeEvent) => void,
+  pending: Map<string, { resolve: () => void; reject: (error: Error) => void }>,
+  modelRequestId: string,
+  purpose: AgentTracePurpose,
+  apiId: Api,
+  physicalAttempt: number,
+  documents: Extract<AgentRuntimeEvent, { type: 'model_trace_capture_requested' }>['documents']
+): Promise<void> {
+  const captureId = randomUUID()
+  return new Promise((resolve, reject) => {
+    pending.set(captureId, { resolve, reject })
+    try {
+      onEvent({
+        type: 'model_trace_capture_requested',
+        captureId,
+        modelRequestId,
+        purpose,
+        apiId,
+        physicalAttempt,
+        documents
+      })
+    } catch (err) {
+      pending.delete(captureId)
+      reject(new AgentTracePersistenceError('trace_capture_failed', { cause: err }))
+    }
+  })
+}
+
+function serializableHarnessContext(context: {
+  systemPrompt?: string
+  messages: unknown[]
+  tools: Array<{ name: string; description: string; parameters: unknown }>
+}): unknown {
+  return jsonValue({
+    ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
+    messages: context.messages,
+    tools: context.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters
+    }))
+  })
+}
+
+function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) throw new AgentTracePersistenceError('trace_capture_failed')
+  return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
+}
+
+function safeProviderResponseHeaders(
+  headers: Readonly<Record<string, string>>
+): Record<string, string> {
+  const allowed = new Set([
+    'request-id',
+    'x-request-id',
+    'openai-request-id',
+    'retry-after',
+    'retry-after-ms',
+    'server-timing',
+    'x-ratelimit-limit-requests',
+    'x-ratelimit-limit-tokens',
+    'x-ratelimit-remaining-requests',
+    'x-ratelimit-remaining-tokens',
+    'x-ratelimit-reset-requests',
+    'x-ratelimit-reset-tokens'
+  ])
+  return Object.fromEntries(
+    Object.entries(headers)
+      .map(([name, value]) => [name.toLowerCase(), value] as const)
+      .filter(([name]) => allowed.has(name))
+      .map(([name, value]) => [name, value.slice(0, 2_048)])
+  )
+}
+
+class AgentTracePersistenceError extends Error {
+  readonly code: 'trace_capture_failed' | 'trace_payload_too_large'
+
+  constructor(errorCode?: string, options?: ErrorOptions) {
+    const code = errorCode === 'trace_payload_too_large' ? errorCode : 'trace_capture_failed'
+    super(
+      code === 'trace_payload_too_large'
+        ? 'Agent request trace exceeds the diagnostic limit'
+        : 'Agent request trace could not be persisted',
+      options
+    )
+    this.name = 'AgentTracePersistenceError'
+    this.code = code
+  }
 }
 
 function abortError(message: string): Error {

@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 25 Checkpoint 76 is complete under ADR 068; Checkpoint 77 is paused pending
+Status: Phase 26 Checkpoint 76.1 is complete under ADR 069; Checkpoint 77 remains paused pending
 separate authorization. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
@@ -19,6 +19,9 @@ Status markers:
 
 ## Active and paused work
 
+- [~] Candidate `v0.2026.8.47`: rebuild and fully verify the completed Checkpoint 76.1 trace work
+  as a no-Team-ID macOS arm64 App, then commit, create an annotated tag, and push `main` plus the
+  tag to GitHub under explicit authorization.
 - [x] Maintenance candidate `v0.2026.8.46`: align tag CI with the accepted pnpm 11.17.0 runtime,
   rebuild and fully verify the no-Team-ID macOS arm64 App, then commit, tag, and push `main` plus
   the immutable tag under explicit user authorization.
@@ -43,6 +46,9 @@ Status markers:
   Agent panel and recover model selection without silently rewriting stale conversations.
 - [x] Checkpoint 76: add sticky Ask, Plan, and Write ceilings, Protocol v13 exact tool enforcement,
   immutable run snapshots, and the Agent composer mode selector under ADR 068.
+- [x] Checkpoint 76.1: add permanent content-addressed Agent request traces, fail-closed persistence
+  acknowledgement, reconstruction views, and tool/Skill/compaction/title/image correlation under
+  ADR 069.
 - [!] Checkpoint 77: detailed Writing Task v2 and Plan-to-Write execution handoff; separate
   authorization required after Checkpoint 76.
 
@@ -118,6 +124,8 @@ Checkpoint 74 detail: [`implementation-todo/phase-23.md`](implementation-todo/ph
 Checkpoint 75 detail: [`implementation-todo/phase-24.md`](implementation-todo/phase-24.md).
 
 Checkpoint 76–77 detail: [`implementation-todo/phase-25.md`](implementation-todo/phase-25.md).
+
+Checkpoint 76.1 detail: [`implementation-todo/phase-26.md`](implementation-todo/phase-26.md).
 
 ## Phase 25: Agent Interaction Modes
 

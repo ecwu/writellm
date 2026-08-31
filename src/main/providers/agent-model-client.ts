@@ -3,6 +3,7 @@ import { MessageChannelMain, utilityProcess, type MessagePortMain } from 'electr
 import type { Logger } from 'pino'
 import {
   agentRunInputSchema,
+  agentUtilityTraceAckSchema,
   agentUtilityMessageSchema,
   type AgentUtilityRequest
 } from '../../shared/contracts/model-runtime'
@@ -12,6 +13,7 @@ import {
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
+  agentTraceCaptureAckSchema,
   agentRuntimeMessageSchema,
   agentSessionRunResultSchema,
   type AgentRuntimeEvent,
@@ -78,7 +80,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     signal: AbortSignal,
     onEvent: Parameters<AgentModelRuntime['run']>[4],
     projectSessionId?: string,
-    modelLimits?: Parameters<AgentModelRuntime['run']>[6]
+    modelLimits?: Parameters<AgentModelRuntime['run']>[6],
+    trace?: Parameters<AgentModelRuntime['run']>[7]
   ): ReturnType<AgentModelRuntime['run']> {
     if (signal.aborted) return Promise.reject(abortError())
     if (config.role !== 'agent') return Promise.reject(new Error('Agent provider role is required'))
@@ -89,7 +92,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       config,
       credential: decodeAgentRuntimeAuth(credential),
       modelLimits: modelLimits ?? legacyLimits(config.contextWindowTokens),
-      input
+      input,
+      ...(trace === undefined ? {} : { trace: trace.context })
     }
     return this.#worker.request({
       requestId: request.requestId,
@@ -102,7 +106,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         projectSessionId: request.projectSessionId
       },
       onMessage: (raw) =>
-        this.#handleMessage(raw, request.requestId, request.projectSessionId, onEvent)
+        this.#handleMessage(raw, request.requestId, request.projectSessionId, onEvent, trace)
     })
   }
 
@@ -395,12 +399,13 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     return { close, drain }
   }
 
-  #handleMessage(
+  async #handleMessage(
     raw: unknown,
     requestId: string,
     projectSessionId: string | null | undefined,
-    onEvent: Parameters<AgentModelRuntime['run']>[4]
-  ): UtilityMessageDecision<Awaited<ReturnType<AgentModelRuntime['run']>>> {
+    onEvent: Parameters<AgentModelRuntime['run']>[4],
+    trace?: Parameters<AgentModelRuntime['run']>[7]
+  ): Promise<UtilityMessageDecision<Awaited<ReturnType<AgentModelRuntime['run']>>>> {
     const parsed = agentUtilityMessageSchema.safeParse(raw)
     if (
       !parsed.success ||
@@ -421,6 +426,52 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       }
     }
     const message = parsed.data
+    if (message.type === 'trace-capture') {
+      if (trace === undefined || message.modelRequestId !== trace.context.modelRequestId) {
+        return {
+          kind: 'reject',
+          error: new Error('Agent trace capture has no matching Main authority'),
+          terminate: true
+        }
+      }
+      try {
+        await trace.capture({
+          ...trace.context,
+          apiId: message.apiId,
+          physicalAttempt: message.physicalAttempt,
+          documents: message.documents
+        })
+        this.#worker.send(
+          agentUtilityTraceAckSchema.parse({
+            type: 'trace-ack',
+            requestId,
+            projectSessionId: message.projectSessionId,
+            captureId: message.captureId,
+            ok: true
+          })
+        )
+      } catch (err) {
+        this.#worker.send(
+          agentUtilityTraceAckSchema.parse({
+            type: 'trace-ack',
+            requestId,
+            projectSessionId: message.projectSessionId,
+            captureId: message.captureId,
+            ok: false,
+            errorCode:
+              err instanceof Error && 'code' in err && typeof err.code === 'string'
+                ? err.code
+                : 'trace_capture_failed'
+          })
+        )
+        this.log.error(
+          { event: 'agent_model.trace_capture_failed', err, requestId },
+          'Agent model trace capture failed'
+        )
+        return { kind: 'event' }
+      }
+      return { kind: 'event' }
+    }
     if (message.type === 'text-delta') {
       try {
         onEvent({ type: 'text-delta', delta: message.delta })
@@ -479,7 +530,37 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     if (message.type === 'event') {
       try {
         await onEvent(message.event)
+        if (message.event.type === 'model_trace_capture_requested') {
+          this.#worker.send(
+            agentTraceCaptureAckSchema.parse({
+              operation: 'ack_trace_capture',
+              requestId: request.requestId,
+              projectSessionId: request.projectSessionId,
+              agentSessionId: request.agentSessionId,
+              agentRunId: request.agentRunId,
+              captureId: message.event.captureId,
+              ok: true
+            })
+          )
+        }
       } catch (err) {
+        if (message.event.type === 'model_trace_capture_requested') {
+          this.#worker.send(
+            agentTraceCaptureAckSchema.parse({
+              operation: 'ack_trace_capture',
+              requestId: request.requestId,
+              projectSessionId: request.projectSessionId,
+              agentSessionId: request.agentSessionId,
+              agentRunId: request.agentRunId,
+              captureId: message.event.captureId,
+              ok: false,
+              errorCode:
+                err instanceof Error && 'code' in err && typeof err.code === 'string'
+                  ? err.code
+                  : 'trace_capture_failed'
+            })
+          )
+        }
         this.log.error(
           {
             event: 'agent_session.event_delivery_failed',
@@ -528,19 +609,26 @@ function legacyLimits(contextWindowTokens?: number | null): AgentModelLimits {
   }
 }
 
+type AgentRuntimeErrorCode =
+  | 'context_overflow'
+  | 'tool_batch_context_exhausted'
+  | 'continuation_lost'
+  | 'trace_capture_failed'
+  | 'trace_payload_too_large'
+
 function reconstructError(input: {
   name: string
   message: string
   stack?: string
   httpStatus?: number
-  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
+  code?: AgentRuntimeErrorCode
 }): Error & {
   status?: number
-  code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
+  code?: AgentRuntimeErrorCode
 } {
   const error: Error & {
     status?: number
-    code?: 'context_overflow' | 'tool_batch_context_exhausted' | 'continuation_lost'
+    code?: AgentRuntimeErrorCode
   } = new Error(input.message)
   error.name = input.name
   if (input.stack !== undefined) error.stack = input.stack

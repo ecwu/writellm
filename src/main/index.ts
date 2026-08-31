@@ -52,6 +52,7 @@ import { AgentModelClient } from './providers/agent-model-client'
 import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
 import { ModelExecutionService } from './providers/model-execution-service'
 import { AgentSessionService } from './agent/session-service'
+import { AgentTraceRepository } from './agent/trace-repository'
 import {
   formatHistoryCompactionInput,
   HISTORY_COMPACTION_SYSTEM_PROMPT
@@ -498,7 +499,23 @@ if (!hasSingleInstanceLock) {
                 input.signal,
                 () => undefined,
                 projectSessionId,
-                input.modelLimits
+                input.modelLimits,
+                {
+                  context: {
+                    modelRequestId: input.modelRequestId,
+                    purpose: 'session_title',
+                    traceId: input.agentRunId,
+                    spanId: input.modelRequestId,
+                    agentSessionId: input.agentSessionId,
+                    agentRunId: input.agentRunId
+                  },
+                  capture: (capture) => {
+                    new AgentTraceRepository(
+                      database,
+                      loggerSystem.createModuleLogger('agent', 'trace')
+                    ).capture(capture)
+                  }
+                }
               ),
             summarizeHistory: async (input) => {
               const execution = await modelExecution.runAgentWithResolvedProvider(
@@ -519,7 +536,20 @@ if (!hasSingleInstanceLock) {
                   modelLimits: input.modelLimits
                 },
                 input.signal,
-                () => undefined
+                () => undefined,
+                {
+                  tracePurpose: 'compaction',
+                  agentSessionId: input.agentSessionId,
+                  compactionId: input.compactionId,
+                  compactionSource: {
+                    trigger: input.trigger,
+                    coveredThroughSequence: input.coveredThroughSequence,
+                    estimatedInputTokens: input.estimatedInputTokens,
+                    maxOutputTokens: input.maxOutputTokens,
+                    source: JSON.parse(input.sourcePayloadJson),
+                    formattedPrompt: formatHistoryCompactionInput(input.sourcePayloadJson)
+                  }
+                }
               )
               if (execution.result.text.trim().length === 0) {
                 throw new Error('Agent compaction returned an empty summary')

@@ -142,6 +142,33 @@ describe('AgentModelClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
+  it('acknowledges a trace only after Main persistence handling completes', async () => {
+    const child = new TraceSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    let persisted = false
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      sessionInput(),
+      new AbortController().signal,
+      async (event) => {
+        expect(event.type).toBe('model_trace_capture_requested')
+        await Promise.resolve()
+        persisted = true
+      }
+    )
+
+    await handle.completion
+    expect(child.acknowledgedAfterPersistence).toBe(true)
+    expect(persisted).toBe(true)
+  })
+
   it('preserves the safe context-overflow code across the Worker boundary', async () => {
     const child = new OverflowSessionUtilityProcess()
     const client = new AgentModelClient(
@@ -502,6 +529,48 @@ class SessionUtilityProcess extends EventEmitter {
         event: { type: 'assistant_delta', delta: 'draft' }
       })
       this.emit('message', { type: 'result', ...envelope, status: 'completed' })
+    })
+  })
+}
+
+class TraceSessionUtilityProcess extends EventEmitter {
+  readonly kill = vi.fn(() => true)
+  acknowledgedAfterPersistence = false
+  private run: Record<string, unknown> | undefined
+
+  readonly postMessage = vi.fn((request: Record<string, unknown>) => {
+    if (request.operation === 'run_start') {
+      this.run = request
+      queueMicrotask(() =>
+        this.emit('message', {
+          type: 'event',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          event: {
+            type: 'model_trace_capture_requested',
+            captureId: '019c6a5c-8d34-7a8e-a602-3d37a52dc449',
+            modelRequestId: request.modelRequestId,
+            purpose: 'agent_prompt',
+            apiId: 'openai-completions',
+            physicalAttempt: 1,
+            documents: [{ kind: 'provider_request', value: { messages: [] } }]
+          }
+        })
+      )
+      return
+    }
+    if (request.operation !== 'ack_trace_capture' || this.run === undefined) return
+    this.acknowledgedAfterPersistence = request.ok === true
+    this.emit('message', {
+      type: 'result',
+      requestId: this.run.requestId,
+      projectSessionId: this.run.projectSessionId,
+      agentSessionId: this.run.agentSessionId,
+      agentRunId: this.run.agentRunId,
+      status: 'completed',
+      outcome: 'finished'
     })
   })
 }

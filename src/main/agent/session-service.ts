@@ -125,6 +125,7 @@ import {
   type AgentCompactionBudgets
 } from './context-planner'
 import type { ProjectInteractiveModelLimiter } from './project-interactive-model-limiter'
+import { AgentTraceRepository } from './trace-repository'
 import {
   AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
@@ -233,6 +234,7 @@ interface ActiveRun {
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
   skillPrompt: AgentSkillPromptInput
+  skillTraceToolCallId?: string
   systemPrompt: string
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
@@ -282,6 +284,31 @@ interface StartingRun {
   completion: Promise<StartedAgentRun>
 }
 
+type ModelCallFinishedEvent = Extract<AgentRuntimeEvent, { type: 'model_call_finished' }>
+
+function traceCompletion(event: ModelCallFinishedEvent): {
+  modelRequestId: string
+  physicalAttemptCount: number
+  httpStatus?: number
+  ttftMs?: number
+  totalDurationMs?: number
+} {
+  return {
+    modelRequestId: event.modelRequestId,
+    physicalAttemptCount: event.physicalAttemptCount ?? event.metadata.retryCount + 1,
+    ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus }),
+    ...(event.ttftMs === undefined ? {} : { ttftMs: event.ttftMs }),
+    ...(event.totalDurationMs === undefined ? {} : { totalDurationMs: event.totalDurationMs })
+  }
+}
+
+function traceFailure(
+  event: ModelCallFinishedEvent,
+  failureCode: string
+): ReturnType<typeof traceCompletion> & { failureCode: string } {
+  return { ...traceCompletion(event), failureCode }
+}
+
 export interface AgentSessionServiceOptions {
   projectId: string
   projectSessionId: string
@@ -309,6 +336,10 @@ export interface AgentSessionServiceOptions {
   }) => void | Promise<void>
   publishActivity?: (snapshot: AgentProjectActivitySnapshot) => void | Promise<void>
   generateTitle?: (input: {
+    modelRequestId: string
+    agentSessionId: string
+    agentRunId: string
+    operationId: string
     config: Extract<ProviderConfig, { role: 'agent' }>
     credential: string
     request: AgentRunInput
@@ -1283,6 +1314,7 @@ export class AgentSessionService {
           active.systemPrompt,
           active.activeToolGroups
         ),
+        traceCapture: true,
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(input.temperature === undefined ? {} : { temperature: input.temperature })
@@ -2101,6 +2133,58 @@ export class AgentSessionService {
     if (!active.authorizedModelRequestIds.has(event.modelRequestId)) {
       throw new Error('Agent event refers to an unauthorized model request')
     }
+    if (event.type === 'model_trace_capture_requested') {
+      const trace = new AgentTraceRepository(
+        this.options.database,
+        this.options.log,
+        this.#now,
+        this.#createId
+      )
+      const toolCallId = event.documents
+        .map((document) => document.metadata?.toolCallId)
+        .find((value): value is string => typeof value === 'string')
+      trace.capture({
+        modelRequestId: event.modelRequestId,
+        purpose: event.purpose,
+        apiId: event.apiId,
+        traceId: active.agentRunId,
+        spanId: event.modelRequestId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        ...(toolCallId === undefined ? {} : { toolCallId }),
+        physicalAttempt: event.physicalAttempt,
+        documents: event.documents
+      })
+      if (
+        event.purpose === 'tool_continuation' &&
+        active.skillTraceToolCallId !== undefined &&
+        event.documents.some((document) => document.kind === 'harness_request')
+      ) {
+        trace.capture({
+          modelRequestId: event.modelRequestId,
+          purpose: event.purpose,
+          apiId: event.apiId,
+          traceId: active.agentRunId,
+          spanId: event.modelRequestId,
+          agentSessionId: active.agentSessionId,
+          agentRunId: active.agentRunId,
+          toolCallId: active.skillTraceToolCallId,
+          physicalAttempt: trace.nextDocumentOccurrence(event.modelRequestId, 'skill_content'),
+          documents: [
+            {
+              kind: 'skill_content',
+              value: {
+                snapshot: active.skillSnapshot,
+                injectedPrompt: active.skillPrompt
+              },
+              metadata: { nextModelRequestId: event.modelRequestId }
+            }
+          ]
+        })
+        active.skillTraceToolCallId = undefined
+      }
+      return
+    }
     if (event.type === 'model_call_retrying') {
       this.options.log.warn(
         {
@@ -2150,15 +2234,26 @@ export class AgentSessionService {
       return
     }
     if (event.type === 'model_call_finished') {
+      const trace = new AgentTraceRepository(
+        this.options.database,
+        this.options.log,
+        this.#now,
+        this.#createId
+      )
       if (event.outcome === 'succeeded') {
         await repository.succeed(event.modelRequestId, { metadata: event.metadata, outputItems: 1 })
+        if (trace.exists(event.modelRequestId)) trace.complete(traceCompletion(event))
       } else if (event.outcome === 'timed_out') {
         await repository.fail(event.modelRequestId, {
           code: 'provider_timeout',
           retryable: true
         })
+        if (trace.exists(event.modelRequestId)) {
+          trace.fail(traceFailure(event, 'provider_timeout'))
+        }
       } else if (event.outcome === 'aborted') {
         await repository.abort(event.modelRequestId, 'aborted', event.metadata)
+        if (trace.exists(event.modelRequestId)) trace.fail(traceFailure(event, 'aborted'))
       } else {
         await repository.fail(
           event.modelRequestId,
@@ -2170,6 +2265,9 @@ export class AgentSessionService {
           },
           event.metadata
         )
+        if (trace.exists(event.modelRequestId)) {
+          trace.fail(traceFailure(event, event.failureCode ?? 'provider_request_failed'))
+        }
       }
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
@@ -2400,8 +2498,11 @@ export class AgentSessionService {
       this.options.log.error(
         {
           event: 'agent.tool.unauthorized',
+          traceId: active.agentRunId,
+          agentSessionId: active.agentSessionId,
           err: new Error('Agent tool request capability mismatch'),
           agentRunId,
+          modelRequestId: request.modelRequestId,
           toolCallId: request.toolCallId,
           toolName: request.toolName
         },
@@ -2423,7 +2524,10 @@ export class AgentSessionService {
       this.options.log.warn(
         {
           event: 'agent.tool.inactive_group_rejected',
+          traceId: active.agentRunId,
+          agentSessionId: active.agentSessionId,
           agentRunId,
+          modelRequestId: request.modelRequestId,
           toolCallId: request.toolCallId,
           toolName: request.toolName,
           activeToolGroups: active.activeToolGroups
@@ -2514,8 +2618,40 @@ export class AgentSessionService {
         )
         active.skillSnapshot = read.snapshot
         active.skillPrompt = read.prompt
+        active.skillTraceToolCallId = request.toolCallId
         this.#updateSkillSnapshot(active.agentRunId, read.snapshot)
         data = read.data
+        const trace = new AgentTraceRepository(
+          this.options.database,
+          this.options.log,
+          this.#now,
+          this.#createId
+        )
+        trace.capture({
+          modelRequestId: request.modelRequestId,
+          purpose: 'tool_continuation',
+          apiId: active.runtimeModel?.api ?? active.config.api ?? 'openai-completions',
+          traceId: active.agentRunId,
+          spanId: request.modelRequestId,
+          agentSessionId: active.agentSessionId,
+          agentRunId: active.agentRunId,
+          toolCallId: request.toolCallId,
+          physicalAttempt: trace.nextDocumentOccurrence(request.modelRequestId, 'skill_content'),
+          documents: [
+            {
+              kind: 'skill_content',
+              value: {
+                skillId: read.data.skillId,
+                displayName: read.data.displayName,
+                commit: read.data.commit,
+                relativePath: read.data.relativePath,
+                sha256: read.data.sha256,
+                byteSize: read.data.byteSize,
+                content: read.data.content
+              }
+            }
+          ]
+        })
       } else if (this.options.tools === undefined) {
         throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
       } else {
@@ -2649,8 +2785,11 @@ export class AgentSessionService {
       this.options.log.error(
         {
           event: 'agent.tool.execution_failed',
+          traceId: active.agentRunId,
+          agentSessionId: active.agentSessionId,
           err,
           agentRunId,
+          modelRequestId: request.modelRequestId,
           toolCallId: request.toolCallId,
           toolName: request.toolName
         },
@@ -2671,6 +2810,8 @@ export class AgentSessionService {
       this.options.log.warn(
         {
           event: 'agent.tool.safe_failure_projected',
+          traceId: active.agentRunId,
+          agentSessionId: active.agentSessionId,
           agentRunId,
           modelRequestId: request.modelRequestId,
           toolCallId: request.toolCallId,
@@ -3110,6 +3251,7 @@ export class AgentSessionService {
           active.systemPrompt,
           active.activeToolGroups
         ),
+        traceCapture: true,
         thinkingLevel: active.thinkingLevel,
         ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
         ...(active.temperature === undefined ? {} : { temperature: active.temperature })
@@ -3386,6 +3528,10 @@ export class AgentSessionService {
         'Agent session title generation started'
       )
       const result = await generate({
+        modelRequestId,
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId,
+        operationId: input.operationId,
         config: input.config,
         credential: input.credential,
         request: {
@@ -3405,6 +3551,18 @@ export class AgentSessionService {
         metadata: result.metadata,
         outputItems: 1
       })
+      const trace = new AgentTraceRepository(
+        this.options.database,
+        this.options.log,
+        this.#now,
+        this.#createId
+      )
+      if (trace.exists(modelRequestId)) {
+        trace.complete({
+          modelRequestId,
+          physicalAttemptCount: result.metadata.retryCount + 1
+        })
+      }
       const now = this.#now().toISOString()
       const changes = this.options.database.immediate(
         (database) =>
@@ -3469,6 +3627,22 @@ export class AgentSessionService {
             },
             'Failed to record Agent session title request outcome'
           )
+        }
+        const trace = new AgentTraceRepository(
+          this.options.database,
+          this.options.log,
+          this.#now,
+          this.#createId
+        )
+        if (trace.exists(modelRequestId)) {
+          trace.fail({
+            modelRequestId,
+            physicalAttemptCount: 1,
+            failureCode:
+              err instanceof Error && 'code' in err && typeof err.code === 'string'
+                ? err.code
+                : 'session_title_failed'
+          })
         }
       }
       const session = this.#requireSessionRecord(input.agentSessionId)

@@ -44,6 +44,14 @@ describe('migration 0019 section proposal refresh', () => {
     const databasePath = join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH)
     const legacy = new Database(databasePath)
     legacy.pragma('foreign_keys = OFF')
+    legacy.exec(`
+      DROP VIEW agent_run_trace_v;
+      DROP VIEW agent_model_request_trace_v;
+      DROP VIEW agent_trace_document_v;
+      DROP TABLE agent_trace_records;
+      DROP TABLE model_request_traces;
+      DROP TABLE agent_trace_payloads;
+    `)
     restoreV18MutationProposalTable(legacy)
     legacy.exec(`
       DROP TABLE manuscript_annotations;

@@ -27,6 +27,7 @@ export interface RetryingAgentProviderStreamOptions {
   responseStatus(): number | undefined
   retryAfterMs(): number | undefined
   createErrorMessage(error: unknown, aborted: boolean): AssistantMessage
+  onFirstAssistantContent?(input: { attempt: number }): void
   onRetry(input: {
     completedAttempts: number
     maxAttempts: number
@@ -65,6 +66,7 @@ async function pumpAttempts(
   state: AgentProviderRetryState,
   options: RetryingAgentProviderStreamOptions
 ): Promise<void> {
+  let firstAssistantContentObserved = false
   for (let attempt = 1; attempt <= AGENT_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
     state.attemptCount = attempt
     assertNotAborted(options.signal)
@@ -95,6 +97,10 @@ async function pumpAttempts(
 
       if (event.type === 'error') {
         if (!publishedContent && messageHasPublishedContent(event.error)) {
+          if (!firstAssistantContentObserved) {
+            firstAssistantContentObserved = true
+            options.onFirstAssistantContent?.({ attempt })
+          }
           flushBuffered(output, buffered)
           publishedContent = true
         }
@@ -114,6 +120,10 @@ async function pumpAttempts(
 
       buffered.push(event)
       if (!publishedContent && publishesAssistantContent(event)) {
+        if (!firstAssistantContentObserved) {
+          firstAssistantContentObserved = true
+          options.onFirstAssistantContent?.({ attempt })
+        }
         publishedContent = true
         flushBuffered(output, buffered)
       } else if (publishedContent) {
