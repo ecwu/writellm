@@ -191,7 +191,7 @@ describe('runDraftChecks', () => {
       sectionId: section.sectionId,
       baseRevisionId: initial.sectionRevisionId,
       baseContentHash: initial.contentHash,
-      content: [paragraph('citations', '[Source: Available.pdf] [Source: Missing.pdf]')],
+      content: [paragraph('citations', '[@available2026] [Source: Missing.pdf]')],
       source: 'manual',
       sourceClass: 'manual_checkpoint',
       agentRunId: null,
@@ -206,6 +206,22 @@ describe('runDraftChecks', () => {
       knowledgeItems: [
         { knowledgeItemId: 'knowledge-1', displayName: 'Available.pdf', state: 'stored' },
         { knowledgeItemId: 'knowledge-2', displayName: 'Unused.pdf', state: 'stored' }
+      ],
+      references: [
+        {
+          referenceId: 'reference-1',
+          citationKey: 'available2026',
+          title: 'Authoritative available title',
+          evidenceAvailable: true,
+          knowledgeItemIds: ['knowledge-1']
+        },
+        {
+          referenceId: 'reference-2',
+          citationKey: 'unused2026',
+          title: 'Authoritative unused title',
+          evidenceAvailable: true,
+          knowledgeItemIds: ['knowledge-2']
+        }
       ],
       manuscriptAssets: [
         { assetId: 'asset-used', referencedByCurrentRevision: true },

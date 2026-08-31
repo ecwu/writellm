@@ -16,6 +16,7 @@ import { decodeStoredSectionContent } from '../manuscript/content'
 const MAX_LINEAGE_REVISIONS = 1_000
 const MAX_CITATION_IDS = 200
 const EXPANSION_BATCH_SIZE = 20
+const COMPATIBILITY_CITATION_KEY_PATTERN = /^doc-([a-f0-9]{32})$/iu
 
 interface LineageRow {
   section_revision_id: string
@@ -97,17 +98,48 @@ export async function resolveReadableCitation(options: {
         referenceKnowledgeItemIds: new Set<string>()
       } satisfies ProvenanceCollection
     }
-    const referenceKnowledgeItemIds = new Set(
-      (
+    let referenceRows = database
+      .prepare(
+        `SELECT link.knowledge_item_id AS knowledgeItemId
+           FROM reference_items item
+           JOIN knowledge_reference_links link USING (reference_id)
+          WHERE item.citation_key = ?`
+      )
+      .all(options.input.title) as Array<{ knowledgeItemId?: unknown }>
+    if (referenceRows.length === 0) {
+      const matchingReferences = (
         database
+          .prepare('SELECT reference_id AS referenceId, title FROM reference_items LIMIT 10001')
+          .all() as Array<{ referenceId: string; title: string }>
+      ).filter(
+        (reference) => normalizeTitle(reference.title) === normalizeTitle(options.input.title)
+      )
+      if (matchingReferences.length === 1) {
+        referenceRows = database
+          .prepare(
+            `SELECT knowledge_item_id AS knowledgeItemId
+               FROM knowledge_reference_links
+              WHERE reference_id = ?`
+          )
+          .all(matchingReferences[0]?.referenceId) as Array<{ knowledgeItemId?: unknown }>
+      }
+    }
+    if (referenceRows.length === 0) {
+      const compatibilityKnowledgeItemId = compatibilityKnowledgeItemIdFor(options.input.title)
+      if (compatibilityKnowledgeItemId !== null) {
+        referenceRows = database
           .prepare(
             `SELECT link.knowledge_item_id AS knowledgeItemId
-               FROM reference_items item
-               JOIN knowledge_reference_links link USING (reference_id)
-              WHERE item.citation_key = ?`
+               FROM knowledge_reference_links link
+              WHERE link.knowledge_item_id = ?`
           )
-          .all(options.input.title) as Array<{ knowledgeItemId?: unknown }>
-      ).flatMap((row) => (typeof row.knowledgeItemId === 'string' ? [row.knowledgeItemId] : []))
+          .all(compatibilityKnowledgeItemId) as Array<{ knowledgeItemId?: unknown }>
+      }
+    }
+    const referenceKnowledgeItemIds = new Set(
+      referenceRows.flatMap((row) =>
+        typeof row.knowledgeItemId === 'string' ? [row.knowledgeItemId] : []
+      )
     )
     return {
       ...collectProvenance(rows, options.input.blockId),
@@ -248,6 +280,18 @@ function citationMatches(
 
 function normalizeTitle(title: string): string {
   return title.normalize('NFC').trim()
+}
+
+function compatibilityKnowledgeItemIdFor(citationKey: string): string | null {
+  const hexadecimalId = COMPATIBILITY_CITATION_KEY_PATTERN.exec(citationKey)?.[1]
+  if (hexadecimalId === undefined) return null
+  return [
+    hexadecimalId.slice(0, 8),
+    hexadecimalId.slice(8, 12),
+    hexadecimalId.slice(12, 16),
+    hexadecimalId.slice(16, 20),
+    hexadecimalId.slice(20)
+  ].join('-')
 }
 
 function dedupeCitations(citations: ExpandedCitation[]): ExpandedCitation[] {

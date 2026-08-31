@@ -654,7 +654,7 @@ test(
       await expect(summary.getByText('3', { exact: true })).toBeVisible()
       const table = checks.getByRole('table')
       await expect(table.getByText('duplicate source.pdf', { exact: true })).toHaveCount(2)
-      await expect(table.getByText('Ambiguous title', { exact: true })).toHaveCount(2)
+      await expect(table.getByText('Ambiguous legacy title', { exact: true })).toHaveCount(2)
       await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()
       await checks.getByRole('radio', { name: 'Needs attention', exact: true }).click()
       await expect(table.getByText('Missing source.pdf', { exact: true })).toBeVisible()
@@ -670,7 +670,7 @@ test(
       await expect(summary.getByText('50%', { exact: true }).first()).toBeVisible()
       await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()
       await expect(table.getByText('Cited', { exact: true })).toHaveCount(2)
-      await expect(table.getByText('Ambiguous title', { exact: true })).toHaveCount(2)
+      await expect(table.getByText('Ambiguous legacy title', { exact: true })).toHaveCount(2)
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>

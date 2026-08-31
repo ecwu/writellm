@@ -213,8 +213,8 @@ export function KnowledgeCitationCoverageWorkspace(props: {
               <h1 className='text-2xl font-semibold tracking-tight'>Knowledge citation coverage</h1>
               <p className='mt-2 text-sm leading-6 text-muted-foreground'>
                 Shows which articles in the current text index are cited by the saved manuscript.
-                Titles match exactly after Unicode normalization and trimming; page numbers do not
-                affect article matching.
+                Project citekeys are authoritative. Older title citations use exact Reference-title
+                matching, with the original Knowledge filename retained only as a legacy fallback.
               </p>
             </div>
             <Button
@@ -304,8 +304,8 @@ export function KnowledgeCitationCoverageWorkspace(props: {
                   <Input
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
-                    placeholder='Search article titles'
-                    aria-label='Search article titles'
+                    placeholder='Search title, citekey, or file'
+                    aria-label='Search title, citekey, or file'
                     className='pl-9'
                   />
                 </div>
@@ -404,7 +404,10 @@ function CoverageLedger(props: { items: KnowledgeCitationCoverageItem[] }): Reac
         {props.items.map((item) => (
           <div key={itemKey(item)} className='space-y-2 py-4'>
             <div className='flex items-start justify-between gap-3'>
-              <p className='min-w-0 break-words text-sm font-medium'>{itemTitle(item)}</p>
+              <div className='min-w-0'>
+                <p className='break-words text-sm font-medium'>{itemTitle(item)}</p>
+                {item.kind === 'source' ? <CoverageIdentity item={item} /> : null}
+              </div>
               <CoverageBadge item={item} />
             </div>
             <div className='flex items-center justify-between text-xs text-muted-foreground'>
@@ -425,7 +428,10 @@ function CoverageLedger(props: { items: KnowledgeCitationCoverageItem[] }): Reac
 function CoverageTableRow(props: { item: KnowledgeCitationCoverageItem }): React.JSX.Element {
   return (
     <TableRow>
-      <TableCell className='font-medium'>{itemTitle(props.item)}</TableCell>
+      <TableCell>
+        <div className='font-medium'>{itemTitle(props.item)}</div>
+        {props.item.kind === 'source' ? <CoverageIdentity item={props.item} /> : null}
+      </TableCell>
       <TableCell className='text-muted-foreground'>
         {props.item.kind === 'source'
           ? props.item.extension?.toUpperCase() || 'Unknown'
@@ -440,10 +446,29 @@ function CoverageTableRow(props: { item: KnowledgeCitationCoverageItem }): React
 }
 
 function CoverageBadge(props: { item: KnowledgeCitationCoverageItem }): React.JSX.Element {
-  if (props.item.kind === 'unmatched_citation') return <Badge variant='warning'>Not indexed</Badge>
+  if (props.item.kind === 'unmatched_citation') {
+    return (
+      <Badge variant='warning'>
+        {props.item.citationKey === null ? 'Not indexed' : 'Unknown citekey'}
+      </Badge>
+    )
+  }
   if (props.item.status === 'cited') return <Badge variant='success'>Cited</Badge>
-  if (props.item.status === 'ambiguous') return <Badge variant='warning'>Ambiguous title</Badge>
+  if (props.item.status === 'ambiguous') {
+    return <Badge variant='warning'>Ambiguous legacy title</Badge>
+  }
   return <Badge variant='secondary'>Uncited</Badge>
+}
+
+function CoverageIdentity(props: {
+  item: Extract<KnowledgeCitationCoverageItem, { kind: 'source' }>
+}): React.JSX.Element {
+  return (
+    <p className='mt-1 break-all text-xs text-muted-foreground'>
+      {props.item.citationKey === null ? 'No Reference key' : `@${props.item.citationKey}`}
+      {props.item.displayName === props.item.title ? '' : ` · ${props.item.displayName}`}
+    </p>
+  )
 }
 
 function CoverageEmpty(props: {
@@ -488,9 +513,11 @@ function CoverageSkeleton(): React.JSX.Element {
 }
 
 function itemTitle(item: KnowledgeCitationCoverageItem): string {
-  return item.kind === 'source' ? item.displayName : item.title
+  return item.title
 }
 
 function itemKey(item: KnowledgeCitationCoverageItem): string {
-  return item.kind === 'source' ? item.knowledgeItemId : `unmatched:${item.title}`
+  return item.kind === 'source'
+    ? item.knowledgeItemId
+    : `unmatched:${item.citationKey ?? item.title}`
 }

@@ -19,7 +19,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-08-31
+Recorded: 2026-09-01
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -27,6 +27,37 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Candidate `v0.2026.8.49` is fully built and locally verified for the completed Reference citekey
+  migration maintenance, pending the authorized source commit, annotated tag, and atomic GitHub
+  push of `main` plus the tag. The no-Team-ID macOS arm64 gate verified 31 recovery fixtures from
+  29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34 packaged Electron
+  scenarios. It produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`. Signing,
+  notarization, GitHub Release creation, promotion, and publication remain outside scope.
+
+- Reference citekey migration maintenance is complete. Citation Coverage now resolves canonical
+  manuscript citations by exact project citekey and presents Reference title/citekey ahead of the
+  attachment filename. Draft checks map canonical citations back to their evidence Knowledge
+  items, Agent Knowledge reads fail closed when no registered Reference exists, and citation-click
+  resolution prefers exact citekey. Unique Reference title and exact Knowledge display-name
+  matching remain only as explicit legacy-token compatibility. Focused tests, `check:fast`, the
+  complete Electron suite plus production build, the scoped Impeccable detector, and
+  `git diff --check` passed. No schema, RAG/index, package, release, commit, tag, or push action was
+  performed.
+
+- The current dirty Agent Reference citation-fix source passed the complete no-Team-ID macOS
+  arm64 package gate. It verified 31 recovery fixtures, 53,318 ASAR entries, 12 packaged runtime
+  smoke scenarios, and all 34 packaged Electron scenarios, then produced a trial App, DMG, and
+  ZIP under `dist/macos-arm64`. No signing identity, notarization, release, commit, tag, push,
+  promotion, or publication action was performed.
+
+- Agent Reference citation projection maintenance is complete. Production `MainAgentReadTools`
+  now receives the project Reference authority, so `search_knowledge` and `read_citations` return
+  the linked project citekey and bibliographic metadata instead of masking a missing dependency
+  with a `doc-*` compatibility key. Previously generated compatibility tokens resolve through
+  their exact encoded Knowledge UUID when that item is linked to a Reference; no title, DOI, or
+  filename matching is introduced. Focused tests, `check:fast`, all 1,234 canonical tests with
+  three benchmark skips, and the production build passed.
 
 - Checkpoint 79 is complete. It unifies the split Zotero metadata/PDF dialogs into one
   Reference-first prepare/confirm workflow, adds explicit completion and relink targets, and

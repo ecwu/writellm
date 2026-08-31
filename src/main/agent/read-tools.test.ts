@@ -364,6 +364,103 @@ describe('Agent context and Main read tools', () => {
     database.close()
   })
 
+  it('projects the linked Reference citekey and metadata into knowledge evidence', async () => {
+    const { database, manuscript } = await createManuscript()
+    const citationId = 'citation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const hit = searchHit(citationId)
+    const retrieval = {
+      search: vi.fn(async () => ({
+        mode: 'fts' as const,
+        rerankStatus: 'disabled' as const,
+        hits: [hit]
+      })),
+      expand: vi.fn(async () => [{ ...hit, text: 'Expanded evidence', sources: [] }])
+    }
+    const references = {
+      list: () => [
+        {
+          referenceId: '019c6a5c-8d34-7a8e-a602-3d37a52dc525',
+          citationKey: 'zoteroPaper2026',
+          title: 'Authoritative article title',
+          creators: [
+            {
+              role: 'author',
+              ordinal: 0,
+              given: 'Ada',
+              family: 'Lovelace',
+              literal: null
+            }
+          ],
+          containerTitle: 'Journal of Reliable Citations',
+          issuedYear: 2026,
+          evidenceAvailable: true,
+          knowledgeItemIds: [hit.knowledgeItemId]
+        }
+      ]
+    }
+    const tools = createTools(manuscript, retrieval, references)
+
+    const searched = await tools.execute({
+      toolName: 'search_knowledge',
+      args: { query: 'evidence', rerank: false },
+      editorContext: emptyEditorContext(),
+      signal: new AbortController().signal
+    })
+    const citations = await tools.execute({
+      toolName: 'read_citations',
+      args: { citationIds: [citationId] },
+      editorContext: emptyEditorContext(),
+      signal: new AbortController().signal
+    })
+
+    const projection = {
+      referenceId: '019c6a5c-8d34-7a8e-a602-3d37a52dc525',
+      citationKey: 'zoteroPaper2026',
+      title: 'Authoritative article title',
+      authors: ['Ada Lovelace'],
+      venue: 'Journal of Reliable Citations',
+      year: 2026,
+      evidenceAvailable: true
+    }
+    expect(searched.hits[0]).toMatchObject(projection)
+    expect(citations.citations[0]).toMatchObject(projection)
+    expect(citations.citations[0]?.citationKey).not.toMatch(/^doc-/u)
+    database.close()
+  })
+
+  it('does not manufacture a filename-based citekey when Reference linkage is unavailable', async () => {
+    const { database, manuscript } = await createManuscript()
+    const citationId = 'citation-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    const hit = searchHit(citationId)
+    const retrieval = {
+      search: vi.fn(async () => ({
+        mode: 'fts' as const,
+        rerankStatus: 'disabled' as const,
+        hits: [hit]
+      })),
+      expand: vi.fn(async () => [{ ...hit, text: 'Expanded evidence', sources: [] }])
+    }
+    const tools = createTools(manuscript, retrieval, { list: () => [] })
+
+    await expect(
+      tools.execute({
+        toolName: 'search_knowledge',
+        args: { query: 'evidence', rerank: false },
+        editorContext: emptyEditorContext(),
+        signal: new AbortController().signal
+      })
+    ).resolves.toMatchObject({ hits: [] })
+    await expect(
+      tools.execute({
+        toolName: 'read_citations',
+        args: { citationIds: [citationId] },
+        editorContext: emptyEditorContext(),
+        signal: new AbortController().signal
+      })
+    ).resolves.toMatchObject({ citations: [], missingCitationIds: [citationId] })
+    database.close()
+  })
+
   it('fails closed when retrieval is unavailable or the run is revoked', async () => {
     const { database, manuscript } = await createManuscript()
     const tools = createTools(manuscript)
@@ -419,14 +516,33 @@ describe('Agent context and Main read tools', () => {
 
 function createTools(
   manuscript: ManuscriptService,
-  retrieval: { search: ReturnType<typeof vi.fn>; expand: ReturnType<typeof vi.fn> } | null = null
+  retrieval: { search: ReturnType<typeof vi.fn>; expand: ReturnType<typeof vi.fn> } | null = null,
+  references: { list: () => readonly unknown[] } = defaultReferences()
 ): MainAgentReadTools {
   return new MainAgentReadTools({
     projectSessionId,
     manuscript,
+    references: references as never,
     retrieval: retrieval as never,
     log
   })
+}
+
+function defaultReferences(): { list: () => readonly unknown[] } {
+  return {
+    list: () => [
+      {
+        referenceId: '019c6a5c-8d34-7a8e-a602-3d37a52dc523',
+        citationKey: 'source2026',
+        title: 'Source',
+        creators: [],
+        containerTitle: null,
+        issuedYear: 2026,
+        evidenceAvailable: true,
+        knowledgeItemIds: ['019c6a5c-8d34-7a8e-a602-3d37a52dc523']
+      }
+    ]
+  }
 }
 
 async function createManuscript(): Promise<{

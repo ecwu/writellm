@@ -88,7 +88,7 @@ export interface KnowledgeChatServiceOptions {
   retrieval: Pick<RetrievalService, 'search' | 'expand'>
   projectIndex: Pick<ProjectIndexService, 'currentIndexedSources'>
   listKnowledgeItems: () => KnowledgeItem[]
-  references?: ReferenceLibraryService
+  references: ReferenceLibraryService
   agentCatalog: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve'>
   runtime: AgentSessionRuntime
   limiter: ProjectInteractiveModelLimiter

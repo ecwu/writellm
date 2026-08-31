@@ -26,7 +26,6 @@ import {
   buildPublicationAssembly,
   type PublicationOptions
 } from '../../shared/contracts/publication'
-import { normalizeCitationTitle } from '../../shared/readable-citation'
 import { manuscriptToMarkdown, manuscriptToPandocMarkdown } from '../../shared/manuscript-markdown'
 import type { ProjectDatabase } from '../project/project-database'
 import type { SnapshotBarrier } from '../project/project-snapshot'
@@ -36,6 +35,7 @@ import {
   resolveProjectPath
 } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
+import { availableLegacyCitationLabels } from '../references/reference-availability'
 import type { ManuscriptAssetService } from './asset-service'
 import type { ManuscriptService } from './manuscript-service'
 import { renderDocxPublication } from './docx-publication'
@@ -172,17 +172,7 @@ export async function createManuscriptExport(options: {
       }
     } else {
       const references = options.manuscript.getReferenceIndex()
-      const availableReferenceTitles = options.database.immediate(
-        (database) =>
-          new Set(
-            (
-              database
-                .prepare("SELECT display_name FROM knowledge_items WHERE state = 'stored'")
-                .pluck()
-                .all() as string[]
-            ).map(normalizeCitationTitle)
-          )
-      )
+      const availableReferenceTitles = availableLegacyCitationLabels(options.database)
       const publication = buildPublicationAssembly({
         manuscript: assembly,
         references,

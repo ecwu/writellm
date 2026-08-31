@@ -4,7 +4,7 @@ Status: Phase 28 Checkpoint 79 is complete under ADR 070; Checkpoint 77 remains
 independently paused. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-08-31
+Recorded: 2026-09-01
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -18,6 +18,21 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [~] Candidate `v0.2026.8.49`: verify and package the completed Reference citekey migration as a
+  no-Team-ID macOS arm64 trial App, then commit, create an annotated tag, and atomically push
+  `main` plus the tag to GitHub under explicit authorization.
+
+- [x] Maintenance: migrate Citation Coverage, draft Reference availability/unused-resource checks,
+  Agent Knowledge reads, publication legacy availability, and citation-click resolution to exact
+  project citekeys, retaining filename/title matching only for explicit legacy citation syntax.
+
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 trial App containing
+  the Agent Reference citekey projection and exact `doc-*` source-resolution repair.
+
+- [x] Maintenance: inject project Reference authority into Agent Knowledge reads so new evidence
+  uses authoritative citekeys, and resolve earlier `doc-*` compatibility tokens only through their
+  exact encoded, Reference-linked Knowledge identity.
 
 - [x] Checkpoint 79: unify Zotero metadata and PDF attachment import around one Reference-first
   prepare/confirm flow, explicit incomplete/relink targets, and orphan-free Knowledge association.

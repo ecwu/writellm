@@ -858,17 +858,19 @@ are separate approvals: generation produces a normal `section_patch`; rejecting 
 current image, while replacement changes only the logical asset URL and therefore preserves figure
 identity, caption, alt text, and undo history. See ADR 029.
 
-Canonical readable citation labels (`[Source: exact title, p. N]` and
-`【来源：准确标题，第 N 页】`, with the page omitted when unavailable) remain ordinary editable
-manuscript text. Shared parsing uses one English/Chinese canonical rule; titles group by NFC plus
-trim with case preserved, and page does not split a source. The current outline and body first-
-occurrence order derives manuscript-wide numbers dynamically. The section editor may present the
-labels in full, as `[n]`, or as a reference icon through ProseMirror decorations, but presentation
-must not change BlockNote JSON, revision identity, autosave behavior, copied text, or Agent/LLM
-input. Compact citations reveal their full editable text when the caret enters them.
+Canonical Reference citations (`[@key, p. N]` and `【@key，第 N 页】`, with the page omitted when
+unavailable) remain ordinary editable manuscript text. The project citekey is their authoritative
+identity; page does not split a Reference. Legacy readable title labels (`[Source: exact title]`
+and `【来源：准确标题】`) remain parseable and group by NFC plus trim with case preserved, but they
+are never a primary identity or a source for generating new citekeys. The current outline and body
+first-occurrence order derives manuscript-wide numbers dynamically. The section editor may present
+the tokens in full, as `[n]`, as formatted CSL output, or as a reference icon through ProseMirror
+decorations, but presentation must not change BlockNote JSON, revision identity, autosave
+behavior, copied text, or Agent/LLM input. Compact citations reveal their full editable text when
+the caret enters them.
 
 The References rail is a derived, bounded view over current revisions. It keeps the editor mounted,
-shows the manuscript-wide number, exact title, and occurrence count, and uses section/revision/block
+shows the manuscript-wide number, Reference title/citekey, and occurrence count, and uses section/revision/block
 occurrences only to invoke the existing provenance-gated resolver. The active section may overlay a
 Renderer-local occurrence snapshot for unsaved edits; persisted revisions remain authoritative.
 
@@ -882,10 +884,13 @@ Interactive citation preview is provenance-gated. Main validates the active proj
 revision, and stable block ID, then walks the bounded revision lineage from newest to oldest and
 considers only applied proposals that created, updated, or replaced that block. Candidate
 `citationId` values come only from each proposal's persisted provenance and are expanded through
-the active retrieval index before NFC-and-trim exact title and optional page matching. The
-resolver never searches or guesses across the project by title. A copied or manually authored
-label without qualifying block provenance remains highlighted but cannot open source content;
-removed or rebuilt sources fail closed as unavailable.
+the active retrieval index. Canonical tokens resolve through the exact project citekey and linked
+Knowledge identity. Legacy labels may resolve through one unique NFC-and-trim exact Reference
+title, then through their historical exact Knowledge filename; deterministic `doc-*` compatibility
+keys may recover only the exact Knowledge UUID they encode. The resolver never performs fuzzy
+title, DOI, author, or filename search. A copied or manually authored label without qualifying
+block provenance remains highlighted but cannot open source content; removed or rebuilt sources
+fail closed as unavailable.
 
 ### Block mutations
 
@@ -1114,11 +1119,13 @@ revisions and the source set of the active current index generation. Text-index 
 the denominator; vector-embedding readiness is not required. A stale active generation is never
 used as a fallback denominator.
 
-Canonical citation titles use the same NFC-plus-trim, case-sensitive grouping as the References
-rail and ignore page for article identity. A unique match counts the indexed article once, repeated
-occurrences remain an article-level count, duplicate indexed titles are ambiguous and do not enter
-the numerator, and titles with no indexed source remain separate unmatched citations. An empty
-denominator has no percentage.
+Canonical citations match indexed Knowledge through the project Reference's exact, case-sensitive
+citekey and ignore page for article identity. Repeated occurrences remain an article-level count.
+Legacy title labels first use a unique NFC-plus-trim exact Reference title and only then the
+historical exact Knowledge display name; duplicate legacy titles remain ambiguous and do not enter
+the numerator. Unknown citekeys and unmatched legacy labels remain separate attention items. An
+empty denominator has no percentage. Reference metadata and Knowledge-link identity participate in
+the ephemeral coverage snapshot so a synchronization change invalidates stale pages.
 
 The Renderer receives only bounded, paginated source identity, display metadata, status, counts,
 and snapshot identity through project-session-scoped IPC. It receives no normalized artifact path,

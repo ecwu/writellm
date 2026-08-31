@@ -11,7 +11,9 @@ import {
   normalizeCitationTitle
 } from '../../shared/readable-citation'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
+import type { ReferenceLibraryService } from '../references/reference-library-service'
 import type { ProjectIndexService } from '../search/index-service'
+import type { ReferenceItem } from '../../shared/contracts/references'
 
 const cursorSchema = z
   .object({
@@ -27,6 +29,7 @@ export class KnowledgeCitationCoverageService {
     private readonly options: {
       manuscript: Pick<ManuscriptService, 'assemble'>
       projectIndex: Pick<ProjectIndexService, 'currentIndexedSources'>
+      references: Pick<ReferenceLibraryService, 'list'>
     }
   ) {}
 
@@ -63,8 +66,9 @@ export class KnowledgeCitationCoverageService {
         content: revision.content
       }))
     )
-    const snapshotId = fingerprint(indexed.generationId, assembly)
-    const coverage = matchCoverage(indexed.sources, references.entries)
+    const referenceItems = this.options.references.list()
+    const snapshotId = fingerprint(indexed.generationId, assembly, referenceItems)
+    const coverage = matchCoverage(indexed.sources, references.entries, referenceItems)
     const summary = {
       indexedSourceCount: coverage.sources.length,
       citedSourceCount: coverage.sources.filter((item) => item.status === 'cited').length,
@@ -98,7 +102,13 @@ export class KnowledgeCitationCoverageService {
         reason: 'index_preparing'
       })
     }
-    if (fingerprint(indexed.generationId, this.options.manuscript.assemble()) !== snapshotId) {
+    if (
+      fingerprint(
+        indexed.generationId,
+        this.options.manuscript.assemble(),
+        this.options.references.list()
+      ) !== snapshotId
+    ) {
       return knowledgeCitationCoveragePageResultSchema.parse({
         state: 'stale',
         reason: 'snapshot_changed'
@@ -143,43 +153,89 @@ export class KnowledgeCitationCoverageService {
 
 function matchCoverage(
   sources: Array<{ knowledgeItemId: string; displayName: string; extension: string | null }>,
-  references: Array<{ title: string; count: number }>
+  references: Array<{ title: string; citationKey?: string; count: number }>,
+  referenceItems: readonly ReferenceItem[]
 ): {
   sources: Array<Extract<KnowledgeCitationCoverageItem, { kind: 'source' }>>
   unmatched: Array<Extract<KnowledgeCitationCoverageItem, { kind: 'unmatched_citation' }>>
 } {
-  const sourceRows = sources.map((source) => ({
-    kind: 'source' as const,
-    ...source,
-    status: 'uncited' as 'cited' | 'uncited' | 'ambiguous',
-    citationCount: 0
-  }))
-  const byTitle = new Map<string, typeof sourceRows>()
+  const referenceByKnowledgeItem = new Map<string, ReferenceItem>()
+  for (const reference of referenceItems) {
+    for (const knowledgeItemId of reference.knowledgeItemIds) {
+      if (!referenceByKnowledgeItem.has(knowledgeItemId)) {
+        referenceByKnowledgeItem.set(knowledgeItemId, reference)
+      }
+    }
+  }
+  const sourceRows = sources.map((source) => {
+    const reference = referenceByKnowledgeItem.get(source.knowledgeItemId)
+    return {
+      kind: 'source' as const,
+      ...source,
+      referenceId: reference?.referenceId ?? null,
+      citationKey: reference?.citationKey ?? null,
+      title: reference?.title ?? source.displayName,
+      status: 'uncited' as 'cited' | 'uncited' | 'ambiguous',
+      citationCount: 0
+    }
+  })
+  const byCitationKey = new Map<string, typeof sourceRows>()
+  const byReferenceTitle = new Map<string, Map<string, typeof sourceRows>>()
+  const byDisplayName = new Map<string, typeof sourceRows>()
   for (const source of sourceRows) {
-    const key = normalizeCitationTitle(source.displayName)
-    const matches = byTitle.get(key) ?? []
-    matches.push(source)
-    byTitle.set(key, matches)
+    if (source.citationKey !== null) {
+      const matches = byCitationKey.get(source.citationKey) ?? []
+      matches.push(source)
+      byCitationKey.set(source.citationKey, matches)
+    }
+    if (source.referenceId !== null) {
+      const title = normalizeCitationTitle(source.title)
+      const groups = byReferenceTitle.get(title) ?? new Map<string, typeof sourceRows>()
+      const matches = groups.get(source.referenceId) ?? []
+      matches.push(source)
+      groups.set(source.referenceId, matches)
+      byReferenceTitle.set(title, groups)
+    }
+    const displayName = normalizeCitationTitle(source.displayName)
+    const displayMatches = byDisplayName.get(displayName) ?? []
+    displayMatches.push(source)
+    byDisplayName.set(displayName, displayMatches)
   }
   const unmatched: Array<Extract<KnowledgeCitationCoverageItem, { kind: 'unmatched_citation' }>> =
     []
   for (const reference of references) {
-    const matches = byTitle.get(normalizeCitationTitle(reference.title)) ?? []
+    let matches: typeof sourceRows = []
+    let ambiguous = false
+    if (reference.citationKey !== undefined) {
+      matches = byCitationKey.get(reference.citationKey) ?? []
+    } else {
+      const title = normalizeCitationTitle(reference.title)
+      const referenceGroups = byReferenceTitle.get(title)
+      if (referenceGroups !== undefined && referenceGroups.size > 0) {
+        matches = [...referenceGroups.values()].flat()
+        ambiguous = referenceGroups.size > 1
+      } else {
+        matches = byDisplayName.get(title) ?? []
+        ambiguous = matches.length > 1
+      }
+    }
     if (matches.length === 0) {
       unmatched.push({
         kind: 'unmatched_citation',
         title: reference.title,
+        citationKey: reference.citationKey ?? null,
         citationCount: reference.count
       })
       continue
     }
     for (const source of matches) {
-      source.status = matches.length === 1 ? 'cited' : 'ambiguous'
+      if (source.status !== 'cited') source.status = ambiguous ? 'ambiguous' : 'cited'
       source.citationCount += reference.count
     }
   }
   sourceRows.sort(
     (left, right) =>
+      compareLabels(left.title, right.title) ||
       compareLabels(left.displayName, right.displayName) ||
       left.knowledgeItemId.localeCompare(right.knowledgeItemId)
   )
@@ -204,16 +260,17 @@ function filterItems(
   const needle = query.normalize('NFC').toLowerCase()
   if (needle === '') return selected
   return selected.filter((item) =>
-    (item.kind === 'source' ? item.displayName : item.title)
-      .normalize('NFC')
-      .toLowerCase()
-      .includes(needle)
+    (item.kind === 'source'
+      ? [item.title, item.citationKey ?? '', item.displayName]
+      : [item.title, item.citationKey ?? '']
+    ).some((value) => value.normalize('NFC').toLowerCase().includes(needle))
   )
 }
 
 function fingerprint(
   generationId: string,
-  assembly: ReturnType<ManuscriptService['assemble']>
+  assembly: ReturnType<ManuscriptService['assemble']>,
+  references: readonly ReferenceItem[]
 ): string {
   return createHash('sha256')
     .update(
@@ -224,6 +281,14 @@ function fingerprint(
           sectionId: section.sectionId,
           revisionId: revision.sectionRevisionId,
           contentHash: revision.contentHash
+        })),
+        references: references.map((reference) => ({
+          referenceId: reference.referenceId,
+          citationKey: reference.citationKey,
+          title: reference.title,
+          evidenceAvailable: reference.evidenceAvailable,
+          knowledgeItemIds: reference.knowledgeItemIds,
+          updatedAt: reference.updatedAt
         }))
       })
     )

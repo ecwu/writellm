@@ -59,6 +59,42 @@ describe('readable citation resolver', () => {
     expect(result).toMatchObject({ status: 'resolved', citation: { citationId: citationA } })
   })
 
+  it('resolves an earlier doc fallback key through its exact linked Knowledge item', async () => {
+    const fallbackKey = `doc-${knowledgeItemId.replaceAll('-', '')}`
+    const result = await resolveReadableCitation({
+      database: databaseWith(lineage([citationA]), blockId, [knowledgeItemId]),
+      retrieval: retrievalWith([expanded(citationA)]) as never,
+      retrievalAvailable: true,
+      input: { ...input(), title: fallbackKey },
+      signal: new AbortController().signal
+    })
+
+    expect(result).toMatchObject({ status: 'resolved', citation: { citationId: citationA } })
+  })
+
+  it('resolves a unique legacy Reference title before considering the attachment filename', async () => {
+    const result = await resolveReadableCitation({
+      database: databaseWith(
+        lineage([citationA]),
+        blockId,
+        [],
+        [
+          {
+            referenceId: '99999999-9999-4999-8999-999999999999',
+            title: 'Authoritative Evidence',
+            knowledgeItemId
+          }
+        ]
+      ),
+      retrieval: retrievalWith([expanded(citationA)]) as never,
+      retrievalAvailable: true,
+      input: { ...input(), title: 'Authoritative Evidence' },
+      signal: new AbortController().signal
+    })
+
+    expect(result).toMatchObject({ status: 'resolved', citation: { citationId: citationA } })
+  })
+
   it('does not resolve the right title at the wrong page', async () => {
     const result = await resolveReadableCitation({
       database: databaseWith(lineage([citationA])),
@@ -135,7 +171,13 @@ function input(requestedBlockId = blockId) {
 
 function databaseWith(
   rows: ReturnType<typeof lineage>,
-  requestedBlockId = blockId
+  requestedBlockId = blockId,
+  linkedKnowledgeItemIds: readonly string[] = [],
+  linkedReferences: readonly {
+    referenceId: string
+    title: string
+    knowledgeItemId: string
+  }[] = []
 ): ProjectDatabase {
   const patched = rows.map((row, index) =>
     index === 0
@@ -158,7 +200,28 @@ function databaseWith(
       : row
   )
   return {
-    immediate: (operation) => operation({ prepare: () => ({ all: () => patched }) } as never)
+    immediate: (operation) =>
+      operation({
+        prepare: (sql: string) => ({
+          all: (...parameters: unknown[]) => {
+            if (sql.includes('FROM reference_items item')) return []
+            if (sql.includes('SELECT reference_id AS referenceId, title')) {
+              return linkedReferences.map(({ referenceId, title }) => ({ referenceId, title }))
+            }
+            if (sql.includes('WHERE reference_id = ?')) {
+              return linkedReferences
+                .filter((reference) => reference.referenceId === parameters[0])
+                .map((reference) => ({ knowledgeItemId: reference.knowledgeItemId }))
+            }
+            if (sql.includes('FROM knowledge_reference_links link')) {
+              return linkedKnowledgeItemIds.includes(String(parameters[0]))
+                ? [{ knowledgeItemId: parameters[0] }]
+                : []
+            }
+            return patched
+          }
+        })
+      } as never)
   } as unknown as ProjectDatabase
 }
 

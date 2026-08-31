@@ -1190,3 +1190,47 @@ maintenance without turning the active tracker back into a historical log.
   the unified `.bib` plus relative-PDF import fixture; the scoped Impeccable detector and
   `git diff --check` passed. No package, release, commit, tag, push, signing, notarization,
   promotion, or publication action was performed.
+- Completed Agent Reference citation projection maintenance. The production Agent read-tool
+  composition now injects the project Reference authority, making `search_knowledge` and
+  `read_citations` expose the linked project citekey, title, authors, venue, and year. Earlier
+  `doc-*` tokens caused by the missing injection can resolve source provenance through the exact
+  Knowledge UUID encoded in the token when that Knowledge item is linked to a Reference; the
+  resolver still performs no fuzzy metadata matching or manuscript rewrite. Focused coverage
+  passed 19 tests; `check:fast` passed; and the Electron gate passed 1,234 tests with three
+  benchmark skips plus the production build. No migration, RAG/index change, package, release,
+  commit, tag, or push action was performed.
+- Built the user-requested Agent Reference citation-fix trial App from dirty source revision
+  `f46c37164faffdae08332920e27ab144917145e2`. The complete no-Team-ID macOS arm64 package gate
+  verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime smoke
+  scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
+  produced a 239,024,594-byte DMG
+  (`f7aaa1cacc0c7d3df45b0acf18bc69c4eab5c30c2d3939f8c62a5034fb3028b0`) and a
+  237,205,233-byte ZIP
+  (`f1e17f0a700ba6928bacc8fb0cdf9568ee277cbbd8c459abb0711cfc63b8f604`). No Developer ID
+  signing, notarization, release, commit, tag, push, promotion, or publication was performed.
+- Completed the Reference citekey migration audit and maintenance. Citation Coverage now matches
+  canonical English and Chinese citation clusters by exact project citekey, exposes Reference
+  identity in its contract, search, and UI, and invalidates paging snapshots when relevant
+  Reference metadata or links change. Draft availability and unused-resource checks now map
+  canonical keys through the immutable Reference projection; Agent Knowledge reads no longer
+  manufacture an unregistered `doc-*` key when Reference linkage is unavailable. Citation-click
+  resolution prefers exact citekey, followed by a unique legacy Reference title, then the narrow
+  historical filename or encoded-Knowledge-UUID compatibility paths. Publication legacy
+  availability uses the same evidence-backed Reference-title boundary. Focused suites passed 62
+  tests, `check:fast` passed, the complete Electron suite and production build passed, the scoped
+  Impeccable detector returned no findings, and `git diff --check` passed. No schema, RAG/index,
+  dependency, package, release, commit, tag, or push action was performed.
+
+## 2026-09-01 — Candidate v0.2026.8.49 Reference citekey maintenance
+
+- Built and locally verified the user-authorized `v0.2026.8.49` no-Team-ID macOS arm64 trial
+  candidate. The focused Citation Coverage E2E and all 48 fresh Electron E2E scenarios passed.
+  The complete package gate verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries,
+  all 12 packaged runtime smoke scenarios, and all 34 packaged Electron scenarios without flakes,
+  skips, or failures. It produced a 239,026,198-byte DMG
+  (`86a63b5c1c3bba4c7430843e03ee7f23e565312c57ffc9a0254a7735d23749ca`) and a
+  237,205,662-byte ZIP
+  (`0759070c04215d78b5ad2b2788a4cd9f4ff7b6410345b70086579b21a1ab17c7`) under
+  `dist/macos-arm64`. The recovery fixture manifest was refreshed for the migrated Citation
+  Coverage E2E assertions. Source commit, tag, and push remain pending; Developer ID signing,
+  notarization, GitHub Release creation, promotion, and publication were not performed.

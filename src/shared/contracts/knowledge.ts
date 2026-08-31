@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { editorSessionInputSchema } from './manuscript'
+import { citationKeySchema } from './references'
 
 export const SUPPORTED_KNOWLEDGE_EXTENSIONS = [
   'pdf',
@@ -84,6 +85,9 @@ export const knowledgeCitationCoverageSourceItemSchema = z
   .object({
     kind: z.literal('source'),
     knowledgeItemId: z.uuid(),
+    referenceId: z.uuid().nullable(),
+    citationKey: citationKeySchema.nullable(),
+    title: z.string().min(1).max(4096),
     displayName: z.string().min(1).max(512),
     extension: z.string().max(20).nullable(),
     status: z.enum(['cited', 'uncited', 'ambiguous']),
@@ -94,6 +98,7 @@ export const knowledgeCitationCoverageUnmatchedItemSchema = z
   .object({
     kind: z.literal('unmatched_citation'),
     title: z.string().min(1).max(512),
+    citationKey: citationKeySchema.nullable(),
     citationCount: z.number().int().positive().max(50_000)
   })
   .strict()

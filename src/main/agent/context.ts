@@ -48,6 +48,7 @@ export interface ReviewResourceSnapshot {
   references?: readonly {
     referenceId: string
     citationKey: string
+    title: string
     evidenceAvailable: boolean
     knowledgeItemIds: readonly string[]
   }[]

@@ -129,7 +129,18 @@ function harness() {
   }
   const context = {
     manifest: { projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
-    references: { list: vi.fn(() => []) },
+    references: {
+      list: vi.fn(() => [
+        {
+          referenceId: knowledgeItemId,
+          citationKey: 'fixture2026',
+          title: 'Fixture',
+          evidenceAvailable: true,
+          knowledgeItemIds: [knowledgeItemId],
+          updatedAt: '2026-09-01T00:00:00.000Z'
+        }
+      ])
+    },
     projectRoot: '/private/project.writellm',
     mineruWorkflow,
     jobs: {

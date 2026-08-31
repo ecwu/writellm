@@ -84,7 +84,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       projectSessionId: string
       manuscript: ManuscriptService
       database?: ProjectDatabase
-      references?: ReferenceLibraryService
+      references: ReferenceLibraryService
       retrieval: RetrievalService | null
       isRetrievalAvailable?: () => boolean
       log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -424,6 +424,7 @@ function captureReviewResources(
     const referenceRows = database
       .prepare(
         `SELECT item.reference_id AS referenceId, item.citation_key AS citationKey,
+                item.title,
                 EXISTS (
                   SELECT 1 FROM knowledge_reference_links link
                   JOIN active_parse_revisions active USING (knowledge_item_id)
@@ -434,6 +435,7 @@ function captureReviewResources(
       .all() as Array<{
       referenceId: string
       citationKey: string
+      title: string
       evidenceAvailable: number
     }>
     const linkStatement = database
@@ -447,6 +449,7 @@ function captureReviewResources(
       references: referenceRows.map((row) => ({
         referenceId: row.referenceId,
         citationKey: row.citationKey,
+        title: row.title,
         evidenceAvailable: row.evidenceAvailable === 1,
         knowledgeItemIds: linkStatement.all(row.referenceId) as string[]
       })),

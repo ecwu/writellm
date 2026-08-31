@@ -14,7 +14,7 @@ export async function executeKnowledgeSearch(input: {
   retrieval: Pick<RetrievalService, 'search'>
   projectSessionId: string
   args: unknown
-  references?: ReferenceLibraryService
+  references: ReferenceLibraryService
   signal: AbortSignal
   forcedKnowledgeItemIds?: string[]
 }): Promise<SearchKnowledgeResult> {
@@ -43,25 +43,31 @@ export async function executeKnowledgeSearch(input: {
   return searchKnowledgeResultSchema.parse({
     mode: result.mode,
     rerankStatus: result.rerankStatus,
-    hits: result.hits.map((hit) => ({
-      ...requiredReference(referenceByKnowledgeItem, hit.knowledgeItemId, hit.title),
-      citationId: hit.citationId,
-      knowledgeItemId: hit.knowledgeItemId,
-      parseRevisionId: hit.parseRevisionId,
-      chunkId: hit.chunkId,
-      sourceTitle: hit.title,
-      snippet: hit.snippet,
-      ...(hit.page === undefined ? {} : { page: hit.page }),
-      headingPath: hit.headingPath,
-      sourceBlockIds: hit.sourceBlockIds
-    }))
+    hits: result.hits.flatMap((hit) => {
+      const reference = referenceByKnowledgeItem.get(hit.knowledgeItemId)
+      if (reference === undefined) return []
+      return [
+        {
+          ...reference,
+          citationId: hit.citationId,
+          knowledgeItemId: hit.knowledgeItemId,
+          parseRevisionId: hit.parseRevisionId,
+          chunkId: hit.chunkId,
+          sourceTitle: hit.title,
+          snippet: hit.snippet,
+          ...(hit.page === undefined ? {} : { page: hit.page }),
+          headingPath: hit.headingPath,
+          sourceBlockIds: hit.sourceBlockIds
+        }
+      ]
+    })
   })
 }
 
 export async function executeCitationRead(input: {
   retrieval: Pick<RetrievalService, 'expand'>
   args: unknown
-  references?: ReferenceLibraryService
+  references: ReferenceLibraryService
   signal: AbortSignal
 }): Promise<ReadCitationsResult> {
   const args = readCitationsArgsSchema.parse(input.args)
@@ -75,15 +81,22 @@ export async function executeCitationRead(input: {
     input.references,
     expanded.map((citation) => citation.knowledgeItemId)
   )
-  const found = new Set(expanded.map((citation) => citation.citationId))
+  const found = new Set(
+    expanded.flatMap((citation) =>
+      referenceByKnowledgeItem.has(citation.knowledgeItemId) ? [citation.citationId] : []
+    )
+  )
   const byId = new Map(expanded.map((citation) => [citation.citationId, citation]))
   let remainingBudget = 131_072
   let truncated = false
   return readCitationsResultSchema.parse({
     citations: requests.flatMap((request) => {
       const citation = byId.get(request.citationId)
-      if (citation === undefined || remainingBudget <= 0) {
-        if (citation !== undefined) truncated = true
+      const reference =
+        citation === undefined ? undefined : referenceByKnowledgeItem.get(citation.knowledgeItemId)
+      if (citation === undefined || reference === undefined) return []
+      if (remainingBudget <= 0) {
+        truncated = true
         return []
       }
       const available = Math.min(request.maxChars, remainingBudget)
@@ -94,7 +107,7 @@ export async function executeCitationRead(input: {
       if (nextOffset !== null) truncated = true
       return [
         {
-          ...requiredReference(referenceByKnowledgeItem, citation.knowledgeItemId, citation.title),
+          ...reference,
           citationId: citation.citationId,
           knowledgeItemId: citation.knowledgeItemId,
           parseRevisionId: citation.parseRevisionId,
@@ -117,10 +130,9 @@ export async function executeCitationRead(input: {
 }
 
 function referenceProjectionMap(
-  library: ReferenceLibraryService | undefined,
+  library: ReferenceLibraryService,
   knowledgeItemIds: readonly string[]
 ): Map<string, ReturnType<typeof referenceProjection>> {
-  if (library === undefined) return new Map()
   const requested = new Set(knowledgeItemIds)
   const result = new Map<string, ReturnType<typeof referenceProjection>>()
   for (const reference of library.list()) {
@@ -148,27 +160,6 @@ function referenceProjection(reference: ReturnType<ReferenceLibraryService['list
       .filter(Boolean),
     venue: reference.containerTitle,
     year: reference.issuedYear,
-    evidenceAvailable: true as const
-  }
-}
-
-function requiredReference<T>(
-  references: ReadonlyMap<string, T>,
-  knowledgeItemId: string,
-  sourceTitle: string
-): T | ReturnType<typeof compatibilityReference> {
-  const reference = references.get(knowledgeItemId)
-  return reference ?? compatibilityReference(knowledgeItemId, sourceTitle)
-}
-
-function compatibilityReference(knowledgeItemId: string, title: string) {
-  return {
-    referenceId: knowledgeItemId,
-    citationKey: `doc-${knowledgeItemId.replaceAll('-', '')}`,
-    title,
-    authors: [],
-    venue: null,
-    year: null,
     evidenceAvailable: true as const
   }
 }

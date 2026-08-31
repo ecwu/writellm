@@ -337,12 +337,31 @@ async function harness(
       currentIndexedSources
     },
     listKnowledgeItems: () => [item(sourceA, 'Source A'), item(sourceB, 'Source B')],
+    references: {
+      list: () => [
+        notebookReference(sourceA, 'sourceA2026', 'Source A'),
+        notebookReference(sourceB, 'sourceB2026', 'Source B')
+      ]
+    } as never,
     agentCatalog: agentCatalog as never,
     runtime,
     limiter: new ProjectInteractiveModelLimiter(projectId, log),
     log: logger
   })
   return { service, retrieval, currentIndexedSources, agentCatalog, runtime, logger, database }
+}
+
+function notebookReference(knowledgeItemId: string, citationKey: string, title: string) {
+  return {
+    referenceId: knowledgeItemId,
+    citationKey,
+    title,
+    creators: [],
+    containerTitle: null,
+    issuedYear: 2026,
+    evidenceAvailable: true,
+    knowledgeItemIds: [knowledgeItemId]
+  }
 }
 
 async function completed(service: KnowledgeChatService) {

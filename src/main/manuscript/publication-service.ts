@@ -8,9 +8,9 @@ import {
   type PublicationOptions,
   type PublicationPreview
 } from '../../shared/contracts/publication'
-import { normalizeCitationTitle } from '../../shared/readable-citation'
 import type { ProjectContext } from '../project/project-context'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
+import { availableLegacyCitationLabels } from '../references/reference-availability'
 
 const PAGE_SIZE = 100
 const MAX_ASSETS = 10_000
@@ -53,17 +53,7 @@ export class PublicationService {
         if (assets.length > MAX_ASSETS) throw new Error('Publication references too many assets')
         cursor = page.nextCursor ?? undefined
       } while (cursor !== undefined)
-      const availableReferenceTitles = context.database.immediate(
-        (database) =>
-          new Set(
-            (
-              database
-                .prepare("SELECT display_name FROM knowledge_items WHERE state = 'stored'")
-                .pluck()
-                .all() as string[]
-            ).map(normalizeCitationTitle)
-          )
-      )
+      const availableReferenceTitles = availableLegacyCitationLabels(context.database)
       const referenceItems = context.references.list()
       const formattedReferences =
         options?.bibliographyMode === 'formatted'

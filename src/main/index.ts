@@ -455,6 +455,7 @@ if (!hasSingleInstanceLock) {
             projectSessionId,
             manuscript,
             database,
+            references,
             retrieval,
             isRetrievalAvailable: () => projectIndex.isRetrievalAvailable(),
             log: loggerSystem.createModuleLogger('agent', 'read-tools')

@@ -467,7 +467,8 @@ export function registerKnowledgeIpc(options: {
     try {
       const service = new KnowledgeCitationCoverageService({
         manuscript: context.manuscript,
-        projectIndex: context.projectIndex
+        projectIndex: context.projectIndex,
+        references: context.references
       })
       const result = knowledgeCitationCoveragePageResultSchema.parse(
         await service.page(

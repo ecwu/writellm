@@ -350,6 +350,14 @@ function executeDraftChecks(
           reference
         ])
       )
+      const referencesByTitle = new Map<
+        string,
+        NonNullable<typeof snapshot.reviewResources.references>[number][]
+      >()
+      for (const reference of snapshot.reviewResources.references ?? []) {
+        const title = normalizeCitationTitle(reference.title)
+        referencesByTitle.set(title, [...(referencesByTitle.get(title) ?? []), reference])
+      }
       for (const citationKey of citedReferenceKeys) {
         const reference = registered.get(citationKey)
         if (reference?.evidenceAvailable === true) continue
@@ -374,14 +382,21 @@ function executeDraftChecks(
           .map((item) => normalizeCitationTitle(item.displayName))
       )
       for (const title of citedResourceTitles) {
-        if (available.has(title)) continue
+        const matches = referencesByTitle.get(title) ?? []
+        if (matches.length === 1 && matches[0]?.evidenceAvailable === true) continue
+        if (matches.length === 0 && available.has(title)) continue
         add({
           priority: 'P1',
           category: 'citation',
           check: 'references_availability',
-          title: 'Referenced source is unavailable',
+          title:
+            matches.length > 1
+              ? 'Legacy citation title is ambiguous'
+              : 'Referenced source is unavailable',
           description:
-            'A readable citation does not match an available project knowledge resource.',
+            matches.length > 1
+              ? 'The legacy title matches more than one project Reference; convert it to a citekey explicitly.'
+              : 'A readable citation does not match an evidence-backed project Reference or legacy Knowledge filename.',
           evidence: title
         })
       }
@@ -394,6 +409,33 @@ function executeDraftChecks(
         'The immutable writing snapshot lacks resource inventories.'
       )
     } else {
+      const citedKnowledgeItemIds = new Set<string>()
+      const referencesByKey = new Map(
+        (snapshot.reviewResources.references ?? []).map((reference) => [
+          reference.citationKey,
+          reference
+        ])
+      )
+      const referencesByTitle = new Map<
+        string,
+        NonNullable<typeof snapshot.reviewResources.references>[number][]
+      >()
+      for (const reference of snapshot.reviewResources.references ?? []) {
+        const title = normalizeCitationTitle(reference.title)
+        referencesByTitle.set(title, [...(referencesByTitle.get(title) ?? []), reference])
+      }
+      for (const citationKey of citedReferenceKeys) {
+        for (const knowledgeItemId of referencesByKey.get(citationKey)?.knowledgeItemIds ?? []) {
+          citedKnowledgeItemIds.add(knowledgeItemId)
+        }
+      }
+      for (const title of citedResourceTitles) {
+        const matches = referencesByTitle.get(title) ?? []
+        if (matches.length !== 1) continue
+        for (const knowledgeItemId of matches[0]?.knowledgeItemIds ?? []) {
+          citedKnowledgeItemIds.add(knowledgeItemId)
+        }
+      }
       for (const asset of snapshot.reviewResources.manuscriptAssets) {
         if (asset.referencedByCurrentRevision) continue
         add({
@@ -408,6 +450,7 @@ function executeDraftChecks(
       for (const item of snapshot.reviewResources.knowledgeItems) {
         if (
           item.state !== 'stored' ||
+          citedKnowledgeItemIds.has(item.knowledgeItemId) ||
           citedResourceTitles.has(normalizeCitationTitle(item.displayName))
         )
           continue
