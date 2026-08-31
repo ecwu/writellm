@@ -19,7 +19,7 @@ Status markers:
 
 ## Active and paused work
 
-- [~] Candidate `v0.2026.8.47`: rebuild and fully verify the completed Checkpoint 76.1 trace work
+- [x] Candidate `v0.2026.8.47`: rebuild and fully verify the completed Checkpoint 76.1 trace work
   as a no-Team-ID macOS arm64 App, then commit, create an annotated tag, and push `main` plus the
   tag to GitHub under explicit authorization.
 - [x] Maintenance candidate `v0.2026.8.46`: align tag CI with the accepted pnpm 11.17.0 runtime,

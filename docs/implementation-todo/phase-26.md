@@ -51,5 +51,8 @@ Status: Checkpoint 76.1 complete.
   (`1bec8665de8a6dba930da675de950a4fdbfe389fb289813cb1a1c68d507be1e9`), and a
   236,896,362-byte ZIP
   (`d6bc755e29934735b9a51f642dc49a7390f5d8fa6f0edd171b9d928aeede2081`). The evidence truthfully
-  records the pre-tag source as dirty; the clean source commit, tag verification, and push remain
-  pending. No Developer ID signing, notarization, release, promotion, or publication ran.
+  records the pre-tag source as dirty. Clean source commit
+  `7bb8552741c461b01e08047f0b710b1a595ea03d` passed exact release-source verification, annotated
+  tag `v0.2026.8.47` was created, and `main` plus the tag were atomically pushed to GitHub.
+  Tag-only run `33345029753` started successfully. No Developer ID signing, notarization, GitHub
+  Release creation, promotion, or publication ran.

@@ -28,10 +28,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Candidate `v0.2026.8.47` has passed its fresh no-Team-ID macOS arm64 package gate for the
-  completed Checkpoint 76.1 trace work; the source commit, annotated tag, and push of `main` plus
-  that tag to GitHub remain in progress. Signing, notarization, GitHub Release creation,
-  promotion, and publication remain outside this authorization.
+- Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed
+  Checkpoint 76.1 trace work. Annotated tag `v0.2026.8.47` points to clean source commit `7bb8552`;
+  tag-only GitHub Actions run `33345029753` is in progress. Signing, notarization, GitHub Release
+  creation, promotion, and publication remain outside this authorization.
 - Checkpoint 76.1 is complete. Project-local content-addressed Agent traces, SQL reconstruction
   views, fail-closed Worker/Main persistence acknowledgements, physical retry evidence, and tool,
   Skill, compaction, title, and image correlations are implemented without putting private bodies
@@ -42,7 +42,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   about 1.73 seconds on the local Electron runtime.
 
 - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit
-  `1f53c5c`; tag-only GitHub Actions run `33341907788` is in progress. The gate verified 31 recovery fixtures from 29 sources,
+  `1f53c5c`; tag-only GitHub Actions run `33341907788` completed successfully. The gate verified 31 recovery fixtures from 29 sources,
   53,288 ASAR entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged smoke
   scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
   produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`; tag CI is aligned with the
@@ -496,9 +496,10 @@ notarization, GitHub Release, promotion, or publication ran.
 ## Current authorized work
 
 The separately authorized no-Team-ID macOS arm64 App rebuild, source commit, annotated
-`v0.2026.8.47` tag, and push of `main` plus that tag are in progress for the completed Checkpoint
-76.1 snapshot. Apple Developer ID signing, notarization, GitHub Release creation, promotion, and
-publication remain outside this authorization.
+`v0.2026.8.47` tag, and atomic push of `main` plus that tag are complete for the completed
+Checkpoint 76.1 snapshot. Tag-only GitHub Actions run `33345029753` is independently building the
+four unsigned platform rows. Apple Developer ID signing, notarization, GitHub Release creation,
+promotion, and publication remain outside this authorization.
 
 Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
 immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent

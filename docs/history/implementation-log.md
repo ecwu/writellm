@@ -1102,6 +1102,17 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-31
 
+- Built, verified, committed, tagged, and pushed candidate `v0.2026.8.47` for completed Checkpoint
+  76.1. The complete no-Team-ID macOS arm64 package gate verified 31 recovery fixtures from 29
+  sources, Electron 43.4.1 / ABI 148 native resources, 53,288 ASAR entries, all 12 packaged smoke
+  scenarios, and all 34 packaged E2E scenarios without flakes, skips, or failures. It produced a
+  238,730,171-byte DMG (`1bec8665de8a6dba930da675de950a4fdbfe389fb289813cb1a1c68d507be1e9`)
+  and a 236,896,362-byte ZIP
+  (`d6bc755e29934735b9a51f642dc49a7390f5d8fa6f0edd171b9d928aeede2081`). Clean commit
+  `7bb8552741c461b01e08047f0b710b1a595ea03d` passed exact release-source verification; annotated
+  tag `v0.2026.8.47` and `main` were atomically pushed to GitHub, starting tag-only run
+  `33345029753`. No Developer ID signing, notarization, GitHub Release creation, promotion, or
+  publication was performed.
 - Completed Phase 26 Checkpoint 76.1 under ADR 069. Project SQLite now permanently retains
   content-addressed model-visible harness context, exact Pi provider bodies, structured provider
   responses, raw invalid tool attempts, injected Skill sources, compaction evidence, titles, and
