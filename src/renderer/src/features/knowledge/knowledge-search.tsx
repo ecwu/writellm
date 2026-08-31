@@ -87,6 +87,7 @@ export function KnowledgeSearch(props: {
 
   return (
     <section className='grid gap-3' aria-label='Knowledge search'>
+      <h2 className='text-base font-semibold'>Search knowledge</h2>
       <form
         className='grid gap-3'
         onSubmit={(event) => {

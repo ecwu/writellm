@@ -618,6 +618,7 @@ function App(): React.JSX.Element {
         onSaveTemplate={() => void openTemplateDialog()}
         onExportNative={() => void exportManuscript('native')}
         onExportMarkdown={() => void exportManuscript('markdown')}
+        onExportPandoc={() => void exportManuscript('pandoc')}
         onExportDocx={() => void exportManuscript('docx')}
         onExportLatex={() => void exportManuscript('latex')}
         onExportPdf={() => void exportManuscript('pdf')}

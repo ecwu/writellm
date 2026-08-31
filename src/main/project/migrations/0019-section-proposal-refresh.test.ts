@@ -45,6 +45,17 @@ describe('migration 0019 section proposal refresh', () => {
     const legacy = new Database(databasePath)
     legacy.pragma('foreign_keys = OFF')
     legacy.exec(`
+      DROP INDEX IF EXISTS knowledge_reference_links_primary_idx;
+      DROP INDEX IF EXISTS knowledge_reference_links_knowledge_idx;
+      DROP INDEX IF EXISTS reference_bindings_connector_idx;
+      DROP INDEX IF EXISTS reference_creators_name_idx;
+      DROP INDEX IF EXISTS reference_items_year_idx;
+      DROP INDEX IF EXISTS reference_items_title_idx;
+      DROP TABLE IF EXISTS knowledge_reference_links;
+      DROP TABLE IF EXISTS reference_import_bindings;
+      DROP TABLE IF EXISTS reference_creators;
+      DROP TABLE IF EXISTS reference_settings;
+      DROP TABLE IF EXISTS reference_items;
       DROP VIEW agent_run_trace_v;
       DROP VIEW agent_model_request_trace_v;
       DROP VIEW agent_trace_document_v;

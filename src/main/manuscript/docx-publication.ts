@@ -306,7 +306,9 @@ async function convertNode(
     case 'references':
       return [
         new Paragraph({ text: 'References', heading: HeadingLevel.HEADING_1 }),
-        ...node.entries.map((entry) => new Paragraph({ text: `[${entry.number}] ${entry.title}` }))
+        ...node.entries.map(
+          (entry) => new Paragraph({ text: entry.formatted ?? `[${entry.number}] ${entry.title}` })
+        )
       ]
   }
 }
@@ -429,7 +431,7 @@ function inlineChildren(
   const result: ParagraphChild[] = []
   for (const node of nodes) {
     if (node.type === 'citation') {
-      result.push(new TextRun(`[${node.number}]`))
+      result.push(new TextRun(node.formatted ?? `[${node.number}]`))
       continue
     }
     if (node.type === 'link') {

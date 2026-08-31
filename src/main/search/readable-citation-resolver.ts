@@ -34,6 +34,7 @@ interface LineageRow {
 interface ProvenanceCollection {
   groups: string[][]
   limited: boolean
+  referenceKnowledgeItemIds: ReadonlySet<string>
 }
 
 export async function resolveReadableCitation(options: {
@@ -78,7 +79,11 @@ export async function resolveReadableCitation(options: {
 
     const current = rows[0]
     if (current === undefined || Number(current.content_body_retained) !== 1) {
-      return { groups: [], limited: false } satisfies ProvenanceCollection
+      return {
+        groups: [],
+        limited: false,
+        referenceKnowledgeItemIds: new Set<string>()
+      } satisfies ProvenanceCollection
     }
     const document = decodeStoredSectionContent(
       current.content_json,
@@ -86,10 +91,28 @@ export async function resolveReadableCitation(options: {
       current.section_id
     )
     if (!documentContainsBlock(document, options.input.blockId)) {
-      return { groups: [], limited: false } satisfies ProvenanceCollection
+      return {
+        groups: [],
+        limited: false,
+        referenceKnowledgeItemIds: new Set<string>()
+      } satisfies ProvenanceCollection
     }
-
-    return collectProvenance(rows, options.input.blockId)
+    const referenceKnowledgeItemIds = new Set(
+      (
+        database
+          .prepare(
+            `SELECT link.knowledge_item_id AS knowledgeItemId
+               FROM reference_items item
+               JOIN knowledge_reference_links link USING (reference_id)
+              WHERE item.citation_key = ?`
+          )
+          .all(options.input.title) as Array<{ knowledgeItemId?: unknown }>
+      ).flatMap((row) => (typeof row.knowledgeItemId === 'string' ? [row.knowledgeItemId] : []))
+    )
+    return {
+      ...collectProvenance(rows, options.input.blockId),
+      referenceKnowledgeItemIds
+    }
   })
 
   if (provenance.groups.length === 0) {
@@ -115,7 +138,9 @@ export async function resolveReadableCitation(options: {
     }
     if (expanded.length > 0) expandedAny = true
     const matches = dedupeCitations(
-      expanded.filter((citation) => citationMatches(citation, options.input))
+      expanded.filter((citation) =>
+        citationMatches(citation, options.input, provenance.referenceKnowledgeItemIds)
+      )
     )
     if (matches.length === 1) {
       return readableCitationResolutionResultSchema.parse({
@@ -168,7 +193,11 @@ function collectProvenance(rows: LineageRow[], blockId: string): ProvenanceColle
     if (limitedByCitations) break
   }
 
-  return { groups, limited: limitedByLineage || limitedByCitations }
+  return {
+    groups,
+    limited: limitedByLineage || limitedByCitations,
+    referenceKnowledgeItemIds: new Set<string>()
+  }
 }
 
 export function proposalTouchesBlock(
@@ -204,9 +233,16 @@ function documentContainsBlock(document: BlockNoteDocument, blockId: string): bo
 
 function citationMatches(
   citation: ExpandedCitation,
-  input: ReadableCitationResolutionInput
+  input: ReadableCitationResolutionInput,
+  referenceKnowledgeItemIds: ReadonlySet<string>
 ): boolean {
-  if (normalizeTitle(citation.title) !== normalizeTitle(input.title)) return false
+  if (
+    referenceKnowledgeItemIds.size > 0
+      ? !referenceKnowledgeItemIds.has(citation.knowledgeItemId)
+      : normalizeTitle(citation.title) !== normalizeTitle(input.title)
+  ) {
+    return false
+  }
   return input.pageIndex === undefined || citation.page === input.pageIndex
 }
 

@@ -124,6 +124,20 @@ export class KnowledgeImportService {
     return this.list()
   }
 
+  async importPathWithIdentity(path: string): Promise<KnowledgeItem> {
+    const [started] = await this.startImportPaths([path])
+    if (started === undefined) throw new Error('Knowledge import did not create an item')
+    const operation = this.#operations.get(started.knowledgeItemId)
+    if (operation !== undefined) await operation
+    const item = this.list().find(
+      (candidate) => candidate.knowledgeItemId === started.knowledgeItemId
+    )
+    if (item === undefined || item.state !== 'stored') {
+      throw new Error('Knowledge attachment import did not complete')
+    }
+    return item
+  }
+
   async startImportPaths(paths: readonly string[]): Promise<KnowledgeItem[]> {
     if (paths.length === 0 || paths.length > 50) {
       throw new KnowledgeImportError('batch_count_invalid', 'Choose between 1 and 50 files')

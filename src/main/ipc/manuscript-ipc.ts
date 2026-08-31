@@ -43,6 +43,7 @@ import {
 import { PublicationService } from '../manuscript/publication-service'
 import { authorizeSender } from './authorize-sender'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
+import type { CitationFormattingService } from '../references/citation-formatting-service'
 
 export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -52,6 +53,7 @@ export function registerManuscriptIpc(options: {
   developmentUrl?: string
   ipc?: ManuscriptIpcMain
   publicationPresets?: Pick<PublicationPresetRepository, 'resolve'>
+  citationFormatting?: CitationFormattingService
   flushForMutation?(
     projectSessionId: string,
     affectedSectionIds: readonly string[],
@@ -60,7 +62,7 @@ export function registerManuscriptIpc(options: {
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
   const replacementServices = new Map<string, ManuscriptReplacementService>()
-  const publicationService = new PublicationService(options.logger)
+  const publicationService = new PublicationService(options.logger, options.citationFormatting)
   const replacementSubscribers = new Map<string, Map<string, WebContents>>()
   const replacementService = (projectSessionId: string): ManuscriptReplacementService => {
     const context = options.manager.assertMutationSession(projectSessionId)

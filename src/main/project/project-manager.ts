@@ -14,6 +14,7 @@ import {
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
 import { JobStore } from '../jobs/job-store'
 import { KnowledgeImportService } from '../knowledge/knowledge-import-service'
+import { ReferenceLibraryService } from '../references/reference-library-service'
 import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
 import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
 import type { KnowledgeMappingService } from '../knowledge/knowledge-mapping-service'
@@ -193,6 +194,7 @@ export interface ProjectManagerOptions {
     editorPersistence: EditorPersistenceService
     manuscriptAssets: ManuscriptAssetService
     knowledgeImports: KnowledgeImportService
+    references: ReferenceLibraryService
     log: Pick<Logger, 'info' | 'warn' | 'error'>
   }) => {
     mineruWorkflow: MineruWorkflowService
@@ -593,6 +595,28 @@ export class ProjectManager {
       throw new ProjectSessionError()
     }
     return this.#context
+  }
+
+  activeReferenceLibrary(projectId: string): ReferenceLibraryService | null {
+    if (
+      this.#state !== 'open' ||
+      this.#context === null ||
+      this.#context.manifest.projectId !== projectId
+    ) {
+      return null
+    }
+    return this.#context.references
+  }
+
+  activeKnowledgeImports(projectId: string): KnowledgeImportService | null {
+    if (
+      this.#state !== 'open' ||
+      this.#context === null ||
+      this.#context.manifest.projectId !== projectId
+    ) {
+      return null
+    }
+    return this.#context.knowledgeImports
   }
 
   assertMutationSession(projectSessionId: string): ProjectContext {
@@ -1520,6 +1544,7 @@ export class ProjectManager {
       let knowledgeRuntime:
         | ReturnType<NonNullable<ProjectManagerOptions['createKnowledgeRuntime']>>
         | undefined
+      const references = new ReferenceLibraryService({ database, log: this.#logger })
       const knowledgeImports = new KnowledgeImportService({
         projectRoot: canonicalRoot,
         filesystem,
@@ -1527,6 +1552,7 @@ export class ProjectManager {
         database,
         log: this.#logger,
         onStored: async (item) => {
+          references.ensureIncompleteForKnowledge(item)
           if (knowledgeRuntime === undefined) return
           try {
             await knowledgeRuntime.mineruWorkflow.start(item.knowledgeItemId)
@@ -1556,6 +1582,7 @@ export class ProjectManager {
         editorPersistence,
         manuscriptAssets,
         knowledgeImports,
+        references,
         log: this.#logger
       })
       const projectIndex = knowledgeRuntime?.projectIndex
@@ -1581,6 +1608,7 @@ export class ProjectManager {
         editorPersistence,
         manuscriptAssets,
         knowledgeImports,
+        references,
         mineruWorkflow: knowledgeRuntime?.mineruWorkflow ?? null,
         knowledgeNormalization: knowledgeRuntime?.knowledgeNormalization ?? null,
         knowledgeMapping: knowledgeRuntime?.knowledgeMapping ?? null,

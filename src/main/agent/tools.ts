@@ -63,6 +63,7 @@ import {
   TableTransformError
 } from '../../shared/manuscript-table'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
+import { findCitationClusters } from '../../shared/citation-cluster'
 import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
 
@@ -692,6 +693,12 @@ function normalizeSectionArguments(
       throw new AgentToolDomainError(
         'invalid_arguments',
         'Readable source labels require corresponding expanded citationIds'
+      )
+    }
+    if (findCitationClusters(text).length > 0 && args.citationIds.length === 0) {
+      throw new AgentToolDomainError(
+        'invalid_arguments',
+        'Stable citekeys require corresponding expanded citationIds'
       )
     }
   }

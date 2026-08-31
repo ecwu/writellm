@@ -144,6 +144,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   } | null>(null)
   const [editorAutoFocus, setEditorAutoFocus] = useState(true)
   const editorRef = useRef<SectionEditorHandle>(null)
+  const [pendingCitationInsert, setPendingCitationInsert] = useState<string | null>(null)
   const manuscriptScrollRef = useRef<HTMLElement>(null)
   const activeSectionIdRef = useRef<string | null>(null)
   const pendingScrollSectionIdRef = useRef<string | null>(null)
@@ -1446,6 +1447,27 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     setActiveWorkspace('checks')
   }
 
+  useEffect(() => {
+    if (
+      activeWorkspace !== 'manuscript' ||
+      pendingCitationInsert === null ||
+      editorQuery.data === undefined
+    ) {
+      return
+    }
+    const frame = requestAnimationFrame(() => {
+      const editor = editorRef.current
+      if (editor === null) {
+        props.onError('The active manuscript section is not ready for citation insertion.')
+        setPendingCitationInsert(null)
+        return
+      }
+      editor.insertText(`[@${pendingCitationInsert}]`)
+      setPendingCitationInsert(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [activeWorkspace, editorQuery.data, pendingCitationInsert, props])
+
   let alternateWorkspace: React.JSX.Element | null = null
   if (activeWorkspace === 'knowledge') {
     alternateWorkspace = (
@@ -1453,6 +1475,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}
+        onInsertCitation={(citationKey) => {
+          setPendingCitationInsert(citationKey)
+          setActiveWorkspace('manuscript')
+        }}
         onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenPreview={() => setActiveWorkspace('preview')}
         onOpenAssets={() => setActiveWorkspace('assets')}

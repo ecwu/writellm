@@ -42,6 +42,7 @@ interface AppMenubarProps {
   onSaveTemplate: () => void
   onExportNative: () => void
   onExportMarkdown: () => void
+  onExportPandoc: () => void
   onExportDocx: () => void
   onExportLatex: () => void
   onExportPdf: () => void
@@ -72,6 +73,7 @@ export function AppMenubar({
   onSaveTemplate,
   onExportNative,
   onExportMarkdown,
+  onExportPandoc,
   onExportDocx,
   onExportLatex,
   onExportPdf,
@@ -125,6 +127,9 @@ export function AppMenubar({
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onExportMarkdown}>
                 <FileDown /> Export Markdown manuscript…
+              </MenubarItem>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onExportPandoc}>
+                <FileDown /> Export Pandoc citation package…
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onExportDocx}>
                 <FileText /> Export Word manuscript…

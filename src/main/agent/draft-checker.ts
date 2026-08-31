@@ -5,6 +5,7 @@ import { checkDraftResultSchema } from '../../shared/contracts/agent-tools'
 import { readWritingRules } from '../../shared/contracts/writing-rules'
 import { findProjectionMatches } from '../../shared/manuscript-search'
 import { findReadableCitations, normalizeCitationTitle } from '../../shared/readable-citation'
+import { findCitationClusters } from '../../shared/citation-cluster'
 import { extractSectionAgentText } from '../manuscript/content'
 import type { WritingSnapshot } from './context'
 import { AgentToolDomainError } from './read-tools'
@@ -133,6 +134,7 @@ function executeDraftChecks(
     (rule) => rule.active
   )
   const citedResourceTitles = new Set<string>()
+  const citedReferenceKeys = new Set<string>()
   for (const entry of entries) {
     checkAbort()
     const section = entry.section
@@ -217,6 +219,9 @@ function executeDraftChecks(
       const normalized = block.text.normalize('NFC').trim().toLowerCase()
       for (const citation of findReadableCitations(block.text)) {
         citedResourceTitles.add(normalizeCitationTitle(citation.title))
+      }
+      for (const cluster of findCitationClusters(block.text)) {
+        for (const citation of cluster.items) citedReferenceKeys.add(citation.citationKey)
       }
       if (requested.includes('safe_links')) checkLinks(entry, block.value, add)
       if (requested.includes('figure_metadata') && block.type === 'image') {
@@ -339,6 +344,30 @@ function executeDraftChecks(
         'The immutable writing snapshot does not contain the project knowledge inventory.'
       )
     } else {
+      const registered = new Map(
+        (snapshot.reviewResources.references ?? []).map((reference) => [
+          reference.citationKey,
+          reference
+        ])
+      )
+      for (const citationKey of citedReferenceKeys) {
+        const reference = registered.get(citationKey)
+        if (reference?.evidenceAvailable === true) continue
+        add({
+          priority: 'P1',
+          category: 'citation',
+          check: 'references_availability',
+          title:
+            reference === undefined
+              ? 'Citation key is not registered'
+              : 'Citation has no available evidence',
+          description:
+            reference === undefined
+              ? 'The manuscript citekey is absent from the project Reference registry.'
+              : 'Metadata-only references cannot be used as Agent evidence.',
+          evidence: `@${citationKey}`
+        })
+      }
       const available = new Set(
         snapshot.reviewResources.knowledgeItems
           .filter((item) => item.state === 'stored')

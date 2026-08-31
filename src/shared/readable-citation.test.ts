@@ -66,6 +66,29 @@ describe('readable citation utilities', () => {
     ])
     expect(index.entries).toEqual([])
   })
+
+  it('counts citekey cluster items in manuscript order without changing legacy title identity', () => {
+    const index = buildManuscriptReferenceIndex([
+      document(
+        'section-a',
+        'revision-a',
+        '[@smith2024; @lee2023, pp. 2-4] [Source: Legacy title] [@smith2024]'
+      )
+    ])
+    expect(
+      index.entries.map(({ number, title, citationKey, count }) => ({
+        number,
+        title,
+        citationKey,
+        count
+      }))
+    ).toEqual([
+      { number: 1, title: 'smith2024', citationKey: 'smith2024', count: 2 },
+      { number: 2, title: 'lee2023', citationKey: 'lee2023', count: 1 },
+      { number: 3, title: 'Legacy title', citationKey: undefined, count: 1 }
+    ])
+    expect(stripReadableCitations('A[@smith2024]B【@lee2023，第 2 页】C')).toBe('A B C')
+  })
 })
 
 function document(sectionId: string, sectionRevisionId: string, text: string) {

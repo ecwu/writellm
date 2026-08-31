@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 069
+Status: accepted implementation baseline, amended through accepted ADR 070
 Recorded: 2026-07-31; amended through 2026-08-31
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -9,6 +9,20 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-08-31 Stable bibliographic reference amendment
+
+ADR 070 separates bibliographic Reference identity from Knowledge file/search identity. Project
+`citation_key` values are stable checked text keys; manuscript revisions still contain ordinary
+text rather than database IDs, numeric order, or formatted strings. Structured CSL metadata lives
+in `project.sqlite`, chunk provenance remains `citationId`, and metadata changes never rebuild or
+mutate `index.sqlite`.
+
+One user-selected `.json` or `.bib` bibliography file may be connected through a Main-owned
+read-only capability. Its absolute path exists only in `app.sqlite`; projects and Renderer receive
+only opaque IDs and bounded snapshots. Node `fs.watch` may observe only the selected parent and
+exact basename for atomic replacement. Directory scans, `chokidar`, project-wide watchers, and
+general external-edit synchronization remain prohibited. See ADR 070.
 
 ## 2026-08-31 Agent diagnostic trace amendment
 
@@ -62,7 +76,8 @@ The following rules are now the current target. Any older section in this docume
   current-state table plus exact task/step correlation on runs and proposals. These are
   user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
-- `chokidar` is not part of the fixed stack until external editing/import synchronization is an explicit product requirement.
+- `chokidar` is not part of the fixed stack. ADR 070's explicit bibliography requirement uses only
+  Node `fs.watch` for one user-selected file; it does not authorize a general watcher dependency.
 - The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
 - BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
 - Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
@@ -573,7 +588,12 @@ app.sqlite                  <ProjectRoot>/.writellm/project.sqlite
   agent_skills                section_revision_assets
   publication_presets         manuscript_asset_variants
   project_templates           manuscript_annotations
-  schema_manifest             knowledge_items
+  bibliography_connectors     knowledge_items
+  schema_manifest             reference_items
+                              reference_creators
+                              reference_import_bindings
+                              knowledge_reference_links
+                              reference_settings
                               parse_revisions
                               parse_tasks
                               active_parse_revisions
@@ -1788,7 +1808,8 @@ Do not use in the current architecture:
 - arbitrary JSON Patch as the agent manuscript-edit protocol;
 - persisted MinerU signed/download URLs or encrypted bearer capabilities;
 - durable jobs for search, query embedding, rerank, provider probes, ordinary saves, or Agent turns;
-- project-wide file watchers before an external-edit synchronization feature exists;
+- project-wide file watchers, directory scans, or general external-edit synchronization; ADR 070
+  permits only one explicitly selected bibliography file capability;
 - provider-specific workers, a local HTTP server, or a generic RPC framework;
 - an updater subsystem before release-updater work is approved;
 - generic Pi filesystem, shell, process, or network tools;

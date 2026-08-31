@@ -2,7 +2,7 @@
   "name": "writellm",
   "version": "0.2026.8",
   "release": {
-    "version": "0.2026.8.47"
+    "version": "0.2026.8.48"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.17.0",
@@ -72,6 +72,7 @@
     "@blocknote/shadcn": "0.54.0",
     "@citation-js/core": "0.8.2",
     "@citation-js/plugin-bibtex": "0.8.2",
+    "@citation-js/plugin-csl": "0.8.2",
     "@earendil-works/pi-agent-core": "0.80.10",
     "@earendil-works/pi-ai": "0.80.10",
     "@electron-toolkit/utils": "^4.0.0",
@@ -84,6 +85,7 @@
     "better-sqlite3": "12.11.1",
     "border-beam": "1.3.0",
     "class-variance-authority": "^0.7.1",
+    "citeproc": "2.4.63",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "docx": "9.7.1",

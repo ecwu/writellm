@@ -10,12 +10,16 @@ import {
 } from '../../shared/contracts/publication'
 import { normalizeCitationTitle } from '../../shared/readable-citation'
 import type { ProjectContext } from '../project/project-context'
+import type { CitationFormattingService } from '../references/citation-formatting-service'
 
 const PAGE_SIZE = 100
 const MAX_ASSETS = 10_000
 
 export class PublicationService {
-  constructor(private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>) {}
+  constructor(
+    private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>,
+    private readonly citationFormatting?: CitationFormattingService
+  ) {}
 
   async assemble(
     context: ProjectContext,
@@ -60,11 +64,18 @@ export class PublicationService {
             ).map(normalizeCitationTitle)
           )
       )
+      const referenceItems = context.references.list()
+      const formattedReferences =
+        options?.bibliographyMode === 'formatted'
+          ? await this.citationFormatting?.format(context)
+          : undefined
       const assembly = buildPublicationAssembly({
         manuscript,
         references,
         assets,
         availableReferenceTitles,
+        referenceItems,
+        ...(formattedReferences === undefined ? {} : { formattedReferences }),
         options,
         hash: (value) => createHash('sha256').update(value).digest('hex')
       })

@@ -178,11 +178,13 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
             ? 'Export native manuscript package'
             : kind === 'markdown'
               ? 'Export Markdown package'
-              : kind === 'docx'
-                ? 'Export Word manuscript package'
-                : kind === 'latex'
-                  ? 'Export LaTeX manuscript package'
-                  : 'Export PDF manuscript package'
+              : kind === 'pandoc'
+                ? 'Export Pandoc citation package'
+                : kind === 'docx'
+                  ? 'Export Word manuscript package'
+                  : kind === 'latex'
+                    ? 'Export LaTeX manuscript package'
+                    : 'Export PDF manuscript package'
       }
       const result =
         owner === null

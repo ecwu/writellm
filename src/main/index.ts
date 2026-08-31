@@ -41,6 +41,10 @@ import { AppSettingsRepository } from './app-db/repositories/app-settings'
 import { PublicationPresetRepository } from './app-db/repositories/publication-presets'
 import { ProjectTemplateRepository } from './app-db/repositories/project-templates'
 import { RecentProjectsRepository } from './app-db/repositories/recent-projects'
+import { BibliographyConnectorRepository } from './app-db/repositories/bibliography-connectors'
+import { BibliographyConnectorService } from './references/bibliography-connector-service'
+import { CitationFormatterClient } from './references/citation-formatter-client'
+import { CitationFormattingService } from './references/citation-formatting-service'
 import { ProjectManager } from './project/project-manager'
 import { createPdfPublicationRenderer } from './manuscript/pdf-publication'
 import { LatexImportClient } from './manuscript/latex-import-client'
@@ -222,6 +226,13 @@ if (!hasSingleInstanceLock) {
         subsystem: 'worker',
         component: 'background'
       })
+      const citationFormatting = new CitationFormattingService({
+        client: new CitationFormatterClient(
+          backgroundWorker,
+          loggerSystem.createModuleLogger('knowledge', 'citation-formatter-client')
+        ),
+        log: loggerSystem.createModuleLogger('knowledge', 'citation-formatting')
+      })
       const latexImport = new LatexImportClient({
         modulePath: join(__dirname, 'background-worker.js'),
         log: loggerSystem.createModuleLogger('worker', 'latex-import'),
@@ -331,6 +342,7 @@ if (!hasSingleInstanceLock) {
           editorPersistence,
           manuscriptAssets,
           knowledgeImports,
+          references,
           log
         }) => {
           modelExecution.recoverRunning(database)
@@ -429,6 +441,7 @@ if (!hasSingleInstanceLock) {
             retrieval,
             projectIndex,
             listKnowledgeItems: () => knowledgeImports.list(),
+            references,
             agentCatalog: agentProviderCatalog,
             runtime: agentModel,
             limiter: interactiveModelLimiter,
@@ -611,6 +624,12 @@ if (!hasSingleInstanceLock) {
           }
         }
       })
+      const bibliographyConnectors = new BibliographyConnectorService({
+        repository: new BibliographyConnectorRepository(appDatabase),
+        log: loggerSystem.createModuleLogger('knowledge', 'bibliography-connector'),
+        resolveLibrary: (projectId) => projectManager.activeReferenceLibrary(projectId),
+        resolveKnowledgeImports: (projectId) => projectManager.activeKnowledgeImports(projectId)
+      })
       const pdfPreview = new PdfPreviewCapabilities({
         isSessionActive: (projectSessionId) => {
           try {
@@ -693,6 +712,7 @@ if (!hasSingleInstanceLock) {
       const unregisterManuscriptIpc = registerManuscriptIpc({
         manager: projectManager,
         publicationPresets,
+        citationFormatting,
         logger: loggerSystem.createModuleLogger('ipc', 'manuscript'),
         developmentUrl,
         ipc,
@@ -734,7 +754,9 @@ if (!hasSingleInstanceLock) {
         selectFilesForTest: createKnowledgeDialogTestSelection(
           loggerSystem.createModuleLogger('ipc', 'knowledge-dialog')
         ),
-        pdfPreview
+        pdfPreview,
+        bibliographyConnectors,
+        citationFormatting
       })
       const unregisterProviderIpc = registerProviderIpc({
         providers,
@@ -837,6 +859,8 @@ if (!hasSingleInstanceLock) {
         unregisterDiagnostics,
         closeAppDatabase: () => appDatabase.close(),
         terminateUtilityWorkers: () => {
+          bibliographyConnectors.close()
+          citationFormatting.close()
           agentModel.terminate()
           backgroundWorker.terminate()
           latexImport.terminateAll()

@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 26 Checkpoint 76.1 Agent request diagnostic traces are complete under ADR 069.
-Checkpoint 77 remains paused pending separate authorization. Immutable tag-only candidates
+Status: Phase 27 Checkpoint 78 is complete under ADR 070.
+Checkpoint 77 remains independently paused; CP78 is authorized to run ahead. Immutable tag-only candidates
 `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
 Candidate `.37` proved both independent macOS pipelines through artifact upload, while Windows and
@@ -27,6 +27,23 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Checkpoint 78 is complete. WriteLLM now has project-authoritative Reference metadata with stable
+  citekeys, a bounded single-file Zotero/Better BibTeX connector, explicit PDF attachment review,
+  bilingual citation clusters, evidence-bound Agent citation policy, opt-in CSL formatting, and
+  deterministic bibliography/Pandoc export without changing the existing RAG index authority.
+  The final gates passed 1,228 Electron-hosted tests with three benchmark skips, all 47 fresh
+  Electron E2E scenarios, 31 recovery fixtures, 12 packaged smoke scenarios, and all 34 packaged
+  Electron scenarios. Production and full dependency audits reported zero known vulnerabilities;
+  frozen installation and the scoped Impeccable detector passed. The local watcher evidence is
+  macOS plus cross-platform pure logic only; Windows/Linux runtime behavior remains unclaimed.
+
+- Candidate `v0.2026.8.48` is fully built, verified, committed, tagged, and pushed for the
+  completed Checkpoint 78 Reference and citation workflow. The no-Team-ID macOS arm64 gate
+  verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios,
+  and 34/34 packaged Electron scenarios. It produced the unpacked App, DMG, and ZIP under
+  `dist/macos-arm64`. Signing, notarization, GitHub Release creation, promotion, and publication
+  remain outside this authorization.
 
 - Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed
   Checkpoint 76.1 trace work. Annotated tag `v0.2026.8.47` points to clean source commit `7bb8552`;
@@ -495,11 +512,20 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
+Checkpoints 78.0–78.3 are complete under ADR 070. The delivered work adds
+stable Reference metadata, one user-selected Zotero/Better BibTeX export connector, bilingual
+citekey syntax, evidence validation, an opt-in CSL formatter, and bibliography-aware export while
+leaving the Knowledge RAG pipeline and `index.sqlite` unchanged. CP77 remains paused and no CP77
+schema or Plan-to-Write handoff work is included. Exact-pinned Citation.js CSL/citeproc production
+dependencies, forward migrations, one narrow external-file picker/watch capability, required
+local/package verification, and third-party notices are complete. Commit, tag, push, hosted CI,
+signing, notarization, release promotion, and publication are not authorized.
+
 The separately authorized no-Team-ID macOS arm64 App rebuild, source commit, annotated
-`v0.2026.8.47` tag, and atomic push of `main` plus that tag are complete for the completed
-Checkpoint 76.1 snapshot. Tag-only GitHub Actions run `33345029753` is independently building the
-four unsigned platform rows. Apple Developer ID signing, notarization, GitHub Release creation,
-promotion, and publication remain outside this authorization.
+`v0.2026.8.48` tag, and atomic push of `main` plus that tag are complete for the completed
+Checkpoint 78 snapshot. Apple Developer ID signing, notarization, GitHub Release creation,
+promotion, and publication remain outside this authorization. The earlier `v0.2026.8.47`
+candidate remains the immutable Checkpoint 76.1 snapshot.
 
 Checkpoint 76 is complete under ADR 068. Sticky writing interaction modes, migration 0039,
 immutable run snapshots, Protocol v13 exact tool ceilings, the mode prompt layer, and the Agent
@@ -580,7 +606,8 @@ transitions and local candidate chronology are in
 ## Deferred
 
 - Multiple simultaneously open projects or multiple primary manuscripts.
-- External-edit synchronization and project-wide file watching.
+- General external-edit synchronization, directory scans, and project-wide file watching. ADR 070
+  narrowly authorizes only a user-selected single bibliography file connector.
 - Multi-agent/subagent workflows, autonomous background writing, and long-term implicit memory.
 - Generic plugins, executable Writing Skills, arbitrary filesystem/network/shell tools, and
   direct Agent writes.

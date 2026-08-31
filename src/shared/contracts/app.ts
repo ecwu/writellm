@@ -17,7 +17,7 @@ export const accentPreferenceSchema = z.enum([
   'rose',
   'orange'
 ])
-export const citationDisplayModeSchema = z.enum(['full', 'numbered', 'icon'])
+export const citationDisplayModeSchema = z.enum(['full', 'numbered', 'formatted', 'icon'])
 export const onboardingStepSchema = z.enum([
   'welcome',
   'agent',

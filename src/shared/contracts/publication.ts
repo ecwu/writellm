@@ -14,6 +14,8 @@ import {
   plainTextContentToString
 } from './manuscript'
 import { findReadableCitations, normalizeCitationTitle } from '../readable-citation'
+import { findCitationClusters } from '../citation-cluster'
+import { referenceItemSchema, type formattedReferenceSnapshotSchema } from './references'
 import { projectSessionIdSchema } from './projects'
 
 const MAX_PUBLICATION_NODES = 20_000
@@ -54,7 +56,13 @@ export const publicationInlineNodeSchema = z.discriminatedUnion('type', [
     type: z.literal('citation'),
     number: z.number().int().positive().max(50_000),
     title: z.string().min(1).max(512),
+    citationKeys: z
+      .array(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u))
+      .max(100)
+      .optional(),
     pageIndex: z.number().int().nonnegative().optional(),
+    pageEndIndex: z.number().int().nonnegative().optional(),
+    formatted: z.string().max(64_000).optional(),
     raw: z.string().min(1).max(1_024)
   }),
   strictObject({
@@ -139,6 +147,11 @@ export const publicationNodeSchema = z.discriminatedUnion('type', [
         strictObject({
           number: z.number().int().positive().max(50_000),
           title: z.string().min(1).max(512),
+          citationKey: z
+            .string()
+            .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+            .optional(),
+          formatted: z.string().max(256_000).optional(),
           count: z.number().int().positive().max(50_000)
         })
       )
@@ -172,7 +185,8 @@ export const publicationOptionsSchema = strictObject({
   template: z.enum(['academic', 'report', 'minimal']).default('academic'),
   includeTableOfContents: z.boolean().default(true),
   includeReferences: z.boolean().default(true),
-  mermaidFallback: z.enum(['source', 'rendered']).default('rendered')
+  mermaidFallback: z.enum(['source', 'rendered']).default('rendered'),
+  bibliographyMode: z.enum(['legacy-numbered', 'formatted']).optional()
 })
 
 export const publicationPreflightFindingSchema = strictObject({
@@ -202,6 +216,7 @@ export const publicationAssemblySchema = strictObject({
   options: publicationOptionsSchema,
   nodes: z.array(publicationNodeSchema).max(MAX_PUBLICATION_NODES),
   assets: z.array(publicationAssetSchema).max(10_000),
+  referenceMetadata: z.array(referenceItemSchema).max(10_000).optional(),
   referenceCount: z.number().int().nonnegative().max(50_000),
   figureCount: z.number().int().nonnegative().max(10_000),
   sourceHash: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -242,6 +257,8 @@ export function buildPublicationAssembly(input: {
   references: ManuscriptReferenceIndex
   assets: readonly PublicationAsset[]
   availableReferenceTitles?: ReadonlySet<string>
+  referenceItems?: readonly z.infer<typeof referenceItemSchema>[]
+  formattedReferences?: z.infer<typeof formattedReferenceSnapshotSchema>
   options?: Partial<PublicationOptions>
   hash(value: string): string
 }): PublicationAssembly {
@@ -253,6 +270,24 @@ export function buildPublicationAssembly(input: {
   const assetById = new Map(assets.map((asset) => [asset.assetId, asset]))
   const referenceNumbers = new Map(
     input.references.entries.map((entry) => [normalizeCitationTitle(entry.title), entry.number])
+  )
+  for (const entry of input.references.entries) {
+    if (entry.citationKey !== undefined) referenceNumbers.set(entry.citationKey, entry.number)
+  }
+  const referenceByKey = new Map(
+    (input.referenceItems ?? []).map((reference) => [reference.citationKey, reference])
+  )
+  const formattedByRaw = new Map(
+    (input.formattedReferences?.citations ?? []).map((citation) => [
+      citation.raw,
+      citation.formatted
+    ])
+  )
+  const bibliographyByKey = new Map(
+    (input.formattedReferences?.bibliography ?? []).map((entry) => [
+      entry.citationKey,
+      entry.formatted
+    ])
   )
   const findings: z.infer<typeof publicationPreflightFindingSchema>[] = []
   const nodes: PublicationNode[] = []
@@ -311,6 +346,9 @@ export function buildPublicationAssembly(input: {
             referenceNumbers,
             target,
             input.availableReferenceTitles,
+            referenceByKey,
+            formattedByRaw,
+            options.bibliographyMode ?? 'legacy-numbered',
             recordFinding
           )
         switch (block.type) {
@@ -468,9 +506,13 @@ export function buildPublicationAssembly(input: {
   if (options.includeReferences && input.references.entries.length > 0) {
     nodes.push({
       type: 'references',
-      entries: input.references.entries.map(({ number, title, count }) => ({
+      entries: input.references.entries.map(({ number, title, citationKey, count }) => ({
         number,
         title,
+        ...(citationKey === undefined ? {} : { citationKey }),
+        ...(citationKey === undefined || options.bibliographyMode !== 'formatted'
+          ? {}
+          : { formatted: bibliographyByKey.get(citationKey) }),
         count
       }))
     })
@@ -499,6 +541,7 @@ export function buildPublicationAssembly(input: {
     options,
     nodes,
     assets,
+    referenceMetadata: input.referenceItems ?? [],
     referenceCount: input.references.entries.length,
     figureCount: figureNumber,
     sourceHash,
@@ -559,6 +602,9 @@ function convertInline(
   referenceNumbers: ReadonlyMap<string, number>,
   target: z.infer<typeof publicationTargetSchema>,
   availableReferenceTitles: ReadonlySet<string> | undefined,
+  referenceByKey: ReadonlyMap<string, z.infer<typeof referenceItemSchema>>,
+  formattedByRaw: ReadonlyMap<string, string>,
+  bibliographyMode: 'legacy-numbered' | 'formatted',
   finding: (
     severity: 'error' | 'warning',
     code: z.infer<typeof publicationPreflightFindingSchema>['code'],
@@ -584,7 +630,26 @@ function convertInline(
       })
       continue
     }
-    const citations = findReadableCitations(node.text)
+    const citations = [
+      ...findReadableCitations(node.text).map((citation) => ({
+        ...citation,
+        citationKeys: [] as string[],
+        pageEndIndex: citation.pageIndex
+      })),
+      ...findCitationClusters(node.text).map((cluster) => ({
+        from: cluster.from,
+        to: cluster.to,
+        raw: cluster.raw,
+        syntax: cluster.syntax,
+        title:
+          referenceByKey.get(cluster.items[0]?.citationKey ?? '')?.title ??
+          cluster.items[0]?.citationKey ??
+          '',
+        citationKeys: cluster.items.map((item) => item.citationKey),
+        pageIndex: cluster.items[0]?.locator?.startPageIndex,
+        pageEndIndex: cluster.items[0]?.locator?.endPageIndex
+      }))
+    ].sort((left, right) => left.from - right.from)
     let cursor = 0
     for (const citation of citations) {
       if (citation.from > cursor) {
@@ -595,17 +660,22 @@ function convertInline(
         })
       }
       const normalized = normalizeCitationTitle(citation.title)
-      const number = referenceNumbers.get(normalized)
-      if (number === undefined) {
+      const number = referenceNumbers.get(citation.citationKeys[0] ?? normalized)
+      const missingKey = citation.citationKeys.find((key) => !referenceByKey.has(key))
+      if (number === undefined || missingKey !== undefined) {
         finding(
           'error',
           'unresolved_citation',
-          `Citation “${citation.title}” is unresolved.`,
+          `Citation “${missingKey ?? citation.title}” is unresolved.`,
           target
         )
         result.push({ type: 'text', text: citation.raw, style: style(node.styles) })
       } else {
-        if (availableReferenceTitles !== undefined && !availableReferenceTitles.has(normalized)) {
+        if (
+          citation.citationKeys.length === 0 &&
+          availableReferenceTitles !== undefined &&
+          !availableReferenceTitles.has(normalized)
+        ) {
           finding(
             'error',
             'unresolved_citation',
@@ -617,7 +687,12 @@ function convertInline(
           type: 'citation',
           number,
           title: citation.title,
+          citationKeys: citation.citationKeys,
           ...(citation.pageIndex === undefined ? {} : { pageIndex: citation.pageIndex }),
+          ...(citation.pageEndIndex === undefined ? {} : { pageEndIndex: citation.pageEndIndex }),
+          ...(bibliographyMode !== 'formatted' || formattedByRaw.get(citation.raw) === undefined
+            ? {}
+            : { formatted: formattedByRaw.get(citation.raw) }),
           raw: citation.raw
         })
       }

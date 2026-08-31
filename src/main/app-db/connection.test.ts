@@ -57,6 +57,7 @@ describe('application database', () => {
       'agent_provider_preferences',
       'agent_skills',
       'app_settings',
+      'bibliography_connectors',
       'encrypted_credentials',
       'project_templates',
       'provider_configs',

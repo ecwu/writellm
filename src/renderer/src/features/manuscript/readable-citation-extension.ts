@@ -3,6 +3,7 @@ import { Plugin, PluginKey } from 'prosemirror-state'
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view'
 import type { CitationDisplayMode } from '../../../../shared/contracts/app'
 import { normalizeCitationTitle } from '../../../../shared/readable-citation'
+import { findCitationClusters } from '../../../../shared/citation-cluster'
 import { findReadableCitations, type ReadableCitationMatch } from './readable-citation'
 
 const PLUGIN_KEY = new PluginKey<DecorationSet>('writellm-readable-citations')
@@ -17,6 +18,8 @@ export interface ReadableCitationActivation {
 export interface ReadableCitationPresentation {
   mode: CitationDisplayMode
   numberByTitle: ReadonlyMap<string, number>
+  numberByCitationKey?: ReadonlyMap<string, number>
+  formattedByRaw?: ReadonlyMap<string, string>
 }
 
 const FULL_PRESENTATION: ReadableCitationPresentation = {
@@ -106,21 +109,51 @@ export function buildReadableCitationDecorations(
   doc.descendants((node, position) => {
     if (!node.isTextblock) return true
     const text = node.textBetween(0, node.content.size, '', '\uFFFC')
-    for (const citation of findReadableCitations(text)) {
+    const citations: PresentableCitation[] = [
+      ...findReadableCitations(text).map((citation) => ({ ...citation, citationKeys: [] })),
+      ...findCitationClusters(text).map((cluster) => ({
+        from: cluster.from,
+        to: cluster.to,
+        raw: cluster.raw,
+        syntax: cluster.syntax,
+        title: cluster.items[0]?.citationKey ?? '',
+        citationKeys: cluster.items.map((item) => item.citationKey),
+        ...(cluster.items[0]?.locator === undefined
+          ? {}
+          : { pageIndex: cluster.items[0].locator.startPageIndex })
+      }))
+    ].sort((left, right) => left.from - right.from)
+    for (const citation of citations) {
       const from = position + 1 + citation.from
       const to = position + 1 + citation.to
       const selected = selection !== undefined && selection.from <= to && selection.to >= from
-      const number = presentation.numberByTitle.get(normalizeCitationTitle(citation.title))
-      if (presentation.mode !== 'full' && !selected && number !== undefined) {
+      const numbers =
+        citation.citationKeys.length === 0
+          ? [presentation.numberByTitle.get(normalizeCitationTitle(citation.title))].filter(
+              (value): value is number => value !== undefined
+            )
+          : citation.citationKeys
+              .map(
+                (key) =>
+                  presentation.numberByCitationKey?.get(key) ?? presentation.numberByTitle.get(key)
+              )
+              .filter((value): value is number => value !== undefined)
+      const formatted = presentation.formattedByRaw?.get(citation.raw)
+      const allNumbersAvailable = numbers.length === Math.max(1, citation.citationKeys.length)
+      const compactReady =
+        (presentation.mode === 'icon' && allNumbersAvailable) ||
+        (presentation.mode === 'numbered' && allNumbersAvailable) ||
+        (presentation.mode === 'formatted' && formatted !== undefined)
+      if (presentation.mode !== 'full' && !selected && compactReady) {
         const compactMode = presentation.mode
         decorations.push(
           Decoration.inline(from, to, {
             class: 'writellm-readable-citation-source-hidden',
             'aria-hidden': 'true'
           }),
-          Decoration.widget(to, () => citationWidget(citation, compactMode, number), {
+          Decoration.widget(to, () => citationWidget(citation, compactMode, numbers, formatted), {
             side: 1,
-            key: `${compactMode}:${number}:${from}:${citation.raw}`
+            key: `${compactMode}:${numbers.join(',')}:${formatted ?? ''}:${from}:${citation.raw}`
           })
         )
         continue
@@ -139,9 +172,10 @@ export function refreshReadableCitationDecorations(view: EditorView): void {
 }
 
 function citationWidget(
-  citation: ReadableCitationMatch,
+  citation: PresentableCitation,
   mode: Exclude<CitationDisplayMode, 'full'>,
-  number: number
+  numbers: readonly number[],
+  formatted?: string
 ): HTMLElement {
   const element = document.createElement('span')
   for (const [key, value] of Object.entries(
@@ -149,13 +183,19 @@ function citationWidget(
   )) {
     element.setAttribute(key, value)
   }
-  element.dataset.citationNumber = String(number)
+  element.dataset.citationNumber = numbers.join(',')
   if (mode === 'numbered') {
-    element.textContent = `[${number}]`
+    element.textContent = `[${numbers.join('; ')}]`
+  } else if (mode === 'formatted') {
+    element.textContent = formatted ?? citation.raw
   } else {
     element.append(createReferenceIcon())
   }
   return element
+}
+
+interface PresentableCitation extends ReadableCitationMatch {
+  citationKeys: readonly string[]
 }
 
 function citationAttributes(

@@ -95,6 +95,8 @@ export function resolveCitedSources(
                 evidenceSchemaVersion: 2,
                 citationId: (entry as Record<string, unknown>)['citationId'],
                 knowledgeItemId: (entry as Record<string, unknown>)['knowledgeItemId'],
+                referenceId: (entry as Record<string, unknown>)['referenceId'],
+                citationKey: (entry as Record<string, unknown>)['citationKey'],
                 parseRevisionId: (entry as Record<string, unknown>)['parseRevisionId'],
                 chunkId: (entry as Record<string, unknown>)['chunkId'],
                 sourceBlockIds: (entry as Record<string, unknown>)['sourceBlockIds'],

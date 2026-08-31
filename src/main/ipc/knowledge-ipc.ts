@@ -1,5 +1,6 @@
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMain } from 'electron'
-import { stat } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
@@ -32,7 +33,40 @@ import { KnowledgeCitationCoverageService } from '../knowledge/knowledge-citatio
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
 import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
+import type { BibliographyConnectorService } from '../references/bibliography-connector-service'
+import type { CitationFormattingService } from '../references/citation-formatting-service'
+import {
+  bibliographyChooseInputSchema,
+  bibliographyImportInputSchema,
+  bibliographyImportResultSchema,
+  bibliographyAttachmentPreviewInputSchema,
+  bibliographyAttachmentPreviewSchema,
+  bibliographyAttachmentConfirmInputSchema,
+  bibliographyAttachmentConfirmResultSchema,
+  bibliographyExportInputSchema,
+  bibliographyExportResultSchema,
+  legacyCitationConversionPlanInputSchema,
+  legacyCitationConversionPlanSchema,
+  legacyCitationConversionApplyInputSchema,
+  legacyCitationConversionApplyResultSchema,
+  bibliographySnapshotInputSchema,
+  bibliographySnapshotResultSchema,
+  referenceListInputSchema,
+  referenceListResultSchema,
+  referenceSettingsInputSchema,
+  referenceCustomStyleInputSchema,
+  referenceSettingsSchema,
+  formattedReferenceSnapshotInputSchema,
+  formattedReferenceSnapshotSchema
+} from '../../shared/contracts/references'
 import { authorizeSender } from './authorize-sender'
+import { createBibliographyExport } from '../references/reference-bibliography-export'
+import { assertInTextCslStyle } from '../../shared/csl-style'
+import { normalizeCitationTitle } from '../../shared/readable-citation'
+import {
+  convertLegacyCitations,
+  planLegacyCitationConversion
+} from '../references/legacy-citation-conversion'
 
 export interface KnowledgeIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -44,8 +78,22 @@ export function registerKnowledgeIpc(options: {
   ipc?: KnowledgeIpcMain
   selectFilesForTest?: () => Promise<string[]>
   pdfPreview?: PdfPreviewCapabilities
+  bibliographyConnectors?: BibliographyConnectorService
+  selectBibliographyForTest?: () => Promise<string | null>
+  citationFormatting?: CitationFormattingService
+  selectBibliographyExportForTest?: (format: 'bibtex' | 'csl-json') => Promise<string | null>
+  selectCustomStyleForTest?: () => Promise<string | null>
 }): () => void {
   const ipc = options.ipc ?? ipcMain
+  const legacyConversionPlans = new Map<
+    string,
+    {
+      projectSessionId: string
+      outlineVersion: number
+      citationKeyByTitle: Map<string, string>
+      expiresAt: number
+    }
+  >()
 
   ipc.handle(IPC_CHANNELS.knowledgeList, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -53,6 +101,312 @@ export function registerKnowledgeIpc(options: {
     return knowledgeListResultSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).knowledgeImports.list()
     )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceList, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = referenceListInputSchema.parse(input)
+    return referenceListResultSchema.parse(
+      options.manager.assertActiveSession(parsed.projectSessionId).references.list(parsed.query)
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceBibliographySnapshot, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographySnapshotInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    return bibliographySnapshotResultSchema.parse(
+      options.bibliographyConnectors?.snapshot(context.manifest.projectId) ?? null
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceChooseBibliography, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyChooseInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    const path = options.selectBibliographyForTest
+      ? await options.selectBibliographyForTest()
+      : await chooseBibliography(options.getWindow())
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    if (path === null) {
+      return bibliographySnapshotResultSchema.parse(
+        options.bibliographyConnectors.snapshot(context.manifest.projectId)
+      )
+    }
+    return bibliographySnapshotResultSchema.parse(
+      await options.bibliographyConnectors.connect(context.manifest.projectId, path)
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceRefreshBibliography, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographySnapshotInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    return bibliographySnapshotResultSchema.parse(
+      await options.bibliographyConnectors.refreshForProject(context.manifest.projectId)
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceImportCandidates, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyImportInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    if (parsed.importPdf) {
+      throw new Error('Review PDF attachment candidates before importing them')
+    }
+    return bibliographyImportResultSchema.parse(
+      options.bibliographyConnectors.importCandidates({
+        projectId: context.manifest.projectId,
+        connectorId: parsed.connectorId,
+        candidateIds: new Set(parsed.candidateIds)
+      })
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referencePreviewAttachments, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyAttachmentPreviewInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    return bibliographyAttachmentPreviewSchema.parse(
+      await options.bibliographyConnectors.previewAttachments({
+        projectId: context.manifest.projectId,
+        connectorId: parsed.connectorId,
+        candidateIds: new Set(parsed.candidateIds)
+      })
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceConfirmAttachments, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyAttachmentConfirmInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    return bibliographyAttachmentConfirmResultSchema.parse(
+      await options.bibliographyConnectors.confirmAttachments({
+        projectId: context.manifest.projectId,
+        previewId: parsed.previewId,
+        attachmentIds: new Set(parsed.attachmentIds)
+      })
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceExportBibliography, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyExportInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const citedKeys = new Set(
+      context.manuscript.getReferenceIndex().entries.flatMap((entry) => entry.citationKey ?? [])
+    )
+    const references = context.references
+      .list()
+      .filter((reference) => parsed.scope === 'all-project' || citedKeys.has(reference.citationKey))
+    const generated = createBibliographyExport(references, parsed.format)
+    const destination = options.selectBibliographyExportForTest
+      ? await options.selectBibliographyExportForTest(parsed.format)
+      : await chooseBibliographyExport(options.getWindow(), parsed.format)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    if (destination === null) {
+      return bibliographyExportResultSchema.parse({
+        exported: false,
+        exportedCount: 0,
+        lossCount: generated.losses.length
+      })
+    }
+    try {
+      await writeFile(destination, generated.content, { encoding: 'utf8', flag: 'wx' }).catch(
+        async (err: NodeJS.ErrnoException) => {
+          if (err.code !== 'EEXIST') throw err
+          await writeFile(destination, generated.content, 'utf8')
+        }
+      )
+      if (generated.losses.length > 0) {
+        await writeFile(
+          `${destination}.losses.json`,
+          `${JSON.stringify({ format: parsed.format, losses: generated.losses }, null, 2)}\n`,
+          'utf8'
+        )
+      }
+      options.logger.info(
+        {
+          event: 'reference.bibliography_export.completed',
+          format: parsed.format,
+          scope: parsed.scope,
+          exportedCount: generated.exportedCount,
+          lossCount: generated.losses.length
+        },
+        'Bibliography export completed'
+      )
+      return bibliographyExportResultSchema.parse({
+        exported: true,
+        exportedCount: generated.exportedCount,
+        lossCount: generated.losses.length
+      })
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'reference.bibliography_export.failed',
+          err,
+          format: parsed.format,
+          scope: parsed.scope
+        },
+        'Bibliography export failed'
+      )
+      throw new Error('Bibliography could not be exported', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.referencePlanLegacyConversion, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = legacyCitationConversionPlanInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const index = context.manuscript.getReferenceIndex()
+    const planned = planLegacyCitationConversion(index, context.references.list())
+    const planId = randomUUID()
+    legacyConversionPlans.set(planId, {
+      projectSessionId: parsed.projectSessionId,
+      outlineVersion: index.outlineVersion,
+      citationKeyByTitle: new Map(
+        planned.replacements.map((entry) => [
+          normalizeCitationTitle(entry.title),
+          entry.citationKey
+        ])
+      ),
+      expiresAt: Date.now() + 10 * 60_000
+    })
+    while (legacyConversionPlans.size > 16) {
+      const oldest = legacyConversionPlans.keys().next().value
+      if (oldest === undefined) break
+      legacyConversionPlans.delete(oldest)
+    }
+    return legacyCitationConversionPlanSchema.parse({ planId, ...planned })
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceApplyLegacyConversion, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = legacyCitationConversionApplyInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const plan = legacyConversionPlans.get(parsed.planId)
+    legacyConversionPlans.delete(parsed.planId)
+    if (
+      plan === undefined ||
+      plan.projectSessionId !== parsed.projectSessionId ||
+      plan.expiresAt < Date.now() ||
+      context.manuscript.getReferenceIndex().outlineVersion !== plan.outlineVersion
+    ) {
+      throw new Error('Legacy citation conversion plan is stale')
+    }
+    let sectionsChanged = 0
+    for (const entry of context.manuscript.assemble().sections) {
+      const content = convertLegacyCitations(entry.revision.content, plan.citationKeyByTitle)
+      const revision = context.manuscript.appendRevision({
+        sectionId: entry.section.sectionId,
+        baseRevisionId: entry.revision.sectionRevisionId,
+        baseContentHash: entry.revision.contentHash,
+        content,
+        source: 'manual',
+        sourceClass: 'manual_checkpoint'
+      })
+      if (revision.sectionRevisionId !== entry.revision.sectionRevisionId) sectionsChanged += 1
+    }
+    options.logger.info(
+      {
+        event: 'reference.legacy_conversion.completed',
+        sectionsChanged,
+        replacementCount: plan.citationKeyByTitle.size
+      },
+      'Legacy citations converted after explicit confirmation'
+    )
+    return legacyCitationConversionApplyResultSchema.parse({ sectionsChanged })
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceGetSettings, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographySnapshotInputSchema.parse(input)
+    return referenceSettingsSchema.parse(
+      options.manager.assertActiveSession(parsed.projectSessionId).references.settings()
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceSetSettings, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = referenceSettingsInputSchema.parse(input)
+    return referenceSettingsSchema.parse(
+      options.manager
+        .assertMutationSession(parsed.projectSessionId)
+        .references.setSettings(parsed.styleId, parsed.locale)
+    )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceChooseCustomStyle, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = referenceCustomStyleInputSchema.parse(input)
+    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+    const path = options.selectCustomStyleForTest
+      ? await options.selectCustomStyleForTest()
+      : await chooseCustomStyle(options.getWindow())
+    if (path === null) return referenceSettingsSchema.parse(context.references.settings())
+    try {
+      const metadata = await lstat(path)
+      if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) {
+        throw new Error('Custom CSL must be a bounded regular file')
+      }
+      const xml = await readFile(path, 'utf8')
+      assertInTextCslStyle(xml)
+      const sha256 = createHash('sha256').update(xml).digest('hex')
+      const relativePath = `.writellm/references/styles/${sha256}.csl`
+      await context.filesystem.ensureDirectory('.writellm/references/styles')
+      try {
+        const created = await context.filesystem.createExclusiveFile(relativePath)
+        try {
+          await created.handle.writeFile(xml, 'utf8')
+          await created.handle.sync()
+        } finally {
+          await created.handle.close()
+        }
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'path_exists') throw err
+        const existing = await readFile(
+          await context.filesystem.assertExistingRegularFile(relativePath),
+          'utf8'
+        )
+        if (createHash('sha256').update(existing).digest('hex') !== sha256) {
+          throw new Error('Existing custom CSL resource failed integrity verification')
+        }
+      }
+      return referenceSettingsSchema.parse(context.references.setCustomStyle(relativePath, sha256))
+    } catch (err) {
+      options.logger.error(
+        { event: 'reference.custom_style_import.failed', err },
+        'Custom CSL style import failed'
+      )
+      throw new Error('Custom CSL style could not be imported', { cause: err })
+    }
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceFormatSnapshot, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = formattedReferenceSnapshotInputSchema.parse(input)
+    if (options.citationFormatting === undefined) {
+      throw new Error('Citation formatting is unavailable')
+    }
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const result = await options.citationFormatting.format(context)
+    options.manager.assertActiveSession(parsed.projectSessionId)
+    return formattedReferenceSnapshotSchema.parse(result)
   })
 
   ipc.handle(IPC_CHANNELS.knowledgeIndexStatus, async (event, input: unknown) => {
@@ -485,7 +839,21 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.knowledgeParsedMetadata,
       IPC_CHANNELS.knowledgeParsedBlocks,
       IPC_CHANNELS.knowledgeParsedMarkdown,
-      IPC_CHANNELS.knowledgeParsedAsset
+      IPC_CHANNELS.knowledgeParsedAsset,
+      IPC_CHANNELS.referenceList,
+      IPC_CHANNELS.referenceChooseBibliography,
+      IPC_CHANNELS.referenceBibliographySnapshot,
+      IPC_CHANNELS.referenceRefreshBibliography,
+      IPC_CHANNELS.referenceImportCandidates,
+      IPC_CHANNELS.referencePreviewAttachments,
+      IPC_CHANNELS.referenceConfirmAttachments,
+      IPC_CHANNELS.referenceExportBibliography,
+      IPC_CHANNELS.referencePlanLegacyConversion,
+      IPC_CHANNELS.referenceApplyLegacyConversion,
+      IPC_CHANNELS.referenceGetSettings,
+      IPC_CHANNELS.referenceSetSettings,
+      IPC_CHANNELS.referenceChooseCustomStyle,
+      IPC_CHANNELS.referenceFormatSnapshot
     ])
       ipc.removeHandler(channel)
   }
@@ -518,4 +886,46 @@ async function chooseFiles(owner: BrowserWindow | null): Promise<string[]> {
     ? await dialog.showOpenDialog(owner, options)
     : await dialog.showOpenDialog(options)
   return result.canceled ? [] : result.filePaths.slice(0, 50)
+}
+
+async function chooseBibliography(owner: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    properties: ['openFile'],
+    filters: [{ name: 'Zotero bibliography', extensions: ['json', 'bib'] }]
+  }
+  const result = owner
+    ? await dialog.showOpenDialog(owner, options)
+    : await dialog.showOpenDialog(options)
+  return result.canceled ? null : (result.filePaths[0] ?? null)
+}
+
+async function chooseBibliographyExport(
+  owner: BrowserWindow | null,
+  format: 'bibtex' | 'csl-json'
+): Promise<string | null> {
+  const extension = format === 'bibtex' ? 'bib' : 'json'
+  const options: Electron.SaveDialogOptions = {
+    defaultPath: `references.${extension}`,
+    filters: [
+      {
+        name: format === 'bibtex' ? 'BibTeX bibliography' : 'CSL JSON bibliography',
+        extensions: [extension]
+      }
+    ]
+  }
+  const result = owner
+    ? await dialog.showSaveDialog(owner, options)
+    : await dialog.showSaveDialog(options)
+  return result.canceled ? null : (result.filePath ?? null)
+}
+
+async function chooseCustomStyle(owner: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
+    properties: ['openFile'],
+    filters: [{ name: 'CSL citation style', extensions: ['csl'] }]
+  }
+  const result = owner
+    ? await dialog.showOpenDialog(owner, options)
+    : await dialog.showOpenDialog(options)
+  return result.canceled ? null : (result.filePaths[0] ?? null)
 }

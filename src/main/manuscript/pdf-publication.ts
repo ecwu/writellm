@@ -362,7 +362,10 @@ function htmlNode(
       return `<figure>${node.caption ? `<figcaption><strong>${escapeHtml(node.caption)}</strong></figcaption>` : ''}<pre aria-label="${escapeHtmlAttribute(node.altText || node.caption || 'Mermaid diagram')}"><code>${escapeHtml(node.source)}</code></pre></figure>`
     case 'references':
       return `<section class="references"><h1 id="references">References</h1><ol>${node.entries
-        .map((entry) => `<li value="${entry.number}">${escapeHtml(entry.title)}</li>`)
+        .map(
+          (entry) =>
+            `<li value="${entry.number}">${escapeHtml(entry.formatted ?? entry.title)}</li>`
+        )
         .join('')}</ol></section>`
   }
 }
@@ -497,7 +500,11 @@ function inlineHtml(
 ): string {
   return nodes
     .map((node) => {
-      if (node.type === 'citation') return `<sup>[${node.number}]</sup>`
+      if (node.type === 'citation') {
+        return node.formatted === undefined
+          ? `<sup>[${node.number}]</sup>`
+          : `<span class="citation">${escapeHtml(node.formatted)}</span>`
+      }
       if (node.type === 'link') {
         return `<a href="${escapeHtmlAttribute(node.href)}">${node.children.map(styledHtml).join('')}</a>`
       }

@@ -32,9 +32,142 @@ import {
   readableCitationResolutionInputSchema,
   readableCitationResolutionResultSchema
 } from '../shared/contracts/search'
+import {
+  bibliographyChooseInputSchema,
+  bibliographyImportInputSchema,
+  bibliographyImportResultSchema,
+  bibliographyAttachmentPreviewInputSchema,
+  bibliographyAttachmentPreviewSchema,
+  bibliographyAttachmentConfirmInputSchema,
+  bibliographyAttachmentConfirmResultSchema,
+  bibliographyExportInputSchema,
+  bibliographyExportResultSchema,
+  legacyCitationConversionPlanInputSchema,
+  legacyCitationConversionPlanSchema,
+  legacyCitationConversionApplyInputSchema,
+  legacyCitationConversionApplyResultSchema,
+  bibliographySnapshotInputSchema,
+  bibliographySnapshotResultSchema,
+  formattedReferenceSnapshotInputSchema,
+  formattedReferenceSnapshotSchema,
+  referenceListInputSchema,
+  referenceListResultSchema,
+  referenceSettingsInputSchema,
+  referenceCustomStyleInputSchema,
+  referenceSettingsSchema
+} from '../shared/contracts/references'
 import type { DesktopApi } from './desktop-api'
 
 export const knowledgeApi: DesktopApi['knowledge'] = {
+  async listReferences(input) {
+    return referenceListResultSchema.parse(
+      await ipcRenderer.invoke(IPC_CHANNELS.referenceList, referenceListInputSchema.parse(input))
+    )
+  },
+  async bibliographySnapshot(input) {
+    return bibliographySnapshotResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceBibliographySnapshot,
+        bibliographySnapshotInputSchema.parse(input)
+      )
+    )
+  },
+  async chooseBibliography(input) {
+    return bibliographySnapshotResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceChooseBibliography,
+        bibliographyChooseInputSchema.parse(input)
+      )
+    )
+  },
+  async refreshBibliography(input) {
+    return bibliographySnapshotResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceRefreshBibliography,
+        bibliographySnapshotInputSchema.parse(input)
+      )
+    )
+  },
+  async importReferences(input) {
+    return bibliographyImportResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceImportCandidates,
+        bibliographyImportInputSchema.parse(input)
+      )
+    )
+  },
+  async previewReferenceAttachments(input) {
+    return bibliographyAttachmentPreviewSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referencePreviewAttachments,
+        bibliographyAttachmentPreviewInputSchema.parse(input)
+      )
+    )
+  },
+  async confirmReferenceAttachments(input) {
+    return bibliographyAttachmentConfirmResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceConfirmAttachments,
+        bibliographyAttachmentConfirmInputSchema.parse(input)
+      )
+    )
+  },
+  async exportBibliography(input) {
+    return bibliographyExportResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceExportBibliography,
+        bibliographyExportInputSchema.parse(input)
+      )
+    )
+  },
+  async planLegacyCitationConversion(input) {
+    return legacyCitationConversionPlanSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referencePlanLegacyConversion,
+        legacyCitationConversionPlanInputSchema.parse(input)
+      )
+    )
+  },
+  async applyLegacyCitationConversion(input) {
+    return legacyCitationConversionApplyResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceApplyLegacyConversion,
+        legacyCitationConversionApplyInputSchema.parse(input)
+      )
+    )
+  },
+  async referenceSettings(input) {
+    return referenceSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceGetSettings,
+        bibliographySnapshotInputSchema.parse(input)
+      )
+    )
+  },
+  async setReferenceSettings(input) {
+    return referenceSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceSetSettings,
+        referenceSettingsInputSchema.parse(input)
+      )
+    )
+  },
+  async chooseCustomReferenceStyle(input) {
+    return referenceSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceChooseCustomStyle,
+        referenceCustomStyleInputSchema.parse(input)
+      )
+    )
+  },
+  async formatReferences(input) {
+    return formattedReferenceSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceFormatSnapshot,
+        formattedReferenceSnapshotInputSchema.parse(input)
+      )
+    )
+  },
   async list(input) {
     return knowledgeListResultSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.knowledgeList, knowledgeListInputSchema.parse(input))

@@ -209,7 +209,7 @@ function convertNode(
         '\\section*{References}',
         '\\addcontentsline{toc}{section}{References}',
         '\\begin{enumerate}[label={[\\arabic*]}]',
-        ...node.entries.map((entry) => `  \\item ${escapeLatex(entry.title)}`),
+        ...node.entries.map((entry) => `  \\item ${escapeLatex(entry.formatted ?? entry.title)}`),
         '\\end{enumerate}',
         ''
       ]
@@ -433,7 +433,11 @@ function inlineLatex(
 ): string {
   return nodes
     .map((node) => {
-      if (node.type === 'citation') return `\\textsuperscript{[${node.number}]}`
+      if (node.type === 'citation') {
+        return node.formatted === undefined
+          ? `\\textsuperscript{[${node.number}]}`
+          : escapeLatex(node.formatted)
+      }
       if (node.type === 'link') {
         return `\\href{${escapeUrl(node.href)}}{${node.children.map(styledText).join('')}}`
       }

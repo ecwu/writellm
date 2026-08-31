@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 26 Checkpoint 76.1 is complete under ADR 069; Checkpoint 77 remains paused pending
-separate authorization. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
+Status: Phase 27 Checkpoint 78 is complete under ADR 070; Checkpoint 77 remains
+independently paused. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
 Recorded: 2026-08-31
@@ -18,6 +18,14 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Checkpoint 78: stable Reference authority, one user-selected Zotero bibliography connector,
+  bilingual citekeys, evidence enforcement, CSL formatting, and bibliography-aware export under
+  ADR 070. Checkpoint 77 remains independently paused.
+
+- [x] Candidate `v0.2026.8.48`: rebuild and fully verify the completed Checkpoint 78 work as a
+  no-Team-ID macOS arm64 App, then commit, create an annotated tag, and atomically push `main` plus
+  the tag to GitHub under explicit authorization.
 
 - [x] Candidate `v0.2026.8.47`: rebuild and fully verify the completed Checkpoint 76.1 trace work
   as a no-Team-ID macOS arm64 App, then commit, create an annotated tag, and push `main` plus the
@@ -126,6 +134,21 @@ Checkpoint 75 detail: [`implementation-todo/phase-24.md`](implementation-todo/ph
 Checkpoint 76–77 detail: [`implementation-todo/phase-25.md`](implementation-todo/phase-25.md).
 
 Checkpoint 76.1 detail: [`implementation-todo/phase-26.md`](implementation-todo/phase-26.md).
+
+Checkpoint 78 detail: [`implementation-todo/phase-27.md`](implementation-todo/phase-27.md).
+
+## Phase 27: Stable References, Zotero Import, And Citation Workflow
+
+- [x] Checkpoint 78.0: ADR 070 decision gate, dependency/license boundary, architecture amendment,
+  and explicit CP78-ahead-of-CP77 authorization.
+- [x] Checkpoint 78.1: Reference authority, Zotero bibliography connector, parsers, synchronization,
+  and attachment preview.
+- [x] Checkpoint 78.2: bilingual citation identity, Agent evidence enforcement, legacy conversion,
+  and Reference Library UI.
+- [x] Checkpoint 78.3: CSL formatting, formatted mode, bibliography export, and publication
+  integration.
+
+Authoritative detail: [`implementation-todo/phase-27.md`](implementation-todo/phase-27.md).
 
 ## Phase 25: Agent Interaction Modes
 

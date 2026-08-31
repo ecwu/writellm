@@ -13,3 +13,11 @@ service providers; no endorsement or affiliation is implied.
 The snapshot date and SHA-256 digest of every included SVG are recorded in
 `src/shared/models-dev-provider-logos.generated.ts`. Updates are performed explicitly with
 `npm run sync:provider-logos`; the application never downloads these logos at runtime.
+
+## citeproc-js
+
+WriteLLM includes `citeproc` 2.4.63 through the Citation.js CSL formatting adapter. citeproc-js is
+Copyright Frank G. Bennett, Jr. and contributors and is distributed under the Common Public
+Attribution License Version 1.0 (CPAL-1.0) distribution option. Source and license information are
+available from [Juris-M/citeproc-js](https://github.com/Juris-M/citeproc-js). This distribution
+notice identifies the application CSL formatter as powered by citeproc-js through Citation.js.

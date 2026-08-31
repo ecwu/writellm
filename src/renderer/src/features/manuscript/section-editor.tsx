@@ -95,6 +95,7 @@ export interface EditorExactSelectionSnapshot extends EditorSelectionContext {
 
 export interface SectionEditorHandle {
   focus(): void
+  insertText(text: string): void
   flush(): Promise<void>
   finalFlush(request: {
     projectSessionId: string
@@ -146,6 +147,10 @@ export const SectionEditor = forwardRef<
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
   const { resolvedTheme, citationDisplayMode } = useTheme()
+  const [formattedCitations, setFormattedCitations] = useState<ReadonlyMap<string, string>>(
+    new Map()
+  )
+  const formatRequestRef = useRef(0)
   const closingRef = useRef(false)
   const pendingAssetResolutionsRef = useRef(new Set<Promise<string>>())
   const baseRef = useRef(props.revision)
@@ -154,14 +159,16 @@ export const SectionEditor = forwardRef<
   )
   const citationPresentationRef = useRef({
     mode: citationDisplayMode,
-    numberByTitle: props.citationNumberByTitle
+    numberByTitle: props.citationNumberByTitle,
+    formattedByRaw: formattedCitations
   })
   const searchTargetRef = useRef<ManuscriptSearchTargetContract | null>(null)
   const searchInvalidatedRef = useRef(() => props.onSearchTargetInvalidated?.())
   searchInvalidatedRef.current = () => props.onSearchTargetInvalidated?.()
   citationPresentationRef.current = {
     mode: citationDisplayMode,
-    numberByTitle: props.citationNumberByTitle
+    numberByTitle: props.citationNumberByTitle,
+    formattedByRaw: formattedCitations
   }
   const initialContent =
     props.revision.content.length === 0
@@ -373,10 +380,33 @@ export const SectionEditor = forwardRef<
   }, [resolveCitation])
 
   useEffect(() => {
+    void props.revision.sectionRevisionId
+    const request = ++formatRequestRef.current
+    if (citationDisplayMode !== 'formatted') {
+      setFormattedCitations(new Map())
+      return
+    }
+    setFormattedCitations(new Map())
+    void window.desktop.knowledge
+      .formatReferences({ projectSessionId: props.projectSessionId })
+      .then((snapshot) => {
+        if (formatRequestRef.current !== request) return
+        setFormattedCitations(
+          new Map(snapshot.citations.map((citation) => [citation.raw, citation.formatted]))
+        )
+      })
+      .catch(() => {
+        if (formatRequestRef.current !== request) return
+        notifyActionError('Formatted citations are temporarily unavailable')
+      })
+  }, [citationDisplayMode, props.projectSessionId, props.revision.sectionRevisionId])
+
+  useEffect(() => {
     void citationDisplayMode
     void props.citationNumberByTitle
+    void formattedCitations
     refreshReadableCitationDecorations(editor._tiptapEditor.view)
-  }, [citationDisplayMode, editor, props.citationNumberByTitle])
+  }, [citationDisplayMode, editor, formattedCitations, props.citationNumberByTitle])
 
   useEffect(() => {
     props.onSaveStateChange?.(saveState)
@@ -488,6 +518,10 @@ export const SectionEditor = forwardRef<
   useImperativeHandle(ref, () => ({
     focus() {
       editor.focus()
+    },
+    insertText(text) {
+      editor.focus()
+      editor._tiptapEditor.commands.insertContent(text)
     },
     async flush() {
       if (timerRef.current !== undefined) {

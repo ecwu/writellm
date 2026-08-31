@@ -23,6 +23,7 @@ import type { WritingTaskService } from '../agent/writing-task-service'
 import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
 import type { AnnotationService } from '../manuscript/annotation-service'
 import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
+import type { ReferenceLibraryService } from '../references/reference-library-service'
 
 /** Main-only authority for the currently open project. */
 export interface ProjectContext {
@@ -40,6 +41,7 @@ export interface ProjectContext {
   readonly editorPersistence: EditorPersistenceService
   readonly manuscriptAssets: ManuscriptAssetService
   readonly knowledgeImports: KnowledgeImportService
+  readonly references: ReferenceLibraryService
   readonly mineruWorkflow: MineruWorkflowService | null
   readonly knowledgeNormalization: KnowledgeNormalizationService | null
   readonly knowledgeMapping?: KnowledgeMappingService | null

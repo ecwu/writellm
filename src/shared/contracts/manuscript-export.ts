@@ -15,12 +15,20 @@ export const MANUSCRIPT_EXPORT_FORMAT_VERSION = 1
 export const MANUSCRIPT_EXPORT_MANIFEST_FILE = 'writellm.manuscript-export.json'
 export const MANUSCRIPT_NATIVE_CONTENT_FILE = 'manuscript.json'
 export const MANUSCRIPT_MARKDOWN_CONTENT_FILE = 'manuscript.md'
+export const MANUSCRIPT_PANDOC_REFERENCES_FILE = 'references.json'
 export const MANUSCRIPT_DOCX_CONTENT_FILE = 'manuscript.docx'
 export const MANUSCRIPT_LATEX_CONTENT_FILE = 'manuscript.tex'
 export const MANUSCRIPT_PDF_CONTENT_FILE = 'manuscript.pdf'
 export const MANUSCRIPT_LOSS_REPORT_FILE = 'writellm.loss-report.json'
 
-export const manuscriptExportKindSchema = z.enum(['native', 'markdown', 'docx', 'latex', 'pdf'])
+export const manuscriptExportKindSchema = z.enum([
+  'native',
+  'markdown',
+  'pandoc',
+  'docx',
+  'latex',
+  'pdf'
+])
 
 export const manuscriptExportInputSchema = z
   .object({
@@ -113,6 +121,7 @@ export const manuscriptExportManifestSchema = z
     sourceAppVersion: z.string().min(1).max(100),
     publicationSourceHash: contentHashSchema.optional(),
     content: exportedFileSchema,
+    bibliography: exportedFileSchema.optional(),
     assetCount: z.number().int().nonnegative().max(10_000),
     assetInventorySha256: contentHashSchema,
     assets: z.array(manuscriptExportAssetSchema).max(10_000),

@@ -106,6 +106,59 @@ export interface KnowledgeItemTable {
   updated_at: string
 }
 
+export interface ReferenceItemTable {
+  reference_id: string
+  citation_key: string
+  csl_type: string
+  title: string
+  container_title: string | null
+  issued_year: number | null
+  doi: string | null
+  isbn: string | null
+  url: string | null
+  csl_json: string
+  metadata_completeness: 'complete' | 'partial' | 'incomplete'
+  created_at: string
+  updated_at: string
+}
+
+export interface ReferenceCreatorTable {
+  reference_id: string
+  role: 'author' | 'editor' | 'translator' | 'container-author'
+  ordinal: number
+  given_name: string | null
+  family_name: string | null
+  literal_name: string | null
+}
+
+export interface ReferenceImportBindingTable {
+  reference_id: string
+  connector_id: string
+  upstream_key: string
+  source_format: 'better-csl-json' | 'bibtex'
+  source_fingerprint: string
+  sync_status: 'synced' | 'changed' | 'relink_required' | 'source_unavailable'
+  last_synced_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface KnowledgeReferenceLinkTable {
+  reference_id: string
+  knowledge_item_id: string
+  relationship: 'primary' | 'supplement'
+  created_at: string
+}
+
+export interface ReferenceSettingTable {
+  singleton_id: number
+  style_id: string
+  locale: string
+  custom_style_relative_path: string | null
+  custom_style_sha256: string | null
+  updated_at: string
+}
+
 export interface ImportTable {
   import_id: string
   knowledge_item_id: string
@@ -614,6 +667,11 @@ export interface ProjectDatabaseSchema {
   section_materializations: SectionMaterializationTable
   file_records: FileRecordTable
   knowledge_items: KnowledgeItemTable
+  reference_items: ReferenceItemTable
+  reference_creators: ReferenceCreatorTable
+  reference_import_bindings: ReferenceImportBindingTable
+  knowledge_reference_links: KnowledgeReferenceLinkTable
+  reference_settings: ReferenceSettingTable
   imports: ImportTable
   model_requests: ModelRequestTable
   agent_trace_payloads: AgentTracePayloadTable

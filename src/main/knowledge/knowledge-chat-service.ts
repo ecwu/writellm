@@ -38,6 +38,7 @@ import type {
 import type { ProjectDatabase } from '../project/project-database'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ProjectIndexService } from '../search/index-service'
+import type { ReferenceLibraryService } from '../references/reference-library-service'
 import {
   agentCredentialFromResolved,
   agentModelLimitsFromResolved,
@@ -87,6 +88,7 @@ export interface KnowledgeChatServiceOptions {
   retrieval: Pick<RetrievalService, 'search' | 'expand'>
   projectIndex: Pick<ProjectIndexService, 'currentIndexedSources'>
   listKnowledgeItems: () => KnowledgeItem[]
+  references?: ReferenceLibraryService
   agentCatalog: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve'>
   runtime: AgentSessionRuntime
   limiter: ProjectInteractiveModelLimiter
@@ -717,6 +719,7 @@ export class KnowledgeChatService {
           retrieval: this.options.retrieval,
           projectSessionId: this.options.projectSessionId,
           args: request.args,
+          references: this.options.references,
           signal,
           forcedKnowledgeItemIds: requestedIds.length === 0 ? active.sourceIds : requestedIds
         })
@@ -766,6 +769,7 @@ export class KnowledgeChatService {
       const result = await executeCitationRead({
         retrieval: this.options.retrieval,
         args: request.args,
+        references: this.options.references,
         signal
       })
       const allowed = new Set(active.sourceIds)

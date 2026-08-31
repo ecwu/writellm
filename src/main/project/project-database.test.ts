@@ -114,6 +114,22 @@ function dropAgentTraceSchema(database: Database.Database): void {
   `)
 }
 
+function dropReferenceAuthoritySchema(database: Database.Database): void {
+  database.exec(`
+    DROP INDEX IF EXISTS knowledge_reference_links_primary_idx;
+    DROP INDEX IF EXISTS knowledge_reference_links_knowledge_idx;
+    DROP INDEX IF EXISTS reference_bindings_connector_idx;
+    DROP INDEX IF EXISTS reference_creators_name_idx;
+    DROP INDEX IF EXISTS reference_items_year_idx;
+    DROP INDEX IF EXISTS reference_items_title_idx;
+    DROP TABLE IF EXISTS knowledge_reference_links;
+    DROP TABLE IF EXISTS reference_import_bindings;
+    DROP TABLE IF EXISTS reference_creators;
+    DROP TABLE IF EXISTS reference_settings;
+    DROP TABLE IF EXISTS reference_items;
+  `)
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true }))
@@ -347,6 +363,7 @@ describe('project database', () => {
     )
     native.pragma('foreign_keys = OFF')
     dropAgentTraceSchema(native)
+    dropReferenceAuthoritySchema(native)
     native.exec(`
       DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;
@@ -411,6 +428,8 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
+    native.pragma('foreign_keys = OFF')
+    dropReferenceAuthoritySchema(native)
     native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
@@ -552,6 +571,8 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(
       join(root, PROJECT_DATABASE_RELATIVE_PATH)
     )
+    native.pragma('foreign_keys = OFF')
+    dropReferenceAuthoritySchema(native)
     native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
@@ -681,6 +702,7 @@ describe('project database', () => {
     const native = new (await import('better-sqlite3')).default(databasePath)
     native.pragma('foreign_keys = OFF')
     dropAgentTraceSchema(native)
+    dropReferenceAuthoritySchema(native)
     native.exec(`
       DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;

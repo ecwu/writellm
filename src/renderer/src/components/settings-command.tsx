@@ -502,6 +502,7 @@ export function GeneralSettings({
                 >
                   <ToggleGroupItem value='full'>Full</ToggleGroupItem>
                   <ToggleGroupItem value='numbered'>[1]</ToggleGroupItem>
+                  <ToggleGroupItem value='formatted'>Formatted</ToggleGroupItem>
                   <ToggleGroupItem value='icon'>Icon</ToggleGroupItem>
                 </ToggleGroup>
               </Field>

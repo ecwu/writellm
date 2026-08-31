@@ -30,6 +30,11 @@ import {
   latexImportWorkerRequestSchema
 } from '../shared/contracts/latex-import'
 import { parseLatexImport } from './latex-import-parser'
+import {
+  citationFormatterRequestSchema,
+  citationFormatterResponseSchema
+} from '../shared/contracts/citation-formatting'
+import { formatCitationSnapshot } from './citation-formatter'
 
 const parentPort = process.parentPort
 if (parentPort === undefined) throw new Error('Background worker requires an Electron parent port')
@@ -73,6 +78,51 @@ parentPort.on('message', (event) => {
 })
 
 async function dispatch(value: unknown): Promise<void> {
+  const citationFormatting = citationFormatterRequestSchema.safeParse(value)
+  if (citationFormatting.success) {
+    const startedAt = Date.now()
+    try {
+      const result = formatCitationSnapshot(citationFormatting.data)
+      workerLog?.(
+        'info',
+        'worker.background.citation_format_completed',
+        'Citation formatting completed',
+        {
+          snapshotHash: result.snapshotHash,
+          citationCount: result.citations.length,
+          bibliographyEntryCount: result.bibliography.length,
+          durationMs: Date.now() - startedAt
+        }
+      )
+      post(result)
+    } catch (err) {
+      workerLog?.(
+        'error',
+        'worker.background.citation_format_failed',
+        'Citation formatting failed',
+        {
+          snapshotHash: citationFormatting.data.snapshotHash,
+          durationMs: Date.now() - startedAt
+        },
+        err
+      )
+      post(
+        citationFormatterResponseSchema.parse({
+          type: 'citation-format-error',
+          requestId: citationFormatting.data.requestId,
+          projectSessionId: citationFormatting.data.projectSessionId,
+          snapshotHash: citationFormatting.data.snapshotHash,
+          error: {
+            name: err instanceof Error ? err.name.slice(0, 100) : 'Error',
+            message:
+              err instanceof Error ? err.message.slice(0, 1000) : 'Citation formatting failed'
+          }
+        })
+      )
+    }
+    return
+  }
+
   const latexImport = latexImportWorkerRequestSchema.safeParse(value)
   if (latexImport.success) {
     const startedAt = Date.now()

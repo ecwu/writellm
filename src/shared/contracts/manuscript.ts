@@ -884,7 +884,13 @@ export const manuscriptReferenceOccurrenceSchema = z
     raw: z.string().min(1).max(1_024),
     syntax: z.enum(['english', 'chinese']),
     title: z.string().min(1).max(512),
-    pageIndex: z.number().int().nonnegative().optional()
+    citationKey: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+      .optional(),
+    clusterId: z.string().min(1).max(256).optional(),
+    pageIndex: z.number().int().nonnegative().optional(),
+    pageEndIndex: z.number().int().nonnegative().optional()
   })
   .strict()
 
@@ -892,6 +898,10 @@ export const manuscriptReferenceEntrySchema = z
   .object({
     number: z.number().int().positive().max(50_000),
     title: z.string().min(1).max(512),
+    citationKey: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+      .optional(),
     count: z.number().int().positive().max(50_000),
     occurrences: z.array(manuscriptReferenceOccurrenceSchema).min(1).max(50_000)
   })

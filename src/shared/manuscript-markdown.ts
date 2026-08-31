@@ -7,6 +7,7 @@ import type {
 } from './contracts/manuscript'
 import { plainTextContentSchema, plainTextContentToString } from './contracts/manuscript'
 import { blockNoteInlinePlainText as inlinePlainText } from './blocknote-inline-text'
+import { findCitationClusters } from './citation-cluster'
 import {
   manuscriptMarkdownLossReportSchema,
   type ManuscriptMarkdownLoss,
@@ -54,6 +55,46 @@ export function manuscriptToMarkdown(
   return {
     markdown: `${chunks.join('\n\n').trimEnd()}\n`,
     lossReport: manuscriptMarkdownLossReportSchema.parse({ formatVersion: 1, losses })
+  }
+}
+
+export function manuscriptToPandocMarkdown(
+  manuscript: ManuscriptAssembly,
+  assetPath: (logicalUrl: string) => string
+): ReturnType<typeof manuscriptToMarkdown> {
+  const clone = structuredClone(manuscript)
+  const tokens: string[] = []
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (value === null || typeof value !== 'object') return
+    const record = value as Record<string, unknown>
+    if (record.type === 'text' && typeof record.text === 'string') {
+      const matches = findCitationClusters(record.text)
+      if (matches.length > 0) {
+        let output = ''
+        let cursor = 0
+        for (const match of matches) {
+          output += record.text.slice(cursor, match.from)
+          const index = tokens.push(match.raw) - 1
+          output += `\uE100pandoc:${index}\uE101`
+          cursor = match.to
+        }
+        record.text = output + record.text.slice(cursor)
+      }
+    }
+    for (const child of Object.values(record)) visit(child)
+  }
+  visit(clone)
+  const converted = manuscriptToMarkdown(clone, assetPath)
+  return {
+    ...converted,
+    markdown: converted.markdown.replace(
+      /\uE100pandoc:(\d+)\uE101/gu,
+      (_raw, index: string) => tokens[Number(index)] ?? ''
+    )
   }
 }
 

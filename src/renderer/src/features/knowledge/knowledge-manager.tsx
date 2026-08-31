@@ -1,5 +1,11 @@
 import type { KnowledgeIndexStatus, KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import type { JobStatus } from '../../../../shared/contracts/jobs'
+import type {
+  BibliographyAttachmentPreview,
+  BibliographySnapshot,
+  LegacyCitationConversionPlan,
+  ReferenceItem
+} from '../../../../shared/contracts/references'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
@@ -9,18 +15,31 @@ import {
   FileCheck2,
   FileUp,
   FolderOpen,
+  Library,
+  Link2,
   MoreHorizontal,
   PanelLeft,
   Play,
   RefreshCw,
   Search,
   Trash2,
+  Upload,
   X,
   Zap
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,6 +83,7 @@ export function KnowledgeManager(props: {
   projectSessionId: string
   projectName: string
   onOpenManuscript(): void
+  onInsertCitation(citationKey: string): void
   onOpenNotebook?(): void
   onOpenPreview(): void
   onOpenAssets(): void
@@ -90,6 +110,30 @@ export function KnowledgeManager(props: {
     refetchInterval: ({ state }) => (hasActiveKnowledgeWork(state.data ?? []) ? 1_000 : false)
   })
   const items = itemsQuery.data ?? []
+  const [referenceQuery, setReferenceQuery] = useState('')
+  const referencesKey = useMemo(
+    () => ['reference-items', props.projectSessionId, referenceQuery] as const,
+    [props.projectSessionId, referenceQuery]
+  )
+  const referencesQuery = useQuery({
+    queryKey: referencesKey,
+    queryFn: () =>
+      window.desktop.knowledge.listReferences({
+        projectSessionId: props.projectSessionId,
+        query: referenceQuery
+      })
+  })
+  const connectorKey = useMemo(
+    () => ['bibliography-snapshot', props.projectSessionId] as const,
+    [props.projectSessionId]
+  )
+  const connectorQuery = useQuery({
+    queryKey: connectorKey,
+    queryFn: () =>
+      window.desktop.knowledge.bibliographySnapshot({ projectSessionId: props.projectSessionId }),
+    retry: false
+  })
+  const references = referencesQuery.data ?? []
   const jobsQuery = useQuery({
     queryKey: jobsKey,
     queryFn: () =>
@@ -111,6 +155,15 @@ export function KnowledgeManager(props: {
     retry: false
   })
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
+  const [selectedReferenceId, setSelectedReferenceId] = useState<string | null>(null)
+  const [importSnapshot, setImportSnapshot] = useState<BibliographySnapshot | null>(null)
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<Set<string>>(new Set())
+  const [importPdf, setImportPdf] = useState(false)
+  const [attachmentPreview, setAttachmentPreview] = useState<BibliographyAttachmentPreview | null>(
+    null
+  )
+  const [selectedAttachmentIds, setSelectedAttachmentIds] = useState<Set<string>>(new Set())
+  const [conversionPlan, setConversionPlan] = useState<LegacyCitationConversionPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [dragging, setDragging] = useState(false)
 
@@ -127,6 +180,9 @@ export function KnowledgeManager(props: {
   }, [items, jobsKey, queryClient])
 
   const selectedItem = items.find((item) => item.knowledgeItemId === selectedItemId)
+  const selectedReference = references.find(
+    (reference) => reference.referenceId === selectedReferenceId
+  )
   const jobs = jobsQuery.data?.jobs ?? []
   const stats = getStats(items, jobs)
   const embeddingInProgress = jobs.some(
@@ -143,7 +199,12 @@ export function KnowledgeManager(props: {
     setBusy(true)
     try {
       replace(await operation())
-      await queryClient.invalidateQueries({ queryKey: jobsKey })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: jobsKey }),
+        queryClient.invalidateQueries({
+          queryKey: ['reference-items', props.projectSessionId]
+        })
+      ])
     } catch {
       props.onError('One or more knowledge files could not be imported or updated.')
       await itemsQuery.refetch()
@@ -155,6 +216,93 @@ export function KnowledgeManager(props: {
     void run(() =>
       window.desktop.knowledge.chooseAndImport({ projectSessionId: props.projectSessionId })
     )
+  }
+  const chooseBibliography = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const snapshot = await window.desktop.knowledge.chooseBibliography({
+        projectSessionId: props.projectSessionId
+      })
+      if (snapshot === null) return
+      queryClient.setQueryData(connectorKey, snapshot)
+      setImportSnapshot(snapshot)
+      setSelectedCandidateIds(
+        new Set(
+          snapshot.candidates
+            .filter((candidate) => candidate.alreadyImportedReferenceId === null)
+            .map((candidate) => candidate.candidateId)
+        )
+      )
+    } catch {
+      props.onError('The Zotero bibliography could not be connected or parsed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refreshBibliography = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const snapshot = await window.desktop.knowledge.refreshBibliography({
+        projectSessionId: props.projectSessionId
+      })
+      queryClient.setQueryData(connectorKey, snapshot)
+      if (snapshot !== null) setImportSnapshot(snapshot)
+      await queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] })
+    } catch {
+      props.onError('Zotero sync failed. The last valid project metadata was preserved.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const importSelectedReferences = async (): Promise<void> => {
+    if (importSnapshot === null || selectedCandidateIds.size === 0) return
+    setBusy(true)
+    try {
+      if (importPdf) {
+        const preview = await window.desktop.knowledge.previewReferenceAttachments({
+          projectSessionId: props.projectSessionId,
+          connectorId: importSnapshot.connector.connectorId,
+          candidateIds: [...selectedCandidateIds]
+        })
+        setAttachmentPreview(preview)
+        setSelectedAttachmentIds(new Set(preview.attachments.map((item) => item.attachmentId)))
+        setImportSnapshot(null)
+        return
+      }
+      await window.desktop.knowledge.importReferences({
+        projectSessionId: props.projectSessionId,
+        connectorId: importSnapshot.connector.connectorId,
+        candidateIds: [...selectedCandidateIds],
+        importPdf: false
+      })
+      setImportSnapshot(null)
+      await queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] })
+    } catch {
+      props.onError('The selected references could not be imported.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const confirmAttachmentImport = async (): Promise<void> => {
+    if (attachmentPreview === null) return
+    setBusy(true)
+    try {
+      await window.desktop.knowledge.confirmReferenceAttachments({
+        projectSessionId: props.projectSessionId,
+        previewId: attachmentPreview.previewId,
+        attachmentIds: [...selectedAttachmentIds]
+      })
+      setAttachmentPreview(null)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] }),
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: jobsKey })
+      ])
+    } catch {
+      props.onError('The confirmed PDF attachments could not be imported.')
+    } finally {
+      setBusy(false)
+    }
   }
   const importDropped = (files: File[]): void => {
     if (files.length === 0) return
@@ -242,6 +390,66 @@ export function KnowledgeManager(props: {
       return next
     })
   }
+  const exportBibliography = async (
+    format: 'bibtex' | 'csl-json',
+    scope: 'cited-only' | 'all-project'
+  ): Promise<void> => {
+    try {
+      await window.desktop.knowledge.exportBibliography({
+        projectSessionId: props.projectSessionId,
+        format,
+        scope
+      })
+    } catch {
+      props.onError('The bibliography could not be exported.')
+    }
+  }
+  const setCitationStyle = async (styleId: 'apa' | 'ieee' | 'vancouver'): Promise<void> => {
+    try {
+      await window.desktop.knowledge.setReferenceSettings({
+        projectSessionId: props.projectSessionId,
+        styleId,
+        locale: 'en-US'
+      })
+    } catch {
+      props.onError('The citation style could not be changed.')
+    }
+  }
+  const chooseCustomStyle = async (): Promise<void> => {
+    try {
+      await window.desktop.knowledge.chooseCustomReferenceStyle({
+        projectSessionId: props.projectSessionId
+      })
+    } catch {
+      props.onError('The CSL file is invalid or is not an in-text citation style.')
+    }
+  }
+  const planLegacyConversion = async (): Promise<void> => {
+    try {
+      setConversionPlan(
+        await window.desktop.knowledge.planLegacyCitationConversion({
+          projectSessionId: props.projectSessionId
+        })
+      )
+    } catch {
+      props.onError('Legacy citations could not be analyzed.')
+    }
+  }
+  const applyLegacyConversion = async (): Promise<void> => {
+    if (conversionPlan === null) return
+    setBusy(true)
+    try {
+      await window.desktop.knowledge.applyLegacyCitationConversion({
+        projectSessionId: props.projectSessionId,
+        planId: conversionPlan.planId
+      })
+      setConversionPlan(null)
+    } catch {
+      props.onError('The manuscript changed; create and review a new conversion plan.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <SidebarProvider
@@ -268,12 +476,19 @@ export function KnowledgeManager(props: {
           onOpenSettings={props.onOpenSettings}
         />
         <KnowledgeSidebar
+          references={references}
           items={items}
           jobs={jobs}
           selectedItemId={selectedItemId}
           dragging={dragging}
           busy={busy}
           onSelect={setSelectedItemId}
+          onSelectReference={(reference) => {
+            setSelectedReferenceId(reference.referenceId)
+            setSelectedItemId(reference.knowledgeItemIds[0] ?? null)
+          }}
+          referenceQuery={referenceQuery}
+          onReferenceQueryChange={setReferenceQuery}
           onImport={importFiles}
           onDragEnter={() => setDragging(true)}
           onDragLeave={() => setDragging(false)}
@@ -303,6 +518,14 @@ export function KnowledgeManager(props: {
               indexStatus={indexStatusQuery.data}
               indexStatusUnavailable={indexStatusQuery.isError}
             />
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={busy}
+              onClick={() => void chooseBibliography()}
+            >
+              <Link2 /> Connect Zotero
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant='outline' size='icon-sm' aria-label='Knowledge actions'>
@@ -320,6 +543,45 @@ export function KnowledgeManager(props: {
                     {parsingInProgress
                       ? 'MinerU processing in progress'
                       : 'Reprocess all with MinerU'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={busy || connectorQuery.data === null}
+                    onClick={() => void refreshBibliography()}
+                  >
+                    <RefreshCw /> Refresh bibliography
+                  </DropdownMenuItem>
+                  {connectorQuery.data !== null && connectorQuery.data !== undefined ? (
+                    <DropdownMenuItem
+                      onClick={() => setImportSnapshot(connectorQuery.data ?? null)}
+                    >
+                      <Upload /> Import available references
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => void exportBibliography('bibtex', 'cited-only')}>
+                    Export cited references (.bib)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => void exportBibliography('csl-json', 'all-project')}
+                  >
+                    Export all references (CSL JSON)
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => void setCitationStyle('apa')}>
+                    Use APA style
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void setCitationStyle('ieee')}>
+                    Use IEEE style
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void setCitationStyle('vancouver')}>
+                    Use Vancouver style
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void chooseCustomStyle()}>
+                    Import custom CSL style…
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => void planLegacyConversion()}>
+                    Convert legacy title citations…
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     data-testid='knowledge-reembed-all-action'
@@ -340,10 +602,17 @@ export function KnowledgeManager(props: {
               <AlertCircle className='size-4' /> Knowledge files could not be loaded.
             </div>
           ) : null}
-          {selectedItem ? (
+          {selectedReference !== undefined && selectedItem === undefined ? (
+            <ReferenceDetails
+              reference={selectedReference}
+              onInsertCitation={props.onInsertCitation}
+              onClose={() => setSelectedReferenceId(null)}
+            />
+          ) : selectedItem ? (
             <KnowledgeDetails
               projectSessionId={props.projectSessionId}
               item={selectedItem}
+              reference={selectedReference}
               busy={busy}
               embeddingInProgress={embeddingInProgress}
               onParse={() => void parseSelected()}
@@ -382,11 +651,13 @@ export function KnowledgeManager(props: {
                 })
               }
               onDelete={deleteSelected}
+              onInsertCitation={props.onInsertCitation}
               onClose={() => setSelectedItemId(null)}
               onError={props.onError}
             />
           ) : (
             <KnowledgeOverview
+              references={references}
               items={items}
               projectSessionId={props.projectSessionId}
               indexStatus={indexStatusQuery.data}
@@ -396,11 +667,36 @@ export function KnowledgeManager(props: {
           )}
         </main>
       </SidebarInset>
+      <ReferenceImportDialog
+        snapshot={importSnapshot}
+        selectedIds={selectedCandidateIds}
+        busy={busy}
+        importPdf={importPdf}
+        onImportPdfChange={setImportPdf}
+        onSelectedIdsChange={setSelectedCandidateIds}
+        onClose={() => setImportSnapshot(null)}
+        onImport={() => void importSelectedReferences()}
+      />
+      <AttachmentImportDialog
+        preview={attachmentPreview}
+        selectedIds={selectedAttachmentIds}
+        busy={busy}
+        onSelectedIdsChange={setSelectedAttachmentIds}
+        onClose={() => setAttachmentPreview(null)}
+        onImport={() => void confirmAttachmentImport()}
+      />
+      <LegacyConversionDialog
+        plan={conversionPlan}
+        busy={busy}
+        onClose={() => setConversionPlan(null)}
+        onApply={() => void applyLegacyConversion()}
+      />
     </SidebarProvider>
   )
 }
 
 function KnowledgeOverview(props: {
+  references: ReferenceItem[]
   items: KnowledgeItem[]
   projectSessionId: string
   indexStatus: KnowledgeIndexStatus | undefined
@@ -412,10 +708,10 @@ function KnowledgeOverview(props: {
       <div className='w-full max-w-3xl'>
         <div className='mb-6'>
           <h1 className='flex items-center gap-2 text-xl font-semibold tracking-tight'>
-            <Search className='size-5' /> Search knowledge
+            <Library className='size-5' /> Reference library
           </h1>
           <p className='mt-1 text-sm text-muted-foreground'>
-            Find passages across every parsed source in this project.
+            {props.references.length} references. Search evidence across attached, parsed sources.
           </p>
         </div>
         <KnowledgeSearch
@@ -440,24 +736,35 @@ function KnowledgeOverview(props: {
 }
 
 function KnowledgeSidebar(props: {
+  references: ReferenceItem[]
   items: KnowledgeItem[]
   jobs: JobStatus[]
   selectedItemId: string | null
   dragging: boolean
   busy: boolean
   onSelect(id: string): void
+  onSelectReference(reference: ReferenceItem): void
+  referenceQuery: string
+  onReferenceQueryChange(query: string): void
   onImport(): void
   onDragEnter(): void
   onDragLeave(): void
   onDrop(files: File[]): void
 }): React.JSX.Element {
   const activeJobs = props.jobs.filter((job) => job.state === 'queued' || job.state === 'running')
+  const linkedKnowledgeItemIds = new Set(
+    props.references.flatMap((reference) => reference.knowledgeItemIds)
+  )
+  const unlinkedItems = props.items.filter(
+    (item) => !linkedKnowledgeItemIds.has(item.knowledgeItemId)
+  )
   return (
     <Sidebar collapsible='none' className='hidden flex-1 md:flex'>
       <div className='border-b p-4'>
         <div className='flex items-center justify-between gap-2'>
           <div className='min-w-0'>
-            <p className='text-sm font-semibold'>Sources</p>
+            <p className='text-sm font-semibold'>References</p>
+            <p className='text-xs text-muted-foreground'>{props.references.length} references</p>
             <p className='text-xs text-muted-foreground'>
               {props.items.length} files in this project
             </p>
@@ -494,13 +801,72 @@ function KnowledgeSidebar(props: {
           <FileUp className='size-3.5' />
           {props.dragging ? 'Drop files to upload' : 'Drop files here'}
         </button>
+        <div className='relative mt-3'>
+          <Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
+          <Input
+            aria-label='Search references'
+            className='h-8 pl-8 text-xs'
+            placeholder='Title, author, venue, year, key'
+            value={props.referenceQuery}
+            onChange={(event) => props.onReferenceQueryChange(event.target.value)}
+          />
+        </div>
       </div>
       <SidebarContent>
         <SidebarGroup className='py-3'>
-          <SidebarGroupLabel className='px-3'>File list</SidebarGroupLabel>
+          <SidebarGroupLabel className='px-3'>Library</SidebarGroupLabel>
           <div className='grid gap-1 px-2'>
-            {props.items.map((item) => {
-              const parsing = isParseInProgress(item.parseState)
+            {props.references.map((reference) => {
+              const item = props.items.find((candidate) =>
+                reference.knowledgeItemIds.includes(candidate.knowledgeItemId)
+              )
+              const parsing = isParseInProgress(item?.parseState)
+              const failed =
+                item?.state === 'failed' ||
+                item?.parseState === 'failed' ||
+                item?.normalizationState === 'failed'
+              return (
+                <button
+                  type='button'
+                  key={reference.referenceId}
+                  data-testid={
+                    item === undefined
+                      ? `knowledge-reference-${reference.referenceId}`
+                      : `knowledge-file-${item.knowledgeItemId}`
+                  }
+                  data-reference-id={reference.referenceId}
+                  className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring ${item !== undefined && props.selectedItemId === item.knowledgeItemId ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
+                  onClick={() => props.onSelectReference(reference)}
+                >
+                  {parsing || item?.state === 'importing' ? (
+                    <Spinner className='shrink-0 text-primary' />
+                  ) : failed ? (
+                    <AlertCircle className='size-4 shrink-0 text-destructive' />
+                  ) : reference.evidenceAvailable ? (
+                    <FileCheck2 className='shrink-0 text-success' />
+                  ) : (
+                    <File className='size-4 shrink-0 text-muted-foreground' />
+                  )}
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate'>{reference.title}</span>
+                    <span className='block truncate text-[10px] text-muted-foreground'>
+                      {reference.creators.find((creator) => creator.role === 'author')?.family ??
+                        reference.containerTitle ??
+                        'Metadata incomplete'}{' '}
+                      · @{reference.citationKey}
+                    </span>
+                  </span>
+                  <Badge variant='outline' className='h-5 px-1 text-[9px]'>
+                    {reference.evidenceAvailable
+                      ? 'indexed'
+                      : item === undefined
+                        ? 'metadata'
+                        : 'PDF'}
+                  </Badge>
+                </button>
+              )
+            })}
+            {unlinkedItems.map((item) => {
               const failed =
                 item.state === 'failed' ||
                 item.parseState === 'failed' ||
@@ -513,24 +879,34 @@ function KnowledgeSidebar(props: {
                   className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring ${props.selectedItemId === item.knowledgeItemId ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
                   onClick={() => props.onSelect(item.knowledgeItemId)}
                 >
-                  {parsing || item.state === 'importing' ? (
+                  {item.state === 'importing' ? (
                     <Spinner className='shrink-0 text-primary' />
                   ) : failed ? (
                     <AlertCircle className='size-4 shrink-0 text-destructive' />
-                  ) : item.activeParseRevisionId !== null ? (
-                    <FileCheck2 className='shrink-0 text-success' />
                   ) : (
                     <File className='size-4 shrink-0 text-muted-foreground' />
                   )}
-                  <span className='min-w-0 flex-1 truncate'>{item.displayName}</span>
-                  <span className='text-[10px] uppercase text-muted-foreground'>
-                    {item.extension ?? 'file'}
+                  <span className='min-w-0 flex-1'>
+                    <span className='block truncate'>{item.displayName}</span>
+                    <span className='block truncate text-[10px] text-muted-foreground'>
+                      {item.state === 'importing'
+                        ? 'Importing file'
+                        : 'Preparing reference metadata'}
+                    </span>
                   </span>
+                  <Badge variant='outline' className='h-5 px-1 text-[9px]'>
+                    {item.state}
+                  </Badge>
                 </button>
               )
             })}
+            {props.references.length === 0 && unlinkedItems.length === 0 ? (
+              <p className='px-2 py-6 text-center text-xs text-muted-foreground'>
+                No references yet.
+              </p>
+            ) : null}
             {props.items.length === 0 ? (
-              <p className='px-2 py-6 text-center text-xs text-muted-foreground'>No files yet.</p>
+              <p className='px-2 py-3 text-center text-xs text-muted-foreground'>No files yet.</p>
             ) : null}
           </div>
         </SidebarGroup>
@@ -550,6 +926,299 @@ function KnowledgeSidebar(props: {
         </SidebarGroup>
       </SidebarContent>
     </Sidebar>
+  )
+}
+
+function ReferenceDetails(props: {
+  reference: ReferenceItem
+  onInsertCitation(citationKey: string): void
+  onClose(): void
+}): React.JSX.Element {
+  const authors = props.reference.creators
+    .filter((creator) => creator.role === 'author')
+    .map((creator) => creator.literal ?? [creator.given, creator.family].filter(Boolean).join(' '))
+    .filter(Boolean)
+    .join(', ')
+  const copyCitation = async (): Promise<void> => {
+    await navigator.clipboard.writeText(`[@${props.reference.citationKey}]`)
+  }
+  return (
+    <section className='mx-auto w-full max-w-4xl py-8'>
+      <div className='flex items-start justify-between gap-4 border-b pb-6'>
+        <div className='min-w-0'>
+          <div className='mb-2 flex flex-wrap items-center gap-2'>
+            <Badge variant={props.reference.evidenceAvailable ? 'default' : 'secondary'}>
+              {props.reference.evidenceAvailable ? 'Evidence available' : 'Metadata only'}
+            </Badge>
+            <Badge variant='outline'>{props.reference.metadataCompleteness}</Badge>
+            <Badge variant='outline'>{props.reference.syncStatus.replace('_', ' ')}</Badge>
+          </div>
+          <h1 className='text-2xl font-semibold tracking-tight'>{props.reference.title}</h1>
+          <p className='mt-2 text-sm text-muted-foreground'>
+            {[authors, props.reference.containerTitle, props.reference.issuedYear]
+              .filter((value) => value !== null && value !== '')
+              .join(' · ') || 'Bibliographic metadata is incomplete.'}
+          </p>
+        </div>
+        <Button variant='ghost' size='icon-sm' aria-label='Close reference' onClick={props.onClose}>
+          <X />
+        </Button>
+      </div>
+      <div className='grid gap-6 py-6 md:grid-cols-[minmax(0,1fr)_auto]'>
+        <dl className='grid gap-4 text-sm sm:grid-cols-2'>
+          <MetadataField label='Citation key' value={`@${props.reference.citationKey}`} />
+          <MetadataField label='Type' value={props.reference.cslType} />
+          <MetadataField label='DOI' value={props.reference.doi ?? '—'} />
+          <MetadataField label='ISBN' value={props.reference.isbn ?? '—'} />
+          <MetadataField label='URL' value={props.reference.url ?? '—'} />
+          <MetadataField
+            label='Attachment'
+            value={
+              props.reference.knowledgeItemIds.length === 0
+                ? 'No PDF attached'
+                : `${props.reference.knowledgeItemIds.length} linked source${props.reference.knowledgeItemIds.length === 1 ? '' : 's'}`
+            }
+          />
+        </dl>
+        <div className='flex flex-wrap content-start gap-2 md:w-48 md:flex-col'>
+          <Button onClick={() => void copyCitation()}>
+            <Link2 /> Copy citation
+          </Button>
+          <Button
+            variant='outline'
+            onClick={() => props.onInsertCitation(props.reference.citationKey)}
+          >
+            Insert in editor
+          </Button>
+          <p className='text-xs text-muted-foreground'>
+            Metadata-only references can be cited manually but are never offered to the Agent as
+            evidence.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function MetadataField(props: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div className='min-w-0'>
+      <dt className='text-xs font-medium text-muted-foreground'>{props.label}</dt>
+      <dd className='mt-1 break-words'>{props.value}</dd>
+    </div>
+  )
+}
+
+function ReferenceImportDialog(props: {
+  snapshot: BibliographySnapshot | null
+  selectedIds: Set<string>
+  busy: boolean
+  importPdf: boolean
+  onImportPdfChange(value: boolean): void
+  onSelectedIdsChange(ids: Set<string>): void
+  onClose(): void
+  onImport(): void
+}): React.JSX.Element {
+  const available =
+    props.snapshot?.candidates.filter(
+      (candidate) => candidate.alreadyImportedReferenceId === null
+    ) ?? []
+  const toggle = (candidateId: string): void => {
+    const next = new Set(props.selectedIds)
+    if (next.has(candidateId)) next.delete(candidateId)
+    else next.add(candidateId)
+    props.onSelectedIdsChange(next)
+  }
+  return (
+    <Dialog open={props.snapshot !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <DialogContent className='max-h-[80dvh] overflow-hidden sm:max-w-3xl'>
+        <DialogHeader>
+          <DialogTitle>Import Zotero references</DialogTitle>
+          <DialogDescription>
+            Select metadata to copy into this project. Existing project citation keys will not
+            change.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='min-h-0 overflow-y-auto border-y py-2'>
+          {available.map((candidate) => (
+            <label
+              key={candidate.candidateId}
+              htmlFor={`reference-candidate-${candidate.candidateId}`}
+              className='flex cursor-pointer items-start gap-3 px-2 py-3 hover:bg-muted/50'
+            >
+              <Checkbox
+                id={`reference-candidate-${candidate.candidateId}`}
+                className='mt-0.5'
+                checked={props.selectedIds.has(candidate.candidateId)}
+                onCheckedChange={() => toggle(candidate.candidateId)}
+              />
+              <span className='min-w-0 flex-1'>
+                <span className='block text-sm font-medium'>{candidate.title}</span>
+                <span className='mt-0.5 block text-xs text-muted-foreground'>
+                  {[candidate.authors.join(', '), candidate.containerTitle, candidate.issuedYear]
+                    .filter((value) => value !== null && value !== '')
+                    .join(' · ')}
+                </span>
+                <span className='mt-1 block font-mono text-[11px] text-muted-foreground'>
+                  @{candidate.proposedCitationKey}
+                  {candidate.attachmentCount > 0
+                    ? ` · ${candidate.attachmentCount} attachment candidate${candidate.attachmentCount === 1 ? '' : 's'}`
+                    : ''}
+                </span>
+              </span>
+            </label>
+          ))}
+          {available.length === 0 ? (
+            <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
+              No new references are available in this snapshot.
+            </p>
+          ) : null}
+        </div>
+        {props.snapshot !== null && props.snapshot.issues.length > 0 ? (
+          <p className='text-xs text-amber-700 dark:text-amber-400'>
+            {props.snapshot.issues.length} malformed{' '}
+            {props.snapshot.issues.length === 1 ? 'entry was' : 'entries were'} skipped.
+          </p>
+        ) : null}
+        <label htmlFor='reference-import-pdf' className='flex items-start gap-3 text-sm'>
+          <Checkbox
+            id='reference-import-pdf'
+            className='mt-0.5'
+            checked={props.importPdf}
+            onCheckedChange={(checked) => props.onImportPdfChange(checked === true)}
+          />
+          <span>
+            Import PDF attachments
+            <span className='block text-xs text-muted-foreground'>
+              You will review filenames and sizes before any attachment is copied into Knowledge.
+            </span>
+          </span>
+        </label>
+        <DialogFooter>
+          <Button variant='outline' onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button disabled={props.busy || props.selectedIds.size === 0} onClick={props.onImport}>
+            {props.busy ? <Spinner /> : <Upload />}
+            Import {props.selectedIds.size || ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function AttachmentImportDialog(props: {
+  preview: BibliographyAttachmentPreview | null
+  selectedIds: Set<string>
+  busy: boolean
+  onSelectedIdsChange(ids: Set<string>): void
+  onClose(): void
+  onImport(): void
+}): React.JSX.Element {
+  const toggle = (attachmentId: string): void => {
+    const next = new Set(props.selectedIds)
+    if (next.has(attachmentId)) next.delete(attachmentId)
+    else next.add(attachmentId)
+    props.onSelectedIdsChange(next)
+  }
+  return (
+    <Dialog open={props.preview !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <DialogContent className='sm:max-w-xl'>
+        <DialogHeader>
+          <DialogTitle>Review PDF attachments</DialogTitle>
+          <DialogDescription>
+            Only the selected regular PDF files will be copied into this project and parsed through
+            the existing Knowledge pipeline.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='max-h-[45dvh] overflow-y-auto border-y py-2'>
+          {props.preview?.attachments.map((attachment) => (
+            <label
+              key={attachment.attachmentId}
+              htmlFor={`reference-attachment-${attachment.attachmentId}`}
+              className='flex items-center gap-3 px-2 py-3 hover:bg-muted/50'
+            >
+              <Checkbox
+                id={`reference-attachment-${attachment.attachmentId}`}
+                checked={props.selectedIds.has(attachment.attachmentId)}
+                onCheckedChange={() => toggle(attachment.attachmentId)}
+              />
+              <span className='min-w-0 flex-1 truncate text-sm'>{attachment.fileName}</span>
+              <span className='text-xs tabular-nums text-muted-foreground'>
+                {formatBytes(attachment.byteSize)}
+              </span>
+            </label>
+          ))}
+          {props.preview?.attachments.length === 0 ? (
+            <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
+              No valid PDF attachments were found. You can still import the metadata by returning to
+              the bibliography list.
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter>
+          <Button variant='outline' onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button disabled={props.busy} onClick={props.onImport}>
+            {props.busy ? <Spinner /> : <FileUp />}
+            Import metadata{props.selectedIds.size > 0 ? ` + ${props.selectedIds.size} PDF` : ''}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function LegacyConversionDialog(props: {
+  plan: LegacyCitationConversionPlan | null
+  busy: boolean
+  onClose(): void
+  onApply(): void
+}): React.JSX.Element {
+  const occurrenceCount =
+    props.plan?.replacements.reduce((total, item) => total + item.occurrenceCount, 0) ?? 0
+  return (
+    <Dialog open={props.plan !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <DialogContent className='sm:max-w-xl'>
+        <DialogHeader>
+          <DialogTitle>Convert legacy citations</DialogTitle>
+          <DialogDescription>
+            This creates normal manuscript revisions. Only unique exact title matches are converted;
+            ambiguous and unmatched citations stay unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className='grid gap-3 border-y py-4 text-sm'>
+          <p>
+            <strong>{occurrenceCount}</strong> citations can be converted to stable citekeys.
+          </p>
+          <p className='text-muted-foreground'>
+            {props.plan?.ambiguousTitles.length ?? 0} ambiguous ·{' '}
+            {props.plan?.unmatchedTitles.length ?? 0} unmatched
+          </p>
+          <div className='max-h-52 overflow-y-auto'>
+            {props.plan?.replacements.map((entry) => (
+              <div key={entry.title} className='flex gap-3 py-1.5'>
+                <span className='min-w-0 flex-1 truncate'>{entry.title}</span>
+                <code className='text-xs text-muted-foreground'>@{entry.citationKey}</code>
+              </div>
+            ))}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant='outline' onClick={props.onClose}>
+            Cancel
+          </Button>
+          <Button
+            disabled={props.busy || (props.plan?.replacements.length ?? 0) === 0}
+            onClick={props.onApply}
+          >
+            {props.busy ? <Spinner /> : <RefreshCw />} Convert confirmed matches
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -631,6 +1300,7 @@ function CompactStatus(props: { value: string; label: string }): React.JSX.Eleme
 function KnowledgeDetails(props: {
   projectSessionId: string
   item: KnowledgeItem
+  reference: ReferenceItem | undefined
   busy: boolean
   embeddingInProgress: boolean
   onParse(): void
@@ -639,6 +1309,7 @@ function KnowledgeDetails(props: {
   onOpen(): void
   onReveal(): void
   onDelete(): void
+  onInsertCitation(citationKey: string): void
   onClose(): void
   onError(message: string): void
 }): React.JSX.Element {
@@ -655,8 +1326,11 @@ function KnowledgeDetails(props: {
               <File className='size-5 text-muted-foreground' />
             </div>
             <div className='min-w-0'>
-              <h2 className='truncate text-lg font-semibold'>{props.item.displayName}</h2>
+              <h2 className='truncate text-lg font-semibold'>
+                {props.reference?.title ?? props.item.displayName}
+              </h2>
               <p className='mt-1 text-sm text-muted-foreground'>
+                {props.reference === undefined ? '' : `@${props.reference.citationKey} · `}
                 {props.item.extension?.toUpperCase() ?? 'FILE'} ·{' '}
                 {formatBytes(props.item.byteSize ?? props.item.bytesCopied)}
                 {props.item.mimeType ? ` · ${props.item.mimeType}` : ''}
@@ -664,6 +1338,25 @@ function KnowledgeDetails(props: {
             </div>
           </div>
           <div className='flex flex-wrap items-center gap-2'>
+            {props.reference !== undefined ? (
+              <>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() =>
+                    void navigator.clipboard.writeText(`[@${props.reference?.citationKey}]`)
+                  }
+                >
+                  Copy citation
+                </Button>
+                <Button
+                  size='sm'
+                  onClick={() => props.onInsertCitation(props.reference?.citationKey ?? '')}
+                >
+                  Insert in editor
+                </Button>
+              </>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant='outline' size='icon-sm' aria-label='More file actions'>

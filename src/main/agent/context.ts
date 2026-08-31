@@ -45,6 +45,12 @@ export interface ReviewResourceSnapshot {
     displayName: string
     state: 'importing' | 'stored' | 'failed' | 'cancelled'
   }[]
+  references?: readonly {
+    referenceId: string
+    citationKey: string
+    evidenceAvailable: boolean
+    knowledgeItemIds: readonly string[]
+  }[]
   manuscriptAssets: readonly { assetId: string; referencedByCurrentRevision: boolean }[]
 }
 

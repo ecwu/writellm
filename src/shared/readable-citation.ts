@@ -1,5 +1,6 @@
 import type { BlockNoteDocument, BlockNoteInlineContent } from './contracts/manuscript'
 import { blockNoteInlinePlainText as inlinePlainText } from './blocknote-inline-text'
+import { findCitationClusters } from './citation-cluster'
 
 export type ReadableCitationSyntax = 'english' | 'chinese'
 
@@ -9,7 +10,9 @@ export interface ReadableCitationMatch {
   raw: string
   syntax: ReadableCitationSyntax
   title: string
+  citationKey?: string
   pageIndex?: number
+  pageEndIndex?: number
 }
 
 export interface ManuscriptReferenceOccurrence {
@@ -20,12 +23,16 @@ export interface ManuscriptReferenceOccurrence {
   raw: string
   syntax: ReadableCitationSyntax
   title: string
+  citationKey?: string
+  clusterId?: string
   pageIndex?: number
+  pageEndIndex?: number
 }
 
 export interface ManuscriptReferenceEntry {
   number: number
   title: string
+  citationKey?: string
   count: number
   occurrences: ManuscriptReferenceOccurrence[]
 }
@@ -58,7 +65,10 @@ export function findReadableCitations(text: string): ReadableCitationMatch[] {
 }
 
 export function stripReadableCitations(text: string): string {
-  const matches = findReadableCitations(text)
+  const matches = [
+    ...findReadableCitations(text),
+    ...findCitationClusters(text).map((cluster) => ({ from: cluster.from, to: cluster.to }))
+  ].sort((left, right) => left.from - right.from)
   if (matches.length === 0) return text
   let result = ''
   let cursor = 0
@@ -87,10 +97,16 @@ export function buildReferenceIndexFromOccurrences(
 ): ManuscriptReferenceIndex {
   const byTitle = new Map<string, ManuscriptReferenceEntry>()
   for (const occurrence of occurrences) {
-    const key = normalizeCitationTitle(occurrence.title)
+    const key = occurrence.citationKey ?? normalizeCitationTitle(occurrence.title)
     let entry = byTitle.get(key)
     if (entry === undefined) {
-      entry = { number: byTitle.size + 1, title: occurrence.title, count: 0, occurrences: [] }
+      entry = {
+        number: byTitle.size + 1,
+        title: occurrence.title,
+        ...(occurrence.citationKey === undefined ? {} : { citationKey: occurrence.citationKey }),
+        count: 0,
+        occurrences: []
+      }
       byTitle.set(key, entry)
     }
     entry.occurrences.push(occurrence)
@@ -130,17 +146,50 @@ export function findDocumentCitationOccurrences(input: {
   const visit = (blocks: BlockNoteDocument): void => {
     for (const block of blocks) {
       const segments = blockTextSegments(block)
-      for (const text of segments) {
-        for (const citation of findReadableCitations(text)) {
+      for (const [segmentIndex, text] of segments.entries()) {
+        const citations: Array<{ from: number; occurrence: ManuscriptReferenceOccurrence }> =
+          findReadableCitations(text).map((citation) => ({
+            from: citation.from,
+            occurrence: {
+              sectionId: input.sectionId,
+              sectionRevisionId: input.sectionRevisionId,
+              blockId: block.id,
+              ordinal: -1,
+              raw: citation.raw,
+              syntax: citation.syntax,
+              title: citation.title,
+              ...(citation.pageIndex === undefined ? {} : { pageIndex: citation.pageIndex })
+            }
+          }))
+        for (const cluster of findCitationClusters(text)) {
+          for (const item of cluster.items) {
+            citations.push({
+              from: cluster.from,
+              occurrence: {
+                sectionId: input.sectionId,
+                sectionRevisionId: input.sectionRevisionId,
+                blockId: block.id,
+                ordinal: -1,
+                raw: cluster.raw,
+                syntax: cluster.syntax,
+                title: item.citationKey,
+                citationKey: item.citationKey,
+                clusterId: `${block.id}:${segmentIndex}:${cluster.from}`,
+                ...(item.locator === undefined
+                  ? {}
+                  : {
+                      pageIndex: item.locator.startPageIndex,
+                      pageEndIndex: item.locator.endPageIndex
+                    })
+              }
+            })
+          }
+        }
+        citations.sort((left, right) => left.from - right.from)
+        for (const citation of citations) {
           occurrences.push({
-            sectionId: input.sectionId,
-            sectionRevisionId: input.sectionRevisionId,
-            blockId: block.id,
-            ordinal: ordinal++,
-            raw: citation.raw,
-            syntax: citation.syntax,
-            title: citation.title,
-            ...(citation.pageIndex === undefined ? {} : { pageIndex: citation.pageIndex })
+            ...citation.occurrence,
+            ordinal: ordinal++
           })
         }
       }

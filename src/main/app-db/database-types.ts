@@ -117,6 +117,20 @@ export interface AgentSkillTable {
   updated_at: string
 }
 
+export interface BibliographyConnectorTable {
+  connector_id: string
+  project_id: string
+  source_path: string
+  source_basename: string
+  source_format: 'better-csl-json' | 'bibtex'
+  state: 'ready' | 'refreshing' | 'error' | 'disconnected'
+  last_snapshot_sha256: string | null
+  last_error_code: string | null
+  last_refreshed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface AppDatabaseSchema {
   app_settings: AppSettingTable
   publication_presets: PublicationPresetTable
@@ -128,6 +142,7 @@ export interface AppDatabaseSchema {
   agent_provider_preferences: AgentProviderPreferenceTable
   agent_model_preferences: AgentModelPreferenceTable
   agent_skills: AgentSkillTable
+  bibliography_connectors: BibliographyConnectorTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
 }

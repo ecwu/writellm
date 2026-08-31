@@ -28,6 +28,7 @@ import { blockNoteBlockSchema, type BlockNoteTableContent } from '../../shared/c
 import { inspectTableContent, TableTransformError } from '../../shared/manuscript-table'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ProjectDatabase } from '../project/project-database'
+import type { ReferenceLibraryService } from '../references/reference-library-service'
 import { AgentContextBuilder } from './context'
 import type { ReviewResourceSnapshot, WritingSnapshot } from './context'
 import { runDraftChecks } from './draft-checker'
@@ -83,6 +84,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       projectSessionId: string
       manuscript: ManuscriptService
       database?: ProjectDatabase
+      references?: ReferenceLibraryService
       retrieval: RetrievalService | null
       isRetrievalAvailable?: () => boolean
       log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -162,6 +164,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
           retrieval: this.#requireRetrieval(),
           projectSessionId: this.options.projectSessionId,
           args: rawArgs,
+          references: this.options.references,
           signal
         })
       }
@@ -169,6 +172,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
         return executeCitationRead({
           retrieval: this.#requireRetrieval(),
           args: rawArgs,
+          references: this.options.references,
           signal
         })
       }
@@ -417,8 +421,35 @@ function captureReviewResources(
            FROM manuscript_assets asset ORDER BY asset.asset_id`
       )
       .all(...revisionIds) as Array<{ assetId: string; referencedByCurrentRevision: number }>
+    const referenceRows = database
+      .prepare(
+        `SELECT item.reference_id AS referenceId, item.citation_key AS citationKey,
+                EXISTS (
+                  SELECT 1 FROM knowledge_reference_links link
+                  JOIN active_parse_revisions active USING (knowledge_item_id)
+                  WHERE link.reference_id = item.reference_id
+                ) AS evidenceAvailable
+           FROM reference_items item ORDER BY item.reference_id`
+      )
+      .all() as Array<{
+      referenceId: string
+      citationKey: string
+      evidenceAvailable: number
+    }>
+    const linkStatement = database
+      .prepare(
+        `SELECT knowledge_item_id FROM knowledge_reference_links
+          WHERE reference_id = ? ORDER BY knowledge_item_id`
+      )
+      .pluck()
     return {
       knowledgeItems,
+      references: referenceRows.map((row) => ({
+        referenceId: row.referenceId,
+        citationKey: row.citationKey,
+        evidenceAvailable: row.evidenceAvailable === 1,
+        knowledgeItemIds: linkStatement.all(row.referenceId) as string[]
+      })),
       manuscriptAssets: assetRows.map((row) => ({
         assetId: row.assetId,
         referencedByCurrentRevision: row.referencedByCurrentRevision === 1

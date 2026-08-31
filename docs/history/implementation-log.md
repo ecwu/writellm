@@ -1102,6 +1102,18 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-31
 
+- Completed Phase 27 Checkpoint 78 under ADR 070. Added project-authoritative stable Reference
+  metadata, one bounded user-selected Zotero/Better BibTeX connector, explicit attachment review,
+  bilingual citekey clusters and legacy conversion, evidence-bound Agent citations, background CSL
+  formatting, metadata-first Knowledge management, and deterministic CSL-JSON/BibTeX/Pandoc and
+  bibliography-aware publication paths without changing the rebuildable RAG index. The final
+  canonical suite passed 1,228 tests with three benchmark skips; all 47 fresh Electron E2E
+  scenarios passed; and the no-Team-ID macOS arm64 package gate passed 31 recovery fixtures,
+  53,318 ASAR entries, 12 packaged smoke scenarios, and 34 packaged E2E scenarios. Frozen install,
+  production/full zero-advisory audits, license/notices review, scoped Impeccable detection, and
+  diff checks passed. Windows/Linux watcher runtime behavior remains unclaimed. No signing,
+  notarization, release, commit, tag, push, hosted CI, promotion, or publication was performed.
+
 - Built, verified, committed, tagged, and pushed candidate `v0.2026.8.47` for completed Checkpoint
   76.1. The complete no-Team-ID macOS arm64 package gate verified 31 recovery fixtures from 29
   sources, Electron 43.4.1 / ABI 148 native resources, 53,288 ASAR entries, all 12 packaged smoke
@@ -1137,6 +1149,20 @@ maintenance without turning the active tracker back into a historical log.
   and were atomically pushed to GitHub; tag-only four-platform run `33341907788` started
   successfully. Developer ID signing, notarization, GitHub Release creation, promotion, and
   publication remain outside the authorization.
+
+## 2026-08-31 — Checkpoint 78 candidate v0.2026.8.48
+
+- Advanced release metadata to `0.2026.8.48` for the completed stable Reference, Zotero import,
+  bilingual citation, CSL formatting, and bibliography export work under ADR 070.
+- Rebuilt the no-Team-ID macOS arm64 App and passed the complete package gate: 31 recovery fixtures
+  from 29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34 packaged Electron
+  scenarios. The gate produced a 238,989,574-byte DMG
+  (`3cb327237e2f209129a25f8bcd9ed57946927d51b4e325cefbbe866a4c15b37a`) and a
+  237,195,396-byte ZIP
+  (`5abfc87272f80fb860f8f8b8970e0938fab58dbc8016b1c86c5dba6b41b4ebae`).
+- Committed the source snapshot, created annotated tag `v0.2026.8.48`, and atomically pushed
+  `main` plus the tag to GitHub under explicit authorization. Apple Developer ID signing,
+  notarization, GitHub Release creation, promotion, and publication were not performed.
 - Completed Agent staged-tool preflight and citation-recovery maintenance. The Worker now snapshots
   the exact model-visible tool specifications for each provider request and preserves the concrete
   policy rejection selected before dispatch. Activated tools with malformed arguments therefore

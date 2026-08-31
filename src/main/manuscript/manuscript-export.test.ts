@@ -18,6 +18,7 @@ import {
   MANUSCRIPT_DOCX_CONTENT_FILE,
   MANUSCRIPT_LATEX_CONTENT_FILE,
   MANUSCRIPT_PDF_CONTENT_FILE,
+  MANUSCRIPT_PANDOC_REFERENCES_FILE,
   MANUSCRIPT_LOSS_REPORT_FILE,
   manuscriptNativeExportSchema
 } from '../../shared/contracts/manuscript-export'
@@ -135,6 +136,19 @@ describe('whole-manuscript export', () => {
       ])
     )
     await expect(validateStagedExport(markdownDestination)).resolves.toEqual(markdown.manifest)
+
+    const pandocDestination = join(fixture.parent, 'Pandoc export')
+    const pandoc = await createManuscriptExport({
+      ...fixture.options,
+      destination: pandocDestination,
+      kind: 'pandoc',
+      barrier: recordingBarrier([])
+    })
+    expect(pandoc.manifest.bibliography?.relativePath).toBe(MANUSCRIPT_PANDOC_REFERENCES_FILE)
+    expect(
+      JSON.parse(await readFile(join(pandocDestination, MANUSCRIPT_PANDOC_REFERENCES_FILE), 'utf8'))
+    ).toEqual([])
+    await expect(validateStagedExport(pandocDestination)).resolves.toEqual(pandoc.manifest)
 
     const firstDocxDestination = join(fixture.parent, 'Word export α')
     const secondDocxDestination = join(fixture.parent, 'Word export β')

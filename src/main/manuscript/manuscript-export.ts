@@ -8,6 +8,7 @@ import {
   MANUSCRIPT_EXPORT_MANIFEST_FILE,
   MANUSCRIPT_LOSS_REPORT_FILE,
   MANUSCRIPT_MARKDOWN_CONTENT_FILE,
+  MANUSCRIPT_PANDOC_REFERENCES_FILE,
   MANUSCRIPT_DOCX_CONTENT_FILE,
   MANUSCRIPT_LATEX_CONTENT_FILE,
   MANUSCRIPT_PDF_CONTENT_FILE,
@@ -26,7 +27,7 @@ import {
   type PublicationOptions
 } from '../../shared/contracts/publication'
 import { normalizeCitationTitle } from '../../shared/readable-citation'
-import { manuscriptToMarkdown } from '../../shared/manuscript-markdown'
+import { manuscriptToMarkdown, manuscriptToPandocMarkdown } from '../../shared/manuscript-markdown'
 import type { ProjectDatabase } from '../project/project-database'
 import type { SnapshotBarrier } from '../project/project-snapshot'
 import {
@@ -118,6 +119,7 @@ export async function createManuscriptExport(options: {
     let content: { relativePath: string; sha256: string; byteSize: number }
     let lossReport: ManuscriptMarkdownLossReport | undefined
     let lossReportRecord: ManuscriptExportManifest['lossReport']
+    let bibliographyRecord: ManuscriptExportManifest['bibliography']
     let publicationSourceHash: string | undefined
 
     if (options.kind === 'native') {
@@ -129,11 +131,13 @@ export async function createManuscriptExport(options: {
       })
       const bytes = Buffer.from(`${canonicalJson(native)}\n`)
       content = await publishContent(stage, MANUSCRIPT_NATIVE_CONTENT_FILE, bytes)
-    } else if (options.kind === 'markdown') {
+    } else if (options.kind === 'markdown' || options.kind === 'pandoc') {
       const pathsByLogicalUrl = new Map(
         assets.map((asset) => [asset.logicalUrl, asset.relativePath] as const)
       )
-      const converted = manuscriptToMarkdown(assembly, (logicalUrl) => {
+      const converted = (
+        options.kind === 'pandoc' ? manuscriptToPandocMarkdown : manuscriptToMarkdown
+      )(assembly, (logicalUrl) => {
         const path = pathsByLogicalUrl.get(logicalUrl)
         if (path === undefined) throw new Error('Markdown references an uncaptured asset')
         return path
@@ -147,6 +151,25 @@ export async function createManuscriptExport(options: {
       const lossBytes = Buffer.from(`${canonicalJson(lossReport)}\n`)
       const publishedLosses = await publishContent(stage, MANUSCRIPT_LOSS_REPORT_FILE, lossBytes)
       lossReportRecord = { ...publishedLosses, lossCount: lossReport.losses.length }
+      if (options.kind === 'pandoc') {
+        const citedKeys = new Set(
+          options.manuscript.getReferenceIndex().entries.flatMap((entry) => entry.citationKey ?? [])
+        )
+        const cslItems = options.database.immediate((database) =>
+          (
+            database
+              .prepare('SELECT citation_key, csl_json FROM reference_items ORDER BY citation_key')
+              .all() as Array<{ citation_key: string; csl_json: string }>
+          )
+            .filter((row) => citedKeys.has(row.citation_key))
+            .map((row) => JSON.parse(row.csl_json) as unknown)
+        )
+        bibliographyRecord = await publishContent(
+          stage,
+          MANUSCRIPT_PANDOC_REFERENCES_FILE,
+          Buffer.from(`${JSON.stringify(cslItems, null, 2)}\n`)
+        )
+      }
     } else {
       const references = options.manuscript.getReferenceIndex()
       const availableReferenceTitles = options.database.immediate(
@@ -291,6 +314,7 @@ export async function createManuscriptExport(options: {
       assetCount: assets.length,
       assetInventorySha256,
       assets,
+      ...(bibliographyRecord === undefined ? {} : { bibliography: bibliographyRecord }),
       ...(lossReportRecord === undefined ? {} : { lossReport: lossReportRecord })
     })
     await writeAtomicFile(
@@ -392,7 +416,7 @@ export async function validateStagedExport(root: string): Promise<ManuscriptExpo
     ) {
       throw new Error('Native manuscript export content does not match its manifest')
     }
-  } else if (manifest.kind === 'markdown') {
+  } else if (manifest.kind === 'markdown' || manifest.kind === 'pandoc') {
     if (
       manifest.content.relativePath !== MANUSCRIPT_MARKDOWN_CONTENT_FILE ||
       manifest.lossReport?.relativePath !== MANUSCRIPT_LOSS_REPORT_FILE
@@ -405,6 +429,18 @@ export async function validateStagedExport(root: string): Promise<ManuscriptExpo
     )
     if (losses.losses.length !== manifest.lossReport.lossCount) {
       throw new Error('Markdown manuscript export loss count does not match')
+    }
+    if (manifest.kind === 'pandoc') {
+      if (manifest.bibliography?.relativePath !== MANUSCRIPT_PANDOC_REFERENCES_FILE) {
+        throw new Error('Pandoc manuscript export bibliography path is invalid')
+      }
+      await verifyPublishedFile(root, manifest.bibliography)
+      const bibliography = JSON.parse(
+        await readFile(join(root, manifest.bibliography.relativePath), 'utf8')
+      ) as unknown
+      if (!Array.isArray(bibliography)) {
+        throw new Error('Pandoc manuscript bibliography is invalid')
+      }
     }
   } else if (manifest.kind === 'docx') {
     if (

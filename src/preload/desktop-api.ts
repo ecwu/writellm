@@ -194,6 +194,14 @@ import type {
   NotebookChatStartTurnResult,
   NotebookSourceScope
 } from '../shared/contracts/notebook'
+import type {
+  BibliographyAttachmentPreview,
+  BibliographySnapshot,
+  FormattedReferenceSnapshot,
+  LegacyCitationConversionPlan,
+  ReferenceItem,
+  ReferenceSettings
+} from '../shared/contracts/references'
 
 export interface DesktopApi {
   app: {
@@ -531,6 +539,49 @@ export interface DesktopApi {
     ): Promise<() => void>
   }
   knowledge: {
+    listReferences(input: { projectSessionId: string; query?: string }): Promise<ReferenceItem[]>
+    bibliographySnapshot(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
+    chooseBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
+    refreshBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
+    importReferences(input: {
+      projectSessionId: string
+      connectorId: string
+      candidateIds: string[]
+      importPdf?: boolean
+    }): Promise<ReferenceItem[]>
+    previewReferenceAttachments(input: {
+      projectSessionId: string
+      connectorId: string
+      candidateIds: string[]
+    }): Promise<BibliographyAttachmentPreview>
+    confirmReferenceAttachments(input: {
+      projectSessionId: string
+      previewId: string
+      attachmentIds: string[]
+    }): Promise<{
+      references: ReferenceItem[]
+      importedKnowledgeItemIds: string[]
+    }>
+    exportBibliography(input: {
+      projectSessionId: string
+      format: 'bibtex' | 'csl-json'
+      scope: 'cited-only' | 'all-project'
+    }): Promise<{ exported: boolean; exportedCount: number; lossCount: number }>
+    planLegacyCitationConversion(input: {
+      projectSessionId: string
+    }): Promise<LegacyCitationConversionPlan>
+    applyLegacyCitationConversion(input: {
+      projectSessionId: string
+      planId: string
+    }): Promise<{ sectionsChanged: number }>
+    referenceSettings(input: { projectSessionId: string }): Promise<ReferenceSettings>
+    setReferenceSettings(input: {
+      projectSessionId: string
+      styleId: 'apa' | 'ieee' | 'vancouver'
+      locale: string
+    }): Promise<ReferenceSettings>
+    chooseCustomReferenceStyle(input: { projectSessionId: string }): Promise<ReferenceSettings>
+    formatReferences(input: { projectSessionId: string }): Promise<FormattedReferenceSnapshot>
     list(input: { projectSessionId: string }): Promise<KnowledgeItem[]>
     indexStatus(input: { projectSessionId: string }): Promise<KnowledgeIndexStatus>
     citationCoveragePage(

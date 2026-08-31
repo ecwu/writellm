@@ -574,6 +574,11 @@ export const mutationCitedSourceSchema = strictObject({
   evidenceSchemaVersion: z.literal(2).optional(),
   citationId: mutationCitationIdSchema,
   knowledgeItemId: z.uuid(),
+  referenceId: z.uuid().optional(),
+  citationKey: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+    .optional(),
   parseRevisionId: z.uuid(),
   chunkId: z.string().regex(/^chunk-[a-f0-9]{40}$/),
   sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000),

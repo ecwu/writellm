@@ -718,7 +718,17 @@ const knowledgeHitSchema = strictObject({
   knowledgeItemId: z.uuid(),
   parseRevisionId: z.uuid(),
   chunkId: z.string().regex(/^chunk-[a-f0-9]{40}$/),
-  title: z.string().min(1).max(512),
+  title: z.string().min(1).max(4096),
+  sourceTitle: z.string().min(1).max(512).optional(),
+  referenceId: z.uuid().optional(),
+  citationKey: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+    .optional(),
+  authors: z.array(z.string().max(2048)).max(500).optional(),
+  venue: z.string().max(2048).nullable().optional(),
+  year: z.number().int().min(-9999).max(9999).nullable().optional(),
+  evidenceAvailable: z.literal(true).optional(),
   snippet: z.string().max(1_200),
   page: z.number().int().nonnegative().optional(),
   headingPath: z.array(z.string().max(1_000)).max(20),
@@ -743,7 +753,17 @@ const citationResultSchema = strictObject({
   knowledgeItemId: z.uuid(),
   parseRevisionId: z.uuid(),
   chunkId: z.string().regex(/^chunk-[a-f0-9]{40}$/),
-  title: z.string().min(1).max(512),
+  title: z.string().min(1).max(4096),
+  sourceTitle: z.string().min(1).max(512).optional(),
+  referenceId: z.uuid().optional(),
+  citationKey: z
+    .string()
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u)
+    .optional(),
+  authors: z.array(z.string().max(2048)).max(500).optional(),
+  venue: z.string().max(2048).nullable().optional(),
+  year: z.number().int().min(-9999).max(9999).nullable().optional(),
+  evidenceAvailable: z.literal(true).optional(),
   text: z.string().max(65_536),
   contentHash: z.string().regex(/^[a-f0-9]{64}$/u),
   offset: z.number().int().nonnegative(),

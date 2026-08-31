@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { findCitationClusters } from '../../shared/citation-cluster'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
@@ -431,6 +432,7 @@ export class MutationProposalService {
           call.sequence
         )
         const prepared = this.#prepareProposal(database, toolName, rawArgs, citedSources)
+        assertCitationKeyProvenance(prepared.mutation, citedSources)
         validateMutationAssetReferences(database, prepared.mutation)
         const payload = persistedMutationProposalPayloadSchema.parse({
           schemaVersion: 1,
@@ -2495,6 +2497,36 @@ export class MutationProposalService {
     this.options.log.error(
       { event, err, proposalId, durationMs: Date.now() - startedAt },
       'Agent mutation decision failed'
+    )
+  }
+}
+
+function assertCitationKeyProvenance(
+  mutation: unknown,
+  citedSources: readonly MutationCitedSource[]
+): void {
+  const allowed = new Set(citedSources.flatMap((source) => source.citationKey ?? []))
+  const visible = new Set<string>()
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const cluster of findCitationClusters(value)) {
+        for (const item of cluster.items) visible.add(item.citationKey)
+      }
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (value === null || typeof value !== 'object') return
+    for (const child of Object.values(value as Record<string, unknown>)) visit(child)
+  }
+  visit(mutation)
+  const unproven = [...visible].filter((citationKey) => !allowed.has(citationKey))
+  if (unproven.length > 0) {
+    throw new AgentToolDomainError(
+      'invalid_arguments',
+      `Section change cites unexpanded or unregistered keys: ${unproven.map((key) => `@${key}`).join(', ')}`
     )
   }
 }
