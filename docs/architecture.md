@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 070
-Recorded: 2026-07-31; amended through 2026-08-31
+Status: accepted implementation baseline, amended through accepted ADR 072
+Recorded: 2026-07-31; amended through 2026-09-01
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,37 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-01 Token-pressure Agent compaction amendment
+
+ADR 072 removes durable event count and payload bytes as ordinary automatic-compaction triggers.
+Main compacts before a turn only when the final model-visible conversation exceeds its calculated
+token budget; the existing single pre-activity provider-overflow recovery remains. The 2,000-event
+source scan ceiling and 180-event tool-loop finalization remain execution safeguards, not context
+pressure signals.
+
+Payload-v3 stays a single-pass rolling conversation handoff plus recent complete raw turns. Newer
+events override the previous checkpoint, and the checkpoint is background memory rather than a
+current request: summarized next work is actionable only when the latest real user message still
+requests it. The leading slash catalog adds immediate `/compact` through the existing manual
+compaction authority, while Add context and the confirmed header action remain unchanged. See ADR
+072.
+
+## 2026-09-01 Live Agent request retry amendment
+
+ADR 071 replaces prompt-resubmission `Try again` with one user-authorized retry of the latest
+eligible provider request while the original Agent Worker and run remain live. The Worker retains
+one memory-only request-before Pi anchor, Main durably creates a new logical `model_request`, and
+the Worker restores the exact transcript/system/tool boundary before calling `Agent.continue()`.
+No retry appends another `user_message`, reopens the failed request row, or replays a completed
+tool. Automatic pre-content physical retries remain governed by ADR 012.
+
+An eligible transient failure keeps the request-scoped run and its project work slot in a bounded
+retry-waiting state. Project close, Stop, run settlement, a later request, protocol mismatch, or
+Worker/app loss revokes the anchor. Diagnostic traces never reconstruct it, and restart never
+resumes the model call. A schema-v4 `model_retry` event records safe source/target request lineage;
+partial assistant output remains interrupted evidence and is excluded from the restored Pi
+context. See ADR 071.
 
 ## 2026-08-31 Stable bibliographic reference amendment
 
@@ -1146,7 +1177,10 @@ Persist normalized project-local records for:
 
 - agent session;
 - agent run/turn;
-- ordered Agent events (`user_message`, `assistant_message`, `tool_attempted`, `tool_preflight_failed`, `tool_call`, `tool_result`, `approval_decision`, `run_interrupted`, `run_completed`, `compaction_started`, `compaction_summary`, `compaction_failed`);
+- ordered Agent events (`user_message`, `assistant_message`, `tool_attempted`,
+  `tool_preflight_failed`, `tool_call`, `tool_result`, `approval_decision`, `model_retry`,
+  `run_interrupted`, `run_completed`, `compaction_started`, `compaction_summary`,
+  `compaction_failed`);
 - model request metadata and usage;
 - mutation proposals and decisions.
 
@@ -1201,8 +1235,9 @@ A `ContextBuilder` constructs current authoritative context from:
 
 Full manuscript and knowledge access is through tools with pagination and size limits.
 
-Automatic compaction is triggered by the final conversation budget or before the 200-event/2-MiB
-runtime envelope could omit uncheckpointed history. It advances only across continuous complete
+Automatic compaction is triggered only when the continuous checkpoint-plus-tail exceeds the final
+model-visible conversation token budget. Durable event count and payload bytes are diagnostic and
+storage concerns, not semantic-compaction triggers. It advances only across continuous complete
 run/turn boundaries and persists each successful step immediately. The post-compaction history
 budget is the smaller of 32,000 tokens or half the conversation budget; at its maximum it reserves
 12,000 tokens for a bounded writing handoff and 20,000 tokens for recent complete raw turns.
@@ -1246,7 +1281,9 @@ Retrieved knowledge is untrusted content. It is clearly delimited and never allo
 
 The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
 Thinking effort, and Send are its four top-level action groups. Context scope is available through
-the shared Add/leading-slash command catalog. Writing Skills are not composer or session state and
+the Add catalog and leading-slash catalog. The slash catalog also exposes immediate manual
+`/compact` through the existing Main-owned compaction path; it creates no user message or ordinary
+Agent run. Writing Skills are not composer or session state and
 have no persistent selector, chip, badge, or attachment. At the start of a new-run message, `$`
 may autocomplete up to four canonical Skill names into ordinary editable prompt text. Main reparses
 that text; the Agent still discovers and loads guidance only through visible tool calls. Active-run
@@ -1565,6 +1602,14 @@ published. Permanent failures, cancellation, and failures after streamed text, t
 call content are not automatically retried. User stop and project close remain authoritative
 request-scoped cancellation boundaries. Tool deadlines remain independent internal tool-contract
 safeguards. See ADR 012.
+
+After an eligible transient terminal failure, one explicit user action may authorize a new logical
+model request against the exact live Worker request-before boundary. Before-content failures are
+presented as request retry; partial-stream or post-tool-result failures are presented as
+continuation. The source user message remains singular, failed partial output is not concatenated,
+queued Steer/Follow-up content is held behind the retry boundary, and completed tools are never
+replayed. No retry is available after Worker/app restart or for permanent, cancellation, context,
+setup, trace, tool, review, or uncertain-effect failures. See ADR 071.
 
 Current resource queues (rerank is request-scoped and has no durable queue; the set remains subject to provider limits and benchmarks):
 

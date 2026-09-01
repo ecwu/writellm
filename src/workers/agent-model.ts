@@ -11,6 +11,7 @@ import {
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
+  agentModelRetryAuthorizationSchema,
   agentTraceCaptureAckSchema,
   agentRuntimeCancelSchema,
   type AgentRuntimeMessage
@@ -153,6 +154,26 @@ parentPort.on('message', (event) => {
       return
     }
     active.control?.authorizeModelCall(modelCallAuthorization.data)
+    return
+  }
+  const modelRetryAuthorization = agentModelRetryAuthorizationSchema.safeParse(event.data)
+  if (modelRetryAuthorization.success) {
+    const active = activeSessionRuns.get(modelRetryAuthorization.data.requestId)
+    if (
+      active === undefined ||
+      active.projectSessionId !== modelRetryAuthorization.data.projectSessionId ||
+      active.agentSessionId !== modelRetryAuthorization.data.agentSessionId ||
+      active.agentRunId !== modelRetryAuthorization.data.agentRunId
+    ) {
+      workerLog?.(
+        'warn',
+        'agent.worker.model_retry_authorization_rejected',
+        'Rejected an Agent model retry authorization for an inactive run',
+        { requestId: modelRetryAuthorization.data.requestId }
+      )
+      return
+    }
+    active.control?.authorizeModelRetry(modelRetryAuthorization.data)
     return
   }
   const traceCaptureAck = agentTraceCaptureAckSchema.safeParse(event.data)

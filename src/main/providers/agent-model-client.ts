@@ -13,6 +13,7 @@ import {
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
+  agentModelRetryAuthorizationSchema,
   agentTraceCaptureAckSchema,
   agentRuntimeMessageSchema,
   agentSessionRunResultSchema,
@@ -237,6 +238,21 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
           parsed.agentRunId !== request.agentRunId
         ) {
           throw new Error('Agent model-call authorization does not belong to the active run')
+        }
+        this.#worker.send(parsed)
+      },
+      authorizeModelRetry: (command) => {
+        const parsed = agentModelRetryAuthorizationSchema.parse({
+          operation: 'authorize_model_retry',
+          requestId,
+          ...command
+        })
+        if (
+          parsed.projectSessionId !== request.projectSessionId ||
+          parsed.agentSessionId !== request.agentSessionId ||
+          parsed.agentRunId !== request.agentRunId
+        ) {
+          throw new Error('Agent model retry authorization does not belong to the active run')
         }
         this.#worker.send(parsed)
       }
@@ -680,6 +696,9 @@ function rejectedSessionHandle(error: Error): AgentSessionRunHandle {
       throw error
     },
     authorizeModelCall: () => {
+      throw error
+    },
+    authorizeModelRetry: () => {
       throw error
     }
   }

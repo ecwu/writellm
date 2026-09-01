@@ -313,6 +313,7 @@ export interface AgentEventTable {
   type:
     | 'user_message'
     | 'assistant_message'
+    | 'model_retry'
     | 'tool_attempted'
     | 'tool_preflight_failed'
     | 'approval_decision'

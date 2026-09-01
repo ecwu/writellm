@@ -35,12 +35,12 @@ export interface AgentPanelSelection {
 
 export type ComposerCommand = {
   id: string
-  group: 'Context'
+  group: 'Context' | 'Conversation'
   label: string
   description: string
   disabled: boolean
   selected: boolean
-  action: { kind: 'scope'; value: 'auto' | AgentStartScope }
+  action: { kind: 'scope'; value: 'auto' | AgentStartScope } | { kind: 'compact' }
 }
 
 export interface SkillMentionCandidate {
@@ -92,6 +92,26 @@ export function buildComposerCommands(input: {
       disabled: false,
       selected: input.scopePreference === 'project',
       action: { kind: 'scope', value: 'project' }
+    }
+  ]
+}
+
+export function buildSlashCommands(input: {
+  selectionAvailable: boolean
+  sectionAvailable: boolean
+  scopePreference: 'auto' | AgentStartScope
+  canCompact: boolean
+}): ComposerCommand[] {
+  return [
+    ...buildComposerCommands(input),
+    {
+      id: 'compact',
+      group: 'Conversation',
+      label: 'Compact conversation',
+      description: 'Summarize earlier conversation now',
+      disabled: !input.canCompact,
+      selected: false,
+      action: { kind: 'compact' }
     }
   ]
 }

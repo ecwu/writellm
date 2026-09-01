@@ -620,6 +620,7 @@ export class KnowledgeChatService {
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
     }
+    if (event.type !== 'assistant_message') return
     if (event.message.stopReason === 'toolUse') return
     const { responseId: _responseId, ...message } = event.message
     active.finalMessage = {

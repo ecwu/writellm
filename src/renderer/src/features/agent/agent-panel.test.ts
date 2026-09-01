@@ -10,6 +10,7 @@ import {
   agentComposerKeyAction,
   agentComposerRunningAction,
   buildComposerCommands,
+  buildSlashCommands,
   buildSkillMentionCandidates,
   effectiveScope,
   filterComposerCommands,
@@ -212,7 +213,7 @@ describe('Agent panel flow selection', () => {
     expect(agentComposerRunningAction('Queue this next.')).toBe('follow_up')
   })
 
-  it('keeps the Add and slash catalog limited to context controls', () => {
+  it('keeps the Add catalog limited to context controls', () => {
     const commands = buildComposerCommands({
       selectionAvailable: false,
       sectionAvailable: true,
@@ -223,9 +224,28 @@ describe('Agent panel flow selection', () => {
     expect(commands.find((command) => command.id === 'scope-section')?.disabled).toBe(false)
     expect(commands.find((command) => command.id === 'scope-auto')?.selected).toBe(true)
     expect(commands.some((command) => command.id.startsWith('skill-'))).toBe(false)
+    expect(commands.some((command) => command.id === 'compact')).toBe(false)
     expect(filterComposerCommands(commands, 'section').map((command) => command.id)).toEqual([
       'scope-section',
       'scope-auto'
+    ])
+  })
+
+  it('adds manual compaction only to the slash command catalog', () => {
+    const commands = buildSlashCommands({
+      selectionAvailable: false,
+      sectionAvailable: true,
+      scopePreference: 'auto',
+      canCompact: true
+    })
+
+    expect(commands.find((command) => command.id === 'compact')).toMatchObject({
+      group: 'Conversation',
+      disabled: false,
+      action: { kind: 'compact' }
+    })
+    expect(filterComposerCommands(commands, 'compact').map((command) => command.id)).toEqual([
+      'compact'
     ])
   })
 

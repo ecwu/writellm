@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
-import type { Agent } from '@earendil-works/pi-agent-core'
+import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import { Value } from 'typebox/value'
 import {
@@ -12,6 +12,7 @@ import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
   agentModelCallAuthorizationSchema,
+  agentModelRetryAuthorizationSchema,
   agentTraceCaptureAckSchema,
   agentQueueActionCommandSchema,
   agentQueueCommandSchema,
@@ -19,6 +20,8 @@ import {
   type AgentFollowUpConsumptionAuthorization,
   type AgentHistoryMessage,
   type AgentModelCallAuthorization,
+  type AgentModelRetryAuthorization,
+  type AgentModelRetryFailureStage,
   type AgentTraceCaptureAck,
   type AgentTracePurpose,
   type AgentQueueActionCommand,
@@ -28,6 +31,7 @@ import {
   type AgentSessionRunResult
 } from '../shared/contracts/agent'
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
+import type { ModelExecutionMetadata } from '../shared/contracts/model-runtime'
 import {
   AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
   createRetryingAgentProviderStream,
@@ -50,6 +54,7 @@ export interface AgentSessionRunControl {
   queueAction(command: AgentQueueActionCommand): void
   authorizeFollowUpConsumption(command: AgentFollowUpConsumptionAuthorization): void
   authorizeModelCall(command: AgentModelCallAuthorization): void
+  authorizeModelRetry(command: AgentModelRetryAuthorization): void
   acknowledgeTraceCapture(command: AgentTraceCaptureAck): void
   abort(): void
 }
@@ -97,14 +102,16 @@ export async function runAgentSession(
     interactionMode
   )
   let activeToolGroups = request.activeToolGroups ?? []
-  const contextBudget = new AgentContextBudgetController(
+  let currentRuntimeMessageBudgetTokens =
     request.runtimeMessageBudgetTokens ??
-      agentRuntimeMessageBudget({
-        maxOutputTokens: request.maxOutputTokens,
-        limits: modelLimits,
-        systemPrompt: request.systemPrompt,
-        advertisedTools: agentToolEnvelope(initialTools)
-      }),
+    agentRuntimeMessageBudget({
+      maxOutputTokens: request.maxOutputTokens,
+      limits: modelLimits,
+      systemPrompt: request.systemPrompt,
+      advertisedTools: agentToolEnvelope(initialTools)
+    })
+  const contextBudget = new AgentContextBudgetController(
+    currentRuntimeMessageBudgetTokens,
     (event) => {
       const batchHash = createHash('sha256').update(event.batchKey).digest('hex')
       if (event.type === 'active_batch_retry') {
@@ -135,6 +142,36 @@ export async function runAgentSession(
   ])
   const authorizedContinuationRequestIds = new Set<string>()
   const systemPromptByModelRequestId = new Map<string, string>()
+  const retryParentByModelRequestId = new Map<string, string>()
+  const transformedMessagesByModelRequestId = new Map<string, AgentMessage[]>()
+  const transformedMessageOverrides = new Map<string, AgentMessage[]>()
+  const retryFingerprintByModelRequestId = new Map<string, string>()
+  interface ModelRetryAnchor {
+    sourceModelRequestId: string
+    purpose: AgentTracePurpose
+    transcript: AgentMessage[]
+    transformedMessages: AgentMessage[]
+    systemPrompt: string
+    tools: AgentTool[]
+    activeToolGroups: typeof activeToolGroups
+    runtimeMessageBudgetTokens: number
+    contextFingerprint: string
+    followsToolResults: boolean
+    retryableFailure: boolean
+    publishedContent: boolean
+    reasonCode: 'network' | 'rate_limited' | 'server_error' | 'stream_ended' | null
+    httpStatus: number | undefined
+  }
+  let latestRetryAnchor: ModelRetryAnchor | null = null
+  let retryBarrierActive = false
+  let pendingModelRetry:
+    | {
+        capabilityId: string
+        sourceModelRequestId: string
+        resolve: (authorization: AgentModelRetryAuthorization) => void
+        reject: (error: Error) => void
+      }
+    | undefined
   interface QueueEntry {
     pendingMessageId: string | null
     modelRequestId: string
@@ -185,6 +222,10 @@ export async function runAgentSession(
   let lastAssistantHttpStatus: number | undefined
   let terminalTraceError: AgentTracePersistenceError | undefined
   let awaitingReview = false
+  const setRuntimeMessageBudget = (tokens: number): void => {
+    currentRuntimeMessageBudgetTokens = tokens
+    contextBudget.setTokenBudget(tokens)
+  }
   const toolBridge = new AgentToolBridge(
     toolPort,
     {
@@ -213,7 +254,22 @@ export async function runAgentSession(
     },
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
-    transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
+    transformContext: (messages) => {
+      const modelRequestId = modelRequestIds[0]
+      const override =
+        modelRequestId === undefined ? undefined : transformedMessageOverrides.get(modelRequestId)
+      if (modelRequestId !== undefined && override !== undefined) {
+        transformedMessageOverrides.delete(modelRequestId)
+        const restored = cloneAgentMessages(override)
+        transformedMessagesByModelRequestId.set(modelRequestId, cloneAgentMessages(restored))
+        return Promise.resolve(restored)
+      }
+      const transformed = contextBudget.transform(messages)
+      if (modelRequestId !== undefined) {
+        transformedMessagesByModelRequestId.set(modelRequestId, cloneAgentMessages(transformed))
+      }
+      return Promise.resolve(transformed)
+    },
     prepareNextTurnWithContext: async ({ context, toolResults }) => {
       if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
@@ -221,7 +277,7 @@ export async function runAgentSession(
         const systemPrompt = systemPromptByModelRequestId.get(queuedModelRequestId)
         if (systemPrompt !== undefined) {
           systemPromptByModelRequestId.delete(queuedModelRequestId)
-          contextBudget.setTokenBudget(
+          setRuntimeMessageBudget(
             agentRuntimeMessageBudget({
               maxOutputTokens: request.maxOutputTokens,
               limits: modelLimits,
@@ -237,7 +293,7 @@ export async function runAgentSession(
       if (toolResults.length === 0) {
         const followUp = followUpEntries[0]
         if (followUp !== undefined) {
-          contextBudget.setTokenBudget(
+          setRuntimeMessageBudget(
             agentRuntimeMessageBudget({
               maxOutputTokens: request.maxOutputTokens,
               limits: modelLimits,
@@ -263,7 +319,7 @@ export async function runAgentSession(
       modelRequestPurposes.set(authorization.modelRequestId, 'tool_continuation')
       authorizedContinuationRequestIds.add(authorization.modelRequestId)
       activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
-      contextBudget.setTokenBudget(
+      setRuntimeMessageBudget(
         authorization.runtimeMessageBudgetTokens ??
           agentRuntimeMessageBudget({
             maxOutputTokens: request.maxOutputTokens,
@@ -380,6 +436,49 @@ export async function runAgentSession(
       )
       authorizedContinuationRequestIds.delete(modelRequestId)
       const tracePurpose = modelRequestPurposes.get(modelRequestId) ?? 'tool_continuation'
+      const transcript = cloneAgentMessages(agent.state.messages)
+      const transformedMessages = transformedMessagesByModelRequestId.get(modelRequestId)
+      if (transformedMessages === undefined) {
+        throw new Error('Agent provider call has no captured transformed context')
+      }
+      const followsToolResults = transcript.at(-1)?.role === 'toolResult'
+      const contextFingerprint = createHash('sha256')
+        .update(canonicalJson(serializableHarnessContext(context)))
+        .digest('hex')
+      const expectedRetryFingerprint = retryFingerprintByModelRequestId.get(modelRequestId)
+      retryFingerprintByModelRequestId.delete(modelRequestId)
+      if (
+        expectedRetryFingerprint !== undefined &&
+        contextFingerprint !== expectedRetryFingerprint
+      ) {
+        onEvent({
+          type: 'model_call_finished',
+          modelRequestId,
+          outcome: 'failed',
+          failureCode: 'retry_context_mismatch',
+          retryable: false,
+          metadata: emptyModelExecutionMetadata(activeModel.id)
+        })
+        throw new AgentRetryContextMismatchError()
+      }
+      latestRetryAnchor = {
+        sourceModelRequestId: modelRequestId,
+        purpose: tracePurpose,
+        transcript,
+        transformedMessages: cloneAgentMessages(transformedMessages),
+        systemPrompt: context.systemPrompt,
+        tools: agent.state.tools.filter((tool) =>
+          context.tools.some((advertised) => advertised.name === tool.name)
+        ),
+        activeToolGroups: [...activeToolGroups],
+        runtimeMessageBudgetTokens: currentRuntimeMessageBudgetTokens,
+        contextFingerprint,
+        followsToolResults,
+        retryableFailure: false,
+        publishedContent: false,
+        reasonCode: null,
+        httpStatus: undefined
+      }
       let lastResponseStatus: number | undefined
       let retryAfterMs: number | undefined
       let responseHeaders: Record<string, string> = {}
@@ -423,7 +522,8 @@ export async function runAgentSession(
                         value: serializableHarnessContext(context)
                       },
                       { kind: 'provider_request', value: jsonValue(providerRequest) }
-                    ]
+                    ],
+                    retryParentByModelRequestId.get(modelRequestId)
                   )
                 } catch (err) {
                   if (err instanceof AgentTracePersistenceError) terminalTraceError = err
@@ -463,6 +563,12 @@ export async function runAgentSession(
         lastAssistant = message
         lastAssistantRetriesExhausted = retrying.state.exhausted
         lastAssistantHttpStatus = lastResponseStatus
+        if (latestRetryAnchor?.sourceModelRequestId === modelRequestId) {
+          latestRetryAnchor.retryableFailure = retrying.state.retryableFailure
+          latestRetryAnchor.publishedContent = retrying.state.publishedContent
+          latestRetryAnchor.reasonCode = retrying.state.lastReasonCode
+          latestRetryAnchor.httpStatus = lastResponseStatus
+        }
         for (const part of message.content) {
           if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
         }
@@ -486,7 +592,8 @@ export async function runAgentSession(
                     totalDurationMs: Math.max(0, Date.now() - callStartedAt)
                   }
                 }
-              ]
+              ],
+              retryParentByModelRequestId.get(modelRequestId)
             )
           } catch (err) {
             if (err instanceof AgentTracePersistenceError) terminalTraceError = err
@@ -532,11 +639,83 @@ export async function runAgentSession(
   })
 
   const loadFollowUpHead = (): void => {
-    if (loadedFollowUpId !== null) return
+    if (retryBarrierActive || loadedFollowUpId !== null) return
     const head = followUpEntries[0]
     if (head === undefined || head.pendingMessageId === null) return
     loadedFollowUpId = head.pendingMessageId
     agent.followUp(head.message)
+  }
+
+  const waitForModelRetryAuthorization = (
+    anchor: ModelRetryAnchor
+  ): Promise<AgentModelRetryAuthorization> => {
+    const capabilityId = randomUUID()
+    const failureStage: AgentModelRetryFailureStage = anchor.followsToolResults
+      ? 'after_tool_results'
+      : anchor.publishedContent
+        ? 'after_content'
+        : 'before_content'
+    retryBarrierActive = true
+    agent.clearAllQueues()
+    loadedFollowUpId = null
+    return new Promise((resolve, reject) => {
+      pendingModelRetry = {
+        capabilityId,
+        sourceModelRequestId: anchor.sourceModelRequestId,
+        resolve,
+        reject
+      }
+      try {
+        onEvent({
+          type: 'model_retry_available',
+          capabilityId,
+          modelRequestId: anchor.sourceModelRequestId,
+          reasonCode: anchor.reasonCode ?? 'network',
+          failureStage,
+          ...(anchor.httpStatus === undefined ? {} : { httpStatus: anchor.httpStatus }),
+          contextFingerprint: anchor.contextFingerprint,
+          label: anchor.publishedContent || anchor.followsToolResults ? 'continue' : 'retry_request'
+        })
+      } catch (err) {
+        pendingModelRetry = undefined
+        reject(new Error('Agent model retry capability could not be published', { cause: err }))
+      }
+    })
+  }
+
+  const restoreModelRetryAnchor = (
+    anchor: ModelRetryAnchor,
+    authorization: AgentModelRetryAuthorization
+  ): void => {
+    agent.state.messages = cloneAgentMessages(anchor.transcript)
+    agent.state.systemPrompt = anchor.systemPrompt
+    agent.state.tools = [...anchor.tools]
+    activeToolGroups = [...anchor.activeToolGroups]
+    setRuntimeMessageBudget(anchor.runtimeMessageBudgetTokens)
+    modelRequestIds.unshift(authorization.targetModelRequestId)
+    modelRequestPurposes.set(authorization.targetModelRequestId, anchor.purpose)
+    retryParentByModelRequestId.set(
+      authorization.targetModelRequestId,
+      authorization.sourceModelRequestId
+    )
+    transformedMessageOverrides.set(
+      authorization.targetModelRequestId,
+      cloneAgentMessages(anchor.transformedMessages)
+    )
+    retryFingerprintByModelRequestId.set(
+      authorization.targetModelRequestId,
+      anchor.contextFingerprint
+    )
+    lastAssistant = undefined
+    lastAssistantRetriesExhausted = false
+    lastAssistantHttpStatus = undefined
+  }
+
+  const releaseRetryQueueBarrier = (): void => {
+    if (!retryBarrierActive) return
+    retryBarrierActive = false
+    for (const entry of steeringEntries) agent.steer(entry.message)
+    loadFollowUpHead()
   }
 
   agent.subscribe(async (event) => {
@@ -592,7 +771,8 @@ export async function runAgentSession(
               value: jsonValue({ toolName: event.toolName, args: event.args }),
               metadata: { toolCallId: event.toolCallId }
             }
-          ]
+          ],
+          retryParentByModelRequestId.get(modelRequestId)
         )
       }
       onEvent({
@@ -694,7 +874,7 @@ export async function runAgentSession(
         modelRequestIds.push(parsed.modelRequestId)
         modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        agent.steer(message)
+        if (!retryBarrierActive) agent.steer(message)
       } else {
         followUpEntries.push({
           pendingMessageId: parsed.pendingMessageId,
@@ -735,7 +915,7 @@ export async function runAgentSession(
         modelRequestIds.push(parsed.modelRequestId)
         modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        agent.steer(entry.message)
+        if (!retryBarrierActive) agent.steer(entry.message)
         onEvent({
           type: 'queue_action_completed',
           actionId: parsed.actionId,
@@ -758,7 +938,7 @@ export async function runAgentSession(
       }
       const [entry] = followUpEntries.splice(index, 1)
       if (entry === undefined) throw new Error('Agent Follow-up queue removal failed')
-      if (index === 0 && loadedFollowUpId === parsed.pendingMessageId) {
+      if (!retryBarrierActive && index === 0 && loadedFollowUpId === parsed.pendingMessageId) {
         agent.clearFollowUpQueue()
         loadedFollowUpId = null
         loadFollowUpHead()
@@ -793,6 +973,19 @@ export async function runAgentSession(
       pendingModelCallAuthorizations.delete(parsed.continuationId)
       pending.resolve(parsed)
     },
+    authorizeModelRetry(command) {
+      const parsed = agentModelRetryAuthorizationSchema.parse(command)
+      if (
+        pendingModelRetry === undefined ||
+        pendingModelRetry.capabilityId !== parsed.capabilityId ||
+        pendingModelRetry.sourceModelRequestId !== parsed.sourceModelRequestId
+      ) {
+        throw new Error('Agent model retry authorization is stale')
+      }
+      const pending = pendingModelRetry
+      pendingModelRetry = undefined
+      pending.resolve(parsed)
+    },
     acknowledgeTraceCapture(command) {
       const parsed = agentTraceCaptureAckSchema.parse(command)
       const pending = pendingTraceCaptures.get(parsed.captureId)
@@ -801,25 +994,63 @@ export async function runAgentSession(
       if (parsed.ok) pending.resolve()
       else pending.reject(new AgentTracePersistenceError(parsed.errorCode))
     },
-    abort: () => agent.abort()
+    abort() {
+      agent.abort()
+      pendingModelRetry?.reject(abortError('Agent request retry was cancelled'))
+      pendingModelRetry = undefined
+    }
   })
 
-  const abortExternal = (): void => agent.abort()
+  const abortExternal = (): void => {
+    agent.abort()
+    pendingModelRetry?.reject(abortError('Agent request retry was cancelled'))
+    pendingModelRetry = undefined
+  }
   if (externalSignal?.aborted) agent.abort()
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
   let runError: unknown
   try {
     await agent.prompt(request.prompt)
     await agent.waitForIdle()
-    const promptContextError = contextBudget.terminalError()
-    if (promptContextError !== null) throw promptContextError
-    await recoverAuthorizedContinuation({
-      awaitingReview,
-      pendingAuthorizationCount: () => authorizedContinuationRequestIds.size,
-      continueAgent: () => agent.continue(),
-      waitForIdle: () => agent.waitForIdle(),
-      log
-    })
+    while (true) {
+      await Promise.allSettled(callCompletions)
+      const promptContextError = contextBudget.terminalError()
+      if (promptContextError !== null) throw promptContextError
+      const anchor = latestRetryAnchor
+      if (
+        lastAssistant?.stopReason === 'error' &&
+        anchor !== null &&
+        anchor.retryableFailure &&
+        anchor.reasonCode !== null &&
+        toolProfile === 'writing' &&
+        terminalTraceError === undefined &&
+        !awaitingReview &&
+        agent.state.pendingToolCalls.size === 0
+      ) {
+        const authorization = await waitForModelRetryAuthorization(anchor)
+        restoreModelRetryAnchor(anchor, authorization)
+        await agent.continue()
+        await agent.waitForIdle()
+        continue
+      }
+      if (lastAssistant?.stopReason === 'error' || lastAssistant?.stopReason === 'aborted') break
+      await recoverAuthorizedContinuation({
+        awaitingReview,
+        pendingAuthorizationCount: () => authorizedContinuationRequestIds.size,
+        continueAgent: () => agent.continue(),
+        waitForIdle: () => agent.waitForIdle(),
+        log
+      })
+      if (retryBarrierActive) {
+        releaseRetryQueueBarrier()
+        if (agent.hasQueuedMessages()) {
+          await agent.continue()
+          await agent.waitForIdle()
+          continue
+        }
+      }
+      break
+    }
   } catch (err) {
     runError = err
   } finally {
@@ -836,6 +1067,8 @@ export async function runAgentSession(
       pending.reject(abortError('Agent run ended before trace persistence acknowledgement'))
     }
     pendingTraceCaptures.clear()
+    pendingModelRetry?.reject(abortError('Agent run ended before model retry authorization'))
+    pendingModelRetry = undefined
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
@@ -969,6 +1202,15 @@ class AgentProviderRetriesExhaustedError extends Error {
   }
 }
 
+class AgentRetryContextMismatchError extends Error {
+  readonly code = 'retry_context_mismatch'
+
+  constructor() {
+    super('Agent model retry context no longer matches the captured request')
+    this.name = 'AgentRetryContextMismatchError'
+  }
+}
+
 export class AgentContinuationLostError extends Error {
   readonly code = 'continuation_lost'
 
@@ -1099,7 +1341,8 @@ function requestTraceCapture(
   purpose: AgentTracePurpose,
   apiId: Api,
   physicalAttempt: number,
-  documents: Extract<AgentRuntimeEvent, { type: 'model_trace_capture_requested' }>['documents']
+  documents: Extract<AgentRuntimeEvent, { type: 'model_trace_capture_requested' }>['documents'],
+  parentModelRequestId?: string
 ): Promise<void> {
   const captureId = randomUUID()
   return new Promise((resolve, reject) => {
@@ -1109,6 +1352,7 @@ function requestTraceCapture(
         type: 'model_trace_capture_requested',
         captureId,
         modelRequestId,
+        ...(parentModelRequestId === undefined ? {} : { parentModelRequestId }),
         purpose,
         apiId,
         physicalAttempt,
@@ -1141,6 +1385,36 @@ function jsonValue(value: unknown): null | boolean | number | string | unknown[]
   const serialized = JSON.stringify(value)
   if (serialized === undefined) throw new AgentTracePersistenceError('trace_capture_failed')
   return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
+}
+
+function cloneAgentMessages(messages: AgentMessage[]): AgentMessage[] {
+  return structuredClone(messages)
+}
+
+function emptyModelExecutionMetadata(providerModelId: string): ModelExecutionMetadata {
+  return {
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      estimatedCostUsdMicros: null
+    },
+    responseIds: [],
+    retryCount: 0,
+    providerModelId,
+    contextTokensUsed: 0,
+    contextTokensEstimated: true
+  }
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+    .join(',')}}`
 }
 
 function safeProviderResponseHeaders(

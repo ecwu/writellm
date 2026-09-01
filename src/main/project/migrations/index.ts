@@ -39,6 +39,7 @@ import { migration0038 } from './0038-native-block-math-diagram-schema-v5'
 import { migration0039 } from './0039-agent-interaction-modes'
 import { migration0040 } from './0040-agent-request-traces'
 import { migration0041 } from './0041-reference-authority'
+import { migration0042 } from './0042-agent-request-retry'
 
 export const projectMigrations = [
   migration0001,
@@ -81,5 +82,6 @@ export const projectMigrations = [
   migration0038,
   migration0039,
   migration0040,
-  migration0041
+  migration0041,
+  migration0042
 ] as const

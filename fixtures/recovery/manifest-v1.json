@@ -176,9 +176,10 @@
       "id": "agent-interruption-messages-and-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.messages.test.ts",
-      "sourceSha256": "af85dff6c4251186bffbcacaec3ad6d7629917feef51282c22b62b913a4cd144",
+      "sourceSha256": "adc302998d0378185f7ced372b608a478b5e7ccd2926d39913bee1685b324086",
       "tests": [
         "fails closed without publishing an answer when requested Skills were not loaded",
+        "authorizes a live request retry without persisting the user prompt twice",
         "retries one provider overflow only before activity and records a fresh model request",
         "does not replay a provider overflow after assistant activity",
         "records an exhausted active read batch without replaying prior tool activity",

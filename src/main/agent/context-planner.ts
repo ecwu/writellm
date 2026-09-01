@@ -2,8 +2,6 @@ import type { AgentHistoryMessage, AgentModelLimits } from '../../shared/contrac
 import { AGENT_MODEL_VISIBLE_TOOL_ENVELOPE } from '../../shared/agent-tool-specs'
 import { agentOutputLimit, estimateAgentTokens } from '../../shared/agent-context-budget'
 
-export const AGENT_RUNTIME_HISTORY_EVENT_LIMIT = 200
-export const AGENT_RUNTIME_HISTORY_BYTE_LIMIT = 2 * 1024 * 1024
 export const AGENT_POST_COMPACTION_MAX_TOKENS = 32_000
 export const AGENT_CHECKPOINT_MAX_TOKENS = 12_000
 
@@ -19,8 +17,6 @@ export interface AgentContextPlanInput {
   readonly systemPrompt: string
   readonly history: readonly AgentHistoryMessage[]
   readonly currentRequest: string
-  readonly uncheckpointedEventCount: number
-  readonly uncheckpointedPayloadBytes: number
   readonly advertisedTools?: unknown
 }
 
@@ -37,7 +33,7 @@ export interface AgentContextPlan {
   readonly checkpointBudgetTokens: number
   readonly recentTailBudgetTokens: number
   readonly requiresCompaction: boolean
-  readonly reasons: readonly ('token_budget' | 'runtime_envelope')[]
+  readonly reasons: readonly 'token_budget'[]
 }
 
 export class AgentCurrentTurnTooLargeError extends Error {
@@ -84,14 +80,8 @@ export class AgentContextPlanner {
       ...compactionBudgets
     }
     if (conversationBudgetTokens <= 0) throw new AgentCurrentTurnTooLargeError(base)
-    const reasons: Array<'token_budget' | 'runtime_envelope'> = []
+    const reasons: Array<'token_budget'> = []
     if (historyTokens > conversationBudgetTokens) reasons.push('token_budget')
-    if (
-      input.uncheckpointedEventCount > AGENT_RUNTIME_HISTORY_EVENT_LIMIT ||
-      input.uncheckpointedPayloadBytes > AGENT_RUNTIME_HISTORY_BYTE_LIMIT
-    ) {
-      reasons.push('runtime_envelope')
-    }
     return { ...base, requiresCompaction: reasons.length > 0, reasons }
   }
 }

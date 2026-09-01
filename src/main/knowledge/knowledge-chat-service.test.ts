@@ -228,7 +228,8 @@ class NotebookRuntime implements AgentSessionRuntime {
         authorize = null
         if (resolve === null) throw new Error('Unexpected Notebook continuation authorization')
         resolve(command.modelRequestId)
-      }
+      },
+      authorizeModelRetry: () => undefined
     }
   }
 }

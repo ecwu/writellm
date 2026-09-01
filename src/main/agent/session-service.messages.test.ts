@@ -484,6 +484,96 @@ describe('AgentSessionService: messages', () => {
     database.close()
   })
 
+  it('authorizes a live request retry without persisting the user prompt twice', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'A very long prompt that must remain singular.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    const sourceModelRequestId = active.input.modelRequestId
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: sourceModelRequestId,
+      outcome: 'failed',
+      failureCode: 'provider_retries_exhausted',
+      retryable: true,
+      httpStatus: 503,
+      metadata: { ...metadata('response-failed'), retryCount: 4 }
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: sourceModelRequestId,
+      message: {
+        ...assistant('partial answer', 'response-failed'),
+        stopReason: 'error',
+        interrupted: true
+      }
+    })
+    const capabilityId = '019c6a5c-8d34-7a8e-a602-3d37a52dc4f0'
+    await active.emit({
+      type: 'model_retry_available',
+      capabilityId,
+      modelRequestId: sourceModelRequestId,
+      reasonCode: 'server_error',
+      failureStage: 'after_content',
+      httpStatus: 503,
+      contextFingerprint: 'a'.repeat(64),
+      label: 'continue'
+    })
+
+    expect(service.projectActivitySnapshot().runs[0]).toMatchObject({
+      phase: 'retry_available',
+      retry: { capabilityId, sourceModelRequestId, label: 'continue' }
+    })
+    await expect(service.steer(started.agentRunId, 'Do not inject this yet.')).rejects.toThrow()
+    await expect(
+      service.followUp(started.agentRunId, 'Queue this for later.')
+    ).resolves.toBeUndefined()
+    expect(active.commands.at(-1)?.operation).toBe('follow_up')
+    const pendingMessageId =
+      service.projectActivitySnapshot().runs[0]?.pendingMessages[0]?.pendingMessageId
+    if (pendingMessageId === undefined) throw new Error('Follow-up was not queued')
+    await service.retryRequest(started.agentRunId, capabilityId)
+    await expect(service.retryRequest(started.agentRunId, capabilityId)).rejects.toThrow(
+      'no longer available'
+    )
+    await service.deletePendingFollowUp(started.agentRunId, pendingMessageId)
+    expect(active.retryAuthorizations).toHaveLength(1)
+    const targetModelRequestId = active.retryAuthorizations[0]?.targetModelRequestId
+    if (targetModelRequestId === undefined) throw new Error('Retry was not authorized')
+    expect(
+      service.listEvents(session.agentSessionId).filter((event) => event.type === 'user_message')
+    ).toHaveLength(1)
+    expect(service.listEvents(session.agentSessionId)).toContainEqual(
+      expect.objectContaining({
+        type: 'model_retry',
+        modelRequestId: targetModelRequestId,
+        payload: expect.objectContaining({ sourceModelRequestId, targetModelRequestId })
+      })
+    )
+
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: targetModelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('response-recovered')
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: targetModelRequestId,
+      message: assistant('recovered answer', 'response-recovered')
+    })
+    active.resolve()
+    await started.completion
+    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({ status: 'completed' })
+    database.close()
+  })
+
   it('retries one provider overflow only before activity and records a fresh model request', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -559,6 +649,43 @@ describe('AgentSessionService: messages', () => {
     expect(runRequests.filter((request) => request.status === 'aborted')).toHaveLength(2)
     database.close()
   })
+
+  it('does not auto-compact a low-token conversation after 10,000 tool lifecycle events', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const summarizeHistory = vi.fn()
+    const service = createService(database, runtime, undefined, { summarizeHistory })
+    const session = service.createSession('Tool-heavy conversation')
+    database.immediate((native) => {
+      const insert = native.prepare(
+        `INSERT INTO agent_events (
+           agent_event_id, agent_session_id, sequence, type, payload_json, created_at
+         ) VALUES (?, ?, ?, 'tool_attempted', '{}', ?)`
+      )
+      native.transaction(() => {
+        for (let sequence = 1; sequence <= 10_000; sequence += 1) {
+          insert.run(
+            crypto.randomUUID(),
+            session.agentSessionId,
+            sequence,
+            '2026-09-01T00:00:00.000Z'
+          )
+        }
+      })()
+    })
+
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Answer this short request without compacting.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    expect(runtime.active(started.agentRunId).input.history).toEqual([])
+    runtime.active(started.agentRunId).resolve()
+    await started.completion
+    database.close()
+  }, 60_000)
 
   it('does not replay a provider overflow after assistant activity', async () => {
     const database = await createDatabase()

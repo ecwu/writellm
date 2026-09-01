@@ -63,7 +63,8 @@ describe('createRetryingAgentProviderStream', () => {
     expect(retrying.state).toMatchObject({
       retryCount: 0,
       exhausted: false,
-      retryableFailure: true
+      retryableFailure: true,
+      publishedContent: true
     })
   })
 

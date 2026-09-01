@@ -17,6 +17,7 @@ import {
   CircleStop,
   FilePenLine,
   FolderOpen,
+  ListCollapse,
   MoreHorizontal,
   RotateCcw,
   TextCursorInput,
@@ -269,7 +270,7 @@ export function ComposerCommandMenu(props: {
   onSelectedIdChange?(id: string): void
   onSelect(command: ComposerCommand): void
 }): React.JSX.Element {
-  const groups = ['Context'] as const
+  const groups = ['Context', 'Conversation'] as const
   return (
     <Command value={props.selectedId} onValueChange={props.onSelectedIdChange}>
       <CommandList>
@@ -306,6 +307,7 @@ export function ComposerCommandMenu(props: {
 function ComposerCommandIcon(props: { command: ComposerCommand }): React.JSX.Element {
   if (props.command.selected) return <Check />
   const action = props.command.action
+  if (action.kind === 'compact') return <ListCollapse />
   if (action.value === 'selection') return <TextCursorInput />
   if (action.value === 'section') return <FilePenLine />
   if (action.value === 'project') return <FolderOpen />

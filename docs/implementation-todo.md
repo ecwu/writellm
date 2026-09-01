@@ -1,7 +1,9 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 28 Checkpoint 79 is complete under ADR 070; Checkpoint 77 remains
-independently paused. Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
+Status: Phase 30 Checkpoint 81 is complete under accepted ADR 072. Phase 29 Checkpoint 80 is
+complete under ADR 071. Phase 28 Checkpoint 79 is
+complete under ADR 070; Checkpoint 77 remains independently paused.
+Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
 Recorded: 2026-09-01
@@ -18,6 +20,25 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 App containing the
+  completed Checkpoint 80 and Checkpoint 81 Agent changes.
+
+- [x] Checkpoint 81: make automatic Agent compaction token-pressure-only, strengthen the rolling
+  handoff's latest-request precedence, and add immediate slash-only `/compact`. Completed and
+  verified under ADR 072. Authoritative detail:
+  [`implementation-todo/phase-30.md`](implementation-todo/phase-30.md).
+
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 App containing the
+  completed Checkpoint 80 live Agent request-retry implementation.
+
+- [x] Checkpoint 80: replace prompt-resubmission `Try again` with a live, capability-bound retry of
+  the last eligible Agent provider request, without duplicate user messages or tool replay.
+  Completed and verified under accepted ADR 071. Authoritative detail:
+  [`implementation-todo/phase-29.md`](implementation-todo/phase-29.md).
+
+- [x] Maintenance: present non-blocking Agent tool preflight failures as compact expandable
+  timeline rows while keeping the bounded diagnostic available on demand.
 
 - [x] Candidate `v0.2026.8.49`: verify and package the completed Reference citekey migration as a
   no-Team-ID macOS arm64 trial App, then commit, create an annotated tag, and atomically push
@@ -155,6 +176,25 @@ Checkpoint 76–77 detail: [`implementation-todo/phase-25.md`](implementation-to
 Checkpoint 76.1 detail: [`implementation-todo/phase-26.md`](implementation-todo/phase-26.md).
 
 Checkpoint 78 detail: [`implementation-todo/phase-27.md`](implementation-todo/phase-27.md).
+
+Checkpoint 80 detail: [`implementation-todo/phase-29.md`](implementation-todo/phase-29.md).
+
+Checkpoint 81 detail: [`implementation-todo/phase-30.md`](implementation-todo/phase-30.md).
+
+## Phase 30: Token-Pressure Agent Context Compaction
+
+- [x] Checkpoint 81: token-only automatic trigger, rolling latest-request precedence, and immediate
+  slash-only manual compaction; completed and verified under ADR 072.
+
+Authoritative detail: [`implementation-todo/phase-30.md`](implementation-todo/phase-30.md).
+
+## Phase 29: Live Agent Request Retry And Continuation
+
+- [x] Checkpoint 80: Pi state-restore plus `continue()` protocol, Main-authorized logical
+  request retry, schema-v4 lineage event, retry-waiting UI, and no-replay verification; explicit
+  request retry is complete and verified under ADR 071.
+
+Authoritative detail: [`implementation-todo/phase-29.md`](implementation-todo/phase-29.md).
 
 ## Phase 27: Stable References, Zotero Import, And Citation Workflow
 
@@ -363,4 +403,6 @@ Exact verification and artifact boundaries are recorded in
 - [Phase 21](implementation-todo/phase-21.md)
 - [Phase 22](implementation-todo/phase-22.md)
 - [Phase 28](implementation-todo/phase-28.md)
+- [Phase 29](implementation-todo/phase-29.md)
+- [Phase 30](implementation-todo/phase-30.md)
 - [Implementation history](history/implementation-log.md)

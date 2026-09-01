@@ -1,7 +1,9 @@
 # WriteLLM Current Plan
 
-Status: Phase 28 Checkpoint 79 is complete under ADR 070.
-Checkpoint 77 remains independently paused; CP78 is authorized to run ahead. Immutable tag-only candidates
+Status: Phase 30 Checkpoint 81 is complete under accepted ADR 072. Phase 29 Checkpoint 80 is
+complete under ADR 071. Phase 28 Checkpoint 79 is
+complete under ADR 070. Checkpoint 77 remains independently paused; CP78 is
+authorized to run ahead. Immutable tag-only candidates
 `.28`–`.35` exposed portable fixture, hosted timing,
 recovery-manifest, CRLF, Windows Renderer/selection, and Linux credential-process boundaries.
 Candidate `.37` proved both independent macOS pipelines through artifact upload, while Windows and
@@ -27,6 +29,42 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- The completed Checkpoint 81 source has passed the complete no-Team-ID macOS arm64 package gate.
+  It verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime
+  smoke scenarios, and all 34 packaged Electron scenarios without failures, flakes, or skips. The
+  gate produced an unpacked App, DMG, and ZIP under `dist/macos-arm64`. No Developer ID signing,
+  notarization, tag, release, promotion, or publication action was performed.
+
+- Checkpoint 81 is complete under accepted ADR 072. Automatic Agent compaction
+  now depends only on final model-visible token pressure, rolling checkpoints explicitly defer to
+  the latest real user request, and `/compact` invokes the existing manual path immediately. No
+  migration, new IPC, provider fork, second summary call, or persistent memory authority is added.
+  Focused coverage passed 59 tests, `check:fast` and the complete Electron/build gate passed, and
+  all 49 fresh Electron E2E scenarios passed without failures, flakes, or skips. Detailed evidence
+  lives in [`implementation-todo/phase-30.md`](implementation-todo/phase-30.md).
+
+- The completed Checkpoint 80 source has passed the complete no-Team-ID macOS arm64 package gate.
+  It verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime
+  smoke scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. The
+  gate produced an unpacked App, DMG, and ZIP under `dist/macos-arm64`. No Developer ID signing,
+  notarization, release, commit, tag, push, promotion, or publication action was performed.
+
+- Checkpoint 80 is complete under accepted ADR 071. A live Worker restores the exact
+  request-before Pi state and calls `continue()` without adding another user message. Each click
+  creates one immutable logical `model_request`, records schema-v4 retry lineage, preserves failed
+  partial output as separate evidence, and never replays completed tools. The complete Electron
+  gate passed 1,240 tests with three benchmark skips, the production build succeeded, and all 49
+  fresh Electron E2E scenarios passed without flakes, skips, or failures. Release, commit, tag,
+  push, signing, and publication remain unauthorized.
+  Detailed scope and acceptance gates live in
+  [`implementation-todo/phase-29.md`](implementation-todo/phase-29.md).
+
+- Agent non-blocking tool-failure presentation maintenance is complete. Pre-dispatch failures now
+  remain a quiet one-line timeline item by default, while expanding the item reveals the bounded
+  tool, code, message, validation paths, and duration. Terminal run failures remain visible as
+  recovery state. Focused Renderer tests and `check:fast` passed; no protocol, persistence, or
+  authority boundary changed.
 
 - Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the
   completed Reference citekey migration maintenance. The no-Team-ID macOS arm64 gate verified 31
@@ -551,6 +589,20 @@ or failed scenario. It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from t
 notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
+
+Checkpoint 81 is complete under ADR 072. It removed event/byte auto-compaction thresholds,
+strengthened the existing payload-v3 rolling handoff prompt and wrapper, and added the slash-only
+immediate manual compaction action. The existing source scan ceiling, tool-loop finalization,
+provider-overflow no-replay rule, IPC/preload boundary, and raw-event authority remain unchanged.
+Dependencies, migrations, release/package work, commits, tags, pushes, signing, notarization,
+promotion, and publication remain outside authorization.
+
+Checkpoint 80 is authorized under ADR 071. It may add the live Worker retry anchor, capability-
+bound Main/Worker protocol, schema-v4 `model_retry` lineage, request-scoped retry-waiting activity,
+dedicated IPC/preload method, truthful Renderer actions, migration/recovery coverage, and the
+approved non-release verification gates. Durable Agent jobs, restart recovery, token-offset stream
+resume, provider-specific SDK paths, Pi forks, tool replay, package/release work, commits, tags,
+pushes, signing, notarization, promotion, and publication remain outside this authorization.
 
 Checkpoints 78.0–78.3 are complete under ADR 070. The delivered work adds
 stable Reference metadata, one user-selected Zotero/Better BibTeX export connector, bilingual

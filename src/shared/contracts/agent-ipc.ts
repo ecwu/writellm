@@ -7,6 +7,9 @@ import {
   agentEditorContextSchema,
   agentEventIdSchema,
   agentEventTypeSchema,
+  agentModelRetryCapabilityIdSchema,
+  agentModelRetryFailureStageSchema,
+  agentModelRetryReasonSchema,
   agentRunIdSchema,
   agentRunStatusSchema,
   agentPendingMessageIdSchema,
@@ -326,6 +329,12 @@ export const agentRunInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentRunId: agentRunIdSchema
 })
+export const agentRetryRequestInputSchema = strictObject({
+  projectSessionId: projectSessionIdSchema,
+  agentRunId: agentRunIdSchema,
+  capabilityId: agentModelRetryCapabilityIdSchema
+})
+export const agentRetryRequestResultSchema = strictObject({})
 export const agentAnswerUserQuestionInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
@@ -392,10 +401,19 @@ export const agentPendingQuestionSchema = strictObject({
 export const agentLiveRunSnapshotSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   agentRunId: agentRunIdSchema,
-  phase: z.enum(['routing', 'compacting', 'running', 'awaiting_input']),
+  phase: z.enum(['routing', 'compacting', 'running', 'awaiting_input', 'retry_available']),
   partialText: z.string(),
   pendingMessages: agentPendingMessagesSchema.default([]),
   pendingQuestion: agentPendingQuestionSchema.nullable().default(null),
+  retry: strictObject({
+    capabilityId: agentModelRetryCapabilityIdSchema,
+    sourceModelRequestId: z.uuid(),
+    reasonCode: agentModelRetryReasonSchema,
+    failureStage: agentModelRetryFailureStageSchema,
+    label: z.enum(['retry_request', 'continue'])
+  })
+    .nullable()
+    .default(null),
   startedAt: z.iso.datetime()
 }).superRefine((snapshot, context) => {
   if (new TextEncoder().encode(snapshot.partialText).byteLength > AGENT_LIVE_PARTIAL_MAX_BYTES) {
@@ -410,6 +428,13 @@ export const agentLiveRunSnapshotSchema = strictObject({
       code: 'custom',
       path: ['pendingQuestion'],
       message: 'Awaiting-input activity must carry exactly one pending question'
+    })
+  }
+  if ((snapshot.phase === 'retry_available') !== (snapshot.retry !== null)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['retry'],
+      message: 'Retry-available activity must carry exactly one retry capability'
     })
   }
 })
@@ -504,3 +529,4 @@ export type AgentPendingMessage = z.infer<typeof agentPendingMessageSchema>
 export type AgentPendingQuestion = z.infer<typeof agentPendingQuestionSchema>
 export type AgentLiveCompactionSnapshot = z.infer<typeof agentLiveCompactionSnapshotSchema>
 export type AgentProjectActivitySnapshot = z.infer<typeof agentProjectActivitySnapshotSchema>
+export type AgentRetryRequestInput = z.infer<typeof agentRetryRequestInputSchema>

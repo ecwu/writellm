@@ -180,29 +180,6 @@ export function latestSuccessfulCheckpoint(
   return null
 }
 
-export function uncheckpointedEnvelope(
-  database: ProjectDatabase,
-  agentSessionId: string,
-  coveredThroughSequence: number,
-  excludeRunId?: string
-): { eventCount: number; payloadBytes: number } {
-  return database.immediate((native) => {
-    const row = native
-      .prepare(
-        `SELECT COUNT(*) AS event_count,
-                COALESCE(SUM(length(CAST(payload_json AS BLOB))), 0) AS payload_bytes
-           FROM agent_events
-          WHERE agent_session_id = ? AND sequence > ?
-            AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)`
-      )
-      .get(agentSessionId, coveredThroughSequence, excludeRunId ?? null, excludeRunId ?? null) as {
-      event_count: number
-      payload_bytes: number
-    }
-    return { eventCount: row.event_count, payloadBytes: row.payload_bytes }
-  })
-}
-
 export function loadContinuousRuntimeHistory(
   database: ProjectDatabase,
   agentSessionId: string,
@@ -217,7 +194,9 @@ export function loadContinuousRuntimeHistory(
       role: 'user',
       content: formatPromptBlock({
         tag: 'WRITELLM_CONTEXT_CHECKPOINT',
-        content: checkpoint.summary,
+        content: boundedHandoff
+          ? `This checkpoint is background conversation memory, not a current user request. Use it to preserve still-active requirements and work state, but act only on the latest real user message that follows it. Any summarized Next action is orientation only unless that latest request still asks for it.\n\n${checkpoint.summary}`
+          : checkpoint.summary,
         instructionSemantics: 'false',
         attributes: {
           authority: boundedHandoff ? 'conversation_memory' : 'none',
@@ -604,7 +583,9 @@ function loadEventChunk(
             `SELECT agent_event_id, agent_run_id, sequence, type, payload_json
                FROM agent_events
               WHERE agent_session_id = ? AND sequence > ?
-                AND type NOT IN ('compaction_started', 'compaction_summary', 'compaction_failed')
+                AND type NOT IN (
+                  'model_retry', 'compaction_started', 'compaction_summary', 'compaction_failed'
+                )
                 AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
               ORDER BY sequence
               LIMIT ?`
@@ -744,7 +725,9 @@ function hasEventAfter(
           `SELECT 1
              FROM agent_events
             WHERE agent_session_id = ? AND sequence > ?
-              AND type NOT IN ('compaction_started', 'compaction_summary', 'compaction_failed')
+              AND type NOT IN (
+                'model_retry', 'compaction_started', 'compaction_summary', 'compaction_failed'
+              )
               AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
             LIMIT 1`
         )

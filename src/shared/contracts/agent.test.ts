@@ -34,7 +34,7 @@ const ids = {
 describe('Agent contracts', () => {
   it('pins the application-owned runtime and event schema versions', () => {
     expect(AGENT_RUNTIME_VERSION).toBe('0.80.10')
-    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(3)
+    expect(AGENT_EVENT_SCHEMA_VERSION).toBe(4)
   })
 
   it('validates a capability-bound session run and queue command', () => {

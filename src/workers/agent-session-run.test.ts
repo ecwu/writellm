@@ -1495,14 +1495,19 @@ describe('runAgentSession', () => {
     )
   })
 
-  it('makes at most five logical attempts for transient provider failures', async () => {
+  it('offers one anchored logical retry after five physical transient failures', async () => {
     vi.useFakeTimers()
     let attempts = 0
     const events: AgentRuntimeEvent[] = []
+    const requestBodies: string[] = []
+    let control: AgentSessionRunControl | undefined
+    const retryModelRequestId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
     vi.stubGlobal(
       'fetch',
-      vi.fn<typeof fetch>(async () => {
+      vi.fn<typeof fetch>(async (_input, init) => {
         attempts += 1
+        if (typeof init?.body === 'string') requestBodies.push(init.body)
+        if (attempts > 5) return completionResponse('recovered', 'response-retry')
         return new Response(JSON.stringify({ error: { message: 'service unavailable' } }), {
           status: 503,
           headers: { 'content-type': 'application/json' }
@@ -1511,15 +1516,27 @@ describe('runAgentSession', () => {
     )
 
     const running = runAgentSession(
-      request,
-      (event) => events.push(event),
-      () => undefined,
+      { ...request, traceCapture: true },
+      (event) => {
+        events.push(event)
+        if (event.type === 'model_trace_capture_requested') {
+          control?.acknowledgeTraceCapture({
+            operation: 'ack_trace_capture',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            captureId: event.captureId,
+            ok: true
+          })
+        }
+      },
+      (registered) => {
+        control = registered
+      },
       undefined,
       new FakeMessagePort() as never
     )
-    const rejected = expect(running).rejects.toMatchObject({
-      name: 'ProviderRetriesExhaustedError'
-    })
     await vi.waitFor(() => expect(attempts).toBe(1))
     for (const [delayMs, expectedAttempts] of [
       [1_000, 2],
@@ -1530,7 +1547,6 @@ describe('runAgentSession', () => {
       await vi.advanceTimersByTimeAsync(delayMs)
       await vi.waitFor(() => expect(attempts).toBe(expectedAttempts))
     }
-    await rejected
     expect(attempts).toBe(5)
     expect(events.filter((event) => event.type === 'model_call_retrying')).toHaveLength(4)
     expect(events).toContainEqual(
@@ -1540,6 +1556,46 @@ describe('runAgentSession', () => {
         failureCode: 'provider_retries_exhausted',
         retryable: true,
         metadata: expect.objectContaining({ retryCount: 4 })
+      })
+    )
+    const retry = events.find((event) => event.type === 'model_retry_available')
+    expect(retry).toMatchObject({
+      type: 'model_retry_available',
+      modelRequestId: request.modelRequestId,
+      failureStage: 'before_content',
+      label: 'retry_request'
+    })
+    if (retry?.type !== 'model_retry_available') throw new Error('Retry capability was not emitted')
+    control?.authorizeModelRetry({
+      operation: 'authorize_model_retry',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      capabilityId: retry.capabilityId,
+      sourceModelRequestId: request.modelRequestId,
+      targetModelRequestId: retryModelRequestId
+    })
+    await expect(running).resolves.toEqual({ outcome: 'finished' })
+    expect(attempts).toBe(6)
+    expect(requestBodies).toHaveLength(6)
+    expect(requestBodies[5]).toBe(requestBodies[0])
+    expect((requestBodies[5]?.match(/Write a line\./gu) ?? []).length).toBe(1)
+    expect(
+      events
+        .filter((event) => event.type === 'model_call_finished')
+        .map((event) => (event.type === 'model_call_finished' ? event.modelRequestId : ''))
+    ).toEqual([request.modelRequestId, retryModelRequestId])
+    expect(
+      events.filter(
+        (event) => event.type === 'assistant_message' && event.message.content === 'recovered'
+      )
+    ).toHaveLength(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'model_trace_capture_requested',
+        modelRequestId: retryModelRequestId,
+        parentModelRequestId: request.modelRequestId
       })
     )
   })

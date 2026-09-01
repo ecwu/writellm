@@ -165,6 +165,151 @@ function sendSse(response: ServerResponse, chunks: unknown[]): void {
 }
 
 test(
+  'retries the failed Agent request without resending the user message',
+  scenario('agent.request-retry', ['@critical']),
+  async ({ testRoot }) => {
+    test.setTimeout(180_000)
+    const beforeContentPrompt = `Retry this long request exactly once. ${'Bounded context. '.repeat(80)}`
+    const midStreamPrompt = `Continue this interrupted request exactly once. ${'Stable context. '.repeat(80)}`
+    const agentBodies: string[] = []
+    const server = createServer((request, response) => {
+      if (request.method === 'GET' && request.url === '/v1/models') {
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end('{"data":[{"id":"writer-model","displayName":"Writer model"}]}')
+        return
+      }
+      if (request.method === 'POST' && request.url?.endsWith('/chat/completions')) {
+        const chunks: Buffer[] = []
+        request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
+        request.on('end', () => {
+          const body = Buffer.concat(chunks).toString()
+          if (body.includes('Create a concise title for the delimited')) {
+            sendCompletion(response, 'Request retry evidence')
+            return
+          }
+          agentBodies.push(body)
+          if (agentBodies.length <= 5) {
+            response.writeHead(503, {
+              'content-type': 'application/json',
+              'retry-after': '0'
+            })
+            response.end(JSON.stringify({ error: { message: 'Temporary Agent outage' } }))
+            return
+          }
+          if (agentBodies.length === 6) {
+            sendCompletion(response, 'Recovered before-content request.')
+            return
+          }
+          if (agentBodies.length === 7) {
+            response.writeHead(200, {
+              'content-type': 'text/event-stream',
+              'cache-control': 'no-cache'
+            })
+            response.write(
+              `data: ${JSON.stringify({
+                id: 'agent-interrupted-response',
+                object: 'chat.completion.chunk',
+                created: 1,
+                model: 'writer-model-resolved',
+                choices: [
+                  {
+                    index: 0,
+                    delta: { role: 'assistant', content: 'Interrupted partial response.' },
+                    finish_reason: null
+                  }
+                ]
+              })}\n\n`
+            )
+            setTimeout(() => response.destroy(), 100)
+            return
+          }
+          sendCompletion(response, 'Recovered mid-stream request.')
+        })
+        return
+      }
+      response.writeHead(404)
+      response.end()
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', resolve)
+    })
+    const port = (server.address() as AddressInfo).port
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Agent request retry')
+      await configureProvider(launched.page, {
+        sectionName: /^Agent API/,
+        role: 'agent',
+        baseUrl: `http://127.0.0.1:${port}/v1`,
+        model: 'writer-model'
+      })
+      await launched.page.getByTestId('agent-menubar-trigger').click()
+      const panel = launched.page.getByTestId('agent-panel')
+      await panel.getByTestId('agent-model-selector').click()
+      const picker = launched.page.getByTestId('agent-model-picker')
+      await picker.getByRole('option', { name: /E2E Agent/ }).click()
+      await picker.getByRole('option', { name: /Writer model/ }).click()
+      const composer = panel.getByLabel('Agent message')
+      const send = panel.getByRole('button', { name: 'Send', exact: true })
+
+      await composer.fill(beforeContentPrompt)
+      await send.click()
+      const retryRequest = panel.getByRole('button', { name: 'Retry request', exact: true })
+      await expect(retryRequest).toBeVisible({ timeout: 30_000 })
+      await retryRequest.click()
+      await expect(
+        panel.getByText('Recovered before-content request.', { exact: true })
+      ).toBeVisible({ timeout: 30_000 })
+
+      await composer.fill(midStreamPrompt)
+      await send.click()
+      await expect(panel.getByText('Interrupted partial response.', { exact: true })).toBeVisible()
+      const continueRequest = panel.getByRole('button', { name: 'Continue', exact: true })
+      await expect(continueRequest).toBeVisible({ timeout: 30_000 })
+      await continueRequest.click()
+      await expect(panel.getByText('Recovered mid-stream request.', { exact: true })).toBeVisible({
+        timeout: 30_000
+      })
+
+      expect(agentBodies).toHaveLength(8)
+      expect(agentBodies[5]).toBe(agentBodies[0])
+      expect(agentBodies[7]).toBe(agentBodies[6])
+      const durableMessages = await launched.page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (projectSessionId === undefined) throw new Error('Project session missing')
+        const session = (await window.desktop.agent.listSessions({ projectSessionId }))[0]
+        if (session === undefined) throw new Error('Agent session missing')
+        const page = await window.desktop.agent.listEvents({
+          projectSessionId,
+          agentSessionId: session.agentSessionId
+        })
+        return page.events
+          .filter((event) => event.type === 'user_message')
+          .map((event) => event.payload.content)
+      })
+      expect(
+        durableMessages.filter((message) =>
+          message.includes('Retry this long request exactly once.')
+        )
+      ).toHaveLength(1)
+      expect(
+        durableMessages.filter((message) =>
+          message.includes('Continue this interrupted request exactly once.')
+        )
+      ).toHaveLength(1)
+    } finally {
+      await launched.app.close()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  }
+)
+
+test(
   'completes a grounded Agent proposal workflow and recovers it across reopen',
   scenario('agent.grounded-proposal-workflow', ['@critical', '@packaged']),
   async ({ testRoot }) => {
@@ -1114,7 +1259,15 @@ Continue only the original user request that remains unresolved after this appro
         name: 'Summarize earlier conversation?'
       })
       await expect(compactionDialog).toContainText('lossy context checkpoint')
-      await compactionDialog.getByRole('button', { name: 'Summarize', exact: true }).click()
+      await compactionDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+      await expect(compactionDialog).not.toBeVisible()
+      await agentMessage.fill('/compact')
+      const compactOption = launched.page
+        .getByTestId('agent-slash-menu')
+        .getByRole('option', { name: /Compact conversation/ })
+      await expect(compactOption).toBeVisible()
+      await compactOption.click()
+      await expect(agentMessage).toHaveValue('')
       await expect(panel.getByText('Earlier conversation summarized · manual')).toBeVisible()
       await panel.getByText('Earlier conversation summarized · manual').click()
       await expect(

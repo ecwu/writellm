@@ -11,6 +11,7 @@ import {
   agentCompactionStartedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
+  agentModelRetryPayloadSchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
   type AgentApprovalMode,
@@ -22,6 +23,7 @@ import {
   type AgentRuntimeModel,
   type AgentRuntimeEvent,
   type AgentModelLimits,
+  type AgentModelRetryFailureStage,
   type AgentUserMessagePayload,
   type WritingToolGroup
 } from '../../shared/contracts/agent'
@@ -129,10 +131,8 @@ import { AgentTraceRepository } from './trace-repository'
 import {
   AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
-  latestSuccessfulCheckpoint,
   loadContinuousRuntimeHistory,
-  loadRuntimeTailAfterSequence,
-  uncheckpointedEnvelope
+  loadRuntimeTailAfterSequence
 } from './context-checkpoint'
 import {
   legacyModelLimits,
@@ -202,6 +202,18 @@ function citationRecoveryStateAfterToolResult(
   return current
 }
 
+function safeJsonObject(value: string | undefined): Record<string, unknown> | null {
+  if (value === undefined) return null
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
 export interface StartedAgentRun {
   agentRunId: string
   completion: Promise<void>
@@ -213,7 +225,7 @@ interface ActiveRun {
   readonly operationId: string
   readonly controller: AbortController
   handle: AgentSessionRunHandle | null
-  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input'
+  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input' | 'retry_available'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
@@ -239,6 +251,14 @@ interface ActiveRun {
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
   pendingQuestion: PendingUserQuestion | null
+  retryCapability: {
+    capabilityId: string
+    sourceModelRequestId: string
+    reasonCode: 'network' | 'rate_limited' | 'server_error' | 'stream_ended'
+    failureStage: AgentModelRetryFailureStage
+    contextFingerprint: string
+    label: 'retry_request' | 'continue'
+  } | null
   overflowRetryAttempted: boolean
   finalizationStarted: boolean
   completion: Promise<void>
@@ -1080,6 +1100,7 @@ export class AgentSessionService {
             partialText: '',
             reviewPause: null,
             pendingQuestion: null,
+            retryCapability: null,
             overflowRetryAttempted: false,
             finalizationStarted: false,
             completion: Promise.resolve()
@@ -1373,7 +1394,7 @@ export class AgentSessionService {
   }
 
   async followUp(agentRunId: string, content: string): Promise<void> {
-    const active = this.#requireQueueableRun(agentRunId)
+    const active = this.#requireQueueableRun(agentRunId, true)
     const parsedContent = agentUserMessagePayloadSchema.shape.content.parse(content)
     if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
       throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
@@ -1618,6 +1639,119 @@ export class AgentSessionService {
     await active.completion
   }
 
+  async retryRequest(agentRunId: string, capabilityId: string): Promise<void> {
+    const active = this.#requireActive(agentRunId)
+    const capability = active.retryCapability
+    if (
+      active.phase !== 'retry_available' ||
+      active.handle === null ||
+      capability === null ||
+      capability.capabilityId !== capabilityId
+    ) {
+      throw new Error('Agent request retry capability is no longer available')
+    }
+    if (active.reviewPause !== null || active.pendingQuestion !== null) {
+      throw new Error('Agent request cannot be retried while a user decision is pending')
+    }
+    const source = this.options.database.immediate((database) =>
+      database
+        .prepare(
+          `SELECT status, error_json
+             FROM model_requests
+            WHERE model_request_id = ? AND agent_run_id = ? AND operation_kind = 'agent'`
+        )
+        .get(capability.sourceModelRequestId, active.agentRunId)
+    ) as { status: string; error_json: string | null } | undefined
+    const sourceError = source?.error_json === null ? null : safeJsonObject(source?.error_json)
+    if (
+      source?.status !== 'failed' ||
+      sourceError?.['retryable'] !== true ||
+      active.pendingModelRequestIds.has(capability.sourceModelRequestId)
+    ) {
+      throw new Error('Agent request retry source is not a settled retryable failure')
+    }
+    const repository = new ModelRequestRepository(
+      this.options.database,
+      this.options.log,
+      this.#now,
+      this.#createId
+    )
+    const targetModelRequestId = (
+      await repository.start({
+        operation: 'agent',
+        provider: active.config,
+        request: {
+          delivery: 'retry_last_request',
+          sourceModelRequestId: capability.sourceModelRequestId,
+          stage: capability.failureStage,
+          contextFingerprint: capability.contextFingerprint
+        },
+        thinkingLevel: active.thinkingLevel,
+        inputItems: 0,
+        operationId: active.operationId,
+        agentRunId: active.agentRunId,
+        projectSessionId: this.options.projectSessionId
+      })
+    ).modelRequestId
+    active.authorizedModelRequestIds.add(targetModelRequestId)
+    active.pendingModelRequestIds.add(targetModelRequestId)
+    await this.#appendAndPublishEvent({
+      sessionId: active.agentSessionId,
+      runId: active.agentRunId,
+      type: 'model_retry',
+      payload: agentModelRetryPayloadSchema.parse({
+        schemaVersion: 1,
+        sourceModelRequestId: capability.sourceModelRequestId,
+        targetModelRequestId,
+        reasonCode: capability.reasonCode,
+        failureStage: capability.failureStage,
+        contextFingerprint: capability.contextFingerprint,
+        actor: 'user',
+        timestamp: this.#now().getTime()
+      }),
+      modelRequestId: targetModelRequestId
+    })
+    active.retryCapability = null
+    active.phase = 'running'
+    active.partialText = ''
+    await this.#publishActivitySnapshot()
+    try {
+      active.handle.authorizeModelRetry({
+        projectSessionId: this.options.projectSessionId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        capabilityId,
+        sourceModelRequestId: capability.sourceModelRequestId,
+        targetModelRequestId
+      })
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.model_retry.delivery_failed',
+          err,
+          agentRunId,
+          sourceModelRequestId: capability.sourceModelRequestId,
+          targetModelRequestId
+        },
+        'Failed to authorize Agent model retry'
+      )
+      await repository.abort(targetModelRequestId, 'retry_delivery_failed')
+      active.pendingModelRequestIds.delete(targetModelRequestId)
+      active.controller.abort(err)
+      throw err
+    }
+    this.options.log.info(
+      {
+        event: 'agent.model_retry.authorized',
+        agentRunId,
+        sourceModelRequestId: capability.sourceModelRequestId,
+        targetModelRequestId,
+        failureStage: capability.failureStage
+      },
+      'Authorized Agent model retry from the original request anchor'
+    )
+  }
+
   async answerUserQuestion(input: {
     agentSessionId: string
     agentRunId: string
@@ -1848,6 +1982,16 @@ export class AgentSessionService {
                 submitting: active.pendingQuestion.submitting,
                 startedAt: active.pendingQuestion.startedAt
               },
+        retry:
+          active.retryCapability === null
+            ? null
+            : {
+                capabilityId: active.retryCapability.capabilityId,
+                sourceModelRequestId: active.retryCapability.sourceModelRequestId,
+                reasonCode: active.retryCapability.reasonCode,
+                failureStage: active.retryCapability.failureStage,
+                label: active.retryCapability.label
+              },
         startedAt: persisted.startedAt
       }
     })
@@ -2001,9 +2145,16 @@ export class AgentSessionService {
     })
   }
 
-  #requireQueueableRun(agentRunId: string): ActiveRun & { handle: AgentSessionRunHandle } {
+  #requireQueueableRun(
+    agentRunId: string,
+    allowRetryAvailable = false
+  ): ActiveRun & { handle: AgentSessionRunHandle } {
     const active = this.#requireActive(agentRunId)
-    if (active.phase !== 'running' || active.handle === null) {
+    if (
+      (active.phase !== 'running' &&
+        !(allowRetryAvailable && active.phase === 'retry_available')) ||
+      active.handle === null
+    ) {
       throw new Error(
         active.phase === 'compacting'
           ? 'Earlier conversation is still being summarized'
@@ -2149,6 +2300,9 @@ export class AgentSessionService {
         apiId: event.apiId,
         traceId: active.agentRunId,
         spanId: event.modelRequestId,
+        ...(event.parentModelRequestId === undefined
+          ? {}
+          : { parentSpanId: event.parentModelRequestId }),
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         ...(toolCallId === undefined ? {} : { toolCallId }),
@@ -2197,6 +2351,35 @@ export class AgentSessionService {
           reasonCode: event.reasonCode
         },
         'Agent provider retry scheduled'
+      )
+      return
+    }
+    if (event.type === 'model_retry_available') {
+      if (active.pendingModelRequestIds.has(event.modelRequestId)) {
+        throw new Error('Agent model retry was offered before the source request settled')
+      }
+      if (active.reviewPause !== null || active.pendingQuestion !== null) {
+        throw new Error('Agent model retry conflicts with a pending user decision')
+      }
+      active.phase = 'retry_available'
+      active.retryCapability = {
+        capabilityId: event.capabilityId,
+        sourceModelRequestId: event.modelRequestId,
+        reasonCode: event.reasonCode,
+        failureStage: event.failureStage,
+        contextFingerprint: event.contextFingerprint,
+        label: event.label
+      }
+      await this.#publishActivitySnapshot()
+      this.options.log.warn(
+        {
+          event: 'agent.model_retry.available',
+          agentRunId: active.agentRunId,
+          modelRequestId: event.modelRequestId,
+          reasonCode: event.reasonCode,
+          failureStage: event.failureStage
+        },
+        'Agent request can be retried from its in-memory request anchor'
       )
       return
     }
@@ -2272,6 +2455,7 @@ export class AgentSessionService {
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
     }
+    if (event.type !== 'assistant_message') return
     if (
       event.message.stopReason !== 'toolUse' &&
       active.skillState !== null &&
@@ -3143,21 +3327,12 @@ export class AgentSessionService {
       active.agentSessionId,
       active.agentRunId
     )
-    const checkpoint = latestSuccessfulCheckpoint(this.options.database, active.agentSessionId)
-    const envelope = uncheckpointedEnvelope(
-      this.options.database,
-      active.agentSessionId,
-      checkpoint?.coveredThroughSequence ?? 0,
-      active.agentRunId
-    )
     const plan = this.#contextPlanner.plan({
       modelLimits: active.modelLimits,
       requestedOutputTokens: active.maxOutputTokens,
       systemPrompt: active.systemPrompt,
       history: historyBefore,
       currentRequest: active.currentRequest,
-      uncheckpointedEventCount: envelope.eventCount,
-      uncheckpointedPayloadBytes: envelope.payloadBytes,
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
     const compactionId = this.#createId()
@@ -4020,21 +4195,12 @@ export class AgentSessionService {
       active.agentSessionId,
       active.agentRunId
     )
-    const checkpoint = latestSuccessfulCheckpoint(this.options.database, active.agentSessionId)
-    const envelope = uncheckpointedEnvelope(
-      this.options.database,
-      active.agentSessionId,
-      checkpoint?.coveredThroughSequence ?? 0,
-      active.agentRunId
-    )
     let plan = this.#contextPlanner.plan({
       modelLimits: active.modelLimits,
       requestedOutputTokens: input.maxOutputTokens,
       systemPrompt: active.systemPrompt,
       history,
       currentRequest: input.currentRequest,
-      uncheckpointedEventCount: envelope.eventCount,
-      uncheckpointedPayloadBytes: envelope.payloadBytes,
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
     if (this.options.messageTokenBudget !== undefined) {

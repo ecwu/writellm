@@ -19,6 +19,7 @@ export interface AgentProviderRetryState {
   exhausted: boolean
   retryableFailure: boolean
   lastReasonCode: AgentProviderRetryReason | null
+  publishedContent: boolean
 }
 
 export interface RetryingAgentProviderStreamOptions {
@@ -46,7 +47,8 @@ export function createRetryingAgentProviderStream(options: RetryingAgentProvider
     retryCount: 0,
     exhausted: false,
     retryableFailure: false,
-    lastReasonCode: null
+    lastReasonCode: null,
+    publishedContent: false
   }
 
   void pumpAttempts(stream, state, options).catch((err: unknown) => {
@@ -103,6 +105,7 @@ async function pumpAttempts(
           }
           flushBuffered(output, buffered)
           publishedContent = true
+          state.publishedContent = true
         }
         const decision = retryDecision(event.error, options.responseStatus())
         if (shouldRetry(decision.retryable, publishedContent, attempt)) {
@@ -125,6 +128,7 @@ async function pumpAttempts(
           options.onFirstAssistantContent?.({ attempt })
         }
         publishedContent = true
+        state.publishedContent = true
         flushBuffered(output, buffered)
       } else if (publishedContent) {
         flushBuffered(output, buffered)

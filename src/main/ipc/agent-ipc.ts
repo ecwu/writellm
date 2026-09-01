@@ -23,6 +23,8 @@ import {
   agentGenerateSessionTitleResultSchema,
   agentPendingMessageActionInputSchema,
   agentQueueInputSchema,
+  agentRetryRequestInputSchema,
+  agentRetryRequestResultSchema,
   agentRestoreSessionInputSchema,
   agentRestoreSessionResultSchema,
   agentRunInputSchema,
@@ -482,6 +484,16 @@ export function registerAgentIpc(options: {
       mutationContext(input.projectSessionId).agentSessions?.steer(input.agentRunId, input.content)
     )
   })
+  ipc.handle(IPC_CHANNELS.agentRetryRequest, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentRetryRequestInputSchema.parse(raw)
+    return lifecycle('agent.run.retry_request', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      await service.retryRequest(input.agentRunId, input.capabilityId)
+      return agentRetryRequestResultSchema.parse({})
+    })
+  })
   ipc.handle(IPC_CHANNELS.agentFollowUpRun, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentQueueInputSchema.parse(raw)
@@ -623,6 +635,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentListRuns,
     IPC_CHANNELS.agentListProposals,
     IPC_CHANNELS.agentStartRun,
+    IPC_CHANNELS.agentRetryRequest,
     IPC_CHANNELS.agentSteerRun,
     IPC_CHANNELS.agentFollowUpRun,
     IPC_CHANNELS.agentSteerPendingFollowUp,

@@ -12,7 +12,7 @@ import { agentRuntimeAuthSchema } from './agent-auth'
 import { agentQuickActionIdSchema, agentQuickActionSelectedTextSchema } from './agent-quick-actions'
 export { agentRuntimeAuthSchema, type AgentRuntimeAuth } from './agent-auth'
 
-export const AGENT_EVENT_SCHEMA_VERSION = 3
+export const AGENT_EVENT_SCHEMA_VERSION = 4
 export const AGENT_RUNTIME_VERSION = '0.80.10'
 
 export const agentSessionIdSchema = z.uuid()
@@ -22,6 +22,19 @@ export const agentModelRequestIdSchema = z.uuid()
 export const agentPendingMessageIdSchema = z.uuid()
 export const agentQueueActionIdSchema = z.uuid()
 export const agentTraceCaptureIdSchema = z.uuid()
+export const agentModelRetryCapabilityIdSchema = z.uuid()
+
+export const agentModelRetryReasonSchema = z.enum([
+  'network',
+  'rate_limited',
+  'server_error',
+  'stream_ended'
+])
+export const agentModelRetryFailureStageSchema = z.enum([
+  'before_content',
+  'after_content',
+  'after_tool_results'
+])
 
 export const agentTracePurposeSchema = z.enum([
   'agent_prompt',
@@ -314,6 +327,19 @@ export const agentModelCallAuthorizationSchema = z
   })
   .strict()
 
+export const agentModelRetryAuthorizationSchema = z
+  .object({
+    operation: z.literal('authorize_model_retry'),
+    requestId: z.uuid(),
+    projectSessionId: projectSessionIdSchema,
+    agentSessionId: agentSessionIdSchema,
+    agentRunId: agentRunIdSchema,
+    capabilityId: agentModelRetryCapabilityIdSchema,
+    sourceModelRequestId: agentModelRequestIdSchema,
+    targetModelRequestId: agentModelRequestIdSchema
+  })
+  .strict()
+
 export const agentTraceCaptureAckSchema = z
   .object({
     operation: z.literal('ack_trace_capture'),
@@ -341,6 +367,7 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       type: z.literal('model_trace_capture_requested'),
       captureId: agentTraceCaptureIdSchema,
       modelRequestId: agentModelRequestIdSchema,
+      parentModelRequestId: agentModelRequestIdSchema.optional(),
       purpose: agentTracePurposeSchema,
       apiId: piApiSchema,
       physicalAttempt: z.number().int().min(1).max(20),
@@ -365,7 +392,9 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       outcome: z.enum(['succeeded', 'failed', 'aborted', 'timed_out']),
       metadata: modelExecutionMetadataSchema,
       httpStatus: z.number().int().min(100).max(599).optional(),
-      failureCode: z.enum(['provider_retries_exhausted', 'provider_request_failed']).optional(),
+      failureCode: z
+        .enum(['provider_retries_exhausted', 'provider_request_failed', 'retry_context_mismatch'])
+        .optional(),
       retryable: z.boolean().optional(),
       physicalAttemptCount: z.number().int().min(1).max(20).optional(),
       ttftMs: z.number().int().nonnegative().max(86_400_000).optional(),
@@ -380,6 +409,18 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       maxAttempts: z.literal(5),
       delayMs: z.number().int().min(0).max(60_000),
       reasonCode: z.enum(['network', 'rate_limited', 'server_error', 'stream_ended'])
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('model_retry_available'),
+      capabilityId: agentModelRetryCapabilityIdSchema,
+      modelRequestId: agentModelRequestIdSchema,
+      reasonCode: agentModelRetryReasonSchema,
+      failureStage: agentModelRetryFailureStageSchema,
+      httpStatus: z.number().int().min(100).max(599).optional(),
+      contextFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+      label: z.enum(['retry_request', 'continue'])
     })
     .strict(),
   z
@@ -490,6 +531,7 @@ export const agentRunStatusSchema = z.enum(['running', 'completed', 'interrupted
 export const agentEventTypeSchema = z.enum([
   'user_message',
   'assistant_message',
+  'model_retry',
   'tool_call',
   'tool_result',
   'tool_attempted',
@@ -501,6 +543,18 @@ export const agentEventTypeSchema = z.enum([
   'compaction_summary',
   'compaction_failed'
 ])
+export const agentModelRetryPayloadSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    sourceModelRequestId: agentModelRequestIdSchema,
+    targetModelRequestId: agentModelRequestIdSchema,
+    reasonCode: agentModelRetryReasonSchema,
+    failureStage: agentModelRetryFailureStageSchema,
+    contextFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+    actor: z.literal('user'),
+    timestamp: z.number().int().nonnegative()
+  })
+  .strict()
 export const agentCompactionTriggerSchema = z.enum([
   'auto_threshold',
   'manual',
@@ -630,6 +684,7 @@ export type AgentFollowUpConsumptionAuthorization = z.infer<
 >
 export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>
 export type AgentModelCallAuthorization = z.infer<typeof agentModelCallAuthorizationSchema>
+export type AgentModelRetryAuthorization = z.infer<typeof agentModelRetryAuthorizationSchema>
 export type AgentTraceCaptureAck = z.infer<typeof agentTraceCaptureAckSchema>
 export type AgentTracePurpose = z.infer<typeof agentTracePurposeSchema>
 export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>
@@ -640,6 +695,8 @@ export type AgentUserMessagePayload = z.infer<typeof agentUserMessagePayloadSche
 export type AgentSessionStatus = z.infer<typeof agentSessionStatusSchema>
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>
 export type AgentEventType = z.infer<typeof agentEventTypeSchema>
+export type AgentModelRetryPayload = z.infer<typeof agentModelRetryPayloadSchema>
+export type AgentModelRetryFailureStage = z.infer<typeof agentModelRetryFailureStageSchema>
 export type AgentCompactionSummaryPayload = z.infer<typeof agentCompactionSummaryPayloadSchema>
 export type AgentCompactionCheckpointPayload = z.infer<
   typeof agentCompactionCheckpointPayloadSchema

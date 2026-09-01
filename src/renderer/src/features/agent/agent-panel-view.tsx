@@ -132,7 +132,6 @@ export function AgentPanelView({
     modelReady,
     supportedThinkingLevels,
     availableModelPresets,
-    latestPrompt,
     effectiveRevisionIds,
     timeline,
     thinkingVisualState,
@@ -151,6 +150,7 @@ export function AgentPanelView({
     restoreSession,
     startRun,
     stopRun,
+    retryRequest,
     answerUserQuestion,
     resumeWritingTask,
     reviseWritingTask,
@@ -158,7 +158,7 @@ export function AgentPanelView({
     actOnPendingMessage,
     proposalAction,
     decideChangeSet,
-    retryableRun,
+    modelRetry,
     failedContinuationProposal,
     composerSettingsDisabled,
     interactionModeSwitchDisabled,
@@ -694,7 +694,45 @@ export function AgentPanelView({
                           onSelect={setInteractionMode}
                         />
                         {activeRun !== null ? (
-                          agentComposerRunningAction(prompt) === 'follow_up' ? (
+                          modelRetry !== null ? (
+                            <>
+                              {agentComposerRunningAction(prompt) === 'follow_up' ? (
+                                <InputGroupButton
+                                  variant='default'
+                                  size='icon-sm'
+                                  className='shrink-0 rounded-full'
+                                  aria-label='Queue follow-up'
+                                  title='Queue follow-up'
+                                  disabled={busy}
+                                  onClick={() => void queueMessage('follow_up')}
+                                >
+                                  <ArrowUp />
+                                </InputGroupButton>
+                              ) : null}
+                              <ComposerAction
+                                size='icon-sm'
+                                variant='outline'
+                                className='shrink-0 rounded-full'
+                                label={
+                                  modelRetry.label === 'continue' ? 'Continue' : 'Retry request'
+                                }
+                                disabled={busy}
+                                onClick={() => void retryRequest()}
+                              >
+                                <RotateCcw />
+                              </ComposerAction>
+                              <ComposerAction
+                                size='icon-sm'
+                                variant='destructive'
+                                className='shrink-0 rounded-full'
+                                label='Stop'
+                                disabled={busy}
+                                onClick={() => void stopRun()}
+                              >
+                                <CircleStop />
+                              </ComposerAction>
+                            </>
+                          ) : agentComposerRunningAction(prompt) === 'follow_up' ? (
                             <InputGroupButton
                               variant='default'
                               size='icon-sm'
@@ -719,43 +757,22 @@ export function AgentPanelView({
                             </ComposerAction>
                           )
                         ) : (
-                          <>
-                            {retryableRun && latestPrompt ? (
-                              <ComposerAction
-                                size='icon-sm'
-                                variant='outline'
-                                label='Try again'
-                                disabled={busy}
-                                onClick={() =>
-                                  void startRun(
-                                    latestPrompt,
-                                    undefined,
-                                    false,
-                                    false,
-                                    latestRun?.agentRunId
-                                  )
-                                }
-                              >
-                                <RotateCcw />
-                              </ComposerAction>
-                            ) : null}
-                            <InputGroupButton
-                              variant='default'
-                              size='icon-sm'
-                              className='shrink-0 rounded-full'
-                              aria-label='Send'
-                              title='Send'
-                              disabled={
-                                busy ||
-                                prompt.trim().length === 0 ||
-                                activeSession?.compatible === false ||
-                                agentCapacityReached
-                              }
-                              onClick={() => void startRun(prompt)}
-                            >
-                              <ArrowUp />
-                            </InputGroupButton>
-                          </>
+                          <InputGroupButton
+                            variant='default'
+                            size='icon-sm'
+                            className='shrink-0 rounded-full'
+                            aria-label='Send'
+                            title='Send'
+                            disabled={
+                              busy ||
+                              prompt.trim().length === 0 ||
+                              activeSession?.compatible === false ||
+                              agentCapacityReached
+                            }
+                            onClick={() => void startRun(prompt)}
+                          >
+                            <ArrowUp />
+                          </InputGroupButton>
                         )}
                       </div>
                     </InputGroupAddon>

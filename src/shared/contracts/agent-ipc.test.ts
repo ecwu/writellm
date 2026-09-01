@@ -7,6 +7,7 @@ import {
   agentListSessionsInputSchema,
   agentRendererEventSchema,
   agentProjectActivitySnapshotSchema,
+  agentRetryRequestInputSchema,
   agentSessionRecordSchema,
   agentSetThinkingLevelInputSchema,
   agentStartRunInputSchema
@@ -18,6 +19,21 @@ const agentRunId = '019c6a5c-8d34-7a8e-a602-3d37a52dc424'
 const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc425'
 
 describe('Agent IPC contracts', () => {
+  it('accepts only capability identity for an Agent request retry', () => {
+    const capabilityId = '019c6a5c-8d34-7a8e-a602-3d37a52dc426'
+    expect(
+      agentRetryRequestInputSchema.parse({ projectSessionId, agentRunId, capabilityId })
+    ).toEqual({ projectSessionId, agentRunId, capabilityId })
+    expect(() =>
+      agentRetryRequestInputSchema.parse({
+        projectSessionId,
+        agentRunId,
+        capabilityId,
+        prompt: 'This must never be resent.'
+      })
+    ).toThrow()
+  })
+
   it('requires editor context to match the selected start scope', () => {
     const parsed = agentStartRunInputSchema.parse({
       projectSessionId,

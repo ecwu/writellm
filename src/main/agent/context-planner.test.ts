@@ -41,9 +41,7 @@ describe('AgentContextPlanner', () => {
       systemPrompt,
       advertisedTools: tools,
       history,
-      currentRequest,
-      uncheckpointedEventCount: 2,
-      uncheckpointedPayloadBytes: 128
+      currentRequest
     })
 
     expect(plan.effectiveInputLimit).toBe(50_000)
@@ -77,35 +75,58 @@ describe('AgentContextPlanner', () => {
       systemPrompt: '',
       advertisedTools: [],
       history: [],
-      currentRequest: 'short',
-      uncheckpointedEventCount: 0,
-      uncheckpointedPayloadBytes: 0
+      currentRequest: 'short'
     })
     expect(plan.effectiveInputLimit).toBe(14_000)
   })
 
-  it('forces compaction before the 200-event or 2-MiB envelope could hide short history', () => {
+  it('does not compact low-token history based on durable event count or payload size', () => {
     const planner = new AgentContextPlanner()
-    const base = {
+    const plan = planner.plan({
       modelLimits: limits,
       requestedOutputTokens: 4_096,
       systemPrompt: 'system',
       advertisedTools: [],
       history: [{ role: 'user' as const, content: 'x', timestamp: 1 }],
       currentRequest: 'next'
-    }
+    })
 
-    expect(
-      planner.plan({ ...base, uncheckpointedEventCount: 201, uncheckpointedPayloadBytes: 128 })
-        .reasons
-    ).toEqual(['runtime_envelope'])
-    expect(
-      planner.plan({
-        ...base,
-        uncheckpointedEventCount: 1,
-        uncheckpointedPayloadBytes: 2 * 1024 * 1024 + 1
-      }).reasons
-    ).toEqual(['runtime_envelope'])
+    expect(plan.requiresCompaction).toBe(false)
+    expect(plan.reasons).toEqual([])
+  })
+
+  it('keeps a 51,806-token conversation uncompressed in a 1M-token context window', () => {
+    const plan = new AgentContextPlanner().plan({
+      modelLimits: {
+        ...limits,
+        contextWindowTokens: 1_048_576,
+        inputLimitTokens: 1_000_000
+      },
+      requestedOutputTokens: 8_000,
+      systemPrompt: 'system',
+      advertisedTools: [],
+      history: [{ role: 'user', content: 'x'.repeat(51_806 * 4), timestamp: 1 }],
+      currentRequest: 'Apply only the latest narrow edit.'
+    })
+
+    expect(plan.historyTokens).toBeGreaterThanOrEqual(51_806)
+    expect(plan.historyTokens).toBeLessThan(52_000)
+    expect(plan.requiresCompaction).toBe(false)
+    expect(plan.reasons).toEqual([])
+  })
+
+  it('compacts only when model-visible history exceeds the final conversation budget', () => {
+    const plan = new AgentContextPlanner().plan({
+      modelLimits: { ...limits, contextWindowTokens: 1_048_576, inputLimitTokens: 1_000_000 },
+      requestedOutputTokens: 8_000,
+      systemPrompt: 'system',
+      advertisedTools: [],
+      history: [{ role: 'user', content: 'x'.repeat(4_100_000), timestamp: 1 }],
+      currentRequest: 'next'
+    })
+
+    expect(plan.requiresCompaction).toBe(true)
+    expect(plan.reasons).toEqual(['token_budget'])
   })
 
   it('rejects a fixed context plus current request that cannot fit without truncating it', () => {
@@ -116,9 +137,7 @@ describe('AgentContextPlanner', () => {
         systemPrompt: 'S'.repeat(10_000),
         advertisedTools: [{ description: 'T'.repeat(4_000) }],
         history: [],
-        currentRequest: `不可截断🙂${'界'.repeat(8_000)}`,
-        uncheckpointedEventCount: 0,
-        uncheckpointedPayloadBytes: 0
+        currentRequest: `不可截断🙂${'界'.repeat(8_000)}`
       })
     ).toThrow(AgentCurrentTurnTooLargeError)
   })

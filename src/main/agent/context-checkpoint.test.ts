@@ -441,15 +441,28 @@ describe('Agent context checkpoints', () => {
       recentTailBudgetTokens: 20_000,
       timestamp: 3
     })
+    insertEvent(database, 4, 'user_message', {
+      content: 'Only revise the final sentence now.',
+      delivery: 'prompt',
+      timestamp: 4
+    })
 
     const checkpoint = latestSuccessfulCheckpoint(database, 'session-1')
     expect(checkpoint).toMatchObject({
       schemaVersion: 3,
       handoffMode: 'bounded_conversation_memory'
     })
-    expect(loadContinuousRuntimeHistory(database, 'session-1')[0]).toMatchObject({
+    const history = loadContinuousRuntimeHistory(database, 'session-1')
+    expect(history[0]).toMatchObject({
       role: 'user',
       content: expect.stringContaining('authority="conversation_memory"')
+    })
+    expect(history[0]).toMatchObject({
+      content: expect.stringContaining('background conversation memory, not a current user request')
+    })
+    expect(history.at(-1)).toMatchObject({
+      role: 'user',
+      content: 'Only revise the final sentence now.'
     })
     database.close()
   })

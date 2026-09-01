@@ -1238,3 +1238,64 @@ maintenance without turning the active tracker back into a historical log.
   pushed `main` plus the tag to GitHub under explicit authorization. The immutable tag points to
   the verified source commit. Apple Developer ID signing, notarization, GitHub Release creation,
   promotion, and publication were not performed.
+
+## 2026-09-01 — Checkpoint 80 live Agent request retry
+
+- Completed Phase 29 Checkpoint 80 under ADR 071. Agent `Try again` no longer resubmits prompt text:
+  transient failures before content expose `Retry request`, interrupted streams expose `Continue`,
+  and both restore the exact live Pi request boundary through a one-use Main-authorized capability.
+  Each click creates a new immutable `model_request` and durable schema-v4 `model_retry` lineage;
+  the original user message and failed request remain singular and unchanged.
+- The Worker retains only the latest in-memory retry anchor, validates its canonical context
+  fingerprint before network I/O, preserves the five-attempt provider budget per logical request,
+  holds queued Follow-ups behind a retry barrier, blocks Steer injection, and never reconstructs
+  retry authority from diagnostic traces or after restart. Partial output remains a separate
+  interrupted assistant event and completed tools are not replayed.
+- `pnpm check:fast` passed. The canonical Electron gate passed 228 files and 1,240 tests with three
+  benchmark skips, followed by a successful production build. The focused real-Electron retry
+  scenario proved exact request-body reuse and one durable user message for both before-content
+  and interrupted-stream failures; all 49 fresh Electron E2E scenarios passed without flakes,
+  skips, or failures. `git diff --check` passed. No package, release, commit, tag, push, signing,
+  notarization, promotion, or publication action was performed.
+- Built and fully verified the user-requested no-Team-ID macOS arm64 App from the completed CP80
+  dirty source state. The package gate verified 31 recovery fixtures from 29 sources, 53,318 ASAR
+  entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged runtime smoke
+  scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
+  produced `WriteLLM-0.2026.8.49-arm64.dmg` (239,009,276 bytes,
+  `438ca43b6d2416321f5544084e13120d34d37f0405ec31e254b88666b717e6c6`) and
+  `WriteLLM-0.2026.8.49-arm64.zip` (237,206,436 bytes,
+  `ae0e28f2ecc249739f8d1369ad4b940e82638f402f46057f6bc96d4bd92cda77`) under
+  `dist/macos-arm64`. No Developer ID signing, notarization, release, commit, tag, push, promotion,
+  or publication action was performed.
+- Completed the Renderer-only non-blocking tool-failure presentation maintenance. Pre-dispatch
+  failures now occupy one quiet expandable timeline row instead of a full destructive alert; the
+  expanded view retains the bounded tool name, error code, message, validation paths, and duration.
+  Focused Agent Renderer coverage and `check:fast` passed. No protocol, persistence, or authority
+  boundary changed.
+
+## 2026-09-01 — Checkpoint 81 token-pressure Agent context compaction
+
+- Completed Phase 30 Checkpoint 81 under ADR 072. Ordinary automatic compaction now depends only
+  on the final model-visible token budget; durable event count and payload bytes no longer trigger
+  it. Provider-overflow recovery, the 2,000-event source ceiling, 180-event tool-loop finalization,
+  payload-v3, recent raw turns, and rebuilt project authority remain unchanged.
+- The single rolling summary now merges the prior checkpoint with newer events, carries still-active
+  requirements and unfinished work, records superseded directions, and treats its `Next action` as
+  background orientation. The latest real user message remains the current action source.
+  `/compact` invokes the existing manual path immediately from the slash catalog without adding a
+  user message; Add context remains scope-only and the header action retains its confirmation.
+- Focused coverage passed 59 tests. `pnpm check:fast` passed; the complete Electron gate passed 229
+  files and 1,246 tests with three benchmark skips plus the production build; and all 49 fresh
+  Electron E2E scenarios passed without failures, flakes, or skips. `git diff --check` passed. No
+  package, release, commit, tag, push, signing, notarization, promotion, or publication action was
+  performed.
+- Built and fully verified the separately authorized no-Team-ID macOS arm64 App containing the
+  completed Checkpoint 80 and Checkpoint 81 changes. The package gate verified 31 recovery fixtures
+  from 29 sources, 53,318 ASAR entries, all 12 packaged runtime smoke scenarios, and all 34
+  packaged Electron scenarios without failures, flakes, or skips. It produced
+  `WriteLLM-0.2026.8.49-arm64.dmg` (239,010,230 bytes,
+  `e69917cb1e44b1125962b68b3d790bb279e24172381facc76325ecd24e7a49c4`) and
+  `WriteLLM-0.2026.8.49-arm64.zip` (237,206,167 bytes,
+  `6779135acae153e2d4528df991a51fb4477824d5e626e5230c9ec264f07d8bad`) under
+  `dist/macos-arm64`. No Developer ID signing, notarization, tag, release, promotion, or
+  publication action was performed.

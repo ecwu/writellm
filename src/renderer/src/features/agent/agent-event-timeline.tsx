@@ -53,6 +53,7 @@ import {
   citationDisplaysForToolResult,
   formatAgentDuration,
   isSectionProposalOutdated,
+  type AgentPreflightFailure,
   type AgentActivityStatus,
   type AgentCitationDisplay,
   type AgentTimelineItem,
@@ -233,23 +234,7 @@ function TimelineItem(props: {
   if (item.type === 'question') return <QuestionHistoryMessage item={item} />
   if (item.type === 'activity') return <ActivityGroup item={item} />
   if (item.type === 'preflight_failure') {
-    return (
-      <Alert variant='destructive' data-testid='agent-preflight-failure'>
-        <AlertCircle />
-        <AlertTitle>
-          {item.failure.toolName} · {item.failure.code}
-        </AlertTitle>
-        <AlertDescription className='flex flex-col gap-1'>
-          <span>{item.failure.message}</span>
-          {item.failure.paths.length > 0 ? (
-            <span className='font-mono text-xs'>{item.failure.paths.join(', ')}</span>
-          ) : null}
-          <span className='text-xs'>
-            Failed before dispatch · {formatAgentDuration(item.failure.durationMs)}
-          </span>
-        </AlertDescription>
-      </Alert>
-    )
+    return <PreflightFailureMessage failure={item.failure} />
   }
   if (item.type === 'approval_decision') {
     return (
@@ -353,6 +338,57 @@ function TimelineItem(props: {
     )
   }
   return <CompactionCheckpointMarker payload={item.payload} />
+}
+
+export function PreflightFailureMessage(props: {
+  failure: AgentPreflightFailure
+  defaultOpen?: boolean
+}): React.JSX.Element {
+  const { failure } = props
+  return (
+    <Collapsible
+      className='group/preflight min-w-0 max-w-full overflow-hidden'
+      defaultOpen={props.defaultOpen}
+      data-testid='agent-preflight-failure'
+    >
+      <CollapsibleTrigger
+        className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+        aria-label='Show tool execution failure details'
+      >
+        <Marker role='status'>
+          <MarkerIcon>
+            <AlertCircle className='text-muted-foreground' />
+          </MarkerIcon>
+          <MarkerContent className='flex min-w-0 flex-1 items-center gap-2'>
+            <span className='min-w-0 truncate text-foreground'>Tool execution failed</span>
+            <span className='shrink-0 truncate text-xs text-muted-foreground'>
+              · {failure.toolName}
+            </span>
+          </MarkerContent>
+          <ChevronDown className='ml-auto shrink-0 text-muted-foreground transition-transform group-data-[state=open]/preflight:rotate-180' />
+        </Marker>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className='mt-2 ml-2 min-w-0 overflow-hidden border-l pl-4'>
+          <Alert variant='destructive' data-testid='agent-preflight-failure-details'>
+            <AlertCircle />
+            <AlertTitle>
+              {failure.toolName} · {failure.code}
+            </AlertTitle>
+            <AlertDescription className='flex flex-col gap-1'>
+              <span>{failure.message}</span>
+              {failure.paths.length > 0 ? (
+                <span className='font-mono text-xs'>{failure.paths.join(', ')}</span>
+              ) : null}
+              <span className='text-xs'>
+                Failed before dispatch · {formatAgentDuration(failure.durationMs)}
+              </span>
+            </AlertDescription>
+          </Alert>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
 }
 
 function QuestionHistoryMessage(props: {

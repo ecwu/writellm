@@ -10,7 +10,6 @@ import {
   agentHeaderStatusLabel,
   agentThinkingVisualState,
   currentAgentActivitySummary,
-  findLatestPrompt,
   latestAgentContextSnapshot,
   protectTerminalAgentRuns,
   projectAgentTimeline
@@ -19,6 +18,7 @@ import type { WritingTaskStepStatus } from '../../../../shared/contracts/writing
 import type { ChangeSetBatchResult } from '../../../../shared/contracts/agent-change-set'
 import {
   buildComposerCommands,
+  buildSlashCommands,
   buildSkillMentionCandidates,
   editorContextForScope,
   effectiveScope,
@@ -113,6 +113,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
   const liveRun = liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId) ?? null
   const pendingQuestion = liveRun?.pendingQuestion ?? null
   const pendingMessages = liveRun?.pendingMessages ?? []
+  const modelRetry = liveRun?.retry ?? null
   const activeCompaction =
     activeCompactions.find((item) => item.agentSessionId === activeSessionId) ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
@@ -204,7 +205,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         .filter((preset) => preset.models.length > 0),
     [providerCatalog]
   )
-  const latestPrompt = useMemo(() => findLatestPrompt(events), [events])
   const effectiveRevisionIds = useMemo(() => {
     const result = { ...props.currentRevisionIds }
     for (const [sectionId, transition] of Object.entries(revisionTransitions)) {
@@ -407,6 +407,24 @@ export function useAgentPanelController(props: AgentPanelProps) {
         const message = errorMessage(cause)
         setError(message)
       }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const retryRequest = async (): Promise<void> => {
+    if (activeRun === null || modelRetry === null || busy) return
+    const agentRunId = activeRun.agentRunId
+    setBusy(true)
+    setError(null)
+    try {
+      await window.desktop.agent.retryRequest({
+        projectSessionId: props.projectSessionId,
+        agentRunId,
+        capabilityId: modelRetry.capabilityId
+      })
+    } catch (cause) {
+      if (!(await reconcileInactiveRun(agentRunId))) setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -729,7 +747,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     }
   }
 
-  const retryableRun = latestRun?.status === 'failed' || latestRun?.status === 'interrupted'
   const failedContinuationProposal =
     continuationFailure === null
       ? null
@@ -743,8 +760,14 @@ export function useAgentPanelController(props: AgentPanelProps) {
     sectionAvailable: props.activeSectionId !== null,
     scopePreference
   })
+  const slashCommandCatalog = buildSlashCommands({
+    selectionAvailable: selectionIsAvailable,
+    sectionAvailable: props.activeSectionId !== null,
+    scopePreference,
+    canCompact
+  })
   const slashQuery = slashCommandQuery(prompt)
-  const slashCommands = filterComposerCommands(composerCommands, slashQuery ?? '')
+  const slashCommands = filterComposerCommands(slashCommandCatalog, slashQuery ?? '')
   const slashSelectableCommands = slashCommands.filter((command) => !command.disabled)
   const slashCommandOpen = slashQuery !== null && !slashMenuDismissed
   const selectedSlashCommand =
@@ -776,6 +799,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
     if (clearSlash) setPrompt('')
     if (command.action.kind === 'scope') {
       setScopePreference(command.action.value)
+    } else {
+      void compactSession()
     }
   }
 
@@ -844,6 +869,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     activeRun,
     pendingQuestion,
     pendingMessages,
+    modelRetry,
     choosingSkill,
     streaming,
     usage,
@@ -860,7 +886,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     modelReady,
     supportedThinkingLevels,
     availableModelPresets,
-    latestPrompt,
     effectiveRevisionIds,
     timeline,
     thinkingVisualState,
@@ -879,6 +904,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     restoreSession,
     startRun,
     stopRun,
+    retryRequest,
     answerUserQuestion,
     resumeWritingTask,
     reviseWritingTask,
@@ -886,7 +912,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     actOnPendingMessage,
     proposalAction,
     decideChangeSet,
-    retryableRun,
     failedContinuationProposal,
     composerSettingsDisabled,
     interactionModeSwitchDisabled,
