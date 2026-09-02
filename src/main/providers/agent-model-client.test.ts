@@ -142,7 +142,7 @@ describe('AgentModelClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
-  it('acknowledges a trace only after Main persistence handling completes', async () => {
+  it('finishes without waiting for trace persistence and sends no acknowledgement', async () => {
     const child = new TraceSessionUtilityProcess()
     const client = new AgentModelClient(
       '/private/agent-model.js',
@@ -151,7 +151,10 @@ describe('AgentModelClient', () => {
       undefined,
       () => createFakeMessageChannel() as never
     )
-    let persisted = false
+    let releaseCapture = (): void => undefined
+    const capture = new Promise<void>((resolve) => {
+      releaseCapture = resolve
+    })
     const handle = client.beginSessionRun(
       config,
       'process-secret',
@@ -159,14 +162,13 @@ describe('AgentModelClient', () => {
       new AbortController().signal,
       async (event) => {
         expect(event.type).toBe('model_trace_capture_requested')
-        await Promise.resolve()
-        persisted = true
+        await capture
       }
     )
 
     await handle.completion
-    expect(child.acknowledgedAfterPersistence).toBe(true)
-    expect(persisted).toBe(true)
+    expect(child.postMessage).toHaveBeenCalledTimes(1)
+    releaseCapture()
   })
 
   it('preserves the safe context-overflow code across the Worker boundary', async () => {
@@ -188,7 +190,7 @@ describe('AgentModelClient', () => {
 
     await expect(handle.completion).rejects.toMatchObject({
       code: 'context_overflow',
-      status: 400,
+      statusCode: 400,
       message: 'Agent provider context window exceeded'
     })
     expect(child.kill).not.toHaveBeenCalled()
@@ -279,6 +281,62 @@ describe('AgentModelClient', () => {
     await expect(outcome).resolves.toBe('completed')
     child.complete(input.agentRunId)
     await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
+  })
+
+  it('authorizes trace capture for a committed Follow-up steer without delaying the next request', async () => {
+    const child = new ControlledSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const input = sessionInput()
+    const onEvent = vi.fn()
+    const handle = client.beginSessionRun(
+      config,
+      'process-secret',
+      input,
+      new AbortController().signal,
+      onEvent
+    )
+    const actionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc471'
+    const modelRequestId = '019c6a5c-8d34-7a8e-a602-3d37a52dc472'
+    const queued = handle.queueAction({
+      operation: 'commit_follow_up_steer',
+      actionId,
+      projectSessionId: input.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      reservationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc473',
+      modelRequestId,
+      systemPrompt: input.systemPrompt
+    })
+    await vi.waitFor(() => expect(child.queueActions).toHaveLength(1))
+    child.acknowledgeQueueAction(actionId, 'completed')
+    await queued
+    child.emit('message', {
+      type: 'event',
+      requestId: handle.requestId,
+      projectSessionId: input.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      event: {
+        type: 'model_trace_capture_requested',
+        modelRequestId,
+        purpose: 'agent_prompt',
+        apiId: 'openai-completions',
+        physicalAttempt: 1,
+        documents: [{ kind: 'harness_request', value: { messages: [] } }]
+      }
+    })
+    await vi.waitFor(() =>
+      expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ modelRequestId }))
+    )
+    child.complete(input.agentRunId)
+    await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
+    expect(child.kill).not.toHaveBeenCalled()
   })
 
   it('rejects every active session run when the shared worker exits', async () => {
@@ -454,6 +512,11 @@ describe('AgentModelClient', () => {
       error: {
         code: 'invalid_arguments',
         category: 'validation',
+        details: expect.objectContaining({
+          name: 'ZodError',
+          stage: 'tool.bridge',
+          message: expect.stringContaining('query')
+        }),
         recovery: { action: 'fix_arguments', tool: 'search_knowledge' }
       }
     })
@@ -535,13 +598,10 @@ class SessionUtilityProcess extends EventEmitter {
 
 class TraceSessionUtilityProcess extends EventEmitter {
   readonly kill = vi.fn(() => true)
-  acknowledgedAfterPersistence = false
-  private run: Record<string, unknown> | undefined
 
   readonly postMessage = vi.fn((request: Record<string, unknown>) => {
     if (request.operation === 'run_start') {
-      this.run = request
-      queueMicrotask(() =>
+      queueMicrotask(() => {
         this.emit('message', {
           type: 'event',
           requestId: request.requestId,
@@ -550,7 +610,6 @@ class TraceSessionUtilityProcess extends EventEmitter {
           agentRunId: request.agentRunId,
           event: {
             type: 'model_trace_capture_requested',
-            captureId: '019c6a5c-8d34-7a8e-a602-3d37a52dc449',
             modelRequestId: request.modelRequestId,
             purpose: 'agent_prompt',
             apiId: 'openai-completions',
@@ -558,20 +617,17 @@ class TraceSessionUtilityProcess extends EventEmitter {
             documents: [{ kind: 'provider_request', value: { messages: [] } }]
           }
         })
-      )
-      return
+        this.emit('message', {
+          type: 'result',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          status: 'completed',
+          outcome: 'finished'
+        })
+      })
     }
-    if (request.operation !== 'ack_trace_capture' || this.run === undefined) return
-    this.acknowledgedAfterPersistence = request.ok === true
-    this.emit('message', {
-      type: 'result',
-      requestId: this.run.requestId,
-      projectSessionId: this.run.projectSessionId,
-      agentSessionId: this.run.agentSessionId,
-      agentRunId: this.run.agentRunId,
-      status: 'completed',
-      outcome: 'finished'
-    })
   })
 }
 
@@ -587,6 +643,9 @@ class OverflowSessionUtilityProcess extends EventEmitter {
         agentSessionId: request.agentSessionId,
         agentRunId: request.agentRunId,
         error: {
+          schemaVersion: 1,
+          stage: 'provider',
+          causes: [],
           name: 'ProviderError',
           message: 'Agent provider context window exceeded',
           httpStatus: 400,

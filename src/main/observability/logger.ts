@@ -7,6 +7,7 @@ import { currentLogContext } from './log-context'
 import { LogRingBuffer } from './log-ring-buffer'
 import { RingBufferDestination } from './ring-buffer-destination'
 import { redactLogValue } from './redact'
+import { agentDiagnosticForLogging } from '../../shared/agent-diagnostic-error'
 
 export interface LoggerOptions {
   appVersion: string
@@ -30,6 +31,8 @@ export interface LoggerSystem {
 }
 
 function serializeErrWithCause(err: Error): unknown {
+  const diagnostic = agentDiagnosticForLogging(err)
+  if (diagnostic !== undefined) return { type: diagnostic.name, ...diagnostic }
   const serialized = pino.stdSerializers.errWithCause(err) as Record<string, unknown>
   if (serialized.cause === undefined && err.cause !== undefined) {
     serialized.cause = String(err.cause).slice(0, 4_096)

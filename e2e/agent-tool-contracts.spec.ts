@@ -267,12 +267,12 @@ test(
       expect(truth.workflowState).toBe('idle')
       expect(truth.preflightFailures).toEqual([])
       expect(truth.calls).toEqual([
-        { toolName: 'activate_tool_groups', contractVersion: 13 },
-        { toolName: 'submit_brief_change', contractVersion: 13 },
-        { toolName: 'activate_tool_groups', contractVersion: 13 },
-        { toolName: 'submit_outline_change', contractVersion: 13 },
-        { toolName: 'activate_tool_groups', contractVersion: 13 },
-        { toolName: 'check_draft', contractVersion: 13 }
+        { toolName: 'activate_tool_groups', contractVersion: 14 },
+        { toolName: 'submit_brief_change', contractVersion: 14 },
+        { toolName: 'activate_tool_groups', contractVersion: 14 },
+        { toolName: 'submit_outline_change', contractVersion: 14 },
+        { toolName: 'activate_tool_groups', contractVersion: 14 },
+        { toolName: 'check_draft', contractVersion: 14 }
       ])
       expect(truth.calls.some((call) => call.toolName === 'submit_section_change')).toBe(false)
       expect(JSON.stringify(providerBodies)).not.toContain('cp50-e2e-secret')

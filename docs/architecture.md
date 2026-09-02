@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 073
-Recorded: 2026-07-31; amended through 2026-09-01
+Status: accepted implementation baseline, amended through accepted ADR 074
+Recorded: 2026-07-31; amended through 2026-09-02
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -10,7 +10,20 @@ tracker and Phase links live in [`docs/implementation-todo.md`](implementation-t
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
 
-## 2026-09-01 Writing Skill injection and non-blocking loading amendment
+## 2026-09-02 Agent Occam ablation amendment
+
+ADR 074 and Protocol v14 supersede conflicting historical clauses below. Agent loops have no
+event-count finalization or project-wide three-work admission cap. Context is token-derived with
+one lossy old-history summary plus recent atomic turns, not rolling step/event budgets. Skill
+roots are explicitly injected or progressively read; dependency completion and runtime count
+budgets do not gate work. Trace capture is best effort and cannot block network I/O. Live retry
+anchors are removed; finite pre-content retries and pre-activity overflow recovery remain.
+
+Concrete bounded diagnostics retain message, code, stage, cause, status, and stack through Main to
+Renderer after secret/private-content redaction. Authority, mutation, byte, and no-replay
+boundaries remain unchanged. See [ADR 074](adrs/074-agent-occam-ablation-and-error-propagation.md).
+
+## 2026-09-01 Writing Skill injection and non-blocking loading amendment (historical; superseded by ADR 074)
 
 ADR 073 separates explicit user invocation from automatic model discovery. Main reparses leading
 `$skill-name` tokens and, before the first provider request, atomically composes the current pinned
@@ -23,7 +36,7 @@ no Skill read. Explicit package failure drops the whole package, records a degra
 snapshot and bounded warning, and continues with the valid automatic catalog. New runs route from
 current registry state rather than reusing prior snapshots. See ADR 073.
 
-## 2026-09-01 Token-pressure Agent compaction amendment
+## 2026-09-01 Token-pressure Agent compaction amendment (historical; superseded by ADR 074)
 
 ADR 072 removes durable event count and payload bytes as ordinary automatic-compaction triggers.
 Main compacts before a turn only when the final model-visible conversation exceeds its calculated
@@ -38,7 +51,7 @@ requests it. The leading slash catalog adds immediate `/compact` through the exi
 compaction authority, while Add context and the confirmed header action remain unchanged. See ADR
 072.
 
-## 2026-09-01 Live Agent request retry amendment
+## 2026-09-01 Live Agent request retry amendment (historical; superseded by ADR 074)
 
 ADR 071 replaces prompt-resubmission `Try again` with one user-authorized retry of the latest
 eligible provider request while the original Agent Worker and run remain live. The Worker retains
@@ -68,7 +81,7 @@ only opaque IDs and bounded snapshots. Node `fs.watch` may observe only the sele
 exact basename for atomic replacement. Directory scans, `chokidar`, project-wide watchers, and
 general external-edit synchronization remain prohibited. See ADR 070.
 
-## 2026-08-31 Agent diagnostic trace amendment
+## 2026-08-31 Agent diagnostic trace amendment (historical; superseded by ADR 074)
 
 ADR 069 adds project-local, permanent diagnostic evidence for Agent model traffic. Immutable
 canonical JSON payloads are content-addressed and referenced by ordered trace records; stable SQL
@@ -107,7 +120,7 @@ The following rules are now the current target. Any older section in this docume
   Shared behavior lives once in application policy; short tool descriptions and object-root JSON
   schemas remain provider-neutral under ADR 067. Root object unions project their complete field
   vocabulary and common required fields at the root while retaining exact branches under `allOf`.
-- Agent Harness Protocol v13 keeps those outer profiles and adds a writing-only `ask`, `plan`, or
+- Agent Harness Protocol v14 keeps those outer profiles and a writing-only `ask`, `plan`, or
   `write` interaction-mode ceiling. New and migrated writing conversations default to Write; each
   run snapshots its mode. One application policy derives the exact Worker-visible and Main-enforced
   tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan may also
@@ -383,15 +396,12 @@ Pi owns the interactive agent loop and tool-call event model. AI SDK Core may im
 The active interactive boundary is the sessionful `AgentSessionRuntime` hosted in the single
 `agent-worker` process. Main owns durable session/run/event state, per-call `model_requests`,
 version compatibility, and persist-before-publish ordering in `project.sqlite`; the worker owns
-only request-scoped Pi loops. One project may have at most three Agent work reservations in
-different conversations, while each conversation remains single-line. A reservation is a run or a
-manual context compaction; automatic compaction reuses its run reservation. Slot reservation in
-Main precedes asynchronous preparation and covers routing, compaction, model, and tool work. The
-older single-shot `AgentModelRuntime` remains the request-scoped model boundary for bounded
-conversation-title generation, rolling compaction, and ADR 058's read-only transient Notebook
-answers; interactive tool-using Agent turns use `AgentSessionRuntime`. Notebook, Agent runs, and
-manual Agent compaction share one project-level maximum of three active interactive model work
-reservations. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage
+only request-scoped Pi loops. Each conversation remains single-line, with a run or manual
+compaction reservation acquired before asynchronous preparation. Different Agent conversations
+and Notebook sessions run independently without a project/Worker admission quota. Automatic
+compaction uses its run reservation. The single-shot `AgentModelRuntime` remains the boundary for
+conversation-title generation, one-summary compaction, and ADR 058's transient Notebook answers;
+interactive tool-using Agent turns use `AgentSessionRuntime`. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage
 is an explicit non-choice because durable Agent history must live in the project database. See
 ADRs 018, 019, and 058.
 
@@ -1232,8 +1242,8 @@ session, message, citation, scope, or recovery table is added.
 
 Do not send the whole project on every turn. Main resolves the conversation model and Writing Skill,
 builds the final system prompt and current request, then uses a pure `AgentContextPlanner` to account
-for the exact model-visible tool schemas, reserved output, model input/context limits, and a
-five-percent safety buffer clamped to 4,096–16,384 tokens. If fixed context plus the current request
+for the model-visible tool schemas, reserved output, and model input/context limits. There is no
+extra percentage buffer or secondary history budget. If fixed context plus the current request
 cannot fit, fail as `current_turn_too_large`; never recursively truncate the current request.
 
 A `ContextBuilder` constructs current authoritative context from:
@@ -1243,50 +1253,31 @@ A `ContextBuilder` constructs current authoritative context from:
 - active section and selected blocks;
 - neighboring section summaries where useful;
 - explicit user attachments or selected knowledge citations;
-- the latest successful rolling checkpoint plus a continuous recent tail;
+- the latest successful checkpoint plus a continuous recent raw tail;
 - tool descriptions and safety policy.
 
 Full manuscript and knowledge access is through tools with pagination and size limits.
 
-Automatic compaction is triggered only when the continuous checkpoint-plus-tail exceeds the final
-model-visible conversation token budget. Durable event count and payload bytes are diagnostic and
-storage concerns, not semantic-compaction triggers. It advances only across continuous complete
-run/turn boundaries and persists each successful step immediately. The post-compaction history
-budget is the smaller of 32,000 tokens or half the conversation budget; at its maximum it reserves
-12,000 tokens for a bounded writing handoff and 20,000 tokens for recent complete raw turns.
-User and terminal assistant messages enter compaction verbatim, while tool data remains a safe
-typed projection. Re-readable Knowledge, manuscript, Writing Skill, review, task, and proposal
-tool bodies are never compaction memory: an exhaustive per-tool policy retains only deduplicated
-identity, freshness, outcome, and safe error facts, while current authority is reread before use.
-Intermediate tool-use narration and duplicate tool outcomes do not enter the summary request.
-Automatic and manual work share this tail-preserving policy and remain limited
-to four and eight steps respectively. Source selection scans safe projections in bounded pages to
-the next complete run boundary, subject to the calculated provider input budget and a 2,000-event
-absolute ceiling; it does not split checkpoint coverage merely because a run crosses a page
-boundary. Final escaped prompt characters and system-plus-prompt tokens are checked before any
-provider call. See ADR 064.
+Automatic compaction starts when checkpoint-plus-tail exceeds the remaining model input window
+or the generic message byte envelope. Recent complete turns fill available space from newest to
+oldest. The older prefix uses generic tool-fact projection and one summary request. Source pages
+have no total event-count or complete-run gate: oldest input that cannot fit is omitted with an
+explicit count. The current request and active tool call/result batches never enter this old
+prefix. Manual compaction uses the same policy and summarizes at least the oldest available turn.
 
-Payload-v3 handoffs are conversation memory rather than manuscript, evidence, proposal, approval,
-or mutation authority. Application policy preserves their recorded user requirements and
-unfinished work unless the current request supersedes them, while every authoritative project
-fact and mutation precondition is freshly rebuilt or reread. Legacy checkpoints retain no such
-continuation semantics. A compaction failure may continue only without omitting an uncheckpointed
-user turn; otherwise it fails before provider activity. Provider overflow is retried once only
-before assistant, tool, proposal, or other external activity and is never replayed afterward. See
-ADRs 019 and 049.
+V4 checkpoints contain coverage, summary, omission count, token estimates, and the previous
+checkpoint ID. They are background memory, never a new user instruction or manuscript, evidence,
+approval, or mutation authority. V1–V3 remain readable. Provider overflow permits one
+compact-and-retry only before text, tools, or effects; activity is never replayed.
 
-Within an active Pi request, provider-context transforms preserve the current user message and each
-assistant tool-call message with all of its consecutive tool results as one atomic batch. The newest
-batch that fits remains complete; only older completed read batches may become typed,
-non-authoritative historical projections, and mutation/effect results are never projected. If the
-newest read batch alone is too large, the ordinary Pi loop receives one typed request for a smaller,
-sequential read. A second oversized batch terminates as `tool_batch_context_exhausted` before
-another provider call, without replaying any mutation or side effect. The full runtime transcript
-and durable events remain unchanged; successful recovery is structured-log-only. See ADR 046.
+Within the active Pi request, an oversized read batch becomes an ordinary tool error containing
+required and available tokens plus a smaller-read suggestion. Each batch is independent, with no
+once-only recovery state. If the projected current request still cannot fit, the concrete
+`current_turn_too_large` diagnostic reaches the user. Mutation/effect results remain atomic and
+are never projected. Raw runtime and durable events remain unchanged.
 
-A writing run that reaches 180 durable events at a tool-continuation boundary receives one final
-tool-free model call. The Worker must consume every Main-authorized continuation before successful
-settlement and may resume once from the final tool result when Pi settles early. See ADR 063.
+The loop ends naturally, by user cancellation, approval pause, or a real error, not an event
+counter. Main-authorized continuation and no-replay requirements remain unchanged. See ADR 074.
 
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
@@ -1298,7 +1289,7 @@ the Add catalog and leading-slash catalog. The slash catalog also exposes immedi
 `/compact` through the existing Main-owned compaction path; it creates no user message or ordinary
 Agent run. Writing Skills are not composer or session state and
 have no persistent selector, chip, badge, or attachment. At the start of a new-run message, `$`
-may autocomplete up to four canonical Skill names into ordinary editable prompt text. Main reparses
+may autocomplete canonical Skill names into ordinary editable prompt text. Main reparses
 that text and injects a recognized explicit package before the first provider request, while the
 Agent still discovers automatic guidance only through visible tool calls. Active-run Steer and
 Follow-up input does not reopen Skill discovery. See ADRs 055 and 073.
@@ -1391,21 +1382,13 @@ The UI injects selection capture time and revision; stale block selections are n
 newer body.
 
 `read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
-active run. In Auto mode, one Skill-only response may add one previously unloaded top-level or
-dependency `SKILL.md`; a run may compose at most four ordered top-level Skills plus a deduplicated
-closure of
-at most eight dependencies. Every top-level and dependency manifest contributes exact reference
-capabilities. A run may retain at most twelve complete reference files and 32 KiB of reference
-content, keyed by Skill ID, commit, and relative path. Skill guidance is delimited below global
-policy and is never treated as manuscript data. Durable events store only IDs, pins, relative
-paths, hashes, and byte counts, never Skill bodies or private paths. See ADR 053.
-
-Already injected explicit entrypoints are not reread. Auto adds at most one new top-level or
-dependency entrypoint in an otherwise Skill-only assistant response, and Skill reads cannot mix
-with another tool kind in that response. The model should read advertised dependencies for the
-complete method and may issue authorized reference reads within the remaining count and byte
-budgets. Unread or failed dependencies do not suppress assistant text, block later tools, reject a
-final answer, or fail run settlement; protocol violations remain ordinary recoverable tool errors.
+active run. Multiple entrypoint, dependency, and reference reads may share a batch with other
+independent read-only tools. Each returns ordinary tool content; no complete dependency closure,
+entrypoint-per-response limit, or cumulative root/reference count gates the loop. Installed
+manifest authorization, pinned commit/hash, normalized paths, and generic file/payload bounds
+remain mandatory. Skill guidance remains below global policy and never grants mutation authority.
+Durable events store provenance rather than Skill bodies; private diagnostic bodies belong only
+in trace storage. See ADR 074.
 
 Read-only tools may execute in parallel when their results are independent.
 
@@ -1491,8 +1474,8 @@ accepted, and no skill content is executable.
 Writing Skills are dynamic per-run Agent actions, never session or composer state. Every new run
 receives a bounded automatic metadata catalog. A leading `$skill-name` prompt prefix may additionally
 identify ordered, Main-resolved requested entrypoints, including explicit-only Skills; the text is
-not a Renderer authorization object. Main atomically injects recognized roots and their complete
-current dependency closure before the first provider request. Ordinary-language requests and
+not a Renderer authorization object. Main injects only recognized requested roots before the first
+provider request; dependency and reference URIs are read progressively. Ordinary-language requests and
 Agent-initiated choices remain valid and use visible `read_writing_skill` calls. Versioned run
 snapshots persist immutable actually injected or loaded provenance, resources, routing status, and
 safe errors, but never Skill bodies. Every new run consults the current registry; prior snapshots
@@ -1505,10 +1488,11 @@ credential surface, so historical conversation totals remain complete.
 Pi `loadSourcedSkills` runs over a read-only, manifest-backed virtual `ExecutionEnv`; WriteLLM's
 stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any Pi or
 WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
-`formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog of at most 32 complete entries and
-16 KiB; truncation is logged as `skill_catalog_truncated`. A successful automatic tool read places
-that exact immutable entrypoint or reference below global policy in one escaped application-owned
-semantic block for later turns in the same run. Explicit top-level precedence follows user-text
+`formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog that fits the actual system
+prompt token/byte space after requested roots. Omitted catalog entries generate no attention
+warning, and explicit names resolve from the complete installed registry. Successful progressive
+reads return their immutable content only as ordinary tool results, not accumulated system text.
+Explicit top-level precedence follows user-text
 order; automatic top-level precedence follows successful load order; stable dependencies remain
 below every top-level Skill. Prompt order remains global policy,
 companion/catalog and loaded guidance, trusted requirements, then manuscript data.
@@ -1545,7 +1529,7 @@ interface AgentToolRequest {
 }
 ```
 
-The bridge uses one dedicated transferable `MessagePort` per active run. Up to three ports and Pi
+The bridge uses one dedicated transferable `MessagePort` per active run. Independent ports and Pi
 loops may coexist in the one worker process, and every controller, queue command, authorization,
 and tool capability remains indexed by its exact run. Its request and response envelopes repeat
 the run, tool-call, and source-model capabilities; model-facing arguments contain none of those

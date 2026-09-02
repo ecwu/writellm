@@ -9,7 +9,6 @@ import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts
 import type { KnowledgeItem } from '../../shared/contracts/knowledge'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { ExpandedCitation } from '../../shared/contracts/search'
-import { ProjectInteractiveModelLimiter } from '../agent/project-interactive-model-limiter'
 import type {
   AgentSessionRunHandle,
   AgentSessionRunInput,
@@ -228,8 +227,7 @@ class NotebookRuntime implements AgentSessionRuntime {
         authorize = null
         if (resolve === null) throw new Error('Unexpected Notebook continuation authorization')
         resolve(command.modelRequestId)
-      },
-      authorizeModelRetry: () => undefined
+      }
     }
   }
 }
@@ -346,7 +344,6 @@ async function harness(
     } as never,
     agentCatalog: agentCatalog as never,
     runtime,
-    limiter: new ProjectInteractiveModelLimiter(projectId, log),
     log: logger
   })
   return { service, retrieval, currentIndexedSources, agentCatalog, runtime, logger, database }
@@ -560,7 +557,7 @@ describe('KnowledgeChatService', () => {
     )
 
     const failed = await harness()
-    const retrievalError = new Error('retrieval failed')
+    const retrievalError = new Error('retrieval failed: Keep this question visible')
     failed.retrieval.search.mockRejectedValueOnce(retrievalError)
     await failed.service.startTurn('Keep this question visible')
     const snapshot = await completed(failed.service)
@@ -568,7 +565,7 @@ describe('KnowledgeChatService', () => {
       expect.objectContaining({ role: 'user', content: 'Keep this question visible' }),
       expect.objectContaining({ role: 'assistant', status: 'failed' })
     ])
-    expect(snapshot.lastError).toContain('could not answer')
+    expect(snapshot.lastError).toBe('retrieval failed: [REDACTED]')
     expect(failed.logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ err: retrievalError, event: 'knowledge.notebook.tool_failed' }),
       expect.any(String)

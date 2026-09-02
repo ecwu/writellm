@@ -12,6 +12,10 @@ import type {
   AgentRunRecord,
   AgentSessionRecord
 } from '../../../../shared/contracts/agent-ipc'
+import {
+  agentDiagnosticErrorSchema,
+  type AgentDiagnosticError
+} from '../../../../shared/agent-diagnostic-error'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentModelSelection } from '../../../../shared/contracts/providers'
 import {
@@ -53,6 +57,7 @@ export interface AgentPreflightFailure {
   toolName: string
   code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed'
   message: string
+  details?: AgentDiagnosticError
   paths: string[]
   durationMs: number
 }
@@ -92,6 +97,7 @@ export type AgentRunTerminal = {
   outcome: 'finished' | 'awaiting_review'
   code: string
   durationMs: number
+  diagnostic?: AgentDiagnosticError
 }
 
 export type AgentReviewState =
@@ -483,6 +489,9 @@ export function projectAgentTimeline(
           message: diagnostic.success
             ? diagnostic.data.message
             : 'Tool preparation failed before Main dispatch. Open Details for the historical diagnostic.',
+          ...(diagnostic.success && diagnostic.data.details !== undefined
+            ? { details: diagnostic.data.details }
+            : {}),
           paths: diagnostic.success ? diagnostic.data.paths : [],
           durationMs:
             typeof event.payload.durationMs === 'number' && event.payload.durationMs >= 0
@@ -830,7 +839,7 @@ export function agentTerminalDetail(code: string): string | null {
   }
   if (code === 'tool_batch_context_exhausted') {
     return (
-      'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; ' +
+      'WriteLLM continued with a smaller read. Earlier confirmed changes remain; ' +
       'the remaining content was not force-edited. Continue with one section or a smaller range.'
     )
   }
@@ -864,11 +873,16 @@ function terminalFromEvent(
   const endTimestamp =
     completedAt === undefined ? Date.parse(event.createdAt) : Date.parse(completedAt)
   const startedAt = run?.startedAt ?? firstRunTimestamp(event.agentRunId, events)
+  const eventDiagnostic = agentDiagnosticErrorSchema.safeParse(event.payload.diagnostic)
+  const diagnostic = eventDiagnostic.success
+    ? eventDiagnostic.data
+    : (run?.errorDetails ?? undefined)
   return {
     runId: event.agentRunId,
     status,
     outcome,
     code,
+    ...(diagnostic === undefined ? {} : { diagnostic }),
     durationMs: toolDurationMs(
       Date.parse(startedAt),
       Number.isNaN(endTimestamp) ? now : endTimestamp

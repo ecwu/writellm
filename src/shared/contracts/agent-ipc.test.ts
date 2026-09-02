@@ -7,7 +7,6 @@ import {
   agentListSessionsInputSchema,
   agentRendererEventSchema,
   agentProjectActivitySnapshotSchema,
-  agentRetryRequestInputSchema,
   agentSessionRecordSchema,
   agentSetThinkingLevelInputSchema,
   agentStartRunInputSchema
@@ -19,21 +18,6 @@ const agentRunId = '019c6a5c-8d34-7a8e-a602-3d37a52dc424'
 const sectionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc425'
 
 describe('Agent IPC contracts', () => {
-  it('accepts only capability identity for an Agent request retry', () => {
-    const capabilityId = '019c6a5c-8d34-7a8e-a602-3d37a52dc426'
-    expect(
-      agentRetryRequestInputSchema.parse({ projectSessionId, agentRunId, capabilityId })
-    ).toEqual({ projectSessionId, agentRunId, capabilityId })
-    expect(() =>
-      agentRetryRequestInputSchema.parse({
-        projectSessionId,
-        agentRunId,
-        capabilityId,
-        prompt: 'This must never be resent.'
-      })
-    ).toThrow()
-  })
-
   it('requires editor context to match the selected start scope', () => {
     const parsed = agentStartRunInputSchema.parse({
       projectSessionId,
@@ -156,7 +140,7 @@ describe('Agent IPC contracts', () => {
     ).toThrow()
   })
 
-  it('bounds project activity snapshots by slots and UTF-8 streaming bytes', () => {
+  it('preserves per-session identity and UTF-8 streaming bytes without project slots', () => {
     const run = {
       agentSessionId,
       agentRunId,
@@ -164,12 +148,11 @@ describe('Agent IPC contracts', () => {
       partialText: 'draft',
       startedAt: '2026-08-12T09:00:00.000Z'
     }
-    expect(
-      agentProjectActivitySnapshotSchema.parse({ limit: 3, activeCount: 1, runs: [run] })
-    ).toMatchObject({ limit: 3, activeCount: 1 })
+    expect(agentProjectActivitySnapshotSchema.parse({ activeCount: 1, runs: [run] })).toMatchObject(
+      { activeCount: 1 }
+    )
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [
           {
@@ -181,7 +164,6 @@ describe('Agent IPC contracts', () => {
     ).toThrow('Live Agent output is too large')
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 3,
         runs: [run, run, run, run]
       })
@@ -203,14 +185,12 @@ describe('Agent IPC contracts', () => {
     }
     expect(
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [{ ...run, pendingMessages: [pendingMessage] }]
       }).runs[0]?.pendingMessages
     ).toEqual([pendingMessage])
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [
           {
@@ -225,14 +205,12 @@ describe('Agent IPC contracts', () => {
     ).toThrow()
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [{ ...run, pendingMessages: [pendingMessage, pendingMessage] }]
       })
     ).toThrow('Pending Agent message IDs must be unique')
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [
           {
@@ -269,7 +247,6 @@ describe('Agent IPC contracts', () => {
       startedAt: '2026-08-24T10:00:00.000Z'
     }
     const snapshot = agentProjectActivitySnapshotSchema.parse({
-      limit: 3,
       activeCount: 1,
       runs: [
         {
@@ -285,7 +262,6 @@ describe('Agent IPC contracts', () => {
     expect(snapshot.runs[0]?.pendingQuestion).toEqual(pendingQuestion)
     expect(() =>
       agentProjectActivitySnapshotSchema.parse({
-        limit: 3,
         activeCount: 1,
         runs: [
           {

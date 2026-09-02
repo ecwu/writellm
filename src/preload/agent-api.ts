@@ -22,8 +22,6 @@ import {
   agentGenerateSessionTitleResultSchema,
   agentPendingMessageActionInputSchema,
   agentQueueInputSchema,
-  agentRetryRequestInputSchema,
-  agentRetryRequestResultSchema,
   agentRendererEventSchema,
   agentRestoreSessionInputSchema,
   agentRestoreSessionResultSchema,
@@ -170,14 +168,6 @@ export const agentApi: DesktopApi['agent'] = {
   },
   async steerRun(input) {
     await ipcRenderer.invoke(IPC_CHANNELS.agentSteerRun, agentQueueInputSchema.parse(input))
-  },
-  async retryRequest(input) {
-    agentRetryRequestResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentRetryRequest,
-        agentRetryRequestInputSchema.parse(input)
-      )
-    )
   },
   async followUpRun(input) {
     await ipcRenderer.invoke(IPC_CHANNELS.agentFollowUpRun, agentQueueInputSchema.parse(input))

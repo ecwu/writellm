@@ -21,7 +21,12 @@ import {
   DialogTitle
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { BoundedJsonDetails, elapsedRunMs, ToolActivityRow } from './agent-event-timeline'
+import {
+  AgentDiagnosticDetails,
+  BoundedJsonDetails,
+  elapsedRunMs,
+  ToolActivityRow
+} from './agent-event-timeline'
 import { AgentModelPicker } from './agent-model-picker'
 import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker'
 import {
@@ -137,6 +142,9 @@ export function AgentDetailsDialog(props: {
               <dt className='text-muted-foreground'>Error code</dt>
               <dd>{run?.errorCode ?? '—'}</dd>
             </dl>
+            {run?.errorDetails === null || run?.errorDetails === undefined ? null : (
+              <AgentDiagnosticDetails diagnostic={run.errorDetails} />
+            )}
             {props.contextSnapshot ? (
               <div className='grid gap-2 text-xs text-muted-foreground'>
                 <div className='flex justify-between gap-3'>

@@ -7,10 +7,8 @@ export const SKILL_MAX_TOTAL_BYTES = 48 * 1024
 export const SKILL_MAX_ENTRYPOINT_BYTES = 24 * 1024
 export const SKILL_MAX_REFERENCE_BYTES = 8 * 1024
 export const SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES = 64 * 1024
-export const SKILL_MAX_ACTIVE_SKILLS = 4
-export const SKILL_MAX_DEPENDENCIES = 8
-export const SKILL_MAX_RUN_REFERENCES = 12
-export const SKILL_MAX_RUN_REFERENCE_BYTES = 32 * 1024
+/** Generic durable/IPC bound for the metadata-only run snapshot. */
+export const SKILL_RUN_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024
 
 export const skillIdSchema = z
   .string()
@@ -80,10 +78,10 @@ const versionThreeSkillRunSnapshotSchema = strictObject({
   schemaVersion: z.literal(3),
   mode: z.enum(['auto', 'explicit', 'none']),
   routingStatus: skillRoutingStatusSchema,
-  requestedSkills: z.array(skillRunProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
-  skills: z.array(skillRunTopLevelProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
-  dependencies: z.array(skillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
-  resources: z.array(skillRunResourceSchema).max(SKILL_MAX_RUN_REFERENCES),
+  requestedSkills: z.array(skillRunProvenanceSchema),
+  skills: z.array(skillRunTopLevelProvenanceSchema),
+  dependencies: z.array(skillRunProvenanceSchema),
+  resources: z.array(skillRunResourceSchema),
   safeError: z.string().min(1).max(200).nullable()
 })
 
@@ -91,9 +89,9 @@ const versionTwoSkillRunSnapshotSchema = strictObject({
   schemaVersion: z.literal(2),
   mode: z.enum(['auto', 'explicit', 'none']),
   routingStatus: skillRoutingStatusSchema,
-  skills: z.array(skillRunProvenanceSchema).max(SKILL_MAX_ACTIVE_SKILLS),
-  dependencies: z.array(skillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
-  resources: z.array(skillRunResourceSchema).max(SKILL_MAX_RUN_REFERENCES),
+  skills: z.array(skillRunProvenanceSchema),
+  dependencies: z.array(skillRunProvenanceSchema),
+  resources: z.array(skillRunResourceSchema),
   safeError: z.string().min(1).max(200).nullable()
 })
 
@@ -108,55 +106,111 @@ const legacySkillRunSnapshotSchema = strictObject({
   mode: z.enum(['auto', 'explicit', 'none']),
   routingStatus: skillRoutingStatusSchema,
   primary: legacySkillRunProvenanceSchema.nullable(),
-  dependencies: z.array(legacySkillRunProvenanceSchema).max(SKILL_MAX_DEPENDENCIES),
-  resources: z.array(skillRelativePathSchema).max(4),
+  dependencies: z.array(legacySkillRunProvenanceSchema),
+  resources: z.array(skillRelativePathSchema),
   safeError: z.string().min(1).max(200).nullable()
 })
 
-export const skillRunSnapshotSchema = z.preprocess((value) => {
-  const legacy = legacySkillRunSnapshotSchema.safeParse(value)
-  const normalized = legacy.success
-    ? {
-        schemaVersion: 2 as const,
-        mode: legacy.data.mode,
-        routingStatus: legacy.data.routingStatus,
-        skills:
-          legacy.data.primary === null
-            ? []
-            : [{ ...legacy.data.primary, displayName: legacy.data.primary.name }],
-        dependencies: legacy.data.dependencies.map((dependency) => ({
-          ...dependency,
-          displayName: dependency.name
-        })),
-        resources:
-          legacy.data.primary === null
-            ? []
-            : legacy.data.resources.map((relativePath) => ({
-                skillId: legacy.data.primary?.skillId ?? '',
-                commit: legacy.data.primary?.commit ?? '',
-                relativePath,
-                sha256: null,
-                byteSize: null
-              })),
-        safeError: legacy.data.safeError
-      }
-    : value
-  const versionTwo = versionTwoSkillRunSnapshotSchema.safeParse(normalized)
-  if (!versionTwo.success) return value
-  return {
-    schemaVersion: 3,
-    mode: versionTwo.data.mode,
-    routingStatus: versionTwo.data.routingStatus,
-    requestedSkills: versionTwo.data.mode === 'explicit' ? versionTwo.data.skills : [],
-    skills: versionTwo.data.skills.map((skill) => ({
-      ...skill,
-      invocationSource: versionTwo.data.mode === 'explicit' ? 'user' : 'agent'
-    })),
-    dependencies: versionTwo.data.dependencies,
-    resources: versionTwo.data.resources,
-    safeError: versionTwo.data.safeError
+const versionFourSkillRunSnapshotShape = strictObject({
+  schemaVersion: z.literal(4),
+  mode: z.enum(['auto', 'explicit', 'none']),
+  routingStatus: skillRoutingStatusSchema,
+  requestedSkills: z.array(skillRunProvenanceSchema),
+  skills: z.array(skillRunTopLevelProvenanceSchema),
+  dependencies: z.array(skillRunProvenanceSchema),
+  resources: z.array(skillRunResourceSchema),
+  safeError: z.string().min(1).max(200).nullable()
+})
+
+function normalizeSkillRunSnapshot(value: unknown): unknown {
+  if (versionFourSkillRunSnapshotShape.safeParse(value).success) return value
+
+  const versionThree = versionThreeSkillRunSnapshotSchema.safeParse(value)
+  if (versionThree.success) {
+    return { ...versionThree.data, schemaVersion: 4 }
   }
-}, versionThreeSkillRunSnapshotSchema)
+
+  const versionTwo = versionTwoSkillRunSnapshotSchema.safeParse(value)
+  if (versionTwo.success) {
+    return {
+      schemaVersion: 4,
+      mode: versionTwo.data.mode,
+      routingStatus: versionTwo.data.routingStatus,
+      requestedSkills: versionTwo.data.mode === 'explicit' ? versionTwo.data.skills : [],
+      skills: versionTwo.data.skills.map((skill) => ({
+        ...skill,
+        invocationSource: versionTwo.data.mode === 'explicit' ? 'user' : 'agent'
+      })),
+      dependencies: versionTwo.data.dependencies,
+      resources: versionTwo.data.resources,
+      safeError: versionTwo.data.safeError
+    }
+  }
+
+  const legacy = legacySkillRunSnapshotSchema.safeParse(value)
+  if (!legacy.success) return value
+  return {
+    schemaVersion: 4,
+    mode: legacy.data.mode,
+    routingStatus: legacy.data.routingStatus,
+    requestedSkills:
+      legacy.data.mode === 'explicit' && legacy.data.primary !== null
+        ? [{ ...legacy.data.primary, displayName: legacy.data.primary.name }]
+        : [],
+    skills:
+      legacy.data.primary === null
+        ? []
+        : [
+            {
+              ...legacy.data.primary,
+              displayName: legacy.data.primary.name,
+              invocationSource:
+                legacy.data.mode === 'explicit' ? ('user' as const) : ('agent' as const)
+            }
+          ],
+    dependencies: legacy.data.dependencies.map((dependency) => ({
+      ...dependency,
+      displayName: dependency.name
+    })),
+    resources:
+      legacy.data.primary === null
+        ? []
+        : legacy.data.resources.map((relativePath) => ({
+            skillId: legacy.data.primary?.skillId ?? '',
+            commit: legacy.data.primary?.commit ?? '',
+            relativePath,
+            sha256: null,
+            byteSize: null
+          })),
+    safeError: legacy.data.safeError
+  }
+}
+
+export const skillRunSnapshotSchema = z
+  .preprocess(normalizeSkillRunSnapshot, versionFourSkillRunSnapshotShape)
+  .superRefine((snapshot, context) => {
+    let byteSize: number
+    try {
+      byteSize = new TextEncoder().encode(JSON.stringify(snapshot)).byteLength
+    } catch (err) {
+      context.addIssue({
+        code: 'custom',
+        path: [],
+        message:
+          err instanceof Error
+            ? `Snapshot cannot be serialized: ${err.message}`
+            : 'Snapshot cannot be serialized'
+      })
+      return
+    }
+    if (byteSize > SKILL_RUN_SNAPSHOT_MAX_BYTES) {
+      context.addIssue({
+        code: 'custom',
+        path: [],
+        message: 'Writing Skill run snapshot exceeds its generic byte bound'
+      })
+    }
+  })
 
 export const skillManifestFileSchema = strictObject({
   path: skillRelativePathSchema,
@@ -182,7 +236,7 @@ export const skillCatalogEntrySchema = strictObject({
   directory: skillDirectorySchema,
   commit: skillCommitSchema,
   license: z.string().trim().min(1).max(100),
-  dependencies: z.array(skillIdSchema).max(8),
+  dependencies: z.array(skillIdSchema),
   installed: z.boolean(),
   updateAvailable: z.boolean()
 })
@@ -201,7 +255,7 @@ export const installedSkillSchema = strictObject({
   disableModelInvocation: z.boolean(),
   integrityStatus: skillIntegrityStatusSchema,
   displayStatus: skillDisplayStatusSchema,
-  dependencies: z.array(skillIdSchema).max(8),
+  dependencies: z.array(skillIdSchema),
   fileCount: z.number().int().positive().max(10_000),
   totalBytes: z
     .number()

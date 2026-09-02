@@ -49,6 +49,50 @@ export class AgentTraceRepository {
     payloadCount: number
     recordCount: number
   } {
+    try {
+      return this.capturePayloads(input)
+    } catch (err) {
+      this.log.error(
+        { event: 'agent.trace.capture_failed', err, modelRequestId: input.modelRequestId },
+        'Agent request continues with a diagnostic trace gap'
+      )
+      try {
+        const now = this.now().toISOString()
+        this.database.immediate((database) =>
+          database
+            .prepare(`INSERT INTO model_request_traces (
+            model_request_id, purpose, api_id, trace_id, span_id, parent_span_id,
+            capture_status, physical_attempt_count, failure_code, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, 'failed', ?, 'diagnostic_gap', ?, ?)
+          ON CONFLICT(model_request_id) DO UPDATE SET
+            capture_status = 'failed', failure_code = 'diagnostic_gap', updated_at = excluded.updated_at`)
+            .run(
+              input.modelRequestId,
+              input.purpose,
+              input.apiId,
+              input.traceId,
+              input.spanId ?? input.modelRequestId,
+              input.parentSpanId ?? null,
+              input.physicalAttempt,
+              now,
+              now
+            )
+        )
+      } catch (err) {
+        this.log.error(
+          { event: 'agent.trace.gap_record_failed', err, modelRequestId: input.modelRequestId },
+          'Unable to persist diagnostic trace gap metadata'
+        )
+      }
+      return { payloadBytes: 0, payloadCount: 0, recordCount: 0 }
+    }
+  }
+
+  private capturePayloads(input: CaptureAgentTraceInput): {
+    payloadBytes: number
+    payloadCount: number
+    recordCount: number
+  } {
     if (!Number.isInteger(input.physicalAttempt) || input.physicalAttempt < 1) {
       throw new Error('Trace physical attempt must be a positive integer')
     }
@@ -196,27 +240,43 @@ export class AgentTraceRepository {
   }
 
   exists(modelRequestId: string): boolean {
-    return this.database.immediate(
-      (database) =>
-        database
-          .prepare('SELECT 1 FROM model_request_traces WHERE model_request_id = ?')
-          .pluck()
-          .get(modelRequestId) === 1
-    )
+    try {
+      return this.database.immediate(
+        (database) =>
+          database
+            .prepare('SELECT 1 FROM model_request_traces WHERE model_request_id = ?')
+            .pluck()
+            .get(modelRequestId) === 1
+      )
+    } catch (err) {
+      this.log.error(
+        { event: 'agent.trace.lookup_failed', err, modelRequestId },
+        'Trace lookup failed'
+      )
+      return false
+    }
   }
 
   nextDocumentOccurrence(modelRequestId: string, kind: AgentTraceDocumentKind): number {
-    return this.database.immediate((database) => {
-      const value = database
-        .prepare(
-          `SELECT COALESCE(MAX(physical_attempt), 0) + 1
+    try {
+      return this.database.immediate((database) => {
+        const value = database
+          .prepare(
+            `SELECT COALESCE(MAX(physical_attempt), 0) + 1
              FROM agent_trace_records
             WHERE model_request_id = ? AND document_kind = ?`
-        )
-        .pluck()
-        .get(modelRequestId, kind)
-      return Number(value)
-    })
+          )
+          .pluck()
+          .get(modelRequestId, kind)
+        return Number(value)
+      })
+    } catch (err) {
+      this.log.error(
+        { event: 'agent.trace.lookup_failed', err, modelRequestId },
+        'Trace occurrence lookup failed'
+      )
+      return 1
+    }
   }
 
   complete(input: {
@@ -248,17 +308,37 @@ export class AgentTraceRepository {
     totalDurationMs?: number
     failureCode?: string
   }): void {
+    try {
+      this.finishCapture(input)
+    } catch (err) {
+      this.log.error(
+        { event: 'agent.trace.finish_failed', err, modelRequestId: input.modelRequestId },
+        'Agent request continues without trace completion metadata'
+      )
+    }
+  }
+
+  private finishCapture(input: {
+    modelRequestId: string
+    physicalAttemptCount: number
+    status: 'complete' | 'failed'
+    httpStatus?: number
+    ttftMs?: number
+    totalDurationMs?: number
+    failureCode?: string
+  }): void {
     const now = this.now().toISOString()
     const changes = this.database.immediate(
       (database) =>
         database
           .prepare(
             `UPDATE model_request_traces
-                SET capture_status = ?,
+                SET capture_status = CASE WHEN failure_code = 'diagnostic_gap' THEN 'failed' ELSE ? END,
                     physical_attempt_count = MAX(physical_attempt_count, ?),
                     http_status = COALESCE(?, http_status),
                     ttft_ms = COALESCE(?, ttft_ms),
-                    total_duration_ms = COALESCE(?, total_duration_ms), failure_code = ?,
+                    total_duration_ms = COALESCE(?, total_duration_ms),
+                    failure_code = CASE WHEN failure_code = 'diagnostic_gap' THEN failure_code ELSE ? END,
                     updated_at = ?
               WHERE model_request_id = ?`
           )

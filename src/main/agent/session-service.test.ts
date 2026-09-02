@@ -38,7 +38,7 @@ describe('AgentSessionService: runtime', () => {
     database.close()
   })
 
-  it('runs three conversations concurrently, rejects 3+1, and targets queue and stop by run', async () => {
+  it('runs four conversations concurrently and keeps queue, stop and session authority isolated', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const service = createService(database, runtime)
@@ -77,7 +77,6 @@ describe('AgentSessionService: runtime', () => {
     )
 
     expect(service.projectActivitySnapshot()).toMatchObject({
-      limit: 3,
       activeCount: 3,
       runs: expect.arrayContaining([
         expect.objectContaining({ agentRunId: first.agentRunId }),
@@ -85,13 +84,12 @@ describe('AgentSessionService: runtime', () => {
         expect.objectContaining({ agentRunId: third.agentRunId })
       ])
     })
-    await expect(
-      service.startRun({
-        agentSessionId: fourthSession.agentSessionId,
-        prompt: 'Fourth request',
-        editorContext
-      })
-    ).rejects.toThrow('Up to 3 Agent tasks can work at once')
+    const fourth = await service.startRun({
+      agentSessionId: fourthSession.agentSessionId,
+      prompt: 'Fourth request',
+      editorContext
+    })
+    expect(service.projectActivitySnapshot().activeCount).toBe(4)
 
     await service.followUp(second.agentRunId, 'Queue only on the second run')
     expect(runtime.active(second.agentRunId).commands).toHaveLength(1)
@@ -104,11 +102,7 @@ describe('AgentSessionService: runtime', () => {
     expect(service.requireRun(first.agentRunId).status).toBe('running')
     expect(service.requireRun(third.agentRunId).status).toBe('running')
 
-    const fourth = await service.startRun({
-      agentSessionId: fourthSession.agentSessionId,
-      prompt: 'Fourth request after release',
-      editorContext
-    })
+    expect(service.requireRun(fourth.agentRunId).status).toBe('running')
     runtime.active(first.agentRunId).resolve()
     runtime.active(third.agentRunId).resolve()
     runtime.active(fourth.agentRunId).resolve()
@@ -117,7 +111,7 @@ describe('AgentSessionService: runtime', () => {
     database.close()
   })
 
-  it('allows two runs plus one manual compaction and releases the slot after stop', async () => {
+  it('allows two runs plus one manual compaction and releases it after stop', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const summarizeHistory = vi.fn(
@@ -127,13 +121,13 @@ describe('AgentSessionService: runtime', () => {
         })
     )
     const service = createService(database, runtime, undefined, { summarizeHistory })
-    const [manualSession, runSessionOne, runSessionTwo, blockedSession] = [
+    const [manualSession, runSessionOne, runSessionTwo, fourthSession] = [
       'Manual',
       'Run one',
       'Run two',
-      'Blocked'
+      'Fourth'
     ].map((title) => service.createSession(title))
-    if (!manualSession || !runSessionOne || !runSessionTwo || !blockedSession) {
+    if (!manualSession || !runSessionOne || !runSessionTwo || !fourthSession) {
       throw new Error('Expected four test conversations')
     }
     const editorContext = {
@@ -163,7 +157,6 @@ describe('AgentSessionService: runtime', () => {
     const { compactionId } = await service.compactSession(manualSession.agentSessionId)
     await vi.waitFor(() => expect(summarizeHistory).toHaveBeenCalledOnce())
     expect(service.projectActivitySnapshot()).toMatchObject({
-      limit: 3,
       activeCount: 3,
       runs: expect.arrayContaining([
         expect.objectContaining({ agentRunId: first.agentRunId }),
@@ -183,16 +176,15 @@ describe('AgentSessionService: runtime', () => {
         .listSessions()
         .find((session) => session.agentSessionId === manualSession.agentSessionId)
     ).toMatchObject({ workflowState: 'compacting' })
-    await expect(
-      service.startRun({
-        agentSessionId: blockedSession.agentSessionId,
-        prompt: 'Fourth project task',
-        editorContext
-      })
-    ).rejects.toThrow('Up to 3 Agent tasks can work at once')
+    const fourth = await service.startRun({
+      agentSessionId: fourthSession.agentSessionId,
+      prompt: 'Fourth project task',
+      editorContext
+    })
+    expect(service.projectActivitySnapshot().activeCount).toBe(4)
 
     await service.stopCompaction(manualSession.agentSessionId, compactionId)
-    expect(service.projectActivitySnapshot()).toMatchObject({ activeCount: 2, compactions: [] })
+    expect(service.projectActivitySnapshot()).toMatchObject({ activeCount: 3, compactions: [] })
     expect(
       service
         .listEvents(manualSession.agentSessionId)
@@ -206,7 +198,8 @@ describe('AgentSessionService: runtime', () => {
 
     runtime.active(first.agentRunId).resolve()
     runtime.active(second.agentRunId).resolve()
-    await Promise.all([first.completion, second.completion])
+    runtime.active(fourth.agentRunId).resolve()
+    await Promise.all([first.completion, second.completion, fourth.completion])
     database.close()
   })
 
@@ -385,7 +378,7 @@ describe('AgentSessionService: runtime', () => {
     const session = service.createSession('Oversized current turn')
     const started = await service.startRun({
       agentSessionId: session.agentSessionId,
-      prompt: `永不截断🙂${'界'.repeat(20_000)}`,
+      prompt: `永不截断🙂${'界'.repeat(120_000)}`,
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     await started.completion
@@ -411,7 +404,7 @@ describe('AgentSessionService: runtime', () => {
           await routed
           return {
             snapshot: {
-              schemaVersion: 3,
+              schemaVersion: 4,
               mode: 'auto',
               routingStatus: 'not_needed',
               requestedSkills: [],
@@ -463,8 +456,8 @@ describe('AgentSessionService: runtime', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     expect(route).not.toHaveBeenCalled()
-    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('not_needed')
     await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
+    expect(service.requireRun(started.agentRunId).skillSnapshot.routingStatus).toBe('not_needed')
     runtime.active(started.agentRunId).resolve()
     await started.completion
     database.close()
@@ -473,10 +466,15 @@ describe('AgentSessionService: runtime', () => {
   it('cancels skill routing before the provider runtime starts', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
+    let routeEntered!: () => void
+    const routeStarted = new Promise<void>((resolve) => {
+      routeEntered = resolve
+    })
     const service = createService(database, runtime, undefined, {
       skillRouter: {
         route: (input) =>
           new Promise((_resolve, reject) => {
+            routeEntered()
             input.signal.addEventListener('abort', () => reject(input.signal.reason), {
               once: true
             })
@@ -490,6 +488,7 @@ describe('AgentSessionService: runtime', () => {
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
 
+    await routeStarted
     await service.abort(started.agentRunId)
 
     expect(service.requireRun(started.agentRunId)).toMatchObject({
@@ -568,11 +567,10 @@ describe('AgentSessionService: runtime', () => {
     database.close()
   })
 
-  it('drops an atomic explicit Skill bundle when the complete first context exceeds budget', async () => {
+  it('reports a concrete failure when an explicit Skill root cannot fit the context', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const commit = 'a'.repeat(40)
-    const fallback = '<available_skills><skill name="automatic" /></available_skills>'
     const contextBuilder = {
       build: vi.fn((input: { prompt: string; skillPrompt?: { mandatory: string } }) => {
         if (input.skillPrompt?.mandatory.includes('EXPLICIT_BUNDLE')) {
@@ -593,7 +591,7 @@ describe('AgentSessionService: runtime', () => {
       skillRouter: {
         route: async () => ({
           snapshot: {
-            schemaVersion: 3 as const,
+            schemaVersion: 4 as const,
             mode: 'explicit' as const,
             routingStatus: 'selected' as const,
             requestedSkills: [
@@ -624,7 +622,6 @@ describe('AgentSessionService: runtime', () => {
             mandatory: 'EXPLICIT_BUNDLE'.repeat(4_000),
             references: []
           },
-          fallbackPrompt: { mode: 'auto' as const, mandatory: fallback, references: [] },
           modelRequestId: null
         })
       }
@@ -635,36 +632,16 @@ describe('AgentSessionService: runtime', () => {
       prompt: '$explicit-method Revise this.',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
-    await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
-
-    expect(service.requireRun(started.agentRunId).skillSnapshot).toMatchObject({
-      mode: 'explicit',
-      routingStatus: 'degraded',
-      requestedSkills: [],
-      skills: [],
-      dependencies: [],
-      safeError: 'skill_prompt_budget_exceeded'
-    })
-    expect(runtime.active(started.agentRunId).input.systemPrompt).toContain(fallback)
-    expect(runtime.active(started.agentRunId).input.systemPrompt).not.toContain('EXPLICIT_BUNDLE')
-    expect(contextBuilder.build).toHaveBeenCalledTimes(2)
-    await runtime.active(started.agentRunId).emit({
-      type: 'model_call_finished',
-      modelRequestId: runtime.active(started.agentRunId).input.modelRequestId,
-      outcome: 'succeeded',
-      metadata: metadata('explicit-budget-fallback')
-    })
-    await runtime.active(started.agentRunId).emit({
-      type: 'assistant_message',
-      modelRequestId: runtime.active(started.agentRunId).input.modelRequestId,
-      message: assistant('Continued without the explicit Skill.', 'explicit-budget-fallback')
-    })
-    runtime.active(started.agentRunId).resolve()
     await started.completion
     expect(service.requireRun(started.agentRunId)).toMatchObject({
-      status: 'completed',
-      errorCode: null
+      status: 'failed',
+      errorCode: 'skill_prompt_budget_exceeded',
+      errorDetails: expect.objectContaining({
+        message: expect.stringContaining('selected writing skill')
+      })
     })
+    expect(() => runtime.active(started.agentRunId)).toThrow('No fake Agent run is active')
+    expect(contextBuilder.build).toHaveBeenCalledTimes(2)
     database.close()
   })
 
@@ -730,12 +707,19 @@ describe('AgentSessionService: runtime', () => {
         })
     )
     const service = createService(database, runtime, undefined, {
-      messageTokenBudget: 4_096,
+      resolveModelLimits: async () => ({
+        contextWindowTokens: 32_768,
+        inputLimitTokens: 24_576,
+        outputLimitTokens: 4_096,
+        source: 'models_dev',
+        catalogModelKey: 'test/compaction-stop',
+        resolvedAt: '2026-08-12T00:00:00.000Z'
+      }),
       summarizeHistory,
       skillRouter: {
         route: async () => ({
           snapshot: {
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: 'auto',
             routingStatus: 'not_needed',
             requestedSkills: [],
@@ -752,7 +736,7 @@ describe('AgentSessionService: runtime', () => {
     const session = service.createSession('Compaction stop')
     const first = await service.startRun({
       agentSessionId: session.agentSessionId,
-      prompt: '界'.repeat(2_500),
+      prompt: '界'.repeat(15_000),
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     await vi.waitFor(() => expect(runtime.active().input.agentRunId).toBe(first.agentRunId))
@@ -766,7 +750,7 @@ describe('AgentSessionService: runtime', () => {
     await firstActive.emit({
       type: 'assistant_message',
       modelRequestId: firstActive.input.modelRequestId,
-      message: assistant('文'.repeat(2_500), 'long-response')
+      message: assistant('文'.repeat(15_000), 'long-response')
     })
     firstActive.resolve()
     await first.completion
@@ -893,7 +877,7 @@ describe('AgentSessionService: runtime', () => {
     const runtime = new FakeAgentRuntime()
     const route = vi.fn(async () => ({
       snapshot: {
-        schemaVersion: 3 as const,
+        schemaVersion: 4 as const,
         mode: 'auto' as const,
         routingStatus: 'available' as const,
         requestedSkills: [],

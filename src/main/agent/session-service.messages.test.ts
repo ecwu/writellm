@@ -18,6 +18,50 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: messages', () => {
+  it('persists concrete cause diagnostics while removing secrets, private prompts and paths', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const errorLog = vi.fn()
+    const service = createService(database, runtime, undefined, {
+      log: { ...log, error: errorLog } as never
+    })
+    const session = service.createSession('Diagnostic projection')
+    const privatePrompt = 'UNPUBLISHED_PRIVATE_MANUSCRIPT_BODY'
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: privatePrompt,
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const failure = new Error(
+      `Cannot encode request ${privatePrompt} at /Users/person/private/book.md`,
+      {
+        cause: Object.assign(new Error('Invalid session credential agent-secret'), {
+          code: 'BAD_SESSION'
+        })
+      }
+    )
+    runtime.active().reject(failure)
+    await started.completion
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({ err: failure }),
+      expect.any(String)
+    )
+    const diagnostic = service.requireRun(started.agentRunId).errorDetails
+    expect(diagnostic).toMatchObject({
+      message: expect.stringContaining('Cannot encode request'),
+      causes: [expect.objectContaining({ code: 'BAD_SESSION' })]
+    })
+    const terminal = service
+      .listEvents(session.agentSessionId)
+      .find((event) => event.type === 'run_interrupted')
+    expect(terminal?.payload).toMatchObject({ schemaVersion: 2, diagnostic })
+    const serialized = JSON.stringify(terminal?.payload)
+    expect(serialized).not.toContain(privatePrompt)
+    expect(serialized).not.toContain('agent-secret')
+    expect(serialized).not.toContain('/Users/person')
+    database.close()
+  })
+
   it('publishes and completes an answer when automatic Skill dependencies remain unread', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -30,16 +74,12 @@ describe('AgentSessionService: messages', () => {
       invocationSources: new Map<string, 'user' | 'agent'>(),
       dependencyCandidates: new Map(),
       activeSkills: [],
-      loadingEntrypointUri: null,
-      entrypointModelRequestIds: new Set<string>(),
       dependencies: [],
-      readResources: new Map(),
-      readingResources: new Map(),
-      preparationClosed: false
+      readResources: new Map()
     }
     const route = vi.fn(async () => ({
       snapshot: {
-        schemaVersion: 3 as const,
+        schemaVersion: 4 as const,
         mode: 'auto' as const,
         routingStatus: 'available' as const,
         requestedSkills: [],
@@ -91,7 +131,7 @@ describe('AgentSessionService: messages', () => {
       status: 'completed',
       errorCode: null,
       skillSnapshot: {
-        schemaVersion: 3,
+        schemaVersion: 4,
         routingStatus: 'not_needed',
         requestedSkills: [],
         skills: [],
@@ -394,10 +434,11 @@ describe('AgentSessionService: messages', () => {
     database.close()
   })
 
-  it('persists exhausted provider retries as a retryable failed request and run', async () => {
+  it('persists exhausted retries without transient warnings and accepts the next normal run', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
-    const service = createService(database, runtime)
+    const warn = vi.fn()
+    const service = createService(database, runtime, undefined, { log: { ...log, warn } as never })
     const session = service.createSession()
     const started = await service.startRun({
       agentSessionId: session.agentSessionId,
@@ -432,14 +473,30 @@ describe('AgentSessionService: messages', () => {
         interrupted: true
       }
     })
-    const exhausted = new Error('Agent provider request failed after 5 attempts')
+    const cause = Object.assign(new Error('Upstream queue is unavailable'), {
+      code: 'UPSTREAM_BUSY'
+    })
+    const exhausted = Object.assign(
+      new Error('Provider shard writer-2 returned HTTP 503', { cause }),
+      { statusCode: 503 }
+    )
     exhausted.name = 'ProviderRetriesExhaustedError'
     active.reject(exhausted)
     await started.completion
 
     expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({
       status: 'failed',
-      errorCode: 'provider_retries_exhausted'
+      errorCode: 'provider_retries_exhausted',
+      errorDetails: {
+        message: 'Provider shard writer-2 returned HTTP 503',
+        httpStatus: 503,
+        causes: [
+          expect.objectContaining({
+            message: 'Upstream queue is unavailable',
+            code: 'UPSTREAM_BUSY'
+          })
+        ]
+      }
     })
     expect(
       await database.kysely
@@ -455,96 +512,18 @@ describe('AgentSessionService: messages', () => {
       }),
       retry_count: 4
     })
-    database.close()
-  })
-
-  it('authorizes a live request retry without persisting the user prompt twice', async () => {
-    const database = await createDatabase()
-    const runtime = new FakeAgentRuntime()
-    const service = createService(database, runtime)
-    const session = service.createSession()
-    const started = await service.startRun({
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('agent.provider_retry.scheduled')
+    expect(
+      service.listEvents(session.agentSessionId).some((event) => event.type === 'model_retry')
+    ).toBe(false)
+    const next = await service.startRun({
       agentSessionId: session.agentSessionId,
-      prompt: 'A very long prompt that must remain singular.',
+      prompt: 'Try a new question.',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
-    const active = runtime.active()
-    const sourceModelRequestId = active.input.modelRequestId
-    await active.emit({
-      type: 'model_call_finished',
-      modelRequestId: sourceModelRequestId,
-      outcome: 'failed',
-      failureCode: 'provider_retries_exhausted',
-      retryable: true,
-      httpStatus: 503,
-      metadata: { ...metadata('response-failed'), retryCount: 4 }
-    })
-    await active.emit({
-      type: 'assistant_message',
-      modelRequestId: sourceModelRequestId,
-      message: {
-        ...assistant('partial answer', 'response-failed'),
-        stopReason: 'error',
-        interrupted: true
-      }
-    })
-    const capabilityId = '019c6a5c-8d34-7a8e-a602-3d37a52dc4f0'
-    await active.emit({
-      type: 'model_retry_available',
-      capabilityId,
-      modelRequestId: sourceModelRequestId,
-      reasonCode: 'server_error',
-      failureStage: 'after_content',
-      httpStatus: 503,
-      contextFingerprint: 'a'.repeat(64),
-      label: 'continue'
-    })
-
-    expect(service.projectActivitySnapshot().runs[0]).toMatchObject({
-      phase: 'retry_available',
-      retry: { capabilityId, sourceModelRequestId, label: 'continue' }
-    })
-    await expect(service.steer(started.agentRunId, 'Do not inject this yet.')).rejects.toThrow()
-    await expect(
-      service.followUp(started.agentRunId, 'Queue this for later.')
-    ).resolves.toBeUndefined()
-    expect(active.commands.at(-1)?.operation).toBe('follow_up')
-    const pendingMessageId =
-      service.projectActivitySnapshot().runs[0]?.pendingMessages[0]?.pendingMessageId
-    if (pendingMessageId === undefined) throw new Error('Follow-up was not queued')
-    await service.retryRequest(started.agentRunId, capabilityId)
-    await expect(service.retryRequest(started.agentRunId, capabilityId)).rejects.toThrow(
-      'no longer available'
-    )
-    await service.deletePendingFollowUp(started.agentRunId, pendingMessageId)
-    expect(active.retryAuthorizations).toHaveLength(1)
-    const targetModelRequestId = active.retryAuthorizations[0]?.targetModelRequestId
-    if (targetModelRequestId === undefined) throw new Error('Retry was not authorized')
-    expect(
-      service.listEvents(session.agentSessionId).filter((event) => event.type === 'user_message')
-    ).toHaveLength(1)
-    expect(service.listEvents(session.agentSessionId)).toContainEqual(
-      expect.objectContaining({
-        type: 'model_retry',
-        modelRequestId: targetModelRequestId,
-        payload: expect.objectContaining({ sourceModelRequestId, targetModelRequestId })
-      })
-    )
-
-    await active.emit({
-      type: 'model_call_finished',
-      modelRequestId: targetModelRequestId,
-      outcome: 'succeeded',
-      metadata: metadata('response-recovered')
-    })
-    await active.emit({
-      type: 'assistant_message',
-      modelRequestId: targetModelRequestId,
-      message: assistant('recovered answer', 'response-recovered')
-    })
-    active.resolve()
-    await started.completion
-    expect(service.listRuns(session.agentSessionId)[0]).toMatchObject({ status: 'completed' })
+    expect(next.agentRunId).not.toBe(started.agentRunId)
+    runtime.active(next.agentRunId).resolve()
+    await next.completion
     database.close()
   })
 
@@ -745,9 +724,14 @@ describe('AgentSessionService: messages', () => {
       status: 'interrupted',
       errorCode: 'user_stopped'
     })
-    expect(service.listEvents(session.agentSessionId).at(-1)?.payload).toEqual({
+    expect(service.listEvents(session.agentSessionId).at(-1)?.payload).toMatchObject({
+      schemaVersion: 2,
       code: 'user_stopped',
-      status: 'interrupted'
+      status: 'interrupted',
+      diagnostic: expect.objectContaining({
+        stage: 'run',
+        message: expect.any(String)
+      })
     })
     await expect(service.followUp(started.agentRunId, 'This must not be queued.')).rejects.toThrow(
       'active'

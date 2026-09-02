@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import { loadContinuousRuntimeHistory } from './context-checkpoint'
+import { estimateAgentTokens } from '../../shared/agent-context-budget'
 import type { AgentSessionServiceOptions } from './session-service'
 import {
   log,
@@ -15,7 +16,52 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: compaction', () => {
-  it('lets one newest complete turn borrow unused checkpoint budget without truncation', async () => {
+  it('reports an unfit checkpoint envelope before calling the summary provider', async () => {
+    const database = await createDatabase()
+    const summarizeHistory = vi.fn(async () => ({
+      summary: 'unused',
+      modelRequestId: crypto.randomUUID()
+    }))
+    const service = createService(database, new FakeAgentRuntime(), undefined, {
+      summarizeHistory,
+      resolveModelLimits: async () => ({
+        contextWindowTokens: 8_192,
+        inputLimitTokens: 1,
+        outputLimitTokens: 255,
+        source: 'models_dev',
+        catalogModelKey: 'test/tiny-window',
+        resolvedAt: '2026-08-12T00:00:00.000Z'
+      })
+    })
+    const session = service.createSession('Tiny history window')
+    database.immediate((native) =>
+      native
+        .prepare(
+          'INSERT INTO agent_events (agent_event_id, agent_session_id, sequence, type, payload_json, created_at) VALUES (?, ?, 1, ?, ?, ?)'
+        )
+        .run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          'user_message',
+          JSON.stringify({
+            content: 'Earlier request',
+            delivery: 'prompt',
+            timestamp: 1
+          }),
+          '2026-08-12T00:00:00.000Z'
+        )
+    )
+    await service.compactSession(session.agentSessionId)
+    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
+    expect(summarizeHistory).not.toHaveBeenCalled()
+    const failure = service
+      .listEventPage(session.agentSessionId)
+      .events.find((event) => event.type === 'compaction_failed')
+    expect(JSON.stringify(failure?.payload)).toContain('only 1 history tokens are available')
+    database.close()
+  })
+
+  it('compresses more than 2,000 historical events once while keeping the recent turn raw', async () => {
     const database = await createDatabase()
     const summarizeHistory = vi.fn(
       async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
@@ -23,13 +69,13 @@ describe('AgentSessionService: compaction', () => {
         const request = await repository.start({
           operation: 'agent',
           provider: config,
-          request: { purpose: 'manual_compaction_tail_borrow' },
+          request: { purpose: 'manual_compaction' },
           inputItems: 1,
           operationId: input.compactionId,
           projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
         })
         await repository.succeed(request.modelRequestId, {
-          metadata: metadata('manual-tail-borrow'),
+          metadata: metadata('manual-compaction'),
           outputItems: 1
         })
         return {
@@ -39,101 +85,7 @@ describe('AgentSessionService: compaction', () => {
       }
     )
     const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
-    const session = service.createSession('Large recent turn')
-    const recentTurn = `Keep this recent turn verbatim: ${'x'.repeat(85_000)}`
-    database.immediate((native) => {
-      const insert = native.prepare(
-        `INSERT INTO agent_events (
-             agent_event_id, agent_session_id, sequence, type, payload_json, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?)`
-      )
-      insert.run(
-        crypto.randomUUID(),
-        session.agentSessionId,
-        1,
-        'user_message',
-        JSON.stringify({ content: 'Summarize this older goal.', delivery: 'prompt', timestamp: 1 }),
-        '2026-08-12T00:00:00.000Z'
-      )
-      insert.run(
-        crypto.randomUUID(),
-        session.agentSessionId,
-        2,
-        'run_completed',
-        JSON.stringify({ outcome: 'finished' }),
-        '2026-08-12T00:00:00.000Z'
-      )
-      insert.run(
-        crypto.randomUUID(),
-        session.agentSessionId,
-        3,
-        'user_message',
-        JSON.stringify({ content: recentTurn, delivery: 'prompt', timestamp: 3 }),
-        '2026-08-12T00:00:00.000Z'
-      )
-      insert.run(
-        crypto.randomUUID(),
-        session.agentSessionId,
-        4,
-        'run_completed',
-        JSON.stringify({ outcome: 'finished' }),
-        '2026-08-12T00:00:00.000Z'
-      )
-    })
-
-    await service.compactSession(session.agentSessionId)
-    await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
-    const summary = service
-      .listEvents(session.agentSessionId)
-      .find((event) => event.type === 'compaction_summary')
-    expect(summary).toMatchObject({
-      payload: expect.objectContaining({
-        schemaVersion: 3,
-        finalStep: true,
-        coveredThroughSequence: 2,
-        postCompactionBudgetTokens: 32_000,
-        checkpointBudgetTokens: 12_000,
-        recentTailBudgetTokens: 20_000,
-        tailTokens: expect.any(Number)
-      })
-    })
-    if (summary === undefined) throw new Error('Expected a compaction summary')
-    expect((summary.payload as { tailTokens: number }).tailTokens).toBeGreaterThan(20_000)
-    expect(loadContinuousRuntimeHistory(database, session.agentSessionId).at(-1)).toMatchObject({
-      role: 'user',
-      content: recentTurn
-    })
-    database.close()
-  })
-
-  it('keeps the latest successful rolling checkpoint when a later step fails', async () => {
-    const database = await createDatabase()
-    let attempt = 0
-    const summarizeHistory = vi.fn(
-      async (input: Parameters<NonNullable<AgentSessionServiceOptions['summarizeHistory']>>[0]) => {
-        attempt += 1
-        if (attempt === 2) throw new Error('second summary request failed')
-        const repository = new ModelRequestRepository(database, log)
-        const request = await repository.start({
-          operation: 'agent',
-          provider: config,
-          request: { purpose: 'manual_compaction_partial' },
-          inputItems: 1,
-          operationId: input.compactionId,
-          projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
-        })
-        await repository.succeed(request.modelRequestId, {
-          metadata: metadata('manual-partial-step'),
-          outputItems: 1
-        })
-        return {
-          summary: 'Objective\nFirst rolling step survived.',
-          modelRequestId: request.modelRequestId
-        }
-      }
-    )
-    const service = createService(database, new FakeAgentRuntime(), undefined, { summarizeHistory })
-    const session = service.createSession('Partial rolling history')
+    const session = service.createSession('Large historical conversation')
     database.immediate((native) => {
       const insert = native.prepare(
         `INSERT INTO agent_events (
@@ -141,51 +93,108 @@ describe('AgentSessionService: compaction', () => {
            ) VALUES (?, ?, ?, ?, ?, ?)`
       )
       native.transaction(() => {
-        for (let sequence = 1; sequence <= 600; sequence += 1) {
-          const userTurn = sequence % 2 === 1
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          1,
+          'user_message',
+          JSON.stringify({
+            content: 'Summarize this older goal.',
+            delivery: 'prompt',
+            timestamp: 1
+          }),
+          '2026-08-12T00:00:00.000Z'
+        )
+        for (let sequence = 2; sequence <= 2_202; sequence += 1) {
           insert.run(
             crypto.randomUUID(),
             session.agentSessionId,
             sequence,
-            userTurn ? 'user_message' : 'run_completed',
-            JSON.stringify(
-              userTurn
-                ? {
-                    content: `turn-${sequence}-${'x'.repeat(2_000)}`,
-                    delivery: 'prompt',
-                    timestamp: sequence
-                  }
-                : { outcome: 'finished' }
-            ),
+            'tool_result',
+            JSON.stringify({
+              toolCallId: `call-${sequence}`,
+              toolName: 'search_knowledge',
+              contractVersion: 14,
+              isError: false,
+              result: {
+                mode: 'fts',
+                rerankStatus: 'disabled',
+                hits: [{ title: 'historical observation '.repeat(50) }]
+              },
+              error: null,
+              citationIds: [],
+              knowledgeItemIds: [],
+              parseRevisionIds: [],
+              timestamp: sequence
+            }),
             '2026-08-12T00:00:00.000Z'
           )
         }
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          2_203,
+          'run_completed',
+          JSON.stringify({ outcome: 'finished' }),
+          '2026-08-12T00:00:00.000Z'
+        )
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          2_204,
+          'user_message',
+          JSON.stringify({
+            content: `Keep this recent turn verbatim: ${'x'.repeat(85_000)}`,
+            delivery: 'prompt',
+            timestamp: 2_204
+          }),
+          '2026-08-12T00:00:00.000Z'
+        )
+        insert.run(
+          crypto.randomUUID(),
+          session.agentSessionId,
+          2_205,
+          'run_completed',
+          JSON.stringify({ outcome: 'finished' }),
+          '2026-08-12T00:00:00.000Z'
+        )
       })()
     })
 
+    const estimatedTokensBefore = estimateAgentTokens(
+      loadContinuousRuntimeHistory(database, session.agentSessionId)
+    )
     const { compactionId } = await service.compactSession(session.agentSessionId)
     await vi.waitFor(() => expect(service.projectActivitySnapshot().compactions).toEqual([]))
-    const compactionEvents = service
-      .listEvents(session.agentSessionId)
-      .filter((event) => event.type === 'compaction_summary' || event.type === 'compaction_failed')
-    expect(compactionEvents).toEqual([
-      expect.objectContaining({
-        type: 'compaction_summary',
-        payload: expect.objectContaining({
-          compactionId,
-          stepIndex: 1,
-          finalStep: false,
-          coveredFromSequence: 1,
-          coveredThroughSequence: expect.any(Number)
-        })
-      }),
-      expect.objectContaining({
-        type: 'compaction_failed',
-        payload: expect.objectContaining({ compactionId, code: 'compaction_failed' })
+    const summary = service
+      .listEventPage(session.agentSessionId, 2_205, 20)
+      .events.find((event) => event.type === 'compaction_summary')
+    expect(summary).toMatchObject({
+      payload: expect.objectContaining({
+        schemaVersion: 4,
+        compactionId,
+        coveredFromSequence: 1,
+        coveredThroughSequence: 2_203,
+        previousCheckpointEventId: null,
+        omittedEventCount: expect.any(Number),
+        estimatedTokensBefore,
+        estimatedTokensAfter: expect.any(Number)
       })
-    ])
-    const successfulPayload = compactionEvents[0]?.payload as { coveredThroughSequence?: number }
-    expect(successfulPayload.coveredThroughSequence).toBeGreaterThan(240)
+    })
+    if (summary === undefined) throw new Error('Expected a compaction summary')
+    const payload = summary.payload as { omittedEventCount: number; summary: string }
+    expect(payload.omittedEventCount).toBeGreaterThan(0)
+    expect(payload.summary).toContain('Preserve the earlier goal.')
+    const history = loadContinuousRuntimeHistory(database, session.agentSessionId)
+    expect(history.at(0)).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining(`omits ${payload.omittedEventCount} older event`)
+    })
+    expect(history.at(-1)).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('Keep this recent turn verbatim:')
+    })
+    expect(summarizeHistory).toHaveBeenCalledOnce()
     database.close()
   }, 60_000)
 

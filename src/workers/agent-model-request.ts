@@ -11,6 +11,7 @@ import {
   buildAgentProviderModel,
   loadAgentStreamSimple
 } from './agent-provider-runtime'
+import { safeAgentDiagnosticMessage } from '../shared/agent-diagnostic-error'
 
 export async function runAgentModelRequest(
   request: AgentUtilityRequest,
@@ -24,7 +25,8 @@ export async function runAgentModelRequest(
       value: unknown
       metadata?: Record<string, unknown>
     }>
-  }) => Promise<void>
+  }) => void | Promise<void>,
+  onTraceError?: (error: unknown) => void
 ): Promise<AgentRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
 
@@ -41,10 +43,10 @@ export async function runAgentModelRequest(
   let retryAfterMs: number | undefined
   let responseHeaders: Record<string, string> = {}
   let retryState: AgentProviderRetryState | undefined
+  let lastProviderError: unknown
   let physicalAttempt = 0
   const startedAt = Date.now()
   let ttftMs: number | undefined
-  let terminalTraceError: Error | undefined
   const agent = new Agent({
     initialState: {
       systemPrompt: request.input.systemPrompt,
@@ -78,28 +80,30 @@ export async function runAgentModelRequest(
             onPayload: async (payload, payloadModel) => {
               const transformed = await options?.onPayload?.(payload, payloadModel)
               if (onTraceCapture !== undefined) {
-                try {
-                  await onTraceCapture({
-                    apiId: payloadModel.api,
-                    physicalAttempt: attempt,
-                    documents: [
-                      {
-                        kind: 'harness_request',
-                        value: jsonValue({
-                          systemPrompt: context.systemPrompt,
-                          messages: context.messages,
-                          tools: context.tools
-                        })
-                      },
-                      {
-                        kind: 'provider_request',
-                        value: jsonValue(transformed === undefined ? payload : transformed)
-                      }
-                    ]
-                  })
-                } catch (err) {
-                  terminalTraceError = traceErrorFrom(err)
-                  throw terminalTraceError
+                const trace = makeTraceCapture(
+                  onTraceCapture,
+                  payloadModel.api,
+                  attempt,
+                  () => [
+                    {
+                      kind: 'harness_request',
+                      value: jsonValue({
+                        systemPrompt: context.systemPrompt,
+                        messages: context.messages,
+                        tools: context.tools
+                      })
+                    },
+                    {
+                      kind: 'provider_request',
+                      value: jsonValue(transformed === undefined ? payload : transformed)
+                    }
+                  ],
+                  onTraceError
+                )
+                if (trace !== undefined) {
+                  void Promise.resolve(trace).catch((error) =>
+                    reportTraceError(onTraceError, error)
+                  )
                 }
               }
               return transformed
@@ -114,7 +118,10 @@ export async function runAgentModelRequest(
         },
         responseStatus: () => lastResponseStatus,
         retryAfterMs: () => retryAfterMs,
-        createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        createErrorMessage: (error, aborted) => {
+          lastProviderError = error
+          return providerErrorMessage(activeModel, error, aborted)
+        },
         onFirstAssistantContent: () => {
           ttftMs ??= Math.max(0, Date.now() - startedAt)
         },
@@ -148,15 +155,15 @@ export async function runAgentModelRequest(
   const finalMessage = [...agent.state.messages]
     .reverse()
     .find((message) => message.role === 'assistant')
-  if (terminalTraceError !== undefined) throw terminalTraceError
   if (finalMessage === undefined || finalMessage.role !== 'assistant') {
     throw new Error('Agent completed without an assistant response')
   }
   if (onTraceCapture !== undefined) {
-    await onTraceCapture({
-      apiId: model.api,
-      physicalAttempt: Math.max(1, physicalAttempt),
-      documents: [
+    const trace = makeTraceCapture(
+      onTraceCapture,
+      model.api,
+      Math.max(1, physicalAttempt),
+      () => [
         {
           kind: 'provider_response',
           value: jsonValue(finalMessage),
@@ -167,18 +174,25 @@ export async function runAgentModelRequest(
             totalDurationMs: Math.max(0, Date.now() - startedAt)
           }
         }
-      ]
-    })
+      ],
+      onTraceError
+    )
+    if (trace !== undefined) {
+      void Promise.resolve(trace).catch((error) => reportTraceError(onTraceError, error))
+    }
   }
   if (finalMessage.stopReason === 'error') {
-    const error: Error & { status?: number } = new Error(
-      finalMessage.errorMessage || 'Agent provider request failed'
+    const providerDetails = providerErrorDetails(finalMessage, lastProviderError)
+    const error: Error & { status?: number; code?: string } = new Error(
+      finalMessage.errorMessage || 'Agent provider request failed',
+      providerDetails.cause === undefined ? undefined : { cause: providerDetails.cause }
     )
     if (retryState?.exhausted) {
       error.name = 'ProviderRetriesExhaustedError'
-      error.message = 'Agent provider request failed after 5 attempts'
     }
-    if (lastResponseStatus !== undefined) error.status = lastResponseStatus
+    const status = providerDetails.status ?? lastResponseStatus
+    if (status !== undefined) error.status = status
+    if (providerDetails.code !== undefined) error.code = providerDetails.code
     throw error
   }
   if (finalMessage.stopReason === 'aborted') {
@@ -208,17 +222,6 @@ export async function runAgentModelRequest(
   }
 }
 
-function traceErrorFrom(error: unknown): Error & { code: string } {
-  if (
-    error instanceof Error &&
-    'code' in error &&
-    (error.code === 'trace_capture_failed' || error.code === 'trace_payload_too_large')
-  ) {
-    return error as Error & { code: string }
-  }
-  return traceError('trace_capture_failed', { cause: error })
-}
-
 function safeProviderResponseHeaders(
   headers: Readonly<Record<string, string>>
 ): Record<string, string> {
@@ -244,23 +247,50 @@ function safeProviderResponseHeaders(
   )
 }
 
-function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
-  const serialized = JSON.stringify(value)
-  if (serialized === undefined) throw traceError('trace_capture_failed')
-  return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
+function makeTraceCapture(
+  onTraceCapture: (input: {
+    apiId: string
+    physicalAttempt: number
+    documents: Array<{
+      kind: 'harness_request' | 'provider_request' | 'provider_response'
+      value: unknown
+      metadata?: Record<string, unknown>
+    }>
+  }) => void | Promise<void>,
+  apiId: string,
+  physicalAttempt: number,
+  documents: () => Array<{
+    kind: 'harness_request' | 'provider_request' | 'provider_response'
+    value: unknown
+    metadata?: Record<string, unknown>
+  }>,
+  onTraceError?: (error: unknown) => void
+): void | Promise<void> {
+  try {
+    return onTraceCapture({ apiId, physicalAttempt, documents: documents() })
+  } catch (error) {
+    reportTraceError(onTraceError, error)
+    return undefined
+  }
 }
 
-function traceError(
-  code: 'trace_capture_failed' | 'trace_payload_too_large',
-  options?: ErrorOptions
-): Error & { code: string } {
-  const error: Error & { code: string } = new Error(
-    'Agent request trace could not be persisted',
-    options
-  )
-  error.name = 'AgentTracePersistenceError'
-  error.code = code
-  return error
+function reportTraceError(
+  onTraceError: ((error: unknown) => void) | undefined,
+  error: unknown
+): void {
+  if (onTraceError === undefined) return
+  try {
+    onTraceError(error)
+  } catch {
+    // Trace is observational. If its reporter transport is closed, no safe
+    // diagnostic channel remains; keep the provider result independent of it.
+  }
+}
+
+function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
+  const serialized = JSON.stringify(value)
+  if (serialized === undefined) throw new Error('Agent trace payload is not JSON serializable')
+  return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
 }
 
 function providerErrorMessage(
@@ -268,7 +298,11 @@ function providerErrorMessage(
   error: unknown,
   aborted: boolean
 ): AssistantMessage {
-  return {
+  const message =
+    error instanceof Error
+      ? error.message
+      : safeAgentDiagnosticMessage(error) || 'Unknown provider error'
+  const assistantMessage: AssistantMessage = {
     role: 'assistant',
     content: [],
     api: model.api,
@@ -283,7 +317,91 @@ function providerErrorMessage(
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
     },
     stopReason: aborted ? 'aborted' : 'error',
-    errorMessage: error instanceof Error ? error.message : String(error),
+    errorMessage: message,
     timestamp: Date.now()
   }
+  const details = providerErrorDetails(assistantMessage, error)
+  Object.defineProperty(assistantMessage, 'cause', {
+    configurable: true,
+    value: error,
+    writable: true
+  })
+  if (details.status !== undefined) {
+    Object.defineProperty(assistantMessage, 'status', {
+      configurable: true,
+      value: details.status,
+      writable: true
+    })
+  }
+  if (details.code !== undefined) {
+    Object.defineProperty(assistantMessage, 'code', {
+      configurable: true,
+      value: details.code,
+      writable: true
+    })
+  }
+  return assistantMessage
+}
+
+interface ProviderErrorDetails {
+  cause?: unknown
+  status?: number
+  code?: string
+}
+
+function providerErrorDetails(
+  message: AssistantMessage,
+  originalError?: unknown
+): ProviderErrorDetails {
+  const source = originalError === undefined ? message : originalError
+  const status = readProviderStatus(source)
+  const code = readProviderCode(source)
+  return {
+    ...(originalError === undefined
+      ? { cause: readProperty(message, 'cause') }
+      : { cause: originalError }),
+    ...(status === undefined ? {} : { status }),
+    ...(code === undefined ? {} : { code })
+  }
+}
+
+function readProviderStatus(value: unknown): number | undefined {
+  for (const key of ['httpStatus', 'statusCode', 'status'] as const) {
+    const status = readProviderProperty(value, key)
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+      return status
+    }
+  }
+  return undefined
+}
+
+function readProviderCode(value: unknown): string | undefined {
+  for (const key of ['code', 'providerCode', 'errorCode'] as const) {
+    const code = readProviderProperty(value, key)
+    if (typeof code === 'string' && code.length > 0) return code
+    if (typeof code === 'number' && Number.isFinite(code)) return String(code)
+  }
+  return undefined
+}
+
+function readProviderProperty(
+  value: unknown,
+  property: 'code' | 'providerCode' | 'errorCode' | 'httpStatus' | 'statusCode' | 'status'
+): unknown {
+  const seen = new Set<object>()
+  let current = value
+  while (current !== null && typeof current === 'object') {
+    if (seen.has(current)) break
+    seen.add(current)
+    const candidate = (current as Record<string, unknown>)[property]
+    if (candidate !== undefined) return candidate
+    current = (current as Record<string, unknown>).cause
+  }
+  return undefined
+}
+
+function readProperty(value: unknown, property: string): unknown {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)[property]
+    : undefined
 }

@@ -133,7 +133,6 @@ export const IPC_CHANNELS = {
   agentListRuns: 'agent:list-runs',
   agentListProposals: 'agent:list-proposals',
   agentStartRun: 'agent:start-run',
-  agentRetryRequest: 'agent:retry-request',
   agentSteerRun: 'agent:steer-run',
   agentFollowUpRun: 'agent:follow-up-run',
   agentSteerPendingFollowUp: 'agent:steer-pending-follow-up',

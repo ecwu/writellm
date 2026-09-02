@@ -2,6 +2,10 @@ import type { AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import { askUserArgsSchema, askUserResultSchema } from '../../../../shared/contracts/agent-tools'
 import {
+  agentDiagnosticErrorSchema,
+  type AgentDiagnosticError
+} from '../../../../shared/agent-diagnostic-error'
+import {
   AlertCircle,
   Check,
   ChevronDown,
@@ -276,6 +280,10 @@ function TimelineItem(props: {
       return null
     }
     const terminalDetail = agentTerminalDetail(item.terminal.code)
+    const diagnostic = item.terminal.diagnostic
+    const terminalMessage =
+      diagnostic?.message ||
+      (item.terminal.code === 'user_stopped' ? 'Stopped' : agentTerminalLabel(item.terminal.code))
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -285,14 +293,18 @@ function TimelineItem(props: {
             <CircleStop className='text-destructive' />
           )}
         </MarkerIcon>
-        <MarkerContent className={terminalDetail === null ? undefined : 'flex flex-col gap-1'}>
-          <span>
-            {item.terminal.code === 'user_stopped'
-              ? 'Stopped'
-              : agentTerminalLabel(item.terminal.code)}{' '}
-            · after {formatAgentDuration(item.terminal.durationMs)}
+        <MarkerContent
+          className={
+            diagnostic !== undefined || terminalDetail !== null ? 'flex flex-col gap-1' : undefined
+          }
+        >
+          <span className='wrap-anywhere'>
+            {terminalMessage} · after {formatAgentDuration(item.terminal.durationMs)}
           </span>
-          {terminalDetail === null ? null : (
+          {diagnostic === undefined || diagnostic.message.length === 0 ? null : (
+            <AgentDiagnosticDetails diagnostic={diagnostic} />
+          )}
+          {diagnostic !== undefined || terminalDetail === null ? null : (
             <span className='text-xs text-muted-foreground'>{terminalDetail}</span>
           )}
         </MarkerContent>
@@ -313,31 +325,40 @@ function TimelineItem(props: {
     )
   }
   if (item.type === 'compaction_failed') {
-    const sourceTooLarge = item.payload.code === 'compaction_run_too_large'
-    return (
-      <Marker role='status'>
-        <MarkerIcon>
-          {item.payload.aborted ? <CircleStop /> : <AlertCircle className='text-destructive' />}
-        </MarkerIcon>
-        <MarkerContent className='flex flex-col items-start gap-2'>
-          <span>
-            {item.payload.aborted
-              ? 'Conversation summary stopped'
-              : sourceTooLarge
-                ? 'A complete run is too large to summarize safely'
-                : 'Conversation summary failed'}{' '}
-            · original history preserved
-          </span>
-          {sourceTooLarge ? (
-            <Button variant='outline' size='sm' onClick={props.onNew}>
-              <MessageSquarePlus /> New conversation
-            </Button>
-          ) : null}
-        </MarkerContent>
-      </Marker>
-    )
+    return <CompactionFailureMessage payload={item.payload} onNew={props.onNew} />
   }
   return <CompactionCheckpointMarker payload={item.payload} />
+}
+
+export function CompactionFailureMessage(props: {
+  payload: Extract<AgentTimelineItem, { type: 'compaction_failed' }>['payload']
+  onNew(): void
+}): React.JSX.Element {
+  const sourceTooLarge = props.payload.code === 'compaction_run_too_large'
+  const diagnostic = props.payload.diagnostic
+  const fallbackMessage = props.payload.aborted
+    ? 'Conversation summary stopped'
+    : sourceTooLarge
+      ? 'A complete run is too large to summarize safely'
+      : 'Conversation summary failed'
+  return (
+    <Marker role='status'>
+      <MarkerIcon>
+        {props.payload.aborted ? <CircleStop /> : <AlertCircle className='text-destructive' />}
+      </MarkerIcon>
+      <MarkerContent className='flex flex-col items-start gap-2'>
+        <span className='wrap-anywhere'>
+          {diagnostic?.message ?? fallbackMessage} · original history preserved
+        </span>
+        {diagnostic === undefined ? null : <AgentDiagnosticDetails diagnostic={diagnostic} />}
+        {sourceTooLarge ? (
+          <Button variant='outline' size='sm' onClick={props.onNew}>
+            <MessageSquarePlus /> New conversation
+          </Button>
+        ) : null}
+      </MarkerContent>
+    </Marker>
+  )
 }
 
 export function PreflightFailureMessage(props: {
@@ -360,9 +381,9 @@ export function PreflightFailureMessage(props: {
             <AlertCircle className='text-muted-foreground' />
           </MarkerIcon>
           <MarkerContent className='flex min-w-0 flex-1 items-center gap-2'>
-            <span className='min-w-0 truncate text-foreground'>Tool execution failed</span>
+            <span className='min-w-0 flex-1 truncate text-foreground'>{failure.message}</span>
             <span className='shrink-0 truncate text-xs text-muted-foreground'>
-              · {failure.toolName}
+              · {failure.toolName} · {failure.code}
             </span>
           </MarkerContent>
           <ChevronDown className='ml-auto shrink-0 text-muted-foreground transition-transform group-data-[state=open]/preflight:rotate-180' />
@@ -377,6 +398,12 @@ export function PreflightFailureMessage(props: {
             </AlertTitle>
             <AlertDescription className='flex flex-col gap-1'>
               <span>{failure.message}</span>
+              {failure.details === undefined ? null : (
+                <AgentDiagnosticDetails
+                  diagnostic={failure.details}
+                  defaultOpen={props.defaultOpen}
+                />
+              )}
               {failure.paths.length > 0 ? (
                 <span className='font-mono text-xs'>{failure.paths.join(', ')}</span>
               ) : null}
@@ -482,6 +509,11 @@ function CompactionCheckpointMarker(props: {
     )
   }
   const payload = props.payload
+  const stepDetail = 'stepIndex' in payload ? ` · step ${payload.stepIndex}` : ''
+  const omittedEventCount =
+    'omittedEventCount' in payload && payload.omittedEventCount > 0
+      ? payload.omittedEventCount.toLocaleString()
+      : null
   return (
     <Collapsible className='group/checkpoint min-w-0 max-w-full'>
       <CollapsibleTrigger className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
@@ -498,9 +530,12 @@ function CompactionCheckpointMarker(props: {
       <CollapsibleContent>
         <div className='mt-3 ml-2 flex min-w-0 flex-col gap-2 border-l pl-4 text-xs text-muted-foreground'>
           <p>
-            Covered events {payload.coveredFromSequence}–{payload.coveredThroughSequence} · step{' '}
-            {payload.stepIndex}
+            Covered events {payload.coveredFromSequence}–{payload.coveredThroughSequence}
+            {stepDetail}
           </p>
+          {omittedEventCount === null ? null : (
+            <p>{omittedEventCount} older events omitted from this checkpoint.</p>
+          )}
           <p>
             Estimated context {payload.estimatedTokensBefore.toLocaleString()} →{' '}
             {payload.estimatedTokensAfter.toLocaleString()} tokens
@@ -595,6 +630,9 @@ export function ToolActivityRow(props: {
 }): React.JSX.Element {
   const { tool } = props
   const citations = tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
+  const error = tool.result?.error ?? null
+  const diagnostic = diagnosticFromUnknown(error?.details)
+  const recovery = toolRecoveryLabel(error?.recovery)
   return (
     <div
       className='flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm'
@@ -608,15 +646,14 @@ export function ToolActivityRow(props: {
         </span>
       </div>
       <BoundedJsonDetails label='Bounded arguments' value={tool.call.args} />
-      {tool.result?.error ? (
+      {error ? (
         <Alert variant='destructive'>
           <AlertCircle />
-          <AlertTitle>{tool.result.error.code}</AlertTitle>
+          <AlertTitle>{error.code}</AlertTitle>
           <AlertDescription className='flex flex-col gap-1'>
-            <span>{tool.result.error.message}</span>
-            {toolRecoveryLabel(tool.result.error.recovery) === null ? null : (
-              <span>{toolRecoveryLabel(tool.result.error.recovery)}</span>
-            )}
+            <span className='wrap-anywhere'>{error.message}</span>
+            {diagnostic === undefined ? null : <AgentDiagnosticDetails diagnostic={diagnostic} />}
+            {recovery === null ? null : <span>{recovery}</span>}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -643,6 +680,84 @@ export function BoundedJsonDetails(props: { label: string; value: unknown }): Re
   )
 }
 
+export function AgentDiagnosticDetails(props: {
+  diagnostic: AgentDiagnosticError
+  defaultOpen?: boolean
+}): React.JSX.Element {
+  const { diagnostic } = props
+  return (
+    <Collapsible
+      className='min-w-0 max-w-full'
+      defaultOpen={props.defaultOpen}
+      data-testid='agent-diagnostic-details'
+    >
+      <CollapsibleTrigger className='text-xs text-muted-foreground hover:text-foreground'>
+        Show diagnostic details
+      </CollapsibleTrigger>
+      <CollapsibleContent className='pt-2'>
+        <div className='flex min-w-0 flex-col gap-2 rounded-md border bg-muted/20 p-2 text-xs'>
+          <p className='min-w-0 wrap-anywhere text-foreground'>{diagnostic.message}</p>
+          <dl className='grid min-w-0 gap-x-3 gap-y-1 @sm/agent:grid-cols-[auto_minmax(0,1fr)]'>
+            <dt className='text-muted-foreground'>Stage</dt>
+            <dd className='min-w-0 wrap-anywhere text-foreground'>{diagnostic.stage}</dd>
+            {diagnostic.code === undefined ? null : (
+              <>
+                <dt className='text-muted-foreground'>Code</dt>
+                <dd className='min-w-0 wrap-anywhere font-mono text-foreground'>
+                  {diagnostic.code}
+                </dd>
+              </>
+            )}
+            {diagnostic.httpStatus === undefined ? null : (
+              <>
+                <dt className='text-muted-foreground'>HTTP status</dt>
+                <dd className='text-foreground'>{diagnostic.httpStatus}</dd>
+              </>
+            )}
+          </dl>
+          {diagnostic.causes.length === 0 ? null : (
+            <div className='min-w-0'>
+              <p className='mb-1 text-muted-foreground'>Causes</p>
+              <ol className='m-0 flex min-w-0 list-decimal flex-col gap-2 pl-4'>
+                {diagnostic.causes.map((cause) => (
+                  <li
+                    key={cause.stack ?? `${cause.name}:${cause.message}`}
+                    className='min-w-0 wrap-anywhere text-foreground'
+                  >
+                    <span>
+                      {cause.name}: {cause.message}
+                    </span>
+                    {cause.code === undefined && cause.httpStatus === undefined ? null : (
+                      <span className='ml-1 text-muted-foreground'>
+                        {cause.code === undefined ? '' : `code ${cause.code}`}
+                        {cause.code !== undefined && cause.httpStatus !== undefined ? ' · ' : ''}
+                        {cause.httpStatus === undefined ? '' : `HTTP ${cause.httpStatus}`}
+                      </span>
+                    )}
+                    {cause.stack === undefined ? null : (
+                      <pre className='mt-1 max-h-32 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-[11px] text-muted-foreground'>
+                        {cause.stack}
+                      </pre>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {diagnostic.stack === undefined ? null : (
+            <div className='min-w-0'>
+              <p className='mb-1 text-muted-foreground'>Stack</p>
+              <pre className='max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-[11px] text-muted-foreground'>
+                {diagnostic.stack}
+              </pre>
+            </div>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
 function ProposalMessage(props: {
   item: Extract<AgentTimelineItem, { type: 'proposal' }>
   projectSessionId: string
@@ -660,6 +775,8 @@ function ProposalMessage(props: {
   if (proposal === null) {
     const failed = props.item.tool.result?.isError === true
     const error = props.item.tool.result?.error ?? null
+    const diagnostic = diagnosticFromUnknown(error?.details)
+    const recovery = toolRecoveryLabel(error?.recovery)
     return (
       <Marker role='status'>
         <MarkerIcon>{failed ? <X className='text-destructive' /> : <Spinner />}</MarkerIcon>
@@ -667,9 +784,8 @@ function ProposalMessage(props: {
           {failed
             ? (error?.message ?? 'Proposal could not be prepared')
             : 'Preparing a reviewable proposal…'}
-          {error === null || toolRecoveryLabel(error.recovery) === null ? null : (
-            <span className='text-xs'>{toolRecoveryLabel(error.recovery)}</span>
-          )}
+          {diagnostic === undefined ? null : <AgentDiagnosticDetails diagnostic={diagnostic} />}
+          {recovery === null ? null : <span className='text-xs'>{recovery}</span>}
         </MarkerContent>
       </Marker>
     )
@@ -799,9 +915,12 @@ function toolRecoveryLabel(
 ): string | null {
   if (recovery === undefined) return null
   const target = recovery.uri ?? recovery.tool
-  const attempts =
-    recovery.maxAttempts === undefined ? '' : ` · at most ${recovery.maxAttempts} retry`
-  return `Recovery: ${recovery.action}${target === undefined ? '' : ` with ${target}`}${attempts}`
+  return `Recovery: ${recovery.action}${target === undefined ? '' : ` with ${target}`}`
+}
+
+function diagnosticFromUnknown(value: unknown): AgentDiagnosticError | undefined {
+  const parsed = agentDiagnosticErrorSchema.safeParse(value)
+  return parsed.success ? parsed.data : undefined
 }
 
 function CitationAttachments(props: { citations: AgentCitationDisplay[] }): React.JSX.Element {

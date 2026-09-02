@@ -47,11 +47,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
     proposals,
     setProposals,
     streamingBySession,
-    activeRunLimit,
-    setActiveRunIds,
     liveRuns,
     activeCompactions,
-    activeWorkCount,
     compactionConfirmOpen,
     setCompactionConfirmOpen,
     prompt,
@@ -113,7 +110,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
   const liveRun = liveRuns.find((run) => run.agentRunId === activeRun?.agentRunId) ?? null
   const pendingQuestion = liveRun?.pendingQuestion ?? null
   const pendingMessages = liveRun?.pendingMessages ?? []
-  const modelRetry = liveRun?.retry ?? null
   const activeCompaction =
     activeCompactions.find((item) => item.agentSessionId === activeSessionId) ?? null
   const choosingSkill = activeRun?.skillSnapshot.routingStatus === 'pending'
@@ -129,9 +125,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
   }, [isAgentWorking])
   const usage = useMemo(() => aggregateAgentUsage(events, runs), [events, runs])
   const usageDetails = [
-    usage.retryCount > 0
-      ? `${usage.retryCount} provider ${usage.retryCount === 1 ? 'retry' : 'retries'}.`
-      : null,
     usage.skillRouteRequests > 0
       ? `Includes ${usage.skillRouteRequests} historical Writing Skill routing request${usage.skillRouteRequests === 1 ? '' : 's'}.`
       : null
@@ -164,23 +157,13 @@ export function useAgentPanelController(props: AgentPanelProps) {
     workflowState === 'generating' ||
     workflowState === 'compacting'
   const scope = effectiveScope(scopePreference, selectionIsAvailable, props.activeSectionId)
-  const agentCapacityReached = activeRun === null && activeWorkCount >= activeRunLimit
   const canControlTask =
     activeSession?.writingTask !== null &&
     activeSession?.writingTask !== undefined &&
     !activeSessionArchived &&
     workflowState === 'idle' &&
     !busy &&
-    !agentCapacityReached &&
     (activeSession?.interactionMode ?? 'write') === 'write'
-  const workingSession =
-    sessions.find(
-      (session) =>
-        session.status === 'active' &&
-        (session.workflowState === 'running' ||
-          session.workflowState === 'awaiting_input' ||
-          session.workflowState === 'compacting')
-    ) ?? null
   const selectedModel = useMemo(
     () =>
       resolveSelectedModel(
@@ -280,9 +263,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
               ? 'Finish the current Agent work or review before using a quick action.'
               : !modelReady
                 ? 'Choose an Agent model before using a quick action.'
-                : agentCapacityReached
-                  ? `All ${activeRunLimit} Agent work slots are in use. Try again when one finishes.`
-                  : null
+                : null
     if (quickActionBlocked !== null) {
       setError(quickActionBlocked)
       return false
@@ -294,8 +275,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       ((activeRun !== null || conversationLocked) &&
         approvedProposalId === undefined &&
         rejectedProposalId === undefined) ||
-      (!modelReady && approvedProposalId === undefined && rejectedProposalId === undefined) ||
-      agentCapacityReached
+      (!modelReady && approvedProposalId === undefined && rejectedProposalId === undefined)
     )
       return false
     setBusy(true)
@@ -338,7 +318,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
           terminalRunIdsRef.current
         )
       )
-      setActiveRunIds((current) => new Set(current).add(run.agentRunId))
       setPrompt('')
       if (includedAnnotationIds.length > 0) props.onClearIncludedAnnotations()
       return true
@@ -406,24 +385,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         const message = errorMessage(cause)
         setError(message)
       }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const retryRequest = async (): Promise<void> => {
-    if (activeRun === null || modelRetry === null || busy) return
-    const agentRunId = activeRun.agentRunId
-    setBusy(true)
-    setError(null)
-    try {
-      await window.desktop.agent.retryRequest({
-        projectSessionId: props.projectSessionId,
-        agentRunId,
-        capabilityId: modelRetry.capabilityId
-      })
-    } catch (cause) {
-      if (!(await reconcileInactiveRun(agentRunId))) setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -831,7 +792,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     events,
     runs,
     proposals,
-    activeRunLimit,
     compactionConfirmOpen,
     setCompactionConfirmOpen,
     prompt,
@@ -868,7 +828,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     activeRun,
     pendingQuestion,
     pendingMessages,
-    modelRetry,
     choosingSkill,
     streaming,
     usage,
@@ -879,9 +838,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     waitingProposal,
     workflowState,
     conversationLocked,
-    agentCapacityReached,
     canControlTask,
-    workingSession,
     modelReady,
     supportedThinkingLevels,
     availableModelPresets,
@@ -903,7 +860,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
     restoreSession,
     startRun,
     stopRun,
-    retryRequest,
     answerUserQuestion,
     resumeWritingTask,
     reviseWritingTask,

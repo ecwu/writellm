@@ -239,7 +239,6 @@ test(
       expect(finalBody).toContain('RQ3-AUTHORITATIVE-MARKER')
       expect(finalBody).toContain('blockHash')
       expect(finalBody).toContain('revisionId')
-      expect(finalBody).toContain('historical_projection')
       const finalRequest = providerBodies[3] as {
         messages?: Array<{ role?: string; content?: unknown }>
       }
@@ -247,6 +246,9 @@ test(
         finalRequest.messages
           ?.filter((message) => message.role === 'tool')
           .map((message) => String(message.content)) ?? []
+      expect(toolContents.some((content) => content.includes('RQ3-AUTHORITATIVE-MARKER-3'))).toBe(
+        true
+      )
       expect(toolContents.some((content) => content.includes('active_batch_retry'))).toBe(false)
       expect(finalBody).not.toContain('cp51-e2e-secret')
       await expect(

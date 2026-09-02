@@ -65,12 +65,6 @@ export interface FakeActiveRun {
     systemPrompt: string
     activeToolGroups?: WritingToolGroup[]
     runtimeMessageBudgetTokens?: number
-    finalize?: boolean
-  }>
-  retryAuthorizations: Array<{
-    capabilityId: string
-    sourceModelRequestId: string
-    targetModelRequestId: string
   }>
   requestTool: (request: AgentToolRequest) => Promise<AgentToolResponse>
   emit: (event: AgentRuntimeEvent) => Promise<void>
@@ -134,14 +128,12 @@ export class FakeAgentRuntime implements AgentSessionRuntime {
     )
     const commands: FakeActiveRun['commands'] = []
     const authorizations: FakeActiveRun['authorizations'] = []
-    const retryAuthorizations: FakeActiveRun['retryAuthorizations'] = []
     const active = {
       config: _config,
       credential,
       input,
       commands,
       authorizations,
-      retryAuthorizations,
       requestTool: (request) => {
         if (onToolRequest === undefined) throw new Error('No fake Agent tool handler')
         return onToolRequest(request, signal)
@@ -175,14 +167,7 @@ export class FakeAgentRuntime implements AgentSessionRuntime {
             : { activeToolGroups: command.activeToolGroups }),
           ...(command.runtimeMessageBudgetTokens === undefined
             ? {}
-            : { runtimeMessageBudgetTokens: command.runtimeMessageBudgetTokens }),
-          ...(command.finalize === undefined ? {} : { finalize: command.finalize })
-        }),
-      authorizeModelRetry: (command) =>
-        retryAuthorizations.push({
-          capabilityId: command.capabilityId,
-          sourceModelRequestId: command.sourceModelRequestId,
-          targetModelRequestId: command.targetModelRequestId
+            : { runtimeMessageBudgetTokens: command.runtimeMessageBudgetTokens })
         })
     }
   }
@@ -206,7 +191,6 @@ export function createService(
       | 'log'
       | 'tools'
       | 'summarizeHistory'
-      | 'messageTokenBudget'
       | 'publishDelta'
       | 'publishSession'
       | 'publishActivity'

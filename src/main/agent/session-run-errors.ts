@@ -1,5 +1,10 @@
 import { ZodError } from 'zod'
 import {
+  safeAgentDiagnosticMessage,
+  serializeAgentDiagnosticError,
+  type AgentDiagnosticError
+} from '../../shared/agent-diagnostic-error'
+import {
   AGENT_TOOL_RESULT_SCHEMA_VERSION,
   agentToolResponseSchema,
   type AskUserResult,
@@ -21,6 +26,7 @@ export type AgentRunTermination =
         | 'provider_retries_exhausted'
         | 'context_overflow'
         | 'context_overflow_after_activity'
+        | 'current_turn_too_large'
         | 'compaction_required'
         | 'compaction_run_too_large'
         | 'continuation_lost'
@@ -45,7 +51,7 @@ export class AgentRunSetupError extends Error {
     readonly code: string,
     cause: unknown
   ) {
-    super(code, { cause })
+    super(safeAgentDiagnosticMessage(cause) || code, { cause })
     this.name = 'AgentRunSetupError'
   }
 }
@@ -55,7 +61,7 @@ export class AgentRunContextOverflowError extends Error {
     readonly code: 'context_overflow' | 'context_overflow_after_activity',
     cause: unknown
   ) {
-    super(code, { cause })
+    super(safeAgentDiagnosticMessage(cause) || code, { cause })
     this.name = 'AgentRunContextOverflowError'
   }
 }
@@ -74,7 +80,7 @@ export class AgentCompactionRequiredError extends Error {
   readonly code: 'compaction_required' | 'compaction_run_too_large'
 
   constructor(cause: unknown) {
-    super('Conversation history could not be compacted without losing user requirements', { cause })
+    super(safeAgentDiagnosticMessage(cause) || 'Conversation compaction failed', { cause })
     this.name = 'AgentCompactionRequiredError'
     this.code = hasErrorCode(cause, 'compaction_run_too_large')
       ? 'compaction_run_too_large'
@@ -104,6 +110,9 @@ export function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRu
   if (error instanceof AgentRunContextOverflowError) {
     return { status: 'failed', code: error.code }
   }
+  if (hasErrorCode(error, 'current_turn_too_large')) {
+    return { status: 'failed', code: 'current_turn_too_large' }
+  }
   if (error instanceof AgentCompactionRequiredError) {
     return { status: 'failed', code: error.code }
   }
@@ -130,47 +139,51 @@ export function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRu
   return { status: 'failed', code: 'run_failed' }
 }
 
-export function hasErrorCode(error: unknown, expected: string, depth = 0): boolean {
-  if (depth > 6 || error === null || typeof error !== 'object') return false
-  const candidate = error as { code?: unknown; cause?: unknown }
-  return candidate.code === expected || hasErrorCode(candidate.cause, expected, depth + 1)
+function* errorChain(error: unknown): Generator<Record<string, unknown>> {
+  const seen = new Set<object>()
+  while (error !== null && typeof error === 'object' && !seen.has(error)) {
+    seen.add(error)
+    const candidate = error as Record<string, unknown>
+    yield candidate
+    error = candidate['cause']
+  }
+}
+
+export function hasErrorCode(error: unknown, expected: string): boolean {
+  for (const candidate of errorChain(error)) if (candidate['code'] === expected) return true
+  return false
 }
 
 export function compactionFailurePayload(
   error: unknown,
   aborted: boolean
-): { code: string; retryable: boolean } {
-  if (aborted) return { code: 'aborted', retryable: false }
+): { code: string; retryable: boolean; diagnostic: AgentDiagnosticError } {
+  const diagnostic = serializeAgentDiagnosticError(error, 'compaction')
+  if (aborted) return { code: 'aborted', retryable: false, diagnostic }
   if (hasErrorCode(error, 'compaction_run_too_large')) {
-    return { code: 'compaction_run_too_large', retryable: false }
+    return { code: 'compaction_run_too_large', retryable: false, diagnostic }
   }
-  return { code: 'compaction_failed', retryable: true }
+  return { code: 'compaction_failed', retryable: true, diagnostic }
 }
 
-export function isContextOverflowError(error: unknown, depth = 0): boolean {
-  if (depth > 6 || error === null || typeof error !== 'object') return false
-  const candidate = error as {
-    name?: unknown
-    message?: unknown
-    code?: unknown
-    status?: unknown
-    statusCode?: unknown
-    cause?: unknown
+export function isContextOverflowError(error: unknown): boolean {
+  for (const candidate of errorChain(error)) {
+    const code = typeof candidate['code'] === 'string' ? candidate['code'].toLowerCase() : ''
+    const message =
+      typeof candidate['message'] === 'string' ? candidate['message'].toLowerCase() : ''
+    const status = candidate['statusCode'] ?? candidate['status']
+    if (
+      code.includes('context_length') ||
+      code.includes('context_window') ||
+      /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
+        message
+      ) ||
+      (status === 400 && /context|token limit/u.test(message))
+    ) {
+      return true
+    }
   }
-  const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : ''
-  const message = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : ''
-  const status = candidate.statusCode ?? candidate.status
-  if (
-    code.includes('context_length') ||
-    code.includes('context_window') ||
-    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
-      message
-    ) ||
-    (status === 400 && /context|token limit/u.test(message))
-  ) {
-    return true
-  }
-  return isContextOverflowError(candidate.cause, depth + 1)
+  return false
 }
 
 export function toolResponseCapability(request: AgentToolRequest) {
@@ -231,12 +244,16 @@ export function safeToolError(
     return { code: 'aborted', message: 'Agent tool request was aborted', retryable: true }
   }
   if (err instanceof AgentToolDomainError) {
-    return { code: err.code, message: err.message.slice(0, 1_000), retryable: err.retryable }
+    return {
+      code: err.code,
+      message: safeAgentDiagnosticMessage(err).slice(0, 1_000),
+      retryable: err.retryable
+    }
   }
   if (err instanceof SkillReadError) {
     return {
       code: err.code,
-      message: err.message.slice(0, 1_000),
+      message: safeAgentDiagnosticMessage(err).slice(0, 1_000),
       retryable: false,
       ...(err.recoveryUri === undefined ? {} : { recoveryUri: err.recoveryUri })
     }
@@ -256,45 +273,30 @@ export function safeToolError(
   }
   if (toolName === 'generate_image') {
     const httpStatus = findToolErrorHttpStatus(err)
-    const providerCode = findToolErrorProviderCode(err)
-    const suffix = [
-      httpStatus === undefined ? undefined : `HTTP ${httpStatus}`,
-      providerCode
-    ].filter((value): value is string => value !== undefined)
-    const detail = suffix.length === 0 ? '' : ` (${suffix.join(' / ')})`
     const retryable =
       httpStatus === 408 || httpStatus === 429 || (httpStatus !== undefined && httpStatus >= 500)
     return {
       code: 'unavailable',
-      message: retryable
-        ? `Image provider is temporarily unavailable${detail}`
-        : `Image provider rejected the generation request${detail}; verify the image API key, model access, and provider settings`,
+      message:
+        safeAgentDiagnosticMessage(err).slice(0, 1_000) || 'Image provider returned no diagnostic',
       retryable
     }
   }
-  return { code: 'internal', message: 'Agent tool failed', retryable: false }
+  return {
+    code: 'internal',
+    message: safeAgentDiagnosticMessage(err).slice(0, 1_000) || 'Unknown tool error',
+    retryable: false
+  }
 }
 
-export function findToolErrorHttpStatus(error: unknown, depth = 0): number | undefined {
-  if (depth > 6 || error === null || typeof error !== 'object') return undefined
-  const candidate = error as { status?: unknown; statusCode?: unknown; cause?: unknown }
-  const status = candidate.statusCode ?? candidate.status
-  if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
-    return status
+export function findToolErrorHttpStatus(error: unknown): number | undefined {
+  for (const candidate of errorChain(error)) {
+    const status = candidate['statusCode'] ?? candidate['status'] ?? candidate['httpStatus']
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+      return status
+    }
   }
-  return findToolErrorHttpStatus(candidate.cause, depth + 1)
-}
-
-export function findToolErrorProviderCode(error: unknown, depth = 0): string | undefined {
-  if (depth > 6 || error === null || typeof error !== 'object') return undefined
-  const candidate = error as { providerCode?: unknown; cause?: unknown }
-  if (
-    typeof candidate.providerCode === 'string' &&
-    /^[A-Z][A-Z0-9_]{1,127}$/.test(candidate.providerCode)
-  ) {
-    return candidate.providerCode
-  }
-  return findToolErrorProviderCode(candidate.cause, depth + 1)
+  return undefined
 }
 
 export function structuredToolError(
@@ -315,9 +317,9 @@ export function structuredToolError(
             category: 'validation',
             message: actionableToolErrorMessage(
               message,
-              'Copy citationIds from the expanded citations already present in this run and retry once.'
+              'Copy citationIds from the expanded citations already present in this run and retry with corrected arguments.'
             ),
-            recovery: { action: 'fix_arguments', maxAttempts: 1 }
+            recovery: { action: 'fix_arguments' }
           }
         }
         if (citationRecoveryState === 'searched') {
@@ -326,9 +328,9 @@ export function structuredToolError(
             category: 'validation',
             message: actionableToolErrorMessage(
               message,
-              'Call read_citations with citation IDs already returned by search_knowledge, copy the expanded provenance, and retry once.'
+              'Call read_citations with citation IDs already returned by search_knowledge, copy the expanded provenance, and retry with corrected arguments.'
             ),
-            recovery: { action: 'refresh_context', tool: 'read_citations', maxAttempts: 1 }
+            recovery: { action: 'refresh_context', tool: 'read_citations' }
           }
         }
         return {
@@ -336,16 +338,19 @@ export function structuredToolError(
           category: 'validation',
           message: actionableToolErrorMessage(
             message,
-            'Call search_knowledge, then read_citations, copy the returned provenance, and retry once.'
+            'Call search_knowledge, then read_citations, copy the returned provenance, and retry with corrected arguments.'
           ),
-          recovery: { action: 'refresh_context', tool: 'search_knowledge', maxAttempts: 1 }
+          recovery: { action: 'refresh_context', tool: 'search_knowledge' }
         }
       }
       return {
         code,
         category: 'validation',
-        message: actionableToolErrorMessage(message, 'Fix the named fields and retry once.'),
-        recovery: { action: 'fix_arguments', maxAttempts: 1 }
+        message: actionableToolErrorMessage(
+          message,
+          'Fix the named fields and retry with corrected arguments.'
+        ),
+        recovery: { action: 'fix_arguments' }
       }
     case 'unauthorized':
       if (toolName === 'read_writing_skill' && recoveryUri !== undefined) {
@@ -354,12 +359,11 @@ export function structuredToolError(
           category: 'authorization',
           message: actionableToolErrorMessage(
             message,
-            `Call read_writing_skill with recovery.uri and retry once.`
+            `Call read_writing_skill with recovery.uri and retry with corrected arguments.`
           ),
           recovery: {
             action: 'refresh_context',
             tool: 'read_writing_skill',
-            maxAttempts: 1,
             uri: recoveryUri
           }
         }
@@ -377,12 +381,11 @@ export function structuredToolError(
         category: code === 'conflict' ? 'conflict' : 'precondition',
         message: actionableToolErrorMessage(
           message,
-          `Call ${refreshTool}, copy the refreshed values, and retry once.`
+          `Call ${refreshTool}, copy the refreshed values, and retry with corrected arguments.`
         ),
         recovery: {
           action: 'refresh_context',
           tool: refreshTool,
-          maxAttempts: 1,
           ...(recoveryUri === undefined ? {} : { uri: recoveryUri })
         }
       }
@@ -392,9 +395,9 @@ export function structuredToolError(
         category: 'conflict',
         message: actionableToolErrorMessage(
           message,
-          `Call ${toolName} without a cursor and restart once.`
+          `Call ${toolName} without a cursor and restart pagination.`
         ),
-        recovery: { action: 'restart_pagination', tool: toolName, maxAttempts: 1 }
+        recovery: { action: 'restart_pagination', tool: toolName }
       }
     case 'result_too_large':
       return {
@@ -407,8 +410,11 @@ export function structuredToolError(
       return {
         code,
         category: 'transient',
-        message: actionableToolErrorMessage(message, 'Retry this operation once.'),
-        recovery: { action: 'retry', maxAttempts: 1 }
+        message: actionableToolErrorMessage(
+          message,
+          'Retry this operation if the transient failure clears.'
+        ),
+        recovery: { action: 'retry' }
       }
     case 'aborted':
       return {
@@ -423,11 +429,12 @@ export function structuredToolError(
         category: 'transient',
         message: actionableToolErrorMessage(
           message,
-          retryable ? 'Retry this operation once.' : 'Ask the user to verify provider access.'
+          retryable
+            ? 'Retry this operation if the transient failure clears.'
+            : 'Ask the user to verify provider access.'
         ),
         recovery: {
-          action: retryable ? 'retry' : 'ask_user',
-          maxAttempts: retryable ? 1 : undefined
+          action: retryable ? 'retry' : 'ask_user'
         }
       }
     case 'internal':

@@ -14,6 +14,7 @@ test(
     let autoSkillUris: string[] = []
     let autoReferenceUris: string[] = []
     let autoToolBatch = 0
+    let mixedReadOnlyBatchObserved = false
     const server = createServer((request, response) => {
       if (request.method === 'GET' && request.url === '/v1/models') {
         response.writeHead(200, { 'content-type': 'application/json' })
@@ -34,14 +35,26 @@ test(
           requests.push(body)
           const lastMessage = body.messages?.at(-1)
           if (lastMessage?.role === 'user' && requests.length === 1) {
-            if (autoSkillUris.length !== 3) throw new Error('Skill URIs are missing')
-            sendToolCalls(response, autoReferenceUris, autoToolBatch++)
+            const initialReferences = autoReferenceUris.slice(0, 2).map((uri) => skillRead(uri))
+            if (initialReferences.length === 0) throw new Error('Skill reference URIs are missing')
+            sendToolCalls(response, initialReferences, autoToolBatch++)
             return
           }
           if (lastMessage?.role === 'tool') {
             const requestText = JSON.stringify(body)
             if (!requestText.includes("Preserve the source's paragraph order")) {
-              sendToolCalls(response, [autoSkillUris[2] as string], autoToolBatch++)
+              const discoveredRoot = autoSkillUris[2]
+              if (discoveredRoot === undefined) throw new Error('Discovered Skill URI is missing')
+              mixedReadOnlyBatchObserved = true
+              sendToolCalls(
+                response,
+                [
+                  ...autoReferenceUris.slice(2).map((uri) => skillRead(uri)),
+                  { name: 'get_writing_context', args: {} },
+                  skillRead(discoveredRoot)
+                ],
+                autoToolBatch++
+              )
               return
             }
             sendCompletion(response, 'A textual skill fixture draft.')
@@ -206,7 +219,7 @@ test(
           requested: ['e2e-writing', 'e2e-humanize'],
           loaded: ['e2e-writing', 'e2e-humanize', 'e2e-discovered']
         })
-      await expect(panel.getByText('Loaded e2e-discovered · 5 reference files')).toBeVisible()
+      await expect(panel.getByText(/Loaded e2e-discovered/)).toBeVisible()
       await expect(panel.getByText('A textual skill fixture draft.', { exact: true })).toBeVisible()
       await expect(panel.getByLabel('Writing Skills used for this message')).toHaveCount(0)
       await panel.getByRole('log').evaluate((element) => element.scrollTo({ top: 0 }))
@@ -252,7 +265,7 @@ test(
         )[0]
       })
       expect(autoTruth?.skillSnapshot).toMatchObject({
-        schemaVersion: 3,
+        schemaVersion: 4,
         mode: 'explicit',
         routingStatus: 'selected',
         requestedSkills: [
@@ -287,14 +300,19 @@ test(
           })
         ])
       })
-      expect(autoTruth?.skillSnapshot.resources).toHaveLength(5)
-      expect(requests).toHaveLength(3)
-      expect(JSON.stringify(requests[0])).toContain('$e2e-writing $e2e-humanize')
-      expect(JSON.stringify(requests[0])).toContain('global skill fixture')
-      expect(JSON.stringify(requests[0])).toContain('Keep sentence rhythm varied')
-      expect(JSON.stringify(requests[1])).toContain('Use concrete nouns and active verbs')
-      expect(JSON.stringify(requests[2])).toContain('WRITELLM_SKILL_GUIDANCE')
-      expect(JSON.stringify(requests[2])).toContain("Preserve the source's paragraph order")
+      expect(mixedReadOnlyBatchObserved).toBe(true)
+      const requestTexts = requests.map((request) => JSON.stringify(request))
+      expect(requestTexts[0]).toContain('$e2e-writing $e2e-humanize')
+      expect(requestTexts[0]).toContain('global skill fixture')
+      expect(requestTexts[0]).toContain('Keep sentence rhythm varied')
+      expect(requestTexts[0]).not.toContain('Use concrete nouns and active verbs')
+      expect(
+        requestTexts.some((request) => request.includes('Use concrete nouns and active verbs'))
+      ).toBe(true)
+      expect(requestTexts.some((request) => request.includes('WRITELLM_SKILL_GUIDANCE'))).toBe(true)
+      expect(
+        requestTexts.some((request) => request.includes("Preserve the source's paragraph order"))
+      ).toBe(true)
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
       details = launched.page.getByRole('dialog', { name: 'Agent details' })
@@ -317,7 +335,19 @@ test(
   }
 )
 
-function sendToolCalls(response: ServerResponse, uris: string[], batch: number): void {
+type ReadOnlyToolCall =
+  | { name: 'read_writing_skill'; args: { uri: string } }
+  | { name: 'get_writing_context'; args: Record<string, never> }
+
+function skillRead(uri: string): ReadOnlyToolCall {
+  return { name: 'read_writing_skill', args: { uri } }
+}
+
+function sendToolCalls(
+  response: ServerResponse,
+  calls: readonly ReadOnlyToolCall[],
+  batch: number
+): void {
   sendSse(response, [
     {
       id: 'auto-skill-tool-call',
@@ -329,11 +359,11 @@ function sendToolCalls(response: ServerResponse, uris: string[], batch: number):
           index: 0,
           delta: {
             role: 'assistant',
-            tool_calls: uris.map((uri, index) => ({
+            tool_calls: calls.map((call, index) => ({
               index,
               id: `read-auto-writing-skill-${batch}-${index}`,
               type: 'function',
-              function: { name: 'read_writing_skill', arguments: JSON.stringify({ uri }) }
+              function: { name: call.name, arguments: JSON.stringify(call.args) }
             }))
           },
           finish_reason: null

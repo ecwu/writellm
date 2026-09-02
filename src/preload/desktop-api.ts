@@ -467,11 +467,6 @@ export interface DesktopApi {
       agentSessionId: string
     }): Promise<MutationProposalRecord[]>
     startRun(input: ReturnType<typeof agentStartRunInputSchema.parse>): Promise<AgentRunRecord>
-    retryRequest(input: {
-      projectSessionId: string
-      agentRunId: string
-      capabilityId: string
-    }): Promise<void>
     steerRun(input: {
       projectSessionId: string
       agentRunId: string

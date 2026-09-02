@@ -279,7 +279,7 @@ describe('Agent panel flow selection', () => {
     })
   })
 
-  it('omits prior mentions, caps four prefixes, and exposes available-name collisions', () => {
+  it('omits prior mentions and exposes available-name collisions without a prefix cap', () => {
     const installed = [
       installedSkill('nature-one', 'Nature One', 'First source.', { name: 'shared-name' }),
       installedSkill('nature-two', 'Nature Two', 'Second source.', { name: 'shared-name' }),
@@ -306,7 +306,17 @@ describe('Agent panel flow selection', () => {
         query: '',
         queryStart: 22
       })
-    ).toEqual([])
+    ).toEqual([
+      expect.objectContaining({
+        name: 'fifth-method',
+        disabled: false
+      }),
+      expect.objectContaining({
+        name: 'shared-name',
+        disabled: true,
+        skillId: 'ambiguous:shared-name'
+      })
+    ])
     expect(
       buildSkillMentionCandidates({
         installed: [installedSkill('nature-writing', 'Nature Writing', 'Nature source.')],

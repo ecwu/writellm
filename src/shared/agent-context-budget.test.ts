@@ -4,7 +4,6 @@ import {
   AgentContextBudgetController,
   AgentCurrentTurnTooLargeError,
   AgentModelCapacityError,
-  AgentToolBatchContextExhaustedError,
   agentMessageBudget,
   agentOutputLimit,
   agentRuntimeMessageBudget,
@@ -72,13 +71,13 @@ function readCall(id: string, timestamp: number, name = 'read_section') {
 }
 
 describe('Agent token context budget', () => {
-  it('estimates CJK conservatively rather than using the ASCII ratio', () => {
+  it('estimates CJK and emoji without assuming the ASCII ratio', () => {
     expect(estimateAgentTokens('abcd')).toBe(1)
     expect(estimateAgentTokens('写作助手')).toBe(4)
     expect(estimateAgentTokens('🙂')).toBe(2)
   })
 
-  it('gives message history the space released by inactive writing tool groups', () => {
+  it('uses all model input space released by inactive tool groups', () => {
     const limits = {
       contextWindowTokens: 32_768,
       inputLimitTokens: null,
@@ -99,7 +98,7 @@ describe('Agent token context budget', () => {
     )
   })
 
-  it('retains the current request and newest complete turn while omitting older completed turns', () => {
+  it('retains the newest complete turn while omitting older turns', () => {
     const messages = [
       user('a'.repeat(12_000), 1),
       assistant(2, [{ type: 'text', text: 'old answer' }], 'stop'),
@@ -113,7 +112,7 @@ describe('Agent token context budget', () => {
     expect(bounded.at(-1)).toMatchObject({ role: 'user', content: 'newest' })
   })
 
-  it('keeps the newest assistant/tool-result batch complete and projects only older read batches', () => {
+  it('drops oversized old turns and keeps the latest atomic batch raw when it fits', () => {
     const oldResult = toolResult({
       id: 'tool-old',
       name: 'search_knowledge',
@@ -135,30 +134,46 @@ describe('Agent token context budget', () => {
         revisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
         blocks: [{ blockId: 'block-rq3', blockHash: 'b'.repeat(64), text: 'RQ3 body' }]
       }),
-      timestamp: 5
+      timestamp: 7
     })
     const bounded = boundAgentContextByTokens(
       [
-        user('Polish RQ1 through RQ3', 1),
+        user('Old request', 1),
         readCall('tool-old', 2, 'search_knowledge'),
         oldResult,
-        readCall('tool-latest', 4),
+        assistant(4, [{ type: 'text', text: 'old answer' }], 'stop'),
+        user('Polish RQ1 through RQ3', 5),
+        readCall('tool-latest', 6),
         latestResult
       ],
       4_096
     )
     const serialized = JSON.stringify(bounded)
-    expect(serialized).toContain('historical_projection')
-    expect(serialized).toContain(`citation-${'a'.repeat(40)}`)
+    expect(serialized).not.toContain('historical_projection')
     expect(serialized).not.toContain('PRIVATE SOURCE BODY')
     expect(serialized).not.toContain('/Users/private')
     expect(serialized).not.toContain('must not survive')
-    expect(serialized).toContain('block-rq3')
     expect(serialized).toContain('RQ3 body')
-    expect(serialized).toContain('b'.repeat(64))
   })
 
-  it('keeps a parallel latest tool batch atomic', () => {
+  it('keeps the retained history suffix contiguous when an intervening turn is oversized', () => {
+    const bounded = boundAgentContextByTokens(
+      [
+        user('old turn', 1),
+        assistant(2, [{ type: 'text', text: 'old answer' }], 'stop'),
+        user(`oversized turn ${'界'.repeat(20_000)}`, 3),
+        assistant(4, [{ type: 'text', text: 'oversized answer' }], 'stop'),
+        user('current request', 5)
+      ],
+      4_096
+    )
+    const serialized = JSON.stringify(bounded)
+    expect(serialized).toContain('current request')
+    expect(serialized).not.toContain('oversized turn')
+    expect(serialized).not.toContain('old turn')
+  })
+
+  it('keeps a parallel latest read batch atomic', () => {
     const call = assistant(2, [
       { type: 'toolCall', id: 'read-a', name: 'read_section', arguments: {} },
       { type: 'toolCall', id: 'read-b', name: 'read_section', arguments: {} }
@@ -177,10 +192,9 @@ describe('Agent token context budget', () => {
       'toolResult',
       'toolResult'
     ])
-    expect(JSON.stringify(bounded)).not.toContain('historical_projection')
   })
 
-  it('projects one oversized active read batch for a smaller retry and recovers on a small batch', () => {
+  it('projects every oversized read batch independently without a retry counter', () => {
     const events: string[] = []
     const controller = new AgentContextBudgetController(4_096, (event) => events.push(event.type))
     const first = [
@@ -190,38 +204,23 @@ describe('Agent token context budget', () => {
     ]
     const projected = controller.transform(first)
     expect(JSON.stringify(projected)).toContain('active_batch_retry')
-    expect(JSON.stringify(projected)).toContain('"contentAvailable":false')
-    expect(JSON.stringify(projected)).toContain('"maxAttempts":1')
+    expect(JSON.stringify(projected)).toContain('requiredTokens')
+    expect(JSON.stringify(projected)).toContain('availableTokens')
+    expect(JSON.stringify(projected)).not.toContain('maxAttempts')
     expect(JSON.stringify(projected)).not.toContain('large body')
     expect(events).toEqual(['active_batch_retry'])
 
-    const recovered = controller.transform([
-      ...first,
-      readCall('read-small', 4),
-      toolResult({ id: 'read-small', text: 'bounded RQ3 body', timestamp: 5 })
+    const second = controller.transform([
+      ...projected,
+      readCall('read-large-again', 4),
+      toolResult({ id: 'read-large-again', text: 'still large '.repeat(8_000), timestamp: 5 })
     ])
-    expect(JSON.stringify(recovered)).toContain('bounded RQ3 body')
-    expect(events).toEqual(['active_batch_retry', 'active_batch_recovered'])
-    expect(controller.terminalError()).toBeNull()
+    expect(JSON.stringify(second)).toContain('read-large-again')
+    expect(JSON.stringify(second)).not.toContain('still large')
+    expect(events).toEqual(['active_batch_retry', 'active_batch_retry'])
   })
 
-  it('fails after a second oversized read batch and never projects mutation output', () => {
-    const controller = new AgentContextBudgetController(4_096)
-    const first = [
-      user('Polish RQ3', 1),
-      readCall('read-large', 2),
-      toolResult({ id: 'read-large', text: 'large body '.repeat(8_000), timestamp: 3 })
-    ]
-    controller.transform(first)
-    expect(() =>
-      controller.transform([
-        ...first,
-        readCall('read-large-again', 4),
-        toolResult({ id: 'read-large-again', text: 'still large '.repeat(8_000), timestamp: 5 })
-      ])
-    ).toThrow(AgentToolBatchContextExhaustedError)
-    expect(controller.terminalError()).toBeInstanceOf(AgentToolBatchContextExhaustedError)
-
+  it('never projects an oversized mutation/effect result', () => {
     const mutation = toolResult({
       id: 'tool-proposal',
       name: 'submit_section_change',
@@ -233,12 +232,7 @@ describe('Agent token context budget', () => {
         [
           user('Apply a change', 1),
           assistant(2, [
-            {
-              type: 'toolCall',
-              id: 'tool-proposal',
-              name: 'submit_section_change',
-              arguments: {}
-            }
+            { type: 'toolCall', id: 'tool-proposal', name: 'submit_section_change', arguments: {} }
           ]),
           mutation
         ],
@@ -247,13 +241,13 @@ describe('Agent token context budget', () => {
     ).toThrow(AgentCurrentTurnTooLargeError)
   })
 
-  it('rejects an oversized current CJK request instead of recursively truncating strings', () => {
+  it('rejects an oversized current user request instead of truncating it', () => {
     expect(() => boundAgentContextByTokens([user('界'.repeat(20_000), 1)], 4_096)).toThrow(
       AgentCurrentTurnTooLargeError
     )
   })
 
-  it('combines input, output, context, and fixed safety reserves without clamping upward', () => {
+  it('combines exact input and output limits without the former fixed reserve', () => {
     const limits = {
       contextWindowTokens: 32_000,
       inputLimitTokens: 12_000,
@@ -264,8 +258,14 @@ describe('Agent token context budget', () => {
     }
     expect(agentOutputLimit(8_192, limits)).toBe(2_000)
     expect(agentMessageBudget(2_000, { ...limits })).toBe(12_000)
+    expect(agentMessageBudget(8_192, { ...limits, contextWindowTokens: 5_000 })).toBe(3_000)
     expect(() =>
-      agentMessageBudget(8_192, { ...limits, contextWindowTokens: 20_000, inputLimitTokens: null })
+      agentMessageBudget(8_192, {
+        ...limits,
+        contextWindowTokens: 5_000,
+        inputLimitTokens: null,
+        outputLimitTokens: null
+      })
     ).toThrow(AgentModelCapacityError)
   })
 })

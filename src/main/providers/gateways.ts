@@ -16,7 +16,6 @@ import type {
   AgentRuntimeModel,
   AgentModelLimits,
   AgentModelCallAuthorization,
-  AgentModelRetryAuthorization,
   AgentQueueActionCommand,
   AgentQueueCommand,
   AgentRuntimeEvent,
@@ -103,7 +102,6 @@ export interface AgentSessionRunHandle {
     command: Omit<AgentFollowUpConsumptionAuthorization, 'operation' | 'requestId'>
   ): void
   authorizeModelCall(command: Omit<AgentModelCallAuthorization, 'operation' | 'requestId'>): void
-  authorizeModelRetry(command: Omit<AgentModelRetryAuthorization, 'operation' | 'requestId'>): void
 }
 
 export interface AgentSessionRuntime {

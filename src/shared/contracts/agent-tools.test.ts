@@ -41,9 +41,9 @@ describe('Agent read-tool contracts', () => {
     }
   })
 
-  it('writes contract v12 while retaining v2-v11 event replay compatibility', () => {
-    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(13)
-    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]) {
+  it('writes contract v14 while retaining v2-v13 event replay compatibility', () => {
+    expect(AGENT_TOOL_CONTRACT_VERSION).toBe(14)
+    for (const contractVersion of [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]) {
       expect(
         toolResultMetaSchema.parse({
           contractVersion,

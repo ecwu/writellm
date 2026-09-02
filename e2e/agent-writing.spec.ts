@@ -165,12 +165,16 @@ function sendSse(response: ServerResponse, chunks: unknown[]): void {
 }
 
 test(
-  'retries the failed Agent request without resending the user message',
+  'surfaces an exhausted Agent diagnostic and starts a fresh run for later messages',
   scenario('agent.request-retry', ['@critical']),
   async ({ testRoot }) => {
     test.setTimeout(180_000)
-    const beforeContentPrompt = `Retry this long request exactly once. ${'Bounded context. '.repeat(80)}`
-    const midStreamPrompt = `Continue this interrupted request exactly once. ${'Stable context. '.repeat(80)}`
+    const exhaustedPrompt = `Exhaust this request and preserve its diagnostic. ${'Bounded context. '.repeat(80)}`
+    const afterExhaustionPrompt =
+      'Recover after the failed request with a fresh user run and finish this note.'
+    const partialPrompt = `Keep the partial response visible and report the stream failure. ${'Stable context. '.repeat(80)}`
+    const afterPartialPrompt =
+      'Start a new run after the interrupted stream and finish this follow-up note.'
     const agentBodies: string[] = []
     const server = createServer((request, response) => {
       if (request.method === 'GET' && request.url === '/v1/models') {
@@ -184,7 +188,7 @@ test(
         request.on('end', () => {
           const body = Buffer.concat(chunks).toString()
           if (body.includes('Create a concise title for the delimited')) {
-            sendCompletion(response, 'Request retry evidence')
+            sendCompletion(response, 'Request diagnostic evidence')
             return
           }
           agentBodies.push(body)
@@ -197,7 +201,7 @@ test(
             return
           }
           if (agentBodies.length === 6) {
-            sendCompletion(response, 'Recovered before-content request.')
+            sendCompletion(response, 'Recovered after a normal run following exhaustion.')
             return
           }
           if (agentBodies.length === 7) {
@@ -223,7 +227,7 @@ test(
             setTimeout(() => response.destroy(), 100)
             return
           }
-          sendCompletion(response, 'Recovered mid-stream request.')
+          sendCompletion(response, 'Recovered after a normal run following stream interruption.')
         })
         return
       }
@@ -240,7 +244,7 @@ test(
       dialogPaths: [testRoot]
     })
     try {
-      await createProject(launched.page, 'Agent request retry')
+      await createProject(launched.page, 'Agent diagnostic recovery')
       await configureProvider(launched.page, {
         sectionName: /^Agent API/,
         role: 'agent',
@@ -256,28 +260,45 @@ test(
       const composer = panel.getByLabel('Agent message')
       const send = panel.getByRole('button', { name: 'Send', exact: true })
 
-      await composer.fill(beforeContentPrompt)
+      await composer.fill(exhaustedPrompt)
       await send.click()
-      const retryRequest = panel.getByRole('button', { name: 'Retry request', exact: true })
-      await expect(retryRequest).toBeVisible({ timeout: 30_000 })
-      await retryRequest.click()
-      await expect(
-        panel.getByText('Recovered before-content request.', { exact: true })
-      ).toBeVisible({ timeout: 30_000 })
-
-      await composer.fill(midStreamPrompt)
-      await send.click()
-      await expect(panel.getByText('Interrupted partial response.', { exact: true })).toBeVisible()
-      const continueRequest = panel.getByRole('button', { name: 'Continue', exact: true })
-      await expect(continueRequest).toBeVisible({ timeout: 30_000 })
-      await continueRequest.click()
-      await expect(panel.getByText('Recovered mid-stream request.', { exact: true })).toBeVisible({
+      await expect(panel.getByText(/Temporary Agent outage/i).last()).toBeVisible({
         timeout: 30_000
       })
+      await expect(panel.getByRole('button', { name: 'Retry request', exact: true })).toHaveCount(0)
+      await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
+
+      await composer.fill(afterExhaustionPrompt)
+      await expect(send).toBeEnabled({ timeout: 30_000 })
+      await send.click()
+      await expect(
+        panel.getByText('Recovered after a normal run following exhaustion.', { exact: true })
+      ).toBeVisible({ timeout: 30_000 })
+
+      await composer.fill(partialPrompt)
+      await expect(send).toBeEnabled({ timeout: 30_000 })
+      await send.click()
+      await expect(panel.getByText('Interrupted partial response.', { exact: true })).toBeVisible()
+      await expect(
+        panel.getByText(/terminated|stream ended without a terminal event/i).last()
+      ).toBeVisible({ timeout: 30_000 })
+      await expect(panel.getByRole('button', { name: 'Retry request', exact: true })).toHaveCount(0)
+      await expect(panel.getByRole('button', { name: 'Continue', exact: true })).toHaveCount(0)
+
+      await composer.fill(afterPartialPrompt)
+      await expect(send).toBeEnabled({ timeout: 30_000 })
+      await send.click()
+      await expect(
+        panel.getByText('Recovered after a normal run following stream interruption.', {
+          exact: true
+        })
+      ).toBeVisible({ timeout: 30_000 })
 
       expect(agentBodies).toHaveLength(8)
-      expect(agentBodies[5]).toBe(agentBodies[0])
-      expect(agentBodies[7]).toBe(agentBodies[6])
+      expect(agentBodies[5]).not.toBe(agentBodies[0])
+      expect(agentBodies[5]).toContain(afterExhaustionPrompt)
+      expect(agentBodies[7]).not.toBe(agentBodies[6])
+      expect(agentBodies[7]).toContain(afterPartialPrompt)
       const durableMessages = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
           ?.projectSessionId
@@ -294,13 +315,19 @@ test(
       })
       expect(
         durableMessages.filter((message) =>
-          message.includes('Retry this long request exactly once.')
+          message.includes('Exhaust this request and preserve its diagnostic.')
         )
       ).toHaveLength(1)
       expect(
+        durableMessages.filter((message) => message.includes(afterExhaustionPrompt))
+      ).toHaveLength(1)
+      expect(
         durableMessages.filter((message) =>
-          message.includes('Continue this interrupted request exactly once.')
+          message.includes('Keep the partial response visible and report the stream failure.')
         )
+      ).toHaveLength(1)
+      expect(
+        durableMessages.filter((message) => message.includes(afterPartialPrompt))
       ).toHaveLength(1)
     } finally {
       await launched.app.close()
@@ -411,7 +438,7 @@ test(
             )
             return
           }
-          if (JSON.stringify(body).includes('CONTEXT CHECKPOINT COMPACTION')) {
+          if (JSON.stringify(body).includes('WRITELLM_PRIOR_EVENTS')) {
             compactionCall += 1
             sendCompletion(
               response,
@@ -1267,8 +1294,8 @@ Continue only the original user request that remains unresolved after this appro
         .getByRole('option', { name: /Compact conversation/ })
       await expect(compactOption).toBeVisible()
       await compactOption.click()
-      await expect(agentMessage).toHaveValue('')
       await expect(panel.getByText('Earlier conversation summarized · manual')).toBeVisible()
+      await expect(panel.getByLabel('Agent message')).toHaveValue('')
       await panel.getByText('Earlier conversation summarized · manual').click()
       await expect(
         panel.getByText('AI-generated context checkpoint, not manuscript authority.')

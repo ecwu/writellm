@@ -2,8 +2,35 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 import { createLoggerSystem } from './logger'
 import { withLogContext } from './log-context'
+import { serializeAgentDiagnosticError } from '../../shared/agent-diagnostic-error'
 
 describe('logger system', () => {
+  it('logs the original Agent error through its safe request-boundary projection', async () => {
+    const destination = new PassThrough()
+    const output: string[] = []
+    destination.on('data', (chunk) => output.push(chunk.toString()))
+    const system = await createLoggerSystem({
+      appVersion: 'test',
+      logDirectory: '/tmp/writellm-agent-diagnostic-log-test',
+      development: false,
+      destination
+    })
+    const body = 'Private manuscript body without a recognizable label'
+    const error = new Error(`Provider rejected ${body}`, {
+      cause: new Error('API_KEY=private-key')
+    })
+    serializeAgentDiagnosticError(error, 'provider', { privateBodies: [body] })
+    system
+      .createModuleLogger('agent', 'test')
+      .error({ event: 'agent.request.failed', err: error }, 'Request failed')
+    await system.flush()
+    const text = output.join('')
+    expect(text).toContain('Provider rejected')
+    expect(text).not.toContain(body)
+    expect(text).not.toContain('private-key')
+    expect(JSON.parse(text).err.stage).toBe('provider')
+  })
+
   it('preserves errors and context while redacting sensitive fields', async () => {
     const destination = new PassThrough()
     const output: string[] = []

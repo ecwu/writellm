@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto'
+import {
+  agentDiagnosticErrorSchema,
+  type AgentDiagnosticError
+} from '../../shared/agent-diagnostic-error'
 import type {
   AgentAssistantMessagePayload,
   AgentEventType,
@@ -20,7 +24,7 @@ export function legacyModelLimits(): AgentModelLimits {
 
 export function pendingSkillSnapshot(): SkillRunSnapshot {
   return skillRunSnapshotSchema.parse({
-    schemaVersion: 3,
+    schemaVersion: 4,
     mode: 'auto',
     routingStatus: 'pending',
     requestedSkills: [],
@@ -93,6 +97,18 @@ export function safeErrorCode(value: string | null): string | null {
     return typeof parsed.code === 'string' ? parsed.code.slice(0, 200) : 'agent_run_failed'
   } catch {
     return 'agent_run_failed'
+  }
+}
+
+export function readErrorDetails(value: string | null): AgentDiagnosticError | null {
+  if (value === null) return null
+  try {
+    const parsed = JSON.parse(value) as { diagnostic?: unknown }
+    const diagnostic = agentDiagnosticErrorSchema.safeParse(parsed.diagnostic)
+    return diagnostic.success ? diagnostic.data : null
+  } catch {
+    // Historical error_json records only carried a code and may not contain a diagnostic.
+    return null
   }
 }
 

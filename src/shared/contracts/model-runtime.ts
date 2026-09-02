@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import { imageSizeSchema, providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
 import { agentModelLimitsSchema, legacyAgentModelLimits } from './agent-model-limits'
@@ -176,7 +177,6 @@ export const agentUtilityMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('trace-capture'),
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema,
-    captureId: z.uuid(),
     modelRequestId: z.uuid(),
     purpose: z.enum(['session_title', 'compaction']),
     apiId: z.string().min(1).max(100),
@@ -210,21 +210,10 @@ export const agentUtilityMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('error'),
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema.nullable().optional(),
-    error: diagnosticErrorSchema
+    error: agentDiagnosticErrorSchema
   })
 ])
 export type AgentUtilityMessage = z.infer<typeof agentUtilityMessageSchema>
-
-export const agentUtilityTraceAckSchema = z
-  .object({
-    type: z.literal('trace-ack'),
-    requestId: z.uuid(),
-    projectSessionId: projectSessionIdSchema,
-    captureId: z.uuid(),
-    ok: z.boolean(),
-    errorCode: z.string().min(1).max(100).optional()
-  })
-  .strict()
 
 export const auxiliaryUtilityRequestSchema = z.discriminatedUnion('operation', [
   z.object({

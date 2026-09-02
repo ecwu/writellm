@@ -25,18 +25,14 @@ describe('AgentSessionService: tools', () => {
       invocationSources: new Map<string, 'user' | 'agent'>(),
       dependencyCandidates: new Map(),
       activeSkills: [],
-      loadingEntrypointUri: null,
-      entrypointModelRequestIds: new Set<string>(),
       dependencies: [],
-      readResources: new Map(),
-      readingResources: new Map(),
-      preparationClosed: false
+      readResources: new Map()
     }
     const service = createService(database, runtime, undefined, {
       skillRouter: {
         route: async () => ({
           snapshot: {
-            schemaVersion: 3 as const,
+            schemaVersion: 4 as const,
             mode: 'auto' as const,
             routingStatus: 'selected' as const,
             requestedSkills: [],
@@ -311,7 +307,7 @@ describe('AgentSessionService: tools', () => {
     database.close()
   })
 
-  it('authorizes exactly one tool-free finalization call after a run reaches 180 events', async () => {
+  it('continues authorizing tool calls beyond 180 durable events without forced finalization', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const info = vi.fn()
@@ -321,11 +317,11 @@ describe('AgentSessionService: tools', () => {
     const session = service.createSession()
     const started = await service.startRun({
       agentSessionId: session.agentSessionId,
-      prompt: 'Work until the bounded final response.',
+      prompt: 'Continue gathering the requested evidence.',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
     const active = runtime.active(started.agentRunId)
-    for (let index = 0; index < 179; index += 1) {
+    for (let index = 0; index < 200; index += 1) {
       await active.emit({
         type: 'tool_attempted',
         modelRequestId: active.input.modelRequestId,
@@ -344,11 +340,14 @@ describe('AgentSessionService: tools', () => {
     })
 
     expect(active.authorizations).toHaveLength(1)
-    expect(active.authorizations[0]).toMatchObject({
-      finalize: true,
-      systemPrompt: expect.stringContaining('final model call')
+    expect(active.authorizations[0]?.systemPrompt).not.toContain('final model call')
+    await active.emit({
+      type: 'model_call_requested',
+      continuationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc475',
+      reason: 'tool_continuation'
     })
-    expect(JSON.stringify(info.mock.calls)).toContain('agent.run.finalization_started')
+    expect(active.authorizations).toHaveLength(2)
+    expect(JSON.stringify(info.mock.calls)).not.toContain('agent.run.finalization_started')
     active.reject(workerExitError())
     await started.completion
     database.close()
@@ -564,7 +563,7 @@ describe('AgentSessionService: tools', () => {
     const runtime = new FakeAgentRuntime()
     const commit = 'a'.repeat(40)
     const snapshot = {
-      schemaVersion: 3 as const,
+      schemaVersion: 4 as const,
       mode: 'auto' as const,
       routingStatus: 'selected' as const,
       requestedSkills: [],
@@ -590,12 +589,8 @@ describe('AgentSessionService: tools', () => {
       invocationSources: new Map<string, 'user' | 'agent'>(),
       dependencyCandidates: new Map(),
       activeSkills: [],
-      loadingEntrypointUri: null,
-      entrypointModelRequestIds: new Set<string>(),
       dependencies: [],
-      readResources: new Map(),
-      readingResources: new Map(),
-      preparationClosed: false
+      readResources: new Map()
     }
     const service = createService(database, runtime, undefined, {
       skillRouter: {
@@ -620,7 +615,13 @@ describe('AgentSessionService: tools', () => {
             dependencies: []
           }
         })
-      }
+      },
+      tools: {
+        execute: vi.fn(async (input: { toolName: AgentToolRequest['toolName'] }) => {
+          expect(input.toolName).toBe('search_knowledge')
+          return { mode: 'fts', rerankStatus: 'disabled', hits: [] }
+        })
+      } as never
     })
     const session = service.createSession('Progressive skill')
     const started = await service.startRun({
@@ -670,11 +671,8 @@ describe('AgentSessionService: tools', () => {
         }
       })
     ).resolves.toMatchObject({
-      ok: false,
-      error: {
-        code: 'conflict',
-        message: expect.stringContaining('cannot be mixed with other tools')
-      }
+      ok: true,
+      data: { mode: 'fts', rerankStatus: 'disabled', hits: [] }
     })
     active.resolve()
     await started.completion
@@ -833,17 +831,17 @@ describe('AgentSessionService: tools', () => {
           sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc476',
           operations: [{ type: 'insertTextBlocks', placement: 'end', blocks: [{ text: 'Body.' }] }]
         },
-        expected: { action: 'refresh_context', tool: 'read_section', maxAttempts: 1 }
+        expected: { action: 'refresh_context', tool: 'read_section' }
       },
       {
         toolName: 'read_outline' as const,
         args: { cursor: 'stale' },
-        expected: { action: 'restart_pagination', tool: 'read_outline', maxAttempts: 1 }
+        expected: { action: 'restart_pagination', tool: 'read_outline' }
       },
       {
         toolName: 'read_citations' as const,
         args: { citationIds: [`citation-${'a'.repeat(40)}`] },
-        expected: { action: 'refresh_context', tool: 'search_knowledge', maxAttempts: 1 }
+        expected: { action: 'refresh_context', tool: 'search_knowledge' }
       }
     ]
 
@@ -887,13 +885,13 @@ describe('AgentSessionService: tools', () => {
       state: 'searched',
       evidenceTool: 'search_knowledge' as const,
       evidenceArgs: { query: 'evidence' },
-      expected: { action: 'refresh_context', tool: 'read_citations', maxAttempts: 1 }
+      expected: { action: 'refresh_context', tool: 'read_citations' }
     },
     {
       state: 'expanded',
       evidenceTool: 'read_citations' as const,
       evidenceArgs: { citationIds: [`citation-${'a'.repeat(40)}`] },
-      expected: { action: 'fix_arguments', maxAttempts: 1 }
+      expected: { action: 'fix_arguments' }
     }
   ])('routes citation recovery from $state run evidence', async (fixture) => {
     const database = await createDatabase()
@@ -1054,8 +1052,7 @@ describe('AgentSessionService: tools', () => {
       error: {
         code: 'unavailable',
         category: 'transient',
-        message:
-          'Image provider rejected the generation request (HTTP 400 / INVALID_ARGUMENT); verify the image API key, model access, and provider settings. Next: Ask the user to verify provider access.',
+        message: expect.stringContaining('Auxiliary model request failed'),
         recovery: { action: 'ask_user' }
       }
     })
@@ -1064,7 +1061,17 @@ describe('AgentSessionService: tools', () => {
       isError: true,
       error: {
         code: 'unavailable',
-        message: expect.stringContaining('HTTP 400 / INVALID_ARGUMENT')
+        message: expect.stringContaining('Auxiliary model request failed'),
+        details: expect.objectContaining({
+          message: 'Auxiliary model request failed',
+          causes: expect.arrayContaining([
+            expect.objectContaining({
+              message: 'Safe worker error',
+              code: 'INVALID_ARGUMENT',
+              httpStatus: 400
+            })
+          ])
+        })
       }
     })
     active.resolve()

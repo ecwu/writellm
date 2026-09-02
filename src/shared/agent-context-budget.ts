@@ -1,12 +1,12 @@
-import { createHash } from 'node:crypto'
 import type { UserMessage } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentModelLimits } from './contracts/agent'
 
 export const AGENT_CONTEXT_WINDOW_TOKENS = 131_072
-export const AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS = 16_384
 export const AGENT_DEFAULT_OUTPUT_TOKENS = 8_192
-export const AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS = 4_096
+/** The existing generic runtime message boundary, shared with agentHistorySchema. */
+export const AGENT_RUNTIME_HISTORY_MAX_BYTES = 2_097_152
+
 const PROJECTABLE_READ_TOOLS = new Set([
   'get_writing_context',
   'read_outline',
@@ -19,45 +19,6 @@ const PROJECTABLE_READ_TOOLS = new Set([
   'check_draft',
   'list_review_issues'
 ])
-const SAFE_FACT_KEYS = new Set([
-  'schemaVersion',
-  'ok',
-  'toolName',
-  'toolCallId',
-  'modelRequestId',
-  'code',
-  'retryable',
-  'operationId',
-  'proposalId',
-  'status',
-  'kind',
-  'sectionId',
-  'revisionId',
-  'briefVersion',
-  'outlineVersion',
-  'knowledgeItemId',
-  'knowledgeItemIds',
-  'parseRevisionId',
-  'parseRevisionIds',
-  'citationId',
-  'citationIds',
-  'contentHash',
-  'blockHash',
-  'sha256',
-  'title',
-  'page',
-  'pageFrom',
-  'pageTo',
-  'cursor',
-  'nextCursor',
-  'count',
-  'limit',
-  'totalBlocks',
-  'totalSections',
-  'totalChars',
-  'truncated',
-  'isError'
-])
 
 export function agentOutputLimit(
   requestedTokens: number,
@@ -67,17 +28,23 @@ export function agentOutputLimit(
   return Math.min(requestedTokens, outputLimit)
 }
 
+/**
+ * Return the model input window after reserving its output.  Prompt and tool
+ * overhead is accounted for by `agentRuntimeMessageBudget`, where it is
+ * available; this helper deliberately has no hidden safety reserve.
+ */
 export function agentMessageBudget(
   maxOutputTokens = AGENT_DEFAULT_OUTPUT_TOKENS,
   limits: AgentModelLimits = legacyLimits()
 ): number {
   const outputReserve = agentOutputLimit(maxOutputTokens, limits)
-  const contextInputLimit =
-    limits.contextWindowTokens - AGENT_CONTEXT_SYSTEM_TOOL_RESERVE_TOKENS - outputReserve
   const budget = Math.floor(
-    Math.min(contextInputLimit, limits.inputLimitTokens ?? Number.POSITIVE_INFINITY)
+    Math.min(
+      limits.inputLimitTokens ?? Number.POSITIVE_INFINITY,
+      limits.contextWindowTokens - outputReserve
+    )
   )
-  if (budget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
+  if (budget <= 0) {
     throw new AgentModelCapacityError(limits.contextWindowTokens, budget)
   }
   return budget
@@ -96,14 +63,12 @@ export function agentRuntimeMessageBudget(input: {
       input.limits.contextWindowTokens - outputReserve
     )
   )
-  const safetyBuffer = Math.min(16_384, Math.max(4_096, Math.floor(effectiveInputLimit * 0.05)))
   const budget = Math.floor(
     effectiveInputLimit -
-      safetyBuffer -
       estimateAgentTokens(input.systemPrompt) -
       estimateAgentTokens(input.advertisedTools)
   )
-  if (budget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
+  if (budget <= 0) {
     throw new AgentModelCapacityError(input.limits.contextWindowTokens, budget)
   }
   return budget
@@ -114,7 +79,7 @@ export class AgentModelCapacityError extends Error {
     readonly contextWindowTokens: number,
     readonly availableMessageTokens: number
   ) {
-    super('The configured model cannot fit WriteLLM’s minimum safe Agent context budget')
+    super('The configured model has no positive Agent input capacity after reserving output')
     this.name = 'AgentModelCapacityError'
   }
 }
@@ -122,43 +87,57 @@ export class AgentModelCapacityError extends Error {
 export class AgentCurrentTurnTooLargeError extends Error {
   readonly code = 'current_turn_too_large'
 
-  constructor() {
-    super('The current Agent turn exceeds the bounded provider context')
+  constructor(
+    readonly requiredTokens: number | null = null,
+    readonly availableTokens: number | null = null
+  ) {
+    super(
+      requiredTokens !== null && availableTokens !== null
+        ? `The current Agent turn needs approximately ${requiredTokens} tokens, but only ${availableTokens} are available`
+        : 'The current Agent turn exceeds the selected provider context'
+    )
     this.name = 'AgentCurrentTurnTooLargeError'
   }
 }
 
-function legacyLimits(): AgentModelLimits {
-  return {
-    contextWindowTokens: AGENT_CONTEXT_WINDOW_TOKENS,
-    inputLimitTokens: null,
-    outputLimitTokens: null,
-    source: 'legacy_fallback',
-    catalogModelKey: null,
-    resolvedAt: null
+/**
+ * This event is retained as a wire-compatible name for old workers.  It is a
+ * stateless projection notice, not a retry counter or a recovery state.
+ */
+export type AgentContextProjectionEvent = {
+  readonly type: 'active_batch_retry'
+  readonly batchKey: string
+  readonly toolNames: string[]
+  readonly requiredTokens: number
+  readonly availableTokens: number
+}
+
+export class AgentContextBudgetController {
+  constructor(
+    private tokenBudget: number,
+    private readonly onProjection?: (event: AgentContextProjectionEvent) => void
+  ) {
+    this.tokenBudget = normalizeTokenBudget(tokenBudget)
+  }
+
+  setTokenBudget(tokenBudget: number): void {
+    this.tokenBudget = normalizeTokenBudget(tokenBudget)
+  }
+
+  transform(messages: AgentMessage[]): AgentMessage[] {
+    const result = boundAgentContext(messages, this.tokenBudget)
+    for (const projection of result.projectedBatches) {
+      this.onProjection?.(projection)
+    }
+    return result.messages
   }
 }
 
-/** Deterministic conservative estimate: ASCII is ~4 chars/token; non-ASCII uses UTF-8 width. */
-export function estimateAgentTokens(value: unknown): number {
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  let ascii = 0
-  let nonAsciiBytes = 0
-  for (const character of text) {
-    const codePoint = character.codePointAt(0) ?? 0
-    if (codePoint <= 0x7f) ascii += 1
-    else nonAsciiBytes += new TextEncoder().encode(character).byteLength
-  }
-  return Math.max(1, Math.ceil(ascii / 4) + Math.ceil(nonAsciiBytes / 3))
-}
-
-export function groupAgentTurns(messages: AgentMessage[]): AgentMessage[][] {
-  const groups: AgentMessage[][] = []
-  for (const message of messages) {
-    if (isUserMessage(message) || groups.length === 0) groups.push([])
-    groups.at(-1)?.push(message)
-  }
-  return groups
+export function boundAgentContextByTokens(
+  messages: AgentMessage[],
+  tokenBudget: number
+): AgentMessage[] {
+  return boundAgentContext(messages, normalizeTokenBudget(tokenBudget)).messages
 }
 
 type AgentContextUnit = {
@@ -168,145 +147,82 @@ type AgentContextUnit = {
   readonly projectableReadBatch: boolean
 }
 
-export type AgentContextProjectionEvent =
-  | { readonly type: 'active_batch_retry'; readonly batchKey: string; readonly toolNames: string[] }
-  | { readonly type: 'active_batch_recovered'; readonly batchKey: string }
-
-export class AgentToolBatchContextExhaustedError extends Error {
-  readonly code = 'tool_batch_context_exhausted'
-
-  constructor() {
-    super('The latest Agent read batch still exceeds context after one smaller-read recovery')
-    this.name = 'AgentToolBatchContextExhaustedError'
-  }
+type BoundAgentContextResult = {
+  readonly messages: AgentMessage[]
+  readonly projectedBatches: AgentContextProjectionEvent[]
 }
 
-export class AgentContextBudgetController {
-  #pendingRecoveryBatchKey: string | null = null
-  #terminalError: AgentToolBatchContextExhaustedError | null = null
-
-  constructor(
-    private tokenBudget: number,
-    private readonly onProjection?: (event: AgentContextProjectionEvent) => void
-  ) {}
-
-  setTokenBudget(tokenBudget: number): void {
-    if (tokenBudget < AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS) {
-      throw new AgentModelCapacityError(0, tokenBudget)
-    }
-    this.tokenBudget = Math.floor(tokenBudget)
-  }
-
-  transform(messages: AgentMessage[]): AgentMessage[] {
-    if (this.#terminalError !== null) throw this.#terminalError
-    const result = boundAgentContext(messages, this.tokenBudget)
-    if (result.activeRetryBatchKey === null) {
-      if (
-        this.#pendingRecoveryBatchKey !== null &&
-        result.latestBatchKey !== this.#pendingRecoveryBatchKey
-      ) {
-        this.onProjection?.({
-          type: 'active_batch_recovered',
-          batchKey: this.#pendingRecoveryBatchKey
-        })
-        this.#pendingRecoveryBatchKey = null
-      }
-      return result.messages
-    }
-    if (
-      this.#pendingRecoveryBatchKey !== null &&
-      this.#pendingRecoveryBatchKey !== result.activeRetryBatchKey
-    ) {
-      this.#terminalError = new AgentToolBatchContextExhaustedError()
-      throw this.#terminalError
-    }
-    if (this.#pendingRecoveryBatchKey === null) {
-      this.#pendingRecoveryBatchKey = result.activeRetryBatchKey
-      this.onProjection?.({
-        type: 'active_batch_retry',
-        batchKey: result.activeRetryBatchKey,
-        toolNames: result.activeRetryToolNames
-      })
-    }
-    return result.messages
-  }
-
-  terminalError(): AgentToolBatchContextExhaustedError | null {
-    return this.#terminalError
-  }
-}
-
-export function boundAgentContextByTokens(
-  messages: AgentMessage[],
-  tokenBudget: number
-): AgentMessage[] {
-  return boundAgentContext(messages, tokenBudget).messages
-}
-
-function boundAgentContext(
-  messages: AgentMessage[],
-  tokenBudget: number
-): {
-  messages: AgentMessage[]
-  activeRetryBatchKey: string | null
-  activeRetryToolNames: string[]
-  latestBatchKey: string | null
-} {
-  const budget = Math.max(AGENT_MINIMUM_MESSAGE_BUDGET_TOKENS, Math.floor(tokenBudget))
+function boundAgentContext(messages: AgentMessage[], tokenBudget: number): BoundAgentContextResult {
   const activeStart = activeRequestStart(messages)
   const completedGroups = groupAgentTurns(messages.slice(0, activeStart))
   const activeUnits = groupAgentMessageBatches(messages.slice(activeStart))
-  const latestBatchIndex = findLatestAssistantBatch(activeUnits)
-  const latestBatch = latestBatchIndex < 0 ? undefined : activeUnits[latestBatchIndex]
-  const requiredIndexes = new Set<number>()
-  for (const [index, unit] of activeUnits.entries()) {
-    if (
-      unit.kind === 'user' ||
-      !unit.projectableReadBatch ||
-      (latestBatchIndex >= 0 && index === latestBatchIndex)
-    ) {
-      requiredIndexes.add(index)
-    }
-  }
-  let activeRetryBatchKey: string | null = null
-  let activeRetryToolNames: string[] = []
-  let selectedActive = activeUnits.map((unit) => unit.messages)
-  let selectedMessages = selectedActive.flat()
-  if (estimateAgentTokens(selectedMessages) > budget) {
-    selectedActive = activeUnits.map((unit, index) =>
-      requiredIndexes.has(index) ? unit.messages : projectToolBatch(unit, 'historical_projection')
+  const selectedActive = activeUnits.map((unit) => unit.messages)
+  const projectedBatches: AgentContextProjectionEvent[] = []
+
+  // The active request is never dropped.  Read results can be replaced with
+  // a stateless delivery error, while mutation/effect results remain atomic
+  // and therefore make the current turn fail with concrete token details.
+  let activeTokens = estimateAgentTokens(selectedActive.flat())
+  let activeBytes = serializedAgentMessageBytes(selectedActive.flat())
+  const projectableIndexes = activeUnits
+    .map((unit, index) => ({ index, tokens: estimateAgentTokens(unit.messages), unit }))
+    .filter(({ unit }) => unit.projectableReadBatch)
+    .sort((left, right) => right.tokens - left.tokens)
+  for (const candidate of projectableIndexes) {
+    if (activeTokens <= tokenBudget && activeBytes <= AGENT_RUNTIME_HISTORY_MAX_BYTES) break
+    const availableTokens = Math.max(
+      0,
+      tokenBudget -
+        estimateAgentTokens(selectedActive.filter((_, index) => index !== candidate.index).flat())
     )
-    selectedMessages = selectedActive.flat()
-  }
-  if (estimateAgentTokens(selectedMessages) > budget) {
-    if (latestBatch === undefined || !latestBatch.projectableReadBatch) {
-      throw new AgentCurrentTurnTooLargeError()
+    selectedActive[candidate.index] = projectToolBatch(
+      candidate.unit,
+      'active_batch_retry',
+      candidate.tokens,
+      availableTokens
+    )
+    activeTokens = estimateAgentTokens(selectedActive.flat())
+    activeBytes = serializedAgentMessageBytes(selectedActive.flat())
+    const batchKey = candidate.unit.batchKey
+    if (batchKey !== null) {
+      projectedBatches.push({
+        type: 'active_batch_retry',
+        batchKey,
+        toolNames: toolResultNames(candidate.unit),
+        requiredTokens: candidate.tokens,
+        availableTokens
+      })
     }
-    selectedActive = activeUnits.map((unit, index) => {
-      if (index === latestBatchIndex) return projectToolBatch(unit, 'active_batch_retry')
-      if (requiredIndexes.has(index)) return unit.messages
-      return projectToolBatch(unit, 'historical_projection')
-    })
-    selectedMessages = selectedActive.flat()
-    if (estimateAgentTokens(selectedMessages) > budget) throw new AgentCurrentTurnTooLargeError()
-    activeRetryBatchKey = latestBatch.batchKey
-    activeRetryToolNames = toolResultNames(latestBatch)
+  }
+  if (activeTokens > tokenBudget || activeBytes > AGENT_RUNTIME_HISTORY_MAX_BYTES) {
+    throw new AgentCurrentTurnTooLargeError(activeTokens, tokenBudget)
   }
 
-  let tokens = estimateAgentTokens(selectedMessages)
+  let tokens = activeTokens
   const selectedCompleted: AgentMessage[][] = []
   for (const group of [...completedGroups].reverse()) {
     const groupTokens = estimateAgentTokens(group)
-    if (tokens + groupTokens > budget) continue
+    const candidateMessages = [...group, ...selectedCompleted.flat(), ...selectedActive.flat()]
+    if (
+      tokens + groupTokens > tokenBudget ||
+      serializedAgentMessageBytes(candidateMessages) > AGENT_RUNTIME_HISTORY_MAX_BYTES
+    )
+      break
     selectedCompleted.push(group)
     tokens += groupTokens
   }
   return {
-    messages: [...selectedCompleted.reverse().flat(), ...selectedMessages],
-    activeRetryBatchKey,
-    activeRetryToolNames,
-    latestBatchKey: latestBatch?.batchKey ?? null
+    messages: [...selectedCompleted.reverse().flat(), ...selectedActive.flat()],
+    projectedBatches
   }
+}
+
+function normalizeTokenBudget(tokenBudget: number): number {
+  const budget = Math.floor(tokenBudget)
+  if (!Number.isFinite(budget) || budget <= 0) {
+    throw new AgentModelCapacityError(0, budget)
+  }
+  return budget
 }
 
 function activeRequestStart(messages: readonly AgentMessage[]): number {
@@ -342,7 +258,10 @@ function groupAgentMessageBatches(messages: readonly AgentMessage[]): AgentConte
         batchKey:
           results.length === 0 ? null : results.map((result) => result.toolCallId).join(':'),
         projectableReadBatch:
-          results.length > 0 && results.every((result) => isProjectableToolResult(result))
+          results.length > 0 &&
+          results.every(
+            (result) => isProjectableToolResult(result) && !isProjectedReadResult(result)
+          )
       })
       continue
     }
@@ -357,58 +276,33 @@ function groupAgentMessageBatches(messages: readonly AgentMessage[]): AgentConte
   return units
 }
 
-function findLatestAssistantBatch(units: readonly AgentContextUnit[]): number {
-  for (let index = units.length - 1; index >= 0; index -= 1) {
-    if (units[index]?.kind === 'assistant_batch' && units[index]?.batchKey !== null) return index
-  }
-  return -1
-}
-
 function projectToolBatch(
   unit: AgentContextUnit,
-  mode: 'historical_projection' | 'active_batch_retry'
+  mode: 'active_batch_retry',
+  requiredTokens: number,
+  availableTokens: number
 ): AgentMessage[] {
   if (!unit.projectableReadBatch) return unit.messages
   return unit.messages.map((message) => {
     if (!isProjectableToolResult(message)) return message
-    const activeRetry = mode === 'active_batch_retry'
-    const envelope = activeRetry
-      ? {
-          schemaVersion: 1,
-          projection: mode,
-          contentAvailable: false,
-          mutationAuthority: false,
-          code: 'tool_result_batch_too_large',
-          retryable: true,
-          toolName: message.toolName,
-          toolCallId: message.toolCallId,
-          recovery: {
-            action: 'retry_smaller_read',
-            maxAttempts: 1,
-            constraints: {
-              maxConcurrentBodyReads: 1,
-              readSectionSummaryLimit: 5,
-              canonicalFragmentMaxChars: 8_192,
-              searchLimit: 5,
-              citationRequests: 1
-            }
-          }
-        }
-      : {
-          schemaVersion: 1,
-          projection: mode,
-          contentAvailable: false,
-          mutationAuthority: false,
-          toolName: message.toolName,
-          toolCallId: message.toolCallId,
-          isError: message.isError,
-          facts: projectSafeFacts(unwrapToolDetails(message.details))
-        }
+    const envelope = {
+      schemaVersion: 2,
+      projection: mode,
+      contentAvailable: false,
+      mutationAuthority: false,
+      code: 'tool_result_batch_too_large',
+      retryable: true,
+      toolName: message.toolName,
+      toolCallId: message.toolCallId,
+      requiredTokens,
+      availableTokens,
+      message: `This read result needs approximately ${requiredTokens} tokens, but only ${availableTokens} are available. Retry the read with a smaller range, page, or result count.`
+    }
     return {
       ...message,
       content: [{ type: 'text' as const, text: JSON.stringify(envelope) }],
       details: envelope,
-      isError: activeRetry || message.isError
+      isError: true
     }
   })
 }
@@ -426,65 +320,63 @@ function isToolResult(
 function isProjectableToolResult(
   message: AgentMessage
 ): message is Extract<AgentMessage, { role: 'toolResult' }> {
+  return message.role === 'toolResult' && PROJECTABLE_READ_TOOLS.has(message.toolName)
+}
+
+function isProjectedReadResult(message: Extract<AgentMessage, { role: 'toolResult' }>): boolean {
   return (
-    message !== null &&
-    typeof message === 'object' &&
-    'role' in message &&
-    message.role === 'toolResult' &&
-    PROJECTABLE_READ_TOOLS.has(message.toolName)
+    message.details !== undefined &&
+    message.details !== null &&
+    typeof message.details === 'object' &&
+    'projection' in message.details &&
+    message.details['projection'] === 'active_batch_retry'
   )
-}
-
-function projectSafeFacts(value: unknown, depth = 0): unknown {
-  if (depth > 4 || value === null) return null
-  if (typeof value === 'boolean' || typeof value === 'number') return value
-  if (typeof value === 'string') {
-    if (value.length <= 512 && !looksLikePrivatePath(value)) return value
-    return {
-      redacted: true,
-      originalCharacters: Array.from(value).length,
-      sha256: createHash('sha256').update(value).digest('hex')
-    }
-  }
-  if (Array.isArray(value)) {
-    return value.slice(0, 100).map((entry) => projectSafeFacts(entry, depth + 1))
-  }
-  if (typeof value !== 'object') return null
-  const facts: Record<string, unknown> = {}
-  for (const [key, entry] of Object.entries(value)) {
-    if (SAFE_FACT_KEYS.has(key)) {
-      facts[key] = projectSafeFacts(entry, depth + 1)
-      continue
-    }
-    if (entry !== null && typeof entry === 'object') {
-      const nested = projectSafeFacts(entry, depth + 1)
-      if (hasProjectedFacts(nested)) facts[key] = nested
-    }
-  }
-  return facts
-}
-
-function unwrapToolDetails(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value
-  const record = value as Record<string, unknown>
-  return 'data' in record ? record.data : value
-}
-
-function hasProjectedFacts(value: unknown): boolean {
-  if (Array.isArray(value)) return value.length > 0
-  return value !== null && typeof value === 'object' && Object.keys(value).length > 0
-}
-
-function looksLikePrivatePath(value: string): boolean {
-  return /^(?:\/(?:Users|home|private|var)\/|[A-Za-z]:\\)/u.test(value)
 }
 
 export function contextWouldTruncate(messages: AgentMessage[], tokenBudget: number): boolean {
-  return estimateAgentTokens(messages) > tokenBudget
+  return (
+    estimateAgentTokens(messages) > tokenBudget ||
+    serializedAgentMessageBytes(messages) > AGENT_RUNTIME_HISTORY_MAX_BYTES
+  )
+}
+
+function serializedAgentMessageBytes(messages: readonly AgentMessage[]): number {
+  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
+}
+
+export function groupAgentTurns(messages: AgentMessage[]): AgentMessage[][] {
+  const groups: AgentMessage[][] = []
+  for (const message of messages) {
+    if (isUserMessage(message) || groups.length === 0) groups.push([])
+    groups.at(-1)?.push(message)
+  }
+  return groups
 }
 
 function isUserMessage(message: AgentMessage): message is UserMessage {
-  return (
-    message !== null && typeof message === 'object' && 'role' in message && message.role === 'user'
-  )
+  return message.role === 'user'
+}
+
+function legacyLimits(): AgentModelLimits {
+  return {
+    contextWindowTokens: AGENT_CONTEXT_WINDOW_TOKENS,
+    inputLimitTokens: null,
+    outputLimitTokens: null,
+    source: 'legacy_fallback',
+    catalogModelKey: null,
+    resolvedAt: null
+  }
+}
+
+/** Deterministic estimate: ASCII is ~4 chars/token; non-ASCII uses UTF-8 width. */
+export function estimateAgentTokens(value: unknown): number {
+  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  let ascii = 0
+  let nonAsciiBytes = 0
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0
+    if (codePoint <= 0x7f) ascii += 1
+    else nonAsciiBytes += new TextEncoder().encode(character).byteLength
+  }
+  return Math.max(1, Math.ceil(ascii / 4) + Math.ceil(nonAsciiBytes / 3))
 }

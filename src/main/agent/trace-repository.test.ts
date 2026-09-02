@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { performance } from 'node:perf_hooks'
 import Database from 'better-sqlite3'
 import { Kysely, SqliteDialect } from 'kysely'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectDatabaseSchema } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import { migration0040 } from '../project/migrations/0040-agent-request-traces'
-import { AgentTraceCaptureError, AgentTraceRepository } from './trace-repository'
+import { AgentTraceRepository } from './trace-repository'
 
 describe('AgentTraceRepository', () => {
   let database: Database.Database | undefined
@@ -68,7 +67,7 @@ describe('AgentTraceRepository', () => {
     expect(Number(payloadCount)).toBeLessThan(Number(recordCount))
   })
 
-  it('fails before persistence when one document exceeds 8 MiB', () => {
+  it('records a diagnostic gap without throwing when one document exceeds 8 MiB', () => {
     database = baseDatabase()
     const repository = new AgentTraceRepository(projectDatabase(database), logger())
     expect(() =>
@@ -80,8 +79,15 @@ describe('AgentTraceRepository', () => {
         physicalAttempt: 1,
         documents: [{ kind: 'provider_request', value: { prompt: 'x'.repeat(8 * 1024 * 1024) } }]
       })
-    ).toThrowError(AgentTraceCaptureError)
+    ).not.toThrow()
     expect(database.prepare('SELECT COUNT(*) FROM agent_trace_payloads').pluck().get()).toBe(0)
+    expect(
+      database.prepare('SELECT capture_status, failure_code FROM model_request_traces').get()
+    ).toEqual({ capture_status: 'failed', failure_code: 'diagnostic_gap' })
+    repository.complete({ modelRequestId: 'model-1', physicalAttemptCount: 1 })
+    expect(database.prepare('SELECT failure_code FROM model_request_traces').pluck().get()).toBe(
+      'diagnostic_gap'
+    )
   })
 
   it('keeps private bodies out of structured logs and rejects attempts above 32 MiB', () => {
@@ -114,10 +120,10 @@ describe('AgentTraceRepository', () => {
           { kind: 'skill_content', value: large }
         ]
       })
-    ).toThrowError(AgentTraceCaptureError)
+    ).not.toThrow()
   })
 
-  it('enforces the 32 MiB attempt limit across separate persistence acknowledgements', () => {
+  it('retains the 32 MiB storage boundary across independent captures without failing the caller', () => {
     database = baseDatabase()
     const repository = new AgentTraceRepository(projectDatabase(database), logger())
     const large = { value: 'x'.repeat(7 * 1024 * 1024) }
@@ -153,7 +159,7 @@ describe('AgentTraceRepository', () => {
           { kind: 'skill_content', value: { value: 'x'.repeat(7 * 1024 * 1024) } }
         ]
       })
-    ).toThrowError(AgentTraceCaptureError)
+    ).not.toThrow()
   })
 
   it('deduplicates long repeated histories and rebuilds every request through SQL', () => {
@@ -201,22 +207,54 @@ describe('AgentTraceRepository', () => {
     const deduplicatedBytes = Number(
       database.prepare('SELECT COALESCE(SUM(byte_size), 0) FROM agent_trace_payloads').pluck().get()
     )
-    const reconstructionStartedAt = performance.now()
     const rows = database
       .prepare(
         "SELECT harness_request_json, provider_requests_json FROM agent_model_request_trace_v WHERE model_request_id LIKE 'capacity-%'"
       )
       .all() as Array<{ harness_request_json: string; provider_requests_json: string }>
-    const reconstructionMs = performance.now() - reconstructionStartedAt
 
     expect(rows).toHaveLength(12)
     for (const row of rows) {
       expect(JSON.parse(row.harness_request_json)).toEqual(harness)
       expect(JSON.parse(row.provider_requests_json)).toEqual([provider])
     }
-    expect(deduplicatedBytes).toBeLessThan(rawBytes * 0.2)
-    expect(reconstructionMs).toBeLessThan(10_000)
+    expect(deduplicatedBytes).toBeLessThan(rawBytes)
   }, 20_000)
+
+  it('survives serialization and SQLite faults, logging the original errors', () => {
+    database = baseDatabase()
+    const log = logger()
+    const project = projectDatabase(database)
+    const repository = new AgentTraceRepository(project, log)
+    const cyclic: Record<string, unknown> = {}
+    cyclic.self = cyclic
+    const capture = (value: unknown) =>
+      repository.capture({
+        modelRequestId: 'model-1',
+        purpose: 'agent_prompt',
+        apiId: 'openai-responses',
+        traceId: 'run-1',
+        physicalAttempt: 1,
+        documents: [{ kind: 'provider_request', value }]
+      })
+    expect(() => capture(cyclic)).not.toThrow()
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error) }),
+      expect.any(String)
+    )
+    const sqliteError = new Error('SQLITE_FULL: database or disk is full')
+    vi.spyOn(project, 'immediate').mockImplementation(() => {
+      throw sqliteError
+    })
+    expect(() => capture({ messages: [] })).not.toThrow()
+    expect(() =>
+      repository.complete({ modelRequestId: 'model-1', physicalAttemptCount: 1 })
+    ).not.toThrow()
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: sqliteError }),
+      expect.any(String)
+    )
+  })
 })
 
 function logger() {

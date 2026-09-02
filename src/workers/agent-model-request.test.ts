@@ -178,4 +178,133 @@ describe('runAgentModelRequest', () => {
       'temperature is unsupported'
     )
   })
+
+  it('continues the utility request when trace delivery fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        const responseId = 'agent-trace-failure-response'
+        return new Response(
+          [
+            `data: ${JSON.stringify({
+              id: responseId,
+              object: 'chat.completion.chunk',
+              created: 1,
+              model: 'writer-model-resolved',
+              choices: [
+                {
+                  index: 0,
+                  delta: { role: 'assistant', content: 'Completed.' },
+                  finish_reason: null
+                }
+              ]
+            })}\n\n`,
+            `data: ${JSON.stringify({
+              id: responseId,
+              object: 'chat.completion.chunk',
+              created: 1,
+              model: 'writer-model-resolved',
+              choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 }
+            })}\n\n`,
+            'data: [DONE]\n\n'
+          ].join(''),
+          { status: 200, headers: { 'content-type': 'text/event-stream' } }
+        )
+      })
+    )
+    const request: AgentUtilityRequest = {
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc303',
+      config: {
+        role: 'agent',
+        providerId: 'openai-compatible',
+        baseUrl: 'https://agent.example.test/v1',
+        model: 'writer-model',
+        modelRevision: 'writer-rev-1',
+        timeoutMs: 5_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null
+      },
+      credential: { apiKey: 'agent-secret' },
+      modelLimits: {
+        contextWindowTokens: 131_072,
+        inputLimitTokens: null,
+        outputLimitTokens: null,
+        source: 'legacy_fallback',
+        catalogModelKey: null,
+        resolvedAt: null
+      },
+      input: {
+        systemPrompt: 'You draft prose.',
+        prompt: 'Write a line.',
+        maxOutputTokens: 100
+      }
+    }
+    const traceError = new Error('trace sink unavailable')
+    const onTraceError = vi.fn(() => {
+      throw new Error('trace error reporter unavailable')
+    })
+    const result = await runAgentModelRequest(
+      request,
+      () => undefined,
+      undefined,
+      () => {
+        throw traceError
+      },
+      onTraceError
+    )
+
+    expect(result.text).toBe('Completed.')
+    expect(onTraceError).toHaveBeenCalledWith(traceError)
+  })
+
+  it('preserves the original provider cause, status, and code at the utility boundary', async () => {
+    const providerError = Object.assign(new Error('provider transport exploded'), {
+      code: 'E_PROVIDER_TRANSPORT',
+      status: 503
+    })
+    const headers = {} as Record<string, string>
+    Object.defineProperty(headers, 'authorization', {
+      enumerable: true,
+      get: () => {
+        throw providerError
+      }
+    })
+    const request: AgentUtilityRequest = {
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc304',
+      config: {
+        role: 'agent',
+        providerId: 'openai-compatible',
+        baseUrl: 'https://agent.example.test/v1',
+        model: 'writer-model',
+        modelRevision: 'writer-rev-1',
+        timeoutMs: 5_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null
+      },
+      credential: { apiKey: '', headers },
+      modelLimits: {
+        contextWindowTokens: 131_072,
+        inputLimitTokens: null,
+        outputLimitTokens: null,
+        source: 'legacy_fallback',
+        catalogModelKey: null,
+        resolvedAt: null
+      },
+      input: {
+        systemPrompt: 'You draft prose.',
+        prompt: 'Write a line.',
+        maxOutputTokens: 100
+      }
+    }
+
+    await expect(runAgentModelRequest(request, () => undefined)).rejects.toMatchObject({
+      message: 'provider transport exploded',
+      code: 'E_PROVIDER_TRANSPORT',
+      status: 503,
+      cause: providerError
+    })
+  })
 })

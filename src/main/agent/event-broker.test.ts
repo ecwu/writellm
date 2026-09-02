@@ -60,7 +60,6 @@ describe('AgentEventBroker', () => {
 
     broker.completeActivitySnapshot(9, subscriptionId)
     broker.publishActivitySnapshot(projectSessionId, {
-      limit: 3,
       activeCount: 0,
       runs: [],
       compactions: []
@@ -75,7 +74,7 @@ describe('AgentEventBroker', () => {
         channel: 'agent:activity',
         value: expect.objectContaining({
           kind: 'activity',
-          snapshot: { limit: 3, activeCount: 0, runs: [], compactions: [] }
+          snapshot: { activeCount: 0, runs: [], compactions: [] }
         })
       })
     ])

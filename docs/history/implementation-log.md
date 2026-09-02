@@ -1334,3 +1334,23 @@ maintenance without turning the active tracker back into a historical log.
   `0edfbf0b7b570f892b3c4d589afb12f88b598dfb3219f393c0acebc2dbc34624`) under
   `dist/macos-arm64`. No Developer ID signing, notarization, release, commit, tag, push, promotion,
   or publication action was performed.
+
+## 2026-09-02 — Checkpoint 83 Agent Occam ablation and error propagation
+
+- Completed Phase 32 Checkpoint 83 under ADR 074. Removed event-count finalization, duplicate
+  project/Worker admission caps, rolling compaction budgets, one-recovery read state, Skill count
+  and preload gates, trace ACKs, and live retry capabilities/UI. Context now uses one old-prefix
+  summary plus recent raw turns; Skills are progressive and trace recording is best effort.
+  Protocol v14, v4 context/Skill snapshots, and v2 safe failure diagnostics retain legacy readers
+  without a database migration. Production runtime code is reduced by 778 lines.
+- Deterministic replay and fault injection cover each removed guard and retained authority,
+  privacy, approval, mutation, and no-replay invariant. Focused suites, `check:fast`, 1,275
+  Electron-hosted tests with three benchmark skips, the production build, all 49 fresh silent
+  E2E scenarios, the scoped Impeccable detector, and final style/diff checks passed.
+- The full no-Team-ID macOS arm64 package gate passed with 31 recovery fixtures, 53,318 ASAR
+  entries, 12 packaged runtime smoke scenarios, and 34/34 packaged E2E scenarios without
+  failures, flakes, or skips. The verified App, DMG, and ZIP are under `dist/macos-arm64`.
+  Detailed ablation evidence, artifact hashes, and the upstream Pi cause-loss limitation live in
+  [`../implementation-todo/phase-32.md`](../implementation-todo/phase-32.md).
+- No real provider, dependency/setting addition, migration, release, commit, tag, push, Developer
+  ID signing, notarization, promotion, or publication action was performed.

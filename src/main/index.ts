@@ -74,7 +74,6 @@ import { ReviewIssueService } from './agent/review-issue-service'
 import { WritingTaskService } from './agent/writing-task-service'
 import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
-import { ProjectInteractiveModelLimiter } from './agent/project-interactive-model-limiter'
 import { MutationEventBroker } from './agent/mutation-event-broker'
 import { ModelMetadataClient } from './providers/model-metadata-client'
 import { ModelMetadataService } from './providers/model-metadata-service'
@@ -433,10 +432,6 @@ if (!hasSingleInstanceLock) {
               ),
             log: loggerSystem.createModuleLogger('search', 'retrieval')
           })
-          const interactiveModelLimiter = new ProjectInteractiveModelLimiter(
-            projectId,
-            loggerSystem.createModuleLogger('agent', 'interactive-model-limiter')
-          )
           const knowledgeChat = new KnowledgeChatService({
             projectId,
             projectSessionId,
@@ -447,7 +442,6 @@ if (!hasSingleInstanceLock) {
             references,
             agentCatalog: agentProviderCatalog,
             runtime: agentModel,
-            limiter: interactiveModelLimiter,
             log: loggerSystem.createModuleLogger('knowledge', 'notebook-chat'),
             publish: (event) => notebookEvents.publish(event)
           })
@@ -502,7 +496,6 @@ if (!hasSingleInstanceLock) {
             writingTasks,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
             resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
-            interactiveModelLimiter,
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
             publishSession: (event) => agentEvents.publishSession(projectSessionId, event),

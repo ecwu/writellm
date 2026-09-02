@@ -1,4 +1,10 @@
 import { z } from 'zod'
+import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
+import { agentCompactionCheckpointV4PayloadSchema } from './agent-compaction'
+export {
+  agentCompactionCheckpointV4PayloadSchema,
+  type AgentCompactionCheckpointV4Payload
+} from './agent-compaction'
 import { modelExecutionMetadataSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
 import {
@@ -21,8 +27,6 @@ export const agentEventIdSchema = z.uuid()
 export const agentModelRequestIdSchema = z.uuid()
 export const agentPendingMessageIdSchema = z.uuid()
 export const agentQueueActionIdSchema = z.uuid()
-export const agentTraceCaptureIdSchema = z.uuid()
-export const agentModelRetryCapabilityIdSchema = z.uuid()
 
 export const agentModelRetryReasonSchema = z.enum([
   'network',
@@ -58,6 +62,15 @@ export const AGENT_PENDING_MESSAGE_LIMIT = 20
 export const AGENT_PENDING_MESSAGE_MAX_BYTES = 1024 * 1024
 export const AGENT_RUN_PROMPT_MAX_CHARACTERS = 262_144
 
+export const agentRunFailurePayloadSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    code: z.string().min(1).max(200),
+    status: z.enum(['failed', 'interrupted']),
+    diagnostic: agentDiagnosticErrorSchema
+  })
+  .strict()
+
 export const agentApprovalModeSchema = z.enum(['manual', 'section_auto', 'yolo'])
 export const agentInteractionModeSchema = z.enum(['ask', 'plan', 'write'])
 export type AgentInteractionMode = z.infer<typeof agentInteractionModeSchema>
@@ -86,7 +99,8 @@ export const agentToolPreflightDiagnosticSchema = z
   .object({
     code: z.enum(['invalid_arguments', 'unknown_tool', 'preparation_failed']),
     message: z.string().min(1).max(1_000),
-    paths: z.array(z.string().min(1).max(512)).max(16)
+    paths: z.array(z.string().min(1).max(512)).max(16),
+    details: agentDiagnosticErrorSchema.optional()
   })
   .strict()
 export { agentModelLimitsSchema, type AgentModelLimits } from './agent-model-limits'
@@ -175,7 +189,6 @@ export const agentHistoryMessageSchema = z.discriminatedUnion('role', [
 
 export const agentHistorySchema = z
   .array(agentHistoryMessageSchema)
-  .max(200)
   .superRefine((messages, context) => {
     const bytes = new TextEncoder().encode(JSON.stringify(messages)).byteLength
     if (bytes > 2_097_152) {
@@ -230,7 +243,7 @@ export const agentRunStartSchema = z
     toolProfile: agentToolProfileSchema.default('writing'),
     interactionMode: agentInteractionModeSchema.default('write'),
     activeToolGroups: activeWritingToolGroupsSchema.default([]),
-    runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
+    runtimeMessageBudgetTokens: z.number().int().positive().max(10_000_000).optional(),
     traceCapture: z.boolean().default(false),
     thinkingLevel: agentThinkingLevelSchema.default('off'),
     runtimeModel: agentRuntimeModelSchema.optional(),
@@ -322,34 +335,7 @@ export const agentModelCallAuthorizationSchema = z
     systemPrompt: z.string().min(1).max(65_536),
     interactionMode: agentInteractionModeSchema.default('write'),
     activeToolGroups: activeWritingToolGroupsSchema.optional(),
-    runtimeMessageBudgetTokens: z.number().int().min(4_096).max(10_000_000).optional(),
-    finalize: z.boolean().optional()
-  })
-  .strict()
-
-export const agentModelRetryAuthorizationSchema = z
-  .object({
-    operation: z.literal('authorize_model_retry'),
-    requestId: z.uuid(),
-    projectSessionId: projectSessionIdSchema,
-    agentSessionId: agentSessionIdSchema,
-    agentRunId: agentRunIdSchema,
-    capabilityId: agentModelRetryCapabilityIdSchema,
-    sourceModelRequestId: agentModelRequestIdSchema,
-    targetModelRequestId: agentModelRequestIdSchema
-  })
-  .strict()
-
-export const agentTraceCaptureAckSchema = z
-  .object({
-    operation: z.literal('ack_trace_capture'),
-    requestId: z.uuid(),
-    projectSessionId: projectSessionIdSchema,
-    agentSessionId: agentSessionIdSchema,
-    agentRunId: agentRunIdSchema,
-    captureId: agentTraceCaptureIdSchema,
-    ok: z.boolean(),
-    errorCode: z.string().min(1).max(100).optional()
+    runtimeMessageBudgetTokens: z.number().int().positive().max(10_000_000).optional()
   })
   .strict()
 
@@ -365,9 +351,7 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
   z
     .object({
       type: z.literal('model_trace_capture_requested'),
-      captureId: agentTraceCaptureIdSchema,
       modelRequestId: agentModelRequestIdSchema,
-      parentModelRequestId: agentModelRequestIdSchema.optional(),
       purpose: agentTracePurposeSchema,
       apiId: piApiSchema,
       physicalAttempt: z.number().int().min(1).max(20),
@@ -409,18 +393,6 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       maxAttempts: z.literal(5),
       delayMs: z.number().int().min(0).max(60_000),
       reasonCode: z.enum(['network', 'rate_limited', 'server_error', 'stream_ended'])
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('model_retry_available'),
-      capabilityId: agentModelRetryCapabilityIdSchema,
-      modelRequestId: agentModelRequestIdSchema,
-      reasonCode: agentModelRetryReasonSchema,
-      failureStage: agentModelRetryFailureStageSchema,
-      httpStatus: z.number().int().min(100).max(599).optional(),
-      contextFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
-      label: z.enum(['retry_request', 'continue'])
     })
     .strict(),
   z
@@ -478,24 +450,6 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
     .strict()
 ])
 
-const agentRuntimeDiagnosticErrorSchema = z
-  .object({
-    name: z.string().max(200),
-    message: z.string().max(4_096),
-    stack: z.string().max(32_768).optional(),
-    httpStatus: z.number().int().min(100).max(599).optional(),
-    code: z
-      .enum([
-        'context_overflow',
-        'tool_batch_context_exhausted',
-        'continuation_lost',
-        'trace_capture_failed',
-        'trace_payload_too_large'
-      ])
-      .optional()
-  })
-  .strict()
-
 const agentRuntimeEnvelopeSchema = z.object({
   requestId: z.uuid(),
   projectSessionId: projectSessionIdSchema,
@@ -522,7 +476,7 @@ export const agentRuntimeMessageSchema = z.discriminatedUnion('type', [
     })
     .strict(),
   agentRuntimeEnvelopeSchema
-    .extend({ type: z.literal('error'), error: agentRuntimeDiagnosticErrorSchema })
+    .extend({ type: z.literal('error'), error: agentDiagnosticErrorSchema })
     .strict()
 ])
 
@@ -631,7 +585,8 @@ export const agentCompactionCheckpointPayloadSchema = z
 export const agentCompactionSummaryPayloadSchema = z.union([
   agentLegacyCompactionSummaryPayloadSchema,
   agentCompactionCheckpointV2PayloadSchema,
-  agentCompactionCheckpointPayloadSchema
+  agentCompactionCheckpointPayloadSchema,
+  agentCompactionCheckpointV4PayloadSchema
 ])
 export const agentCompactionStartedPayloadSchema = z
   .object({
@@ -650,6 +605,7 @@ export const agentCompactionFailedPayloadSchema = z
     code: z.string().min(1).max(200),
     retryable: z.boolean(),
     aborted: z.boolean(),
+    diagnostic: agentDiagnosticErrorSchema.optional(),
     timestamp: z.number().int().nonnegative()
   })
   .strict()
@@ -684,8 +640,6 @@ export type AgentFollowUpConsumptionAuthorization = z.infer<
 >
 export type AgentRuntimeCancel = z.infer<typeof agentRuntimeCancelSchema>
 export type AgentModelCallAuthorization = z.infer<typeof agentModelCallAuthorizationSchema>
-export type AgentModelRetryAuthorization = z.infer<typeof agentModelRetryAuthorizationSchema>
-export type AgentTraceCaptureAck = z.infer<typeof agentTraceCaptureAckSchema>
 export type AgentTracePurpose = z.infer<typeof agentTracePurposeSchema>
 export type AgentRuntimeEvent = z.infer<typeof agentRuntimeEventSchema>
 export type AgentRuntimeMessage = z.infer<typeof agentRuntimeMessageSchema>

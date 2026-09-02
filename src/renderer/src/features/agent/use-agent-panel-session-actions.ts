@@ -37,8 +37,6 @@ export function useAgentPanelSessionActions(input: {
     workflowState
   } = input
   const {
-    activeRunLimit,
-    activeWorkCount,
     activeSessionIdRef,
     draftStateRef,
     events,
@@ -279,8 +277,7 @@ export function useAgentPanelSessionActions(input: {
     activeSession?.status === 'active' &&
     activeSession.compatible &&
     workflowState === 'idle' &&
-    hasManualCompactionHead(events) &&
-    activeWorkCount < activeRunLimit
+    hasManualCompactionHead(events)
 
   const restoreSession = async (session: AgentSessionRecord): Promise<void> => {
     if (session.status !== 'archived') return

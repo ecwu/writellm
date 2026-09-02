@@ -1,7 +1,5 @@
-import { randomUUID } from 'node:crypto'
 import {
   agentUtilityRequestSchema,
-  agentUtilityTraceAckSchema,
   utilityCancelMessageSchema,
   type AgentUtilityMessage
 } from '../shared/contracts/model-runtime'
@@ -11,21 +9,21 @@ import {
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
-  agentModelRetryAuthorizationSchema,
-  agentTraceCaptureAckSchema,
   agentRuntimeCancelSchema,
+  type AgentHistoryMessage,
   type AgentRuntimeMessage
 } from '../shared/contracts/agent'
-import { MAX_CONCURRENT_AGENT_RUNS } from '../shared/contracts/agent-ipc'
+import {
+  serializeAgentDiagnosticError,
+  agentDiagnosticSensitiveValues
+} from '../shared/agent-diagnostic-error'
 import { runAgentModelRequest } from './agent-model-request'
 import { runAgentSession, type AgentSessionRunControl } from './agent-session-run'
 import { withLogContext } from '../main/observability/log-context'
 import { createPortLogger } from './shared/port-logger'
 import {
   extractUtilityProjectSessionId as extractProjectSessionId,
-  extractUtilityRequestId as extractRequestId,
-  findUtilityHttpStatus as findHttpStatus,
-  safeUtilityStack as safeStack
+  extractUtilityRequestId as extractRequestId
 } from './shared/utility-message'
 
 const parentPort = process.parentPort
@@ -37,7 +35,6 @@ const activeRequests = new Map<
   {
     projectSessionId: string | null | undefined
     controller: AbortController
-    traceCaptures: Map<string, { resolve: () => void; reject: (error: Error) => void }>
   }
 >()
 let workerLog: ReturnType<typeof createPortLogger> | undefined
@@ -156,46 +153,6 @@ parentPort.on('message', (event) => {
     active.control?.authorizeModelCall(modelCallAuthorization.data)
     return
   }
-  const modelRetryAuthorization = agentModelRetryAuthorizationSchema.safeParse(event.data)
-  if (modelRetryAuthorization.success) {
-    const active = activeSessionRuns.get(modelRetryAuthorization.data.requestId)
-    if (
-      active === undefined ||
-      active.projectSessionId !== modelRetryAuthorization.data.projectSessionId ||
-      active.agentSessionId !== modelRetryAuthorization.data.agentSessionId ||
-      active.agentRunId !== modelRetryAuthorization.data.agentRunId
-    ) {
-      workerLog?.(
-        'warn',
-        'agent.worker.model_retry_authorization_rejected',
-        'Rejected an Agent model retry authorization for an inactive run',
-        { requestId: modelRetryAuthorization.data.requestId }
-      )
-      return
-    }
-    active.control?.authorizeModelRetry(modelRetryAuthorization.data)
-    return
-  }
-  const traceCaptureAck = agentTraceCaptureAckSchema.safeParse(event.data)
-  if (traceCaptureAck.success) {
-    const active = activeSessionRuns.get(traceCaptureAck.data.requestId)
-    if (
-      active === undefined ||
-      active.projectSessionId !== traceCaptureAck.data.projectSessionId ||
-      active.agentSessionId !== traceCaptureAck.data.agentSessionId ||
-      active.agentRunId !== traceCaptureAck.data.agentRunId
-    ) {
-      workerLog?.(
-        'warn',
-        'agent.worker.trace_ack_rejected',
-        'Rejected an Agent trace acknowledgement for an inactive run',
-        { requestId: traceCaptureAck.data.requestId }
-      )
-      return
-    }
-    active.control?.acknowledgeTraceCapture(traceCaptureAck.data)
-    return
-  }
   const sessionRun = agentRunStartSchema.safeParse(event.data)
   if (sessionRun.success) {
     void handleSessionRun(sessionRun.data, event.ports[0])
@@ -212,30 +169,6 @@ parentPort.on('message', (event) => {
     }
     return
   }
-  const traceAck = agentUtilityTraceAckSchema.safeParse(event.data)
-  if (traceAck.success) {
-    const active = activeRequests.get(traceAck.data.requestId)
-    const pending = active?.traceCaptures.get(traceAck.data.captureId)
-    if (
-      active === undefined ||
-      pending === undefined ||
-      (active.projectSessionId ?? null) !== traceAck.data.projectSessionId
-    ) {
-      workerLog?.(
-        'warn',
-        'agent.worker.trace_ack_rejected',
-        'Rejected stale trace acknowledgement',
-        {
-          requestId: traceAck.data.requestId
-        }
-      )
-      return
-    }
-    active.traceCaptures.delete(traceAck.data.captureId)
-    if (traceAck.data.ok) pending.resolve()
-    else pending.reject(tracePersistenceError(traceAck.data.errorCode))
-    return
-  }
   void withLogContext(
     {
       requestId: extractRequestId(event.data),
@@ -249,14 +182,9 @@ parentPort.on('message', (event) => {
       try {
         request = agentUtilityRequestSchema.parse(event.data)
         const controller = new AbortController()
-        const traceCaptures = new Map<
-          string,
-          { resolve: () => void; reject: (error: Error) => void }
-        >()
         activeRequests.set(request.requestId, {
           projectSessionId: request.projectSessionId,
-          controller,
-          traceCaptures
+          controller
         })
         const result = await runAgentModelRequest(
           request,
@@ -271,7 +199,16 @@ parentPort.on('message', (event) => {
           controller.signal,
           request.trace === undefined
             ? undefined
-            : (capture) => requestUtilityTraceCapture(parentPort, request, traceCaptures, capture)
+            : (capture) => requestUtilityTraceCapture(parentPort, request, capture),
+          (error) => {
+            workerLog?.(
+              'error',
+              'agent.worker.trace_capture_failed',
+              'Agent trace capture could not be prepared; provider work continues',
+              { requestId: request?.requestId },
+              error
+            )
+          }
         )
         response = {
           type: 'result',
@@ -282,25 +219,32 @@ parentPort.on('message', (event) => {
       } catch (err) {
         const error =
           err instanceof Error ? err : new Error('Agent model utility failed', { cause: err })
+        const diagnostic = serializeError(
+          error,
+          'worker.utility',
+          request?.credential,
+          request === undefined ? [] : [request.input.prompt, request.input.systemPrompt]
+        )
         workerLog?.(
           'error',
           'agent.worker.request_failed',
           'Agent worker request failed',
-          undefined,
+          {
+            requestId: extractRequestId(event.data),
+            ...(request?.projectSessionId == null
+              ? {}
+              : { projectSessionId: request.projectSessionId })
+          },
           err
         )
         response = {
           type: 'error',
           requestId: extractRequestId(event.data),
           projectSessionId: request?.projectSessionId ?? extractProjectSessionId(event.data),
-          error: serializeError(error)
+          error: diagnostic
         }
       } finally {
         if (request !== undefined) {
-          const active = activeRequests.get(request.requestId)
-          for (const pending of active?.traceCaptures.values() ?? []) {
-            pending.reject(new Error('Agent request ended before trace acknowledgement'))
-          }
           activeRequests.delete(request.requestId)
         }
       }
@@ -333,21 +277,9 @@ async function handleSessionRun(
           workerLog?.('warn', 'agent.worker.run_rejected', 'Rejected duplicate conversation run', {
             agentSessionId: request.agentSessionId,
             agentRunId: request.agentRunId,
-            reason: 'conversation_active',
-            activeCount: activeSessionRuns.size,
-            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+            reason: 'conversation_active'
           })
           throw new Error('Agent worker already has an active run for this conversation')
-        }
-        if (activeSessionRuns.size >= MAX_CONCURRENT_AGENT_RUNS) {
-          workerLog?.('warn', 'agent.worker.run_rejected', 'Rejected Agent run at capacity', {
-            agentSessionId: request.agentSessionId,
-            agentRunId: request.agentRunId,
-            reason: 'worker_capacity',
-            activeCount: activeSessionRuns.size,
-            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
-          })
-          throw new Error('Agent worker reached its active run limit')
         }
         if (toolPort === undefined)
           throw new Error('Agent session run requires a dedicated tool port')
@@ -362,9 +294,7 @@ async function handleSessionRun(
         acquired = true
         workerLog?.('info', 'agent.worker.run_started', 'Agent worker run started', {
           agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId,
-          activeCount: activeSessionRuns.size,
-          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+          agentRunId: request.agentRunId
         })
         const result = await runAgentSession(
           request,
@@ -397,6 +327,11 @@ async function handleSessionRun(
       } catch (err) {
         const error =
           err instanceof Error ? err : new Error('Agent session run failed', { cause: err })
+        const diagnostic = serializeError(error, 'worker.session_run', request.credential, [
+          request.prompt,
+          request.systemPrompt,
+          ...historyPrivateBodies(request.history)
+        ])
         workerLog?.(
           'error',
           'agent.worker.run_failed',
@@ -410,16 +345,14 @@ async function handleSessionRun(
           projectSessionId: request.projectSessionId,
           agentSessionId: request.agentSessionId,
           agentRunId: request.agentRunId,
-          error: serializeError(error)
+          error: diagnostic
         }
       } finally {
         if (acquired) {
           activeSessionRuns.delete(request.requestId)
           workerLog?.('info', 'agent.worker.run_released', 'Agent worker run released', {
             agentSessionId: request.agentSessionId,
-            agentRunId: request.agentRunId,
-            activeCount: activeSessionRuns.size,
-            concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+            agentRunId: request.agentRunId
           })
         }
       }
@@ -428,72 +361,28 @@ async function handleSessionRun(
   )
 }
 
-function serializeError(error: Error): {
-  name: string
-  message: string
-  stack?: string
-  httpStatus?: number
-  code?:
-    | 'context_overflow'
-    | 'tool_batch_context_exhausted'
-    | 'continuation_lost'
-    | 'trace_capture_failed'
-    | 'trace_payload_too_large'
-} {
-  const httpStatus = findHttpStatus(error)
-  const code = hasErrorCode(error, 'continuation_lost')
-    ? 'continuation_lost'
-    : hasErrorCode(error, 'trace_payload_too_large')
-      ? 'trace_payload_too_large'
-      : hasErrorCode(error, 'trace_capture_failed')
-        ? 'trace_capture_failed'
-        : hasErrorCode(error, 'tool_batch_context_exhausted')
-          ? 'tool_batch_context_exhausted'
-          : isContextOverflowError(error)
-            ? 'context_overflow'
-            : undefined
-  const message = safeDiagnosticMessage(error, httpStatus, code)
-  const stack = safeStack(error.stack, message)
-  return {
-    name: error.name.slice(0, 200),
-    message,
-    ...(stack === undefined ? {} : { stack }),
-    ...(httpStatus === undefined ? {} : { httpStatus }),
-    ...(code === undefined ? {} : { code })
-  }
+function serializeError(
+  error: unknown,
+  stage: string,
+  credential?: unknown,
+  privateBodies: readonly string[] = []
+) {
+  const knownSensitiveValues = agentDiagnosticSensitiveValues(credential)
+  return serializeAgentDiagnosticError(error, stage, {
+    ...(knownSensitiveValues.length === 0 ? {} : { knownSensitiveValues }),
+    ...(privateBodies.length === 0 ? {} : { privateBodies })
+  })
 }
 
-function safeDiagnosticMessage(
-  error: Error,
-  httpStatus?: number,
-  code?:
-    | 'context_overflow'
-    | 'tool_batch_context_exhausted'
-    | 'continuation_lost'
-    | 'trace_capture_failed'
-    | 'trace_payload_too_large'
-): string {
-  if (code === 'context_overflow') return 'Agent provider context window exceeded'
-  if (code === 'tool_batch_context_exhausted') {
-    return 'The latest Agent read batch still exceeds context after one smaller-read recovery'
-  }
-  if (code === 'continuation_lost') return 'Agent tool continuation could not be resumed safely'
-  if (code === 'trace_payload_too_large') return 'Agent request trace exceeds the diagnostic limit'
-  if (code === 'trace_capture_failed') return 'Agent request trace could not be persisted'
-  if (error.name === 'ProviderTimeoutError') return 'Agent provider request timed out'
-  if (error.name === 'ProviderRetriesExhaustedError') {
-    return 'Agent provider request failed after 5 attempts'
-  }
-  if (error.name === 'AbortError') return 'Agent model request aborted'
-  return httpStatus === undefined
-    ? 'Agent model request failed'
-    : `Agent model request failed with HTTP ${httpStatus}`
+function historyPrivateBodies(history: readonly AgentHistoryMessage[]): string[] {
+  return history.map((message) =>
+    message.role === 'user' ? message.content : message.message.content
+  )
 }
 
 function requestUtilityTraceCapture(
   port: { postMessage(message: unknown): void },
   request: ReturnType<typeof agentUtilityRequestSchema.parse>,
-  pending: Map<string, { resolve: () => void; reject: (error: Error) => void }>,
   capture: {
     apiId: string
     physicalAttempt: number
@@ -503,71 +392,36 @@ function requestUtilityTraceCapture(
       metadata?: Record<string, unknown>
     }>
   }
-): Promise<void> {
+): void {
   if (request.trace === undefined || request.projectSessionId == null) {
-    return Promise.reject(tracePersistenceError('trace_capture_failed'))
+    workerLog?.(
+      'error',
+      'agent.worker.trace_capture_skipped',
+      'Agent trace capture was skipped because its project session is unavailable',
+      { requestId: request.requestId }
+    )
+    return
   }
-  const captureId = randomUUID()
-  return new Promise((resolve, reject) => {
-    pending.set(captureId, { resolve, reject })
-    try {
-      port.postMessage({
-        type: 'trace-capture',
-        requestId: request.requestId,
-        projectSessionId: request.projectSessionId,
-        captureId,
-        modelRequestId: request.trace.modelRequestId,
-        purpose: request.trace.purpose,
-        apiId: capture.apiId,
-        physicalAttempt: capture.physicalAttempt,
-        documents: capture.documents
-      })
-    } catch (err) {
-      pending.delete(captureId)
-      reject(new Error('Agent trace capture could not be sent', { cause: err }))
-    }
-  })
-}
-
-function tracePersistenceError(errorCode?: string): Error & { code: string } {
-  const code = errorCode === 'trace_payload_too_large' ? errorCode : 'trace_capture_failed'
-  const error: Error & { code: string } = new Error(
-    code === 'trace_payload_too_large'
-      ? 'Agent request trace exceeds the diagnostic limit'
-      : 'Agent request trace could not be persisted'
-  )
-  error.name = 'AgentTracePersistenceError'
-  error.code = code
-  return error
-}
-
-function hasErrorCode(error: unknown, expected: string, depth = 0): boolean {
-  if (depth > 6 || error === null || typeof error !== 'object') return false
-  const candidate = error as { code?: unknown; cause?: unknown }
-  return candidate.code === expected || hasErrorCode(candidate.cause, expected, depth + 1)
-}
-
-function isContextOverflowError(error: unknown, depth = 0): boolean {
-  if (depth > 6 || error === null || typeof error !== 'object') return false
-  const candidate = error as {
-    code?: unknown
-    message?: unknown
-    status?: unknown
-    statusCode?: unknown
-    cause?: unknown
+  try {
+    port.postMessage({
+      type: 'trace-capture',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      modelRequestId: request.trace.modelRequestId,
+      purpose: request.trace.purpose,
+      apiId: capture.apiId,
+      physicalAttempt: capture.physicalAttempt,
+      documents: capture.documents
+    })
+  } catch (err) {
+    workerLog?.(
+      'error',
+      'agent.worker.trace_capture_failed',
+      'Agent trace capture could not be sent; provider work continues',
+      { requestId: request.requestId, modelRequestId: request.trace.modelRequestId },
+      err
+    )
   }
-  const code = typeof candidate.code === 'string' ? candidate.code.toLowerCase() : ''
-  const message = typeof candidate.message === 'string' ? candidate.message.toLowerCase() : ''
-  const status = candidate.statusCode ?? candidate.status
-  return (
-    code.includes('context_length') ||
-    code.includes('context_window') ||
-    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
-      message
-    ) ||
-    (status === 400 && /context|token limit/u.test(message)) ||
-    isContextOverflowError(candidate.cause, depth + 1)
-  )
 }
 
 function isLoggingPortMessage(

@@ -1,4 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import {
+  reconstructAgentDiagnosticError,
+  serializeAgentDiagnosticError,
+  agentDiagnosticSensitiveValues,
+  type AgentDiagnosticError
+} from '../../shared/agent-diagnostic-error'
 import type { Logger } from 'pino'
 import {
   AGENT_PENDING_MESSAGE_LIMIT,
@@ -6,12 +12,11 @@ import {
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
   agentAssistantMessagePayloadSchema,
-  agentCompactionCheckpointPayloadSchema,
+  agentCompactionCheckpointV4PayloadSchema,
   agentCompactionFailedPayloadSchema,
   agentCompactionStartedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
-  agentModelRetryPayloadSchema,
   agentUserMessagePayloadSchema,
   type AgentAssistantMessagePayload,
   type AgentApprovalMode,
@@ -23,11 +28,11 @@ import {
   type AgentRuntimeModel,
   type AgentRuntimeEvent,
   type AgentModelLimits,
-  type AgentModelRetryFailureStage,
   type AgentUserMessagePayload,
   type WritingToolGroup
 } from '../../shared/contracts/agent'
 import {
+  AGENT_RUNTIME_HISTORY_MAX_BYTES,
   agentMessageBudget,
   agentOutputLimit,
   agentRuntimeMessageBudget,
@@ -42,7 +47,6 @@ import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
   AGENT_EVENT_PAGE_MAX_BYTES,
-  MAX_CONCURRENT_AGENT_RUNS,
   agentProjectActivitySnapshotSchema,
   agentEventPageSchema,
   agentEventRecordSchema,
@@ -94,11 +98,13 @@ import {
 } from '../providers/agent-provider-catalog'
 import {
   SkillPromptBudgetError,
+  MAX_SYSTEM_PROMPT_BYTES,
   type AgentContextBuilder,
   type AgentSkillPromptInput,
   type WritingSnapshot
 } from './context'
-import { virtualSkillPath } from '../skills/prompt'
+import { SKILL_COMPANION_NOTE } from './prompts/skill-companion'
+import { formatPromptBlock } from './prompts/prompt-block'
 import {
   SkillRouteError,
   type SkillRunState,
@@ -120,19 +126,12 @@ import {
   SESSION_TITLE_SYSTEM_PROMPT,
   TOOL_CONTINUATION_REQUEST
 } from './prompts/task-prompts'
-import {
-  agentCompactionBudgets,
-  AgentContextPlanner,
-  AgentCurrentTurnTooLargeError,
-  type AgentCompactionBudgets
-} from './context-planner'
-import type { ProjectInteractiveModelLimiter } from './project-interactive-model-limiter'
+import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
 import { AgentTraceRepository } from './trace-repository'
 import {
-  AgentCompactionSourceLimitError,
   buildNextCompactionMaterial,
   loadContinuousRuntimeHistory,
-  loadRuntimeTailAfterSequence
+  checkpointHistoryMessage
 } from './context-checkpoint'
 import {
   legacyModelLimits,
@@ -140,6 +139,7 @@ import {
   insertEvent,
   fingerprint,
   safeErrorCode,
+  readErrorDetails,
   emptyMetadata
 } from './session-event-utils'
 import {
@@ -158,12 +158,7 @@ import {
   structuredToolError,
   submitResultFromOutcome
 } from './session-run-errors'
-import {
-  truncateUtf8,
-  boundHistoryByCompleteTurns,
-  historyProjectionChanged,
-  boundCheckpointSummary
-} from './session-history'
+import { truncateUtf8, fitCheckpointSummary } from './session-history'
 import {
   extractToolProvenance,
   skillResultProjection,
@@ -173,9 +168,14 @@ import {
 const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 const SESSION_TITLE_OUTPUT_TOKENS = 64
 const SESSION_TITLE_REASONING_OUTPUT_TOKENS = 512
-const AGENT_RUN_FINALIZATION_EVENT_THRESHOLD = 180
-const AGENT_FINALIZATION_INSTRUCTION =
-  'This is the final model call for this run. No tools are available. Return the best complete answer you can now, including the evidence already gathered and any unfinished items. Do not claim unfinished work is complete.'
+
+function skillPromptOverhead(): string {
+  return `\n\n${SKILL_COMPANION_NOTE}\n\n${formatPromptBlock({
+    tag: 'WRITING_SKILL_ENTRYPOINT',
+    content: '',
+    instructionSemantics: 'true'
+  })}`
+}
 
 function citationRecoveryStateAfterToolResult(
   current: 'none' | 'searched' | 'expanded',
@@ -201,18 +201,6 @@ function citationRecoveryStateAfterToolResult(
   return current
 }
 
-function safeJsonObject(value: string | undefined): Record<string, unknown> | null {
-  if (value === undefined) return null
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
 export interface StartedAgentRun {
   agentRunId: string
   completion: Promise<void>
@@ -224,7 +212,7 @@ interface ActiveRun {
   readonly operationId: string
   readonly controller: AbortController
   handle: AgentSessionRunHandle | null
-  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input' | 'retry_available'
+  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
   readonly approvalMode: AgentApprovalMode
@@ -238,8 +226,6 @@ interface ActiveRun {
   readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
-  readonly skillToolModelRequestIds: Set<string>
-  readonly nonSkillToolModelRequestIds: Set<string>
   readonly pendingMessages: PendingFollowUpMessage[]
   activeToolGroups: WritingToolGroup[]
   citationRecoveryState: 'none' | 'searched' | 'expanded'
@@ -247,22 +233,12 @@ interface ActiveRun {
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
   skillPrompt: AgentSkillPromptInput
-  skillFallbackPrompt: AgentSkillPromptInput
   skillTraceToolCallId?: string
   systemPrompt: string
   partialText: string
   reviewPause: { proposalId: string; kind: string } | null
   pendingQuestion: PendingUserQuestion | null
-  retryCapability: {
-    capabilityId: string
-    sourceModelRequestId: string
-    reasonCode: 'network' | 'rate_limited' | 'server_error' | 'stream_ended'
-    failureStage: AgentModelRetryFailureStage
-    contextFingerprint: string
-    label: 'retry_request' | 'continue'
-  } | null
   overflowRetryAttempted: boolean
-  finalizationStarted: boolean
   completion: Promise<void>
 }
 
@@ -340,7 +316,7 @@ export interface AgentSessionServiceOptions {
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
   skillRouter?: Pick<WritingSkillRuntime, 'route'> &
-    Partial<Pick<WritingSkillRuntime, 'closePreparation' | 'displayNameForUri' | 'read'>>
+    Partial<Pick<WritingSkillRuntime, 'displayNameForUri' | 'read'>>
   tools?: AgentToolExecutor
   writingTasks?: Pick<WritingTaskService, 'activeCorrelation' | 'getView'>
   log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -380,7 +356,6 @@ export interface AgentSessionServiceOptions {
     maxOutputTokens: number
     signal: AbortSignal
   }) => Promise<{ summary: string; modelRequestId: string }>
-  messageTokenBudget?: number
   now?: () => Date
   createId?: () => string
   defaultApprovalMode?: () => AgentApprovalMode
@@ -388,7 +363,6 @@ export interface AgentSessionServiceOptions {
     config: Extract<ProviderConfig, { role: 'agent' }>,
     signal: AbortSignal
   ) => Promise<AgentModelLimits>
-  interactiveModelLimiter?: ProjectInteractiveModelLimiter
 }
 
 export class AgentSessionService {
@@ -940,6 +914,7 @@ export class AgentSessionService {
                   retryCount: row.skill_route_retry_count ?? 0
                 },
           errorCode: safeErrorCode(row.error_json),
+          errorDetails: readErrorDetails(row.error_json),
           writingTaskId: row.writing_task_id,
           writingTaskStepId: row.writing_task_step_id,
           startedAt: row.started_at,
@@ -1087,8 +1062,6 @@ export class AgentSessionService {
             ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             authorizedModelRequestIds: new Set(),
             pendingModelRequestIds: new Set(),
-            skillToolModelRequestIds: new Set(),
-            nonSkillToolModelRequestIds: new Set(),
             pendingMessages: [],
             activeToolGroups: [],
             citationRecoveryState: 'none',
@@ -1096,14 +1069,11 @@ export class AgentSessionService {
             skillSnapshot: pendingSkillSnapshot(),
             skillState: null,
             skillPrompt: { mode: 'auto', mandatory: '', references: [] },
-            skillFallbackPrompt: { mode: 'auto', mandatory: '', references: [] },
             systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
             partialText: '',
             reviewPause: null,
             pendingQuestion: null,
-            retryCapability: null,
             overflowRetryAttempted: false,
-            finalizationStarted: false,
             completion: Promise.resolve()
           }
           let markPrepared: () => void = () => undefined
@@ -1161,8 +1131,7 @@ export class AgentSessionService {
               phase: 'skill_preparation',
               interactionMode,
               thinkingLevel,
-              activeCount: this.#workBySession.size,
-              concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+              activeCount: this.#workBySession.size
             },
             'Agent run started and entered writing skill preparation'
           )
@@ -1184,45 +1153,6 @@ export class AgentSessionService {
       markPrepared: () => void
     }
   ): Promise<void> {
-    if (this.options.skillRouter !== undefined && active.interactionMode !== 'ask') {
-      try {
-        const routed = await this.options.skillRouter.route({
-          userPrompt: input.prompt,
-          config: active.config,
-          credential: input.credential,
-          modelLimits: active.modelLimits,
-          database: this.options.database,
-          operationId: active.operationId,
-          agentRunId: active.agentRunId,
-          projectSessionId: this.options.projectSessionId,
-          signal: active.controller.signal,
-          createId: this.#createId,
-          now: this.#now
-        })
-        active.skillSnapshot = routed.snapshot
-        active.skillPrompt = routed.prompt
-        active.skillFallbackPrompt = routed.fallbackPrompt ?? {
-          mode: 'auto',
-          mandatory: '',
-          references: []
-        }
-        active.skillState = routed.state ?? null
-      } catch (err) {
-        throw new AgentRunSetupError(
-          active.controller.signal.aborted
-            ? 'user_stopped'
-            : err instanceof SkillRouteError
-              ? err.code
-              : 'skill_route_failed',
-          err
-        )
-      }
-    } else {
-      active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
-    }
-    active.controller.signal.throwIfAborted()
-    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
-
     const modelRequests = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -1258,6 +1188,65 @@ export class AgentSessionService {
     )
     await this.#publishDurable(initialEvent)
 
+    const baselineContext = this.options.contextBuilder?.build({
+      prompt: input.prompt,
+      editorContext: active.editorContext,
+      snapshotId: modelRequestId,
+      interactionMode: active.interactionMode
+    })
+    const baselineSystemPrompt = baselineContext?.systemPrompt ?? active.systemPrompt
+    if (this.options.skillRouter !== undefined && active.interactionMode !== 'ask') {
+      const catalogPlan = this.#contextPlanner.plan({
+        modelLimits: active.modelLimits,
+        requestedOutputTokens: active.maxOutputTokens,
+        systemPrompt: baselineSystemPrompt,
+        history: [],
+        currentRequest: input.prompt,
+        advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
+      })
+      try {
+        const routed = await this.options.skillRouter.route({
+          userPrompt: input.prompt,
+          maxCatalogBytes: Math.max(
+            0,
+            MAX_SYSTEM_PROMPT_BYTES -
+              Buffer.byteLength(baselineSystemPrompt) -
+              Buffer.byteLength(skillPromptOverhead())
+          ),
+          maxCatalogTokens: Math.max(
+            0,
+            catalogPlan.conversationBudgetTokens - estimateAgentTokens(skillPromptOverhead())
+          ),
+          config: active.config,
+          credential: input.credential,
+          modelLimits: active.modelLimits,
+          database: this.options.database,
+          operationId: active.operationId,
+          agentRunId: active.agentRunId,
+          projectSessionId: this.options.projectSessionId,
+          signal: active.controller.signal,
+          createId: this.#createId,
+          now: this.#now
+        })
+        active.skillSnapshot = routed.snapshot
+        active.skillPrompt = routed.prompt
+        active.skillState = routed.state ?? null
+      } catch (err) {
+        throw new AgentRunSetupError(
+          active.controller.signal.aborted
+            ? 'user_stopped'
+            : err instanceof SkillRouteError
+              ? err.code
+              : 'skill_route_failed',
+          err
+        )
+      }
+    } else {
+      active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
+    }
+    active.controller.signal.throwIfAborted()
+    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
+
     let builtContext: ReturnType<AgentContextBuilder['build']> | undefined
     try {
       builtContext = this.options.contextBuilder?.build({
@@ -1268,71 +1257,17 @@ export class AgentSessionService {
         interactionMode: active.interactionMode
       })
     } catch (err) {
-      if (
-        err instanceof SkillPromptBudgetError &&
-        active.skillSnapshot.mode === 'explicit' &&
-        active.skillSnapshot.routingStatus === 'selected'
-      ) {
-        this.options.log.warn(
-          {
-            event: 'skill.selection.degraded',
-            err,
-            agentRunId: active.agentRunId,
-            code: 'skill_prompt_budget_exceeded',
-            requestedCount: active.skillSnapshot.requestedSkills.length,
-            selectedCount: active.skillSnapshot.skills.length,
-            dependencyCount: active.skillSnapshot.dependencies.length
-          },
-          'Requested Writing Skill injection was dropped because the final context exceeded budget'
-        )
-        active.skillSnapshot = {
-          schemaVersion: 3,
-          mode: 'explicit',
-          routingStatus: 'degraded',
-          requestedSkills: [],
-          skills: [],
-          dependencies: [],
-          resources: [],
-          safeError: 'skill_prompt_budget_exceeded'
-        }
-        active.skillPrompt = active.skillFallbackPrompt
-        try {
-          builtContext = this.options.contextBuilder?.build({
-            prompt: input.prompt,
-            editorContext: active.editorContext,
-            snapshotId: modelRequestId,
-            skillPrompt: active.skillPrompt,
-            interactionMode: active.interactionMode
-          })
-        } catch (fallbackError) {
-          throw new AgentRunSetupError('agent_context_failed', fallbackError)
-        }
-      } else {
-        throw new AgentRunSetupError(
-          err instanceof SkillPromptBudgetError
-            ? 'skill_prompt_budget_exceeded'
-            : 'agent_context_failed',
-          err
-        )
-      }
+      throw new AgentRunSetupError(
+        err instanceof SkillPromptBudgetError
+          ? 'skill_prompt_budget_exceeded'
+          : 'agent_context_failed',
+        err
+      )
     }
-    if (builtContext?.skillPromptDropped === true) {
-      if (active.skillSnapshot.mode !== 'explicit') {
-        active.skillSnapshot = {
-          schemaVersion: 3,
-          mode: 'auto',
-          routingStatus: 'degraded',
-          requestedSkills: [],
-          skills: [],
-          dependencies: [],
-          resources: [],
-          safeError: 'skill_prompt_budget_exceeded'
-        }
-      }
-      active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
-    } else if (builtContext !== undefined) {
-      this.#retainIncludedSkillResources(active, builtContext.includedSkillResources)
+    if (builtContext !== undefined) {
       active.snapshots.set(modelRequestId, builtContext.snapshot)
+      if (builtContext.skillPromptDropped)
+        active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
     }
     this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
     active.systemPrompt =
@@ -1405,6 +1340,7 @@ export class AgentSessionService {
   }
 
   async #settleSetupFailure(active: ActiveRun, err: unknown): Promise<void> {
+    const diagnostic = this.#runDiagnostic(active, err, active.phase)
     this.options.log.error(
       { event: 'agent.run.setup_failed', err, agentRunId: active.agentRunId, phase: active.phase },
       'Agent run failed before provider generation started'
@@ -1430,8 +1366,8 @@ export class AgentSessionService {
       agentRunId: active.agentRunId,
       agentSessionId: active.agentSessionId,
       status,
-      error: { code },
-      eventPayload: { code, status }
+      error: { schemaVersion: 2, code, diagnostic },
+      eventPayload: { schemaVersion: 2, code, status, diagnostic }
     })
   }
 
@@ -1440,7 +1376,7 @@ export class AgentSessionService {
   }
 
   async followUp(agentRunId: string, content: string): Promise<void> {
-    const active = this.#requireQueueableRun(agentRunId, true)
+    const active = this.#requireQueueableRun(agentRunId)
     const parsedContent = agentUserMessagePayloadSchema.shape.content.parse(content)
     if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
       throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
@@ -1484,7 +1420,6 @@ export class AgentSessionService {
       interactionMode: active.interactionMode
     })
     if (refreshedContext !== undefined) {
-      this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
     }
     const pending: PendingFollowUpMessage = {
       pendingMessageId,
@@ -1685,119 +1620,6 @@ export class AgentSessionService {
     await active.completion
   }
 
-  async retryRequest(agentRunId: string, capabilityId: string): Promise<void> {
-    const active = this.#requireActive(agentRunId)
-    const capability = active.retryCapability
-    if (
-      active.phase !== 'retry_available' ||
-      active.handle === null ||
-      capability === null ||
-      capability.capabilityId !== capabilityId
-    ) {
-      throw new Error('Agent request retry capability is no longer available')
-    }
-    if (active.reviewPause !== null || active.pendingQuestion !== null) {
-      throw new Error('Agent request cannot be retried while a user decision is pending')
-    }
-    const source = this.options.database.immediate((database) =>
-      database
-        .prepare(
-          `SELECT status, error_json
-             FROM model_requests
-            WHERE model_request_id = ? AND agent_run_id = ? AND operation_kind = 'agent'`
-        )
-        .get(capability.sourceModelRequestId, active.agentRunId)
-    ) as { status: string; error_json: string | null } | undefined
-    const sourceError = source?.error_json === null ? null : safeJsonObject(source?.error_json)
-    if (
-      source?.status !== 'failed' ||
-      sourceError?.['retryable'] !== true ||
-      active.pendingModelRequestIds.has(capability.sourceModelRequestId)
-    ) {
-      throw new Error('Agent request retry source is not a settled retryable failure')
-    }
-    const repository = new ModelRequestRepository(
-      this.options.database,
-      this.options.log,
-      this.#now,
-      this.#createId
-    )
-    const targetModelRequestId = (
-      await repository.start({
-        operation: 'agent',
-        provider: active.config,
-        request: {
-          delivery: 'retry_last_request',
-          sourceModelRequestId: capability.sourceModelRequestId,
-          stage: capability.failureStage,
-          contextFingerprint: capability.contextFingerprint
-        },
-        thinkingLevel: active.thinkingLevel,
-        inputItems: 0,
-        operationId: active.operationId,
-        agentRunId: active.agentRunId,
-        projectSessionId: this.options.projectSessionId
-      })
-    ).modelRequestId
-    active.authorizedModelRequestIds.add(targetModelRequestId)
-    active.pendingModelRequestIds.add(targetModelRequestId)
-    await this.#appendAndPublishEvent({
-      sessionId: active.agentSessionId,
-      runId: active.agentRunId,
-      type: 'model_retry',
-      payload: agentModelRetryPayloadSchema.parse({
-        schemaVersion: 1,
-        sourceModelRequestId: capability.sourceModelRequestId,
-        targetModelRequestId,
-        reasonCode: capability.reasonCode,
-        failureStage: capability.failureStage,
-        contextFingerprint: capability.contextFingerprint,
-        actor: 'user',
-        timestamp: this.#now().getTime()
-      }),
-      modelRequestId: targetModelRequestId
-    })
-    active.retryCapability = null
-    active.phase = 'running'
-    active.partialText = ''
-    await this.#publishActivitySnapshot()
-    try {
-      active.handle.authorizeModelRetry({
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        capabilityId,
-        sourceModelRequestId: capability.sourceModelRequestId,
-        targetModelRequestId
-      })
-    } catch (err) {
-      this.options.log.error(
-        {
-          event: 'agent.model_retry.delivery_failed',
-          err,
-          agentRunId,
-          sourceModelRequestId: capability.sourceModelRequestId,
-          targetModelRequestId
-        },
-        'Failed to authorize Agent model retry'
-      )
-      await repository.abort(targetModelRequestId, 'retry_delivery_failed')
-      active.pendingModelRequestIds.delete(targetModelRequestId)
-      active.controller.abort(err)
-      throw err
-    }
-    this.options.log.info(
-      {
-        event: 'agent.model_retry.authorized',
-        agentRunId,
-        sourceModelRequestId: capability.sourceModelRequestId,
-        targetModelRequestId,
-        failureStage: capability.failureStage
-      },
-      'Authorized Agent model retry from the original request anchor'
-    )
-  }
-
   async answerUserQuestion(input: {
     agentSessionId: string
     agentRunId: string
@@ -1873,13 +1695,12 @@ export class AgentSessionService {
     this.#assertCompatibleSession(agentSessionId)
     this.#assertSessionIdle(agentSessionId, 'compressing earlier conversation')
     this.#assertConversationReady(agentSessionId)
-    let hasCompactionCandidate = true
-    try {
-      hasCompactionCandidate =
-        buildNextCompactionMaterial({ database: this.options.database, agentSessionId }) !== null
-    } catch (err) {
-      if (!(err instanceof AgentCompactionSourceLimitError)) throw err
-    }
+    const hasCompactionCandidate = this.options.database.immediate((native) =>
+      native
+        .prepare(`SELECT 1 FROM agent_events WHERE agent_session_id = ?
+        AND type IN ('user_message', 'compaction_summary') LIMIT 1`)
+        .get(agentSessionId)
+    )
     if (!hasCompactionCandidate) {
       throw new Error('This conversation does not yet have an earlier completed turn to compress')
     }
@@ -1936,10 +1757,9 @@ export class AgentSessionService {
         const modelLimits =
           (await this.options.resolveModelLimits?.(config, active.controller.signal)) ??
           legacyModelLimits()
-        const budgets = agentCompactionBudgets(agentMessageBudget(8_192, modelLimits))
         active.phase = 'summarizing'
         void this.#publishActivitySnapshot()
-        const steps = await this.#runRollingCompaction({
+        const compacted = await this.#runCompaction({
           agentSessionId: active.agentSessionId,
           agentRunId: null,
           compactionId: active.compactionId,
@@ -1948,11 +1768,13 @@ export class AgentSessionService {
           credential,
           modelLimits,
           signal: active.controller.signal,
-          maxSteps: 8,
-          ...budgets
+          conversationBudgetTokens: agentMessageBudget(8_192, modelLimits),
+          estimatedHistoryTokensBefore: estimateAgentTokens(
+            loadContinuousRuntimeHistory(this.options.database, active.agentSessionId)
+          ),
+          requestedOutputTokens: 8_192
         })
-        if (steps === 0)
-          throw new Error('Conversation compaction had no complete head to summarize')
+        if (!compacted) throw new Error('Conversation has no history to summarize')
       })
       this.options.log.info(
         {
@@ -1963,6 +1785,7 @@ export class AgentSessionService {
         'Manual Agent context compaction completed'
       )
     } catch (err) {
+      const failure = compactionFailurePayload(err, active.controller.signal.aborted)
       this.options.log.error(
         {
           event: 'agent.compaction.manual_failed',
@@ -1977,7 +1800,7 @@ export class AgentSessionService {
         agentRunId: null,
         compactionId: active.compactionId,
         trigger: 'manual',
-        ...compactionFailurePayload(err, active.controller.signal.aborted),
+        ...failure,
         aborted: active.controller.signal.aborted
       })
     }
@@ -2028,16 +1851,6 @@ export class AgentSessionService {
                 submitting: active.pendingQuestion.submitting,
                 startedAt: active.pendingQuestion.startedAt
               },
-        retry:
-          active.retryCapability === null
-            ? null
-            : {
-                capabilityId: active.retryCapability.capabilityId,
-                sourceModelRequestId: active.retryCapability.sourceModelRequestId,
-                reasonCode: active.retryCapability.reasonCode,
-                failureStage: active.retryCapability.failureStage,
-                label: active.retryCapability.label
-              },
         startedAt: persisted.startedAt
       }
     })
@@ -2059,7 +1872,6 @@ export class AgentSessionService {
       startedAt: compaction.startedAt
     }))
     return agentProjectActivitySnapshotSchema.parse({
-      limit: MAX_CONCURRENT_AGENT_RUNS,
       activeCount: this.#workBySession.size,
       runs: [...startingRuns, ...activeRuns],
       compactions
@@ -2191,16 +2003,9 @@ export class AgentSessionService {
     })
   }
 
-  #requireQueueableRun(
-    agentRunId: string,
-    allowRetryAvailable = false
-  ): ActiveRun & { handle: AgentSessionRunHandle } {
+  #requireQueueableRun(agentRunId: string): ActiveRun & { handle: AgentSessionRunHandle } {
     const active = this.#requireActive(agentRunId)
-    if (
-      (active.phase !== 'running' &&
-        !(allowRetryAvailable && active.phase === 'retry_available')) ||
-      active.handle === null
-    ) {
+    if (active.phase !== 'running' || active.handle === null) {
       throw new Error(
         active.phase === 'compacting'
           ? 'Earlier conversation is still being summarized'
@@ -2273,7 +2078,6 @@ export class AgentSessionService {
       interactionMode: active.interactionMode
     })
     if (refreshedContext !== undefined) {
-      this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
       active.snapshots.set(modelRequestId, refreshedContext.snapshot)
       active.systemPrompt = refreshedContext.systemPrompt
     }
@@ -2339,9 +2143,6 @@ export class AgentSessionService {
         apiId: event.apiId,
         traceId: active.agentRunId,
         spanId: event.modelRequestId,
-        ...(event.parentModelRequestId === undefined
-          ? {}
-          : { parentSpanId: event.parentModelRequestId }),
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         ...(toolCallId === undefined ? {} : { toolCallId }),
@@ -2379,7 +2180,7 @@ export class AgentSessionService {
       return
     }
     if (event.type === 'model_call_retrying') {
-      this.options.log.warn(
+      this.options.log.info(
         {
           event: 'agent.provider_retry.scheduled',
           agentRunId: active.agentRunId,
@@ -2393,35 +2194,6 @@ export class AgentSessionService {
       )
       return
     }
-    if (event.type === 'model_retry_available') {
-      if (active.pendingModelRequestIds.has(event.modelRequestId)) {
-        throw new Error('Agent model retry was offered before the source request settled')
-      }
-      if (active.reviewPause !== null || active.pendingQuestion !== null) {
-        throw new Error('Agent model retry conflicts with a pending user decision')
-      }
-      active.phase = 'retry_available'
-      active.retryCapability = {
-        capabilityId: event.capabilityId,
-        sourceModelRequestId: event.modelRequestId,
-        reasonCode: event.reasonCode,
-        failureStage: event.failureStage,
-        contextFingerprint: event.contextFingerprint,
-        label: event.label
-      }
-      await this.#publishActivitySnapshot()
-      this.options.log.warn(
-        {
-          event: 'agent.model_retry.available',
-          agentRunId: active.agentRunId,
-          modelRequestId: event.modelRequestId,
-          reasonCode: event.reasonCode,
-          failureStage: event.failureStage
-        },
-        'Agent request can be retried from its in-memory request anchor'
-      )
-      return
-    }
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -2431,9 +2203,15 @@ export class AgentSessionService {
     if (event.type === 'tool_attempted' || event.type === 'tool_preflight_failed') {
       const { type, modelRequestId, ...payload } = event
       if (event.type === 'tool_preflight_failed') {
+        const err =
+          event.diagnostic?.details === undefined
+            ? new Error(event.diagnostic?.message ?? 'Tool preparation failed before Main dispatch')
+            : reconstructAgentDiagnosticError(event.diagnostic.details)
+        const details = this.#runDiagnostic(active, err, 'tool.preflight')
         this.options.log.warn(
           {
             event: 'agent.tool.preflight_failed',
+            err,
             agentRunId: active.agentRunId,
             modelRequestId,
             toolName: event.requestedToolName,
@@ -2445,6 +2223,14 @@ export class AgentSessionService {
           },
           'Agent tool failed before Main dispatch'
         )
+        Object.assign(payload, {
+          diagnostic: {
+            code: event.diagnostic?.code ?? 'preparation_failed',
+            paths: event.diagnostic?.paths ?? [],
+            message: details.message.slice(0, 1_000),
+            details
+          }
+        })
       }
       await this.#appendAndPublishEvent({
         sessionId: active.agentSessionId,
@@ -2559,20 +2345,6 @@ export class AgentSessionService {
         ? active.controller.signal.reason
         : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
     }
-    if (active.finalizationStarted) {
-      throw new AgentRunContinuationLostError(
-        new Error('Agent requested another tool continuation after finalization started')
-      )
-    }
-    const eventCount = Number(
-      this.options.database.immediate((database) =>
-        database
-          .prepare('SELECT COUNT(*) FROM agent_events WHERE agent_run_id = ?')
-          .pluck()
-          .get(active.agentRunId)
-      )
-    )
-    const finalize = eventCount >= AGENT_RUN_FINALIZATION_EVENT_THRESHOLD
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -2606,27 +2378,10 @@ export class AgentSessionService {
         interactionMode: active.interactionMode
       })
       if (refreshedContext !== undefined) {
-        this.#retainIncludedSkillResources(active, refreshedContext.includedSkillResources)
         active.snapshots.set(modelRequestId, refreshedContext.snapshot)
         active.systemPrompt = refreshedContext.systemPrompt
       }
-      const baseSystemPrompt = refreshedContext?.systemPrompt ?? active.systemPrompt
-      const systemPrompt = finalize
-        ? `${baseSystemPrompt.slice(0, 65_536 - AGENT_FINALIZATION_INSTRUCTION.length - 2)}\n\n${AGENT_FINALIZATION_INSTRUCTION}`
-        : baseSystemPrompt
-      if (finalize) {
-        active.finalizationStarted = true
-        this.options.log.info(
-          {
-            event: 'agent.run.finalization_started',
-            agentRunId: active.agentRunId,
-            modelRequestId,
-            continuationId,
-            eventCount
-          },
-          'Agent run reached its event limit and started a final tool-free model call'
-        )
-      }
+      const systemPrompt = refreshedContext?.systemPrompt ?? active.systemPrompt
       handle.authorizeModelCall({
         projectSessionId: this.options.projectSessionId,
         agentSessionId: active.agentSessionId,
@@ -2639,10 +2394,8 @@ export class AgentSessionService {
         runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
           active,
           systemPrompt,
-          active.activeToolGroups,
-          finalize
-        ),
-        finalize
+          active.activeToolGroups
+        )
       })
       this.options.log.info(
         {
@@ -2731,16 +2484,6 @@ export class AgentSessionService {
       )
     }
     const toolStartedAt = this.#now().getTime()
-    const skillToolRequest = request.toolName === 'read_writing_skill'
-    const mixedToolBatch = skillToolRequest
-      ? active.nonSkillToolModelRequestIds.has(request.modelRequestId)
-      : active.skillToolModelRequestIds.has(request.modelRequestId)
-    if (!mixedToolBatch) {
-      const requestIds = skillToolRequest
-        ? active.skillToolModelRequestIds
-        : active.nonSkillToolModelRequestIds
-      requestIds.add(request.modelRequestId)
-    }
     const skillDisplayName =
       request.toolName === 'read_writing_skill' &&
       active.skillState !== null &&
@@ -2771,13 +2514,6 @@ export class AgentSessionService {
         : AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
     const toolSignal = deadlineSignal === null ? signal : AbortSignal.any([signal, deadlineSignal])
     try {
-      if (mixedToolBatch) {
-        throw new AgentToolDomainError(
-          'conflict',
-          'Writing Skill reads cannot be mixed with other tools in one assistant response',
-          true
-        )
-      }
       let data: unknown
       if (request.toolName === 'ask_user') {
         data = await this.#waitForUserAnswer(active, request, toolSignal)
@@ -2861,12 +2597,6 @@ export class AgentSessionService {
       } else if (this.options.tools === undefined) {
         throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
       } else {
-        if (
-          active.skillState !== null &&
-          this.options.skillRouter?.closePreparation !== undefined
-        ) {
-          this.options.skillRouter.closePreparation(active.skillState)
-        }
         data = await this.options.tools.execute({
           toolName: request.toolName,
           args: request.args,
@@ -2977,6 +2707,7 @@ export class AgentSessionService {
       }
       return response
     } catch (err) {
+      const diagnostic = this.#runDiagnostic(active, err, 'tool')
       this.options.log.error(
         {
           event: 'agent.tool.execution_failed',
@@ -2991,6 +2722,7 @@ export class AgentSessionService {
         'Agent tool execution failed'
       )
       const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
+      if (diagnostic.message) safe.message = diagnostic.message.slice(0, 1_000)
       const citationRecoveryState = /citation|source label/iu.test(safe.message)
         ? active.citationRecoveryState
         : 'none'
@@ -3015,8 +2747,8 @@ export class AgentSessionService {
           code: structured.code,
           category: structured.category,
           citationRecoveryState,
-          recoveryAction: structured.recovery.action,
-          recoveryTool: structured.recovery.tool,
+          recoveryAction: structured.recovery?.action,
+          recoveryTool: structured.recovery?.tool,
           durationMs: Math.max(0, this.#now().getTime() - toolStartedAt)
         },
         'Projected a safe Agent tool failure'
@@ -3033,7 +2765,8 @@ export class AgentSessionService {
           retryable: safe.retryable,
           operationId: active.operationId,
           category: structured.category,
-          recovery: structured.recovery
+          recovery: structured.recovery,
+          details: diagnostic
         },
         citationIds: [],
         knowledgeItemIds: [],
@@ -3048,14 +2781,12 @@ export class AgentSessionService {
           payload: resultPayload,
           modelRequestId: request.modelRequestId
         })
-        return toolErrorResponse(
-          request,
-          safe.code,
-          safe.message,
-          safe.retryable,
-          safe.recoveryUri,
-          citationRecoveryState
-        )
+        return agentToolResponseSchema.parse({
+          ...toolResponseCapability(request),
+          schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+          ok: false,
+          error: { ...structured, details: diagnostic }
+        })
       } finally {
         if (request.toolName === 'ask_user') {
           this.#completePendingUserQuestion(active, request.toolCallId, false)
@@ -3208,6 +2939,7 @@ export class AgentSessionService {
       )
     } catch (caught) {
       let err = caught
+      this.#runDiagnostic(active, err, 'run')
       this.options.log.error(
         { event: 'agent.run.failed', err, agentRunId: active.agentRunId },
         'Agent run did not complete'
@@ -3220,6 +2952,7 @@ export class AgentSessionService {
             await this.#restartAfterContextOverflow(active)
             return await this.#settleRun(active)
           } catch (recoveryErr) {
+            this.#runDiagnostic(active, recoveryErr, 'compaction')
             this.options.log.error(
               {
                 event: 'agent.run.context_overflow_recovery_failed',
@@ -3273,12 +3006,18 @@ export class AgentSessionService {
           modelRequestId: partialModelRequestId
         })
       }
+      const diagnostic = this.#runDiagnostic(active, err, 'run')
       await this.#finishRunAndAppendEvent({
         agentRunId: active.agentRunId,
         agentSessionId: active.agentSessionId,
         status: termination.status,
-        error: { code: termination.code },
-        eventPayload: { code: termination.code, status: termination.status }
+        error: { schemaVersion: 2, code: termination.code, diagnostic },
+        eventPayload: {
+          schemaVersion: 2,
+          code: termination.code,
+          status: termination.status,
+          diagnostic
+        }
       })
     } finally {
       if (this.#activeRuns.get(active.agentRunId) === active) {
@@ -3317,6 +3056,18 @@ export class AgentSessionService {
     })
   }
 
+  #runDiagnostic(active: ActiveRun, error: unknown, stage: string) {
+    const credential = agentDiagnosticSensitiveValues(active.credential)
+    const sourceStage =
+      error instanceof Error && 'stage' in error && typeof error.stage === 'string'
+        ? error.stage
+        : stage
+    return serializeAgentDiagnosticError(error, sourceStage, {
+      knownSensitiveValues: credential,
+      privateBodies: [active.currentRequest, active.systemPrompt, active.partialText]
+    })
+  }
+
   async #restartAfterContextOverflow(active: ActiveRun): Promise<void> {
     await this.#abortPendingModelRequests(active, 'context_overflow_retry')
     const historyBefore = loadContinuousRuntimeHistory(
@@ -3341,9 +3092,8 @@ export class AgentSessionService {
       compactionId,
       trigger: 'provider_overflow'
     })
-    let steps: number
     try {
-      steps = await this.#runRollingCompaction({
+      const compacted = await this.#runCompaction({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -3352,34 +3102,38 @@ export class AgentSessionService {
         credential: active.credential,
         modelLimits: active.modelLimits,
         signal: active.controller.signal,
-        maxSteps: 4,
-        postCompactionBudgetTokens: plan.postCompactionBudgetTokens,
-        checkpointBudgetTokens: plan.checkpointBudgetTokens,
-        recentTailBudgetTokens: plan.recentTailBudgetTokens
+        conversationBudgetTokens: plan.conversationBudgetTokens,
+        estimatedHistoryTokensBefore: plan.historyTokens,
+        requestedOutputTokens: active.maxOutputTokens
       })
-      if (steps === 0) throw new Error('Provider overflow recovery found no history to compact')
+      if (!compacted) throw new Error('Provider overflow recovery found no history to compact')
     } catch (err) {
+      this.#runDiagnostic(active, err, 'compaction')
+      const failure = compactionFailurePayload(err, active.controller.signal.aborted)
+      this.options.log.error(
+        {
+          event: 'agent.compaction.overflow_failed',
+          err,
+          agentRunId: active.agentRunId,
+          compactionId
+        },
+        'Overflow context compaction failed'
+      )
       await this.#appendCompactionFailed({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
         trigger: 'provider_overflow',
-        ...compactionFailurePayload(err, active.controller.signal.aborted),
+        ...failure,
         aborted: active.controller.signal.aborted
       })
       throw err
     }
-    const fullHistory = loadContinuousRuntimeHistory(
+    const history = loadContinuousRuntimeHistory(
       this.options.database,
       active.agentSessionId,
       active.agentRunId
     )
-    const history = boundHistoryByCompleteTurns(fullHistory, plan.conversationBudgetTokens)
-    if (historyProjectionChanged(fullHistory, history)) {
-      throw new AgentCompactionRequiredError(
-        new Error('Provider overflow recovery would omit uncompacted conversation history')
-      )
-    }
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
@@ -3589,25 +3343,6 @@ export class AgentSessionService {
         .run(JSON.stringify(parsed), this.#now().toISOString(), agentRunId)
       if (result.changes !== 1) throw new Error('Agent run does not exist')
     })
-  }
-
-  #retainIncludedSkillResources(active: ActiveRun, includedPaths: readonly string[]): void {
-    const included = new Set(includedPaths)
-    const resources = active.skillSnapshot.resources.filter((resource) =>
-      included.has(virtualSkillPath(resource.skillId, resource.commit, resource.relativePath))
-    )
-    const references = active.skillPrompt.references.filter((reference) =>
-      included.has(reference.path)
-    )
-    if (
-      resources.length === active.skillSnapshot.resources.length &&
-      references.length === active.skillPrompt.references.length
-    ) {
-      return
-    }
-    active.skillSnapshot = { ...active.skillSnapshot, resources }
-    active.skillPrompt = { ...active.skillPrompt, references }
-    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
   }
 
   #beginTitleRequest(input: {
@@ -4192,7 +3927,7 @@ export class AgentSessionService {
       active.agentSessionId,
       active.agentRunId
     )
-    let plan = this.#contextPlanner.plan({
+    const plan = this.#contextPlanner.plan({
       modelLimits: active.modelLimits,
       requestedOutputTokens: input.maxOutputTokens,
       systemPrompt: active.systemPrompt,
@@ -4200,19 +3935,6 @@ export class AgentSessionService {
       currentRequest: input.currentRequest,
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
-    if (this.options.messageTokenBudget !== undefined) {
-      const conversationBudgetTokens = Math.min(
-        plan.conversationBudgetTokens,
-        this.options.messageTokenBudget
-      )
-      plan = {
-        ...plan,
-        conversationBudgetTokens,
-        ...agentCompactionBudgets(conversationBudgetTokens),
-        requiresCompaction:
-          plan.requiresCompaction || plan.historyTokens > this.options.messageTokenBudget
-      }
-    }
     if (!plan.requiresCompaction) return agentHistorySchema.parse(history)
 
     const compactionId = this.#createId()
@@ -4224,9 +3946,8 @@ export class AgentSessionService {
       compactionId,
       trigger: 'auto_threshold'
     })
-    let compactionError: unknown = null
     try {
-      const steps = await this.#runRollingCompaction({
+      const compacted = await this.#runCompaction({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -4235,14 +3956,14 @@ export class AgentSessionService {
         credential: input.credential,
         modelLimits: active.modelLimits,
         signal: active.controller.signal,
-        maxSteps: 4,
-        postCompactionBudgetTokens: plan.postCompactionBudgetTokens,
-        checkpointBudgetTokens: plan.checkpointBudgetTokens,
-        recentTailBudgetTokens: plan.recentTailBudgetTokens
+        conversationBudgetTokens: plan.conversationBudgetTokens,
+        estimatedHistoryTokensBefore: plan.historyTokens,
+        requestedOutputTokens: active.maxOutputTokens
       })
-      if (steps === 0) throw new Error('No complete historical turn was available for compaction')
+      if (!compacted) throw new Error('No historical content was available for compaction')
     } catch (err) {
-      compactionError = err
+      this.#runDiagnostic(active, err, 'compaction')
+      const failure = compactionFailurePayload(err, active.controller.signal.aborted)
       this.options.log.error(
         { event: 'agent.compaction.failed', err, agentRunId: active.agentRunId, compactionId },
         'Automatic Agent context compaction failed'
@@ -4252,10 +3973,10 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         compactionId,
         trigger: 'auto_threshold',
-        ...compactionFailurePayload(err, active.controller.signal.aborted),
+        ...failure,
         aborted: active.controller.signal.aborted
       })
-      if (active.controller.signal.aborted) throw err
+      throw new AgentCompactionRequiredError(err)
     } finally {
       active.phase = 'routing'
       void this.#publishActivitySnapshot()
@@ -4265,23 +3986,6 @@ export class AgentSessionService {
       active.agentSessionId,
       active.agentRunId
     )
-    const bounded = boundHistoryByCompleteTurns(history, plan.conversationBudgetTokens)
-    if (historyProjectionChanged(history, bounded)) {
-      const err = new AgentCompactionRequiredError(
-        compactionError ?? new Error('Compacted history still exceeds the safe runtime envelope')
-      )
-      this.options.log.error(
-        {
-          event: 'agent.compaction.unsafe_omission_rejected',
-          err,
-          agentRunId: active.agentRunId,
-          retainedMessages: bounded.length,
-          omittedMessages: Math.max(0, history.length - bounded.length)
-        },
-        'Agent context stopped before omitting uncheckpointed conversation history'
-      )
-      throw err
-    }
     return agentHistorySchema.parse(history)
   }
 
@@ -4297,185 +4001,164 @@ export class AgentSessionService {
   #runtimeMessageBudget(
     active: Pick<ActiveRun, 'maxOutputTokens' | 'modelLimits' | 'interactionMode'>,
     systemPrompt: string,
-    activeToolGroups: readonly WritingToolGroup[],
-    finalize = false
+    activeToolGroups: readonly WritingToolGroup[]
   ): number {
     return agentRuntimeMessageBudget({
       maxOutputTokens: active.maxOutputTokens,
       limits: active.modelLimits,
       systemPrompt,
-      advertisedTools: finalize
-        ? []
-        : this.#activeToolEnvelope(activeToolGroups, active.interactionMode)
+      advertisedTools: this.#activeToolEnvelope(activeToolGroups, active.interactionMode)
     })
   }
 
-  async #runRollingCompaction(
-    input: {
-      agentSessionId: string
-      agentRunId: string | null
-      compactionId: string
-      trigger: AgentCompactionTrigger
-      config: Extract<ProviderConfig, { role: 'agent' }>
-      credential: string
-      modelLimits: AgentModelLimits
-      signal: AbortSignal
-      maxSteps: number
-    } & AgentCompactionBudgets
-  ): Promise<number> {
+  async #runCompaction(input: {
+    agentSessionId: string
+    agentRunId: string | null
+    compactionId: string
+    trigger: AgentCompactionTrigger
+    config: Extract<ProviderConfig, { role: 'agent' }>
+    credential: string
+    modelLimits: AgentModelLimits
+    signal: AbortSignal
+    conversationBudgetTokens: number
+    estimatedHistoryTokensBefore: number
+    requestedOutputTokens: number
+  }): Promise<boolean> {
     const summarize = this.options.summarizeHistory
     if (summarize === undefined) throw new Error('Agent context compaction is unavailable')
-    if (input.postCompactionBudgetTokens <= 0 || input.checkpointBudgetTokens <= 0) {
-      throw new AgentCompactionRequiredError(
-        new Error('The selected model has no safe post-compaction history budget')
+    input.signal.throwIfAborted()
+    const timestamp = this.#now().getTime()
+    const checkpoint = {
+      eventId: input.compactionId,
+      summary: '',
+      coveredThroughSequence: Number.MAX_SAFE_INTEGER,
+      timestamp,
+      schemaVersion: 4 as const,
+      handoffMode: 'bounded_conversation_memory' as const,
+      omittedEventCount: Number.MAX_SAFE_INTEGER,
+      estimatedTokensBefore: null,
+      estimatedTokensAfter: null
+    }
+    const wrapper = checkpointHistoryMessage(checkpoint)
+    const wrapperTokens = estimateAgentTokens(wrapper)
+    const summaryCapacity = input.conversationBudgetTokens - wrapperTokens
+    if (summaryCapacity <= 0) {
+      throw new Error(
+        `Agent context summary needs more than ${wrapperTokens} tokens for its checkpoint envelope, but only ${input.conversationBudgetTokens} history tokens are available`
       )
     }
-    const sourceTokenBudget = agentMessageBudget(input.checkpointBudgetTokens, input.modelLimits)
-    let completedSteps = 0
-    for (let stepIndex = 1; stepIndex <= input.maxSteps; stepIndex += 1) {
-      input.signal.throwIfAborted()
-      let material: ReturnType<typeof buildNextCompactionMaterial>
-      try {
-        material = buildNextCompactionMaterial({
-          database: this.options.database,
-          agentSessionId: input.agentSessionId,
-          ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
-          sourceTokenBudget
-        })
-      } catch (err) {
-        if (err instanceof AgentCompactionSourceLimitError) {
-          this.options.log.warn(
-            {
-              event: 'agent.compaction.source_limit_rejected',
-              err,
-              agentRunId: input.agentRunId,
-              compactionId: input.compactionId,
-              reason: err.reason
-            },
-            'Agent compaction rejected a source run that cannot be summarized atomically'
-          )
-          throw new AgentCompactionRequiredError(err)
-        }
-        throw err
-      }
-      if (material === null) {
-        const remaining = loadContinuousRuntimeHistory(
-          this.options.database,
-          input.agentSessionId,
-          input.agentRunId ?? undefined
-        )
-        if (
-          completedSteps > 0 &&
-          estimateAgentTokens(remaining) <= input.postCompactionBudgetTokens
-        ) {
-          break
-        }
-        throw new AgentCompactionRequiredError(
-          new Error('No complete historical turn fits the compaction model input budget')
-        )
-      }
-      const estimatedTokensBefore = material.estimatedPromptTokens
-      this.options.log.info(
-        {
-          event: 'agent.compaction.projection_completed',
-          agentRunId: input.agentRunId,
-          compactionId: input.compactionId,
-          stepIndex,
-          sourceEventCount: material.sourceEventCount,
-          rawPayloadBytes: material.sourcePayloadBytes,
-          projectedPromptCharacters: material.projectedPromptCharacters,
-          estimatedPromptTokens: material.estimatedPromptTokens,
-          discardedObservationCharacters: material.discardedObservationCharacters,
-          deduplicatedObservationCount: material.deduplicatedObservationCount,
-          retainedContinuationFactCount: material.retainedContinuationFactCount
-        },
-        'Projected bounded writing continuation facts for Agent compaction'
+    const outputTokens = Math.min(
+      agentOutputLimit(input.requestedOutputTokens, input.modelLimits),
+      summaryCapacity
+    )
+    const material = buildNextCompactionMaterial({
+      database: this.options.database,
+      agentSessionId: input.agentSessionId,
+      ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
+      sourceTokenBudget: agentMessageBudget(outputTokens, input.modelLimits),
+      recentTailTokenBudget: Math.max(
+        0,
+        input.conversationBudgetTokens - outputTokens - estimateAgentTokens(wrapper)
+      ),
+      recentTailMaxBytes: Math.max(
+        0,
+        AGENT_RUNTIME_HISTORY_MAX_BYTES -
+          Buffer.byteLength(JSON.stringify(wrapper)) -
+          outputTokens * 4
       )
-      const summarized = await summarize({
-        agentSessionId: input.agentSessionId,
+    })
+    if (material === null) return false
+    this.options.log.info(
+      {
+        event: 'agent.compaction.projection_completed',
         agentRunId: input.agentRunId,
         compactionId: input.compactionId,
-        trigger: input.trigger,
-        config: input.config,
-        credential: input.credential,
-        modelLimits: input.modelLimits,
-        sourcePayloadJson: material.sourcePayloadJson,
-        coveredThroughSequence: material.coveredThroughSequence,
-        estimatedInputTokens: estimatedTokensBefore,
-        maxOutputTokens: input.checkpointBudgetTokens,
-        signal: input.signal
-      })
-      const summary = boundCheckpointSummary(
-        summarized.summary.trim().slice(0, 32_768),
-        input.checkpointBudgetTokens
-      )
-      if (summary.length === 0) throw new Error('Agent compaction returned an empty summary')
-      const tail = loadRuntimeTailAfterSequence(
-        this.options.database,
-        input.agentSessionId,
-        material.coveredThroughSequence,
-        input.agentRunId ?? undefined
-      )
-      const checkpointTokens = estimateAgentTokens(summary)
-      const tailTokens = estimateAgentTokens(tail)
-      const estimatedTokensAfter = checkpointTokens + tailTokens
-      const fitsPostCompactionBudget = estimatedTokensAfter <= input.postCompactionBudgetTokens
-      const fitsReservedTail = tailTokens <= input.recentTailBudgetTokens
-      const finalStep =
-        fitsPostCompactionBudget && (fitsReservedTail || !material.hasMoreCompactionCandidate)
-      const payload = agentCompactionCheckpointPayloadSchema.parse({
-        schemaVersion: 3,
-        handoffMode: 'bounded_conversation_memory',
-        compactionId: input.compactionId,
-        trigger: input.trigger,
-        stepIndex,
-        finalStep,
-        previousCheckpointEventId: material.previousCheckpoint?.eventId ?? null,
-        coveredFromSequence: material.coveredFromSequence,
-        coveredThroughSequence: material.coveredThroughSequence,
-        summary,
-        proposalOutcomes: material.proposalOutcomes,
-        approvalDecisions: material.approvalDecisions,
-        citationIds: material.citationIds,
-        toolOutcomes: material.toolOutcomes,
-        estimatedTokensBefore,
-        estimatedTokensAfter,
-        checkpointTokens,
-        tailTokens,
-        postCompactionBudgetTokens: input.postCompactionBudgetTokens,
-        checkpointBudgetTokens: input.checkpointBudgetTokens,
-        recentTailBudgetTokens: input.recentTailBudgetTokens,
-        timestamp: this.#now().getTime()
-      })
-      await this.#appendAndPublishEvent({
-        sessionId: input.agentSessionId,
-        runId: input.agentRunId,
-        type: 'compaction_summary',
-        payload,
-        modelRequestId: summarized.modelRequestId
-      })
-      completedSteps = stepIndex
-      this.options.log.info(
-        {
-          event: 'agent.compaction.step_completed',
-          agentRunId: input.agentRunId,
-          compactionId: input.compactionId,
-          stepIndex,
-          finalStep,
-          coveredThroughSequence: material.coveredThroughSequence,
-          estimatedTokensBefore,
-          estimatedTokensAfter
-        },
-        'Agent rolling context checkpoint step completed'
-      )
-      if (finalStep) break
-      if (!material.hasMoreCompactionCandidate || stepIndex === input.maxSteps) {
-        throw new AgentCompactionRequiredError(
-          new Error('The newest complete historical turn exceeds the safe compaction budget')
-        )
+        sourceEventCount: material.sourceEventCount,
+        sourcePayloadBytes: material.sourcePayloadBytes,
+        omittedEventCount: material.omittedEventCount,
+        estimatedPromptTokens: material.estimatedPromptTokens
+      },
+      'Projected old conversation prefix for one summary'
+    )
+    const summarized = await summarize({
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      compactionId: input.compactionId,
+      trigger: input.trigger,
+      config: input.config,
+      credential: input.credential,
+      modelLimits: input.modelLimits,
+      sourcePayloadJson: material.sourcePayloadJson,
+      coveredThroughSequence: material.coveredThroughSequence,
+      estimatedInputTokens: material.estimatedPromptTokens,
+      maxOutputTokens: outputTokens,
+      signal: input.signal
+    }).catch((err: unknown) => {
+      const source = JSON.parse(material.sourcePayloadJson) as {
+        recentTurns: Array<Array<{ content?: unknown }>>
       }
-    }
-    return completedSteps
+      serializeAgentDiagnosticError(err, 'compaction', {
+        knownSensitiveValues: agentDiagnosticSensitiveValues(input.credential),
+        privateBodies: [
+          material.sourcePayloadJson,
+          material.previousCheckpoint?.summary ?? '',
+          ...source.recentTurns
+            .flat()
+            .flatMap((event) => (typeof event.content === 'string' ? [event.content] : []))
+        ]
+      })
+      throw err
+    })
+    input.signal.throwIfAborted()
+    checkpoint.coveredThroughSequence = material.coveredThroughSequence
+    checkpoint.omittedEventCount =
+      material.omittedEventCount + (material.previousCheckpoint?.omittedEventCount ?? 0)
+    const historyWithSummary = (summary: string): AgentHistoryMessage[] => [
+      checkpointHistoryMessage({ ...checkpoint, summary }),
+      ...material.retainedTail
+    ]
+    const summary = fitCheckpointSummary(summarized.summary.trim(), (candidate) => {
+      const history = historyWithSummary(candidate)
+      return (
+        estimateAgentTokens(history) <= input.conversationBudgetTokens &&
+        agentHistorySchema.safeParse(history).success
+      )
+    })
+    if (summary.length === 0)
+      throw new Error('Agent compaction returned no summary that fits the model input window')
+    const payload = agentCompactionCheckpointV4PayloadSchema.parse({
+      schemaVersion: 4,
+      compactionId: input.compactionId,
+      trigger: input.trigger,
+      previousCheckpointEventId: material.previousCheckpoint?.eventId ?? null,
+      coveredFromSequence: material.coveredFromSequence,
+      coveredThroughSequence: material.coveredThroughSequence,
+      summary,
+      omittedEventCount: checkpoint.omittedEventCount,
+      estimatedTokensBefore: input.estimatedHistoryTokensBefore,
+      estimatedTokensAfter: estimateAgentTokens(historyWithSummary(summary)),
+      timestamp
+    })
+    await this.#appendAndPublishEvent({
+      sessionId: input.agentSessionId,
+      runId: input.agentRunId,
+      type: 'compaction_summary',
+      payload,
+      modelRequestId: summarized.modelRequestId
+    })
+    this.options.log.info(
+      {
+        event: 'agent.compaction.completed',
+        agentRunId: input.agentRunId,
+        compactionId: input.compactionId,
+        coveredThroughSequence: payload.coveredThroughSequence,
+        omittedEventCount: payload.omittedEventCount,
+        estimatedTokensBefore: payload.estimatedTokensBefore,
+        estimatedTokensAfter: payload.estimatedTokensAfter
+      },
+      'Agent context checkpoint completed'
+    )
+    return true
   }
 
   async #appendCompactionStarted(input: {
@@ -4507,6 +4190,7 @@ export class AgentSessionService {
     code: string
     retryable: boolean
     aborted: boolean
+    diagnostic?: AgentDiagnosticError
   }): Promise<void> {
     await this.#appendAndPublishEvent({
       sessionId: input.agentSessionId,
@@ -4519,6 +4203,7 @@ export class AgentSessionService {
         code: input.code,
         retryable: input.retryable,
         aborted: input.aborted,
+        ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
         timestamp: this.#now().getTime()
       }),
       modelRequestId: null
@@ -4562,37 +4247,13 @@ export class AgentSessionService {
           workId,
           kind,
           reason: 'conversation_active',
-          activeCount: this.#workBySession.size,
-          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+          activeCount: this.#workBySession.size
         },
         'Agent work slot rejected because the conversation is already active'
       )
       throw new Error('Agent work is already active in this conversation')
     }
-    if (this.#workBySession.size >= MAX_CONCURRENT_AGENT_RUNS) {
-      this.options.log.warn(
-        {
-          event: 'agent.work.slot_rejected',
-          agentSessionId,
-          workId,
-          kind,
-          reason: 'project_capacity',
-          activeCount: this.#workBySession.size,
-          concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
-        },
-        'Agent work slot rejected because the project reached its concurrency limit'
-      )
-      throw new Error(
-        `Up to ${MAX_CONCURRENT_AGENT_RUNS} Agent tasks can work at once. Stop one or wait for it to finish.`
-      )
-    }
     controller.signal.throwIfAborted()
-    this.options.interactiveModelLimiter?.acquire({
-      workId,
-      ownerId: agentSessionId,
-      kind: kind === 'run' ? 'agent_run' : 'agent_compaction',
-      signal: controller.signal
-    })
     this.#workBySession.set(agentSessionId, workId)
     this.options.log.info(
       {
@@ -4600,8 +4261,7 @@ export class AgentSessionService {
         agentSessionId,
         workId,
         kind,
-        activeCount: this.#workBySession.size,
-        concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+        activeCount: this.#workBySession.size
       },
       'Agent work slot acquired'
     )
@@ -4618,7 +4278,6 @@ export class AgentSessionService {
   ): void {
     if (this.#workBySession.get(agentSessionId) !== workId) return
     this.#workBySession.delete(agentSessionId)
-    this.options.interactiveModelLimiter?.release(workId)
     void this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -4626,8 +4285,7 @@ export class AgentSessionService {
         agentSessionId,
         workId,
         kind,
-        activeCount: this.#workBySession.size,
-        concurrencyLimit: MAX_CONCURRENT_AGENT_RUNS
+        activeCount: this.#workBySession.size
       },
       'Agent work slot released'
     )

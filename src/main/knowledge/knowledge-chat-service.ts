@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import {
+  serializeAgentDiagnosticError,
+  agentDiagnosticSensitiveValues
+} from '../../shared/agent-diagnostic-error'
+import {
   NOTEBOOK_MAX_CHAT_BYTES,
   NOTEBOOK_MAX_CITATIONS,
   NOTEBOOK_MAX_MESSAGES,
@@ -50,7 +54,6 @@ import {
 } from '../providers/agent-provider-catalog'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
-import type { ProjectInteractiveModelLimiter } from '../agent/project-interactive-model-limiter'
 import {
   formatNotebookChatPrompt,
   NOTEBOOK_CHAT_SYSTEM_PROMPT
@@ -91,7 +94,6 @@ export interface KnowledgeChatServiceOptions {
   references: ReferenceLibraryService
   agentCatalog: Pick<AgentProviderCatalogService, 'snapshot' | 'resolve'>
   runtime: AgentSessionRuntime
-  limiter: ProjectInteractiveModelLimiter
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publish?: (event: NotebookChatEvent) => void | Promise<void>
   now?: () => Date
@@ -225,12 +227,6 @@ export class KnowledgeChatService {
     const userMessageId = this.#createId()
     const assistantMessageId = this.#createId()
     const controller = new AbortController()
-    this.options.limiter.acquire({
-      workId: turnId,
-      ownerId: this.options.projectSessionId,
-      kind: 'notebook_turn',
-      signal: controller.signal
-    })
     const createdAt = this.#now().toISOString()
     this.#messages.push(
       {
@@ -490,6 +486,12 @@ export class KnowledgeChatService {
       if (active.controller.signal.aborted || isAbortError(err)) {
         this.#stopAssistant(active)
       } else {
+        const diagnostic = serializeAgentDiagnosticError(err, 'notebook.run', {
+          knownSensitiveValues: agentDiagnosticSensitiveValues(
+            agentCredentialFromResolved(resolved)
+          ),
+          privateBodies: this.#messages.map((message) => message.content)
+        })
         this.options.log.error(
           {
             event: 'knowledge.notebook.turn_failed',
@@ -501,7 +503,7 @@ export class KnowledgeChatService {
           },
           'Notebook turn failed'
         )
-        this.#failAssistant(active)
+        this.#failAssistant(active, diagnostic.message)
       }
     } finally {
       for (const modelRequestId of active.pendingModelRequestIds) {
@@ -515,7 +517,6 @@ export class KnowledgeChatService {
           )
       }
       active.pendingModelRequestIds.clear()
-      this.options.limiter.release(active.turnId)
       if (this.#activeTurn === active) {
         this.#activeTurn = null
         this.#phase = 'idle'
@@ -542,7 +543,7 @@ export class KnowledgeChatService {
       return
     }
     if (event.type === 'model_call_retrying') {
-      this.options.log.warn(
+      this.options.log.info(
         {
           event: 'knowledge.notebook.provider_retry_scheduled',
           turnId: active.turnId,
@@ -793,6 +794,9 @@ export class KnowledgeChatService {
       )
       return notebookToolSuccess(request, { ...result, citations })
     } catch (err) {
+      const diagnostic = serializeAgentDiagnosticError(err, 'notebook.tool', {
+        privateBodies: this.#messages.map((message) => message.content)
+      })
       this.options.log.error(
         {
           event: 'knowledge.notebook.tool_failed',
@@ -803,7 +807,11 @@ export class KnowledgeChatService {
         },
         'Notebook Agent Knowledge tool failed'
       )
-      return notebookToolError(request, 'internal', 'Notebook Knowledge tool failed')
+      return notebookToolError(
+        request,
+        'internal',
+        diagnostic.message.slice(0, 1_000) || 'Unknown Knowledge tool error'
+      )
     }
   }
 
@@ -854,11 +862,11 @@ export class KnowledgeChatService {
     this.#lastError = null
   }
 
-  #failAssistant(active: ActiveNotebookTurn): void {
+  #failAssistant(active: ActiveNotebookTurn, detail: string): void {
     if (active.detached || this.#activeTurn !== active) return
     const message = this.#assistant(active.assistantMessageId)
     message.status = 'failed'
-    this.#lastError = 'Notebook could not answer that question. Try again or choose another model.'
+    this.#lastError = detail || 'Notebook completed without an error diagnostic.'
   }
 
   async #cancelActive(reason: string, publishStopping: boolean): Promise<void> {
@@ -878,7 +886,6 @@ export class KnowledgeChatService {
       active.detached = true
       this.#activeTurn = null
       this.#phase = 'idle'
-      this.options.limiter.release(active.turnId)
       this.#bumpRevision()
     }
     this.options.log.warn(

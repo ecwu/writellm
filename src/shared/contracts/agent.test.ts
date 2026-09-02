@@ -160,11 +160,20 @@ describe('Agent contracts', () => {
   })
 
   it('rejects oversized history and stale response envelope shapes', () => {
-    expect(() =>
+    expect(
       agentHistorySchema.parse(
         Array.from({ length: 201 }, (_, index) => ({
           role: 'user',
           content: `message-${index}`,
+          timestamp: index
+        }))
+      )
+    ).toHaveLength(201)
+    expect(() =>
+      agentHistorySchema.parse(
+        Array.from({ length: 20 }, (_, index) => ({
+          role: 'user',
+          content: 'x'.repeat(200_000),
           timestamp: index
         }))
       )
@@ -186,9 +195,12 @@ describe('Agent contracts', () => {
         agentSessionId: ids.agentSessionId,
         agentRunId: ids.agentRunId,
         error: {
-          name: 'AgentToolBatchContextExhaustedError',
-          message: 'The latest Agent read batch still exceeds context',
-          code: 'tool_batch_context_exhausted'
+          schemaVersion: 1,
+          stage: 'context',
+          name: 'AgentCurrentTurnTooLargeError',
+          message: 'The current turn needs 3000 tokens, but only 2000 are available',
+          code: 'current_turn_too_large',
+          causes: []
         }
       }).success
     ).toBe(true)

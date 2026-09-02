@@ -133,8 +133,22 @@ describe('Agent renderer view model', () => {
         requestedToolName: 'submit_section_change',
         diagnostic: {
           code: 'invalid_arguments',
-          message: 'Expected operations; received a missing field. Fix it and retry once.',
-          paths: ['/operations']
+          message: 'Expected operations; received a missing field.',
+          paths: ['/operations'],
+          details: {
+            schemaVersion: 1,
+            stage: 'tool.preflight',
+            name: 'ZodError',
+            message: 'Expected operations; received a missing field.',
+            code: 'invalid_arguments',
+            causes: [
+              {
+                name: 'ZodIssue',
+                message: 'Required field operations is missing.'
+              }
+            ],
+            stack: 'ZodError: Expected operations; received a missing field.\n at preflight.ts:1:1'
+          }
         },
         durationMs: 7
       }),
@@ -150,7 +164,21 @@ describe('Agent renderer view model', () => {
         failure: {
           toolName: 'submit_section_change',
           code: 'invalid_arguments',
-          message: 'Expected operations; received a missing field. Fix it and retry once.',
+          message: 'Expected operations; received a missing field.',
+          details: {
+            schemaVersion: 1,
+            stage: 'tool.preflight',
+            name: 'ZodError',
+            message: 'Expected operations; received a missing field.',
+            code: 'invalid_arguments',
+            causes: [
+              {
+                name: 'ZodIssue',
+                message: 'Required field operations is missing.'
+              }
+            ],
+            stack: 'ZodError: Expected operations; received a missing field.\n at preflight.ts:1:1'
+          },
           paths: ['/operations'],
           durationMs: 7
         }
@@ -876,6 +904,7 @@ describe('Agent renderer view model', () => {
       skillSnapshot: legacySkillSnapshot(),
       skillRouteUsage: null,
       errorCode: 'user_stopped',
+      errorDetails: null,
       writingTaskId: null,
       writingTaskStepId: null,
       startedAt: '2026-07-21T00:00:00.000Z',
@@ -947,6 +976,78 @@ describe('Agent renderer view model', () => {
         outcome: 'finished',
         code: 'provider_retries_exhausted'
       }
+    })
+  })
+
+  it('projects concrete v2 interruption diagnostics from the event or run record', () => {
+    const eventDiagnostic = {
+      schemaVersion: 1 as const,
+      stage: 'provider.request',
+      name: 'ProviderError',
+      message: 'The provider returned a useful diagnostic.',
+      code: 'provider_timeout',
+      httpStatus: 504,
+      causes: [
+        {
+          name: 'TimeoutError',
+          message: 'The upstream request timed out.'
+        }
+      ],
+      stack: 'ProviderError: The provider returned a useful diagnostic.'
+    }
+    const runDiagnostic = {
+      ...eventDiagnostic,
+      message: 'The persisted run diagnostic survived event replay.'
+    }
+    const event = recordAt(
+      1,
+      'run_interrupted',
+      {
+        schemaVersion: 2,
+        status: 'failed',
+        code: 'provider_timeout',
+        diagnostic: eventDiagnostic
+      },
+      '2026-07-21T00:00:05.000Z'
+    )
+    const run = {
+      ...runRecord('failed'),
+      errorCode: 'provider_timeout',
+      errorDetails: runDiagnostic,
+      completedAt: '2026-07-21T00:00:05.000Z',
+      updatedAt: '2026-07-21T00:00:05.000Z'
+    }
+
+    const fromEvent = projectAgentTimeline([event], [], [run], Date.parse(event.createdAt))[0]
+    expect(fromEvent).toMatchObject({
+      type: 'run_interrupted',
+      terminal: {
+        status: 'failed',
+        code: 'provider_timeout',
+        diagnostic: eventDiagnostic
+      }
+    })
+
+    const fromRun = projectAgentTimeline(
+      [
+        recordAt(
+          1,
+          'run_interrupted',
+          {
+            schemaVersion: 2,
+            status: 'failed',
+            code: 'provider_timeout'
+          },
+          event.createdAt
+        )
+      ],
+      [],
+      [run],
+      Date.parse(event.createdAt)
+    )[0]
+    expect(fromRun).toMatchObject({
+      type: 'run_interrupted',
+      terminal: { diagnostic: runDiagnostic }
     })
   })
 
@@ -1203,7 +1304,7 @@ describe('Agent renderer view model', () => {
     expect(agentTerminalLabel('run_interrupted')).toBe('Run interrupted')
     expect(agentTerminalLabel('unknown_code')).toBe('Run interrupted')
     expect(agentTerminalDetail('tool_batch_context_exhausted')).toBe(
-      'WriteLLM retried with a smaller read once. Earlier confirmed changes remain; the remaining content was not force-edited. Continue with one section or a smaller range.'
+      'WriteLLM continued with a smaller read. Earlier confirmed changes remain; the remaining content was not force-edited. Continue with one section or a smaller range.'
     )
     expect(agentTerminalDetail('compaction_required')).toBe(
       'WriteLLM stopped before dropping an earlier user requirement. Retry Compact, choose a larger-context model, or continue in a new conversation with the requirements you still need.'
@@ -1430,6 +1531,7 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
     skillSnapshot: legacySkillSnapshot(),
     skillRouteUsage: null,
     errorCode: null,
+    errorDetails: null,
     writingTaskId: null,
     writingTaskStepId: null,
     startedAt: base.createdAt,
@@ -1440,7 +1542,7 @@ function runRecord(status: AgentRunRecord['status']): AgentRunRecord {
 
 function legacySkillSnapshot(): AgentRunRecord['skillSnapshot'] {
   return {
-    schemaVersion: 3,
+    schemaVersion: 4,
     mode: 'none',
     routingStatus: 'legacy',
     requestedSkills: [],

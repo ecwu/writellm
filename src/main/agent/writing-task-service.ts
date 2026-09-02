@@ -59,7 +59,7 @@ export class WritingTaskService {
           if (duplicateRefs.has(step.clientRef)) {
             throw new AgentToolDomainError(
               'conflict',
-              `Expected unique writing-task clientRef values; duplicate found at steps[${index}]. Call get_writing_task, replace that clientRef, and retry once`
+              `Expected unique writing-task clientRef values; duplicate found at steps[${index}]. Call get_writing_task and replace that clientRef`
             )
           }
           duplicateRefs.add(step.clientRef)

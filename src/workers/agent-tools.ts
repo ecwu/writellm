@@ -870,7 +870,7 @@ export class AgentToolBridge {
         name: 'read_writing_skill',
         label: 'Read writing skill',
         description:
-          'Read one run-authorized Writing Skill entrypoint or reference by its exact virtual URI. Do not reread an entrypoint already present in a complete <skill> block. In Auto mode, load at most one new SKILL.md in each Skill-only assistant response and no more than four top-level Skills per run. Read at most twelve distinct reference files within the 32 KiB run budget, do not mix Skill reads with non-Skill tools in one assistant response, and wait for requested read results before using other tools.',
+          'Read one run-authorized Writing Skill entrypoint or reference by its exact virtual URI. Do not reread an entrypoint already present in a complete <skill> block. Load Skill resources progressively as needed; multiple Skill reads may be combined with other read-only tools in one assistant response. Never mix a Skill read with a mutation or effect tool.',
         parameters: readWritingSkillParameters,
         executionMode: 'parallel',
         execute: (toolCallId, args, signal) =>
@@ -961,7 +961,11 @@ export class AgentToolBridge {
     }
     const result = response.ok
       ? { schemaVersion: response.schemaVersion, ok: true as const, data: response.data, meta }
-      : { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }
+      : 'error' in response
+        ? { schemaVersion: response.schemaVersion, ok: false as const, error: response.error, meta }
+        : (() => {
+            throw new Error('Agent tool response omitted its error')
+          })()
     const serialized = JSON.stringify(result)
     const envelopeContent = escapeToolEnvelopeText(serialized)
     const content =

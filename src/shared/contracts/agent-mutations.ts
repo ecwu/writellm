@@ -19,7 +19,7 @@ import { resolvesReviewIssueSchema } from './review'
 import { modelSubmitWritingRulesChangeArgsSchema, writingRuleSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 13
+export const AGENT_TOOL_CONTRACT_VERSION = 14
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20

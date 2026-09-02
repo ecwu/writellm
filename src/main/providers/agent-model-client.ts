@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto'
+import {
+  reconstructAgentDiagnosticError,
+  serializeAgentDiagnosticError,
+  type AgentDiagnosticError
+} from '../../shared/agent-diagnostic-error'
 import { MessageChannelMain, utilityProcess, type MessagePortMain } from 'electron'
 import type { Logger } from 'pino'
 import {
   agentRunInputSchema,
-  agentUtilityTraceAckSchema,
   agentUtilityMessageSchema,
   type AgentUtilityRequest
 } from '../../shared/contracts/model-runtime'
@@ -13,8 +17,6 @@ import {
   agentQueueCommandSchema,
   agentRunStartSchema,
   agentModelCallAuthorizationSchema,
-  agentModelRetryAuthorizationSchema,
-  agentTraceCaptureAckSchema,
   agentRuntimeMessageSchema,
   agentSessionRunResultSchema,
   type AgentRuntimeEvent,
@@ -134,6 +136,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       modelLimits: input.modelLimits ?? legacyLimits(config.contextWindowTokens)
     })
     const { port1, port2 } = this.createMessageChannel()
+    const traceRequestIds = new Set([request.modelRequestId])
     const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
     const pendingQueueActions = new Map<
       string,
@@ -165,7 +168,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         agentRunId: request.agentRunId
       },
       transfer: [port2],
-      onMessage: (raw) => this.#handleSessionMessage(raw, request, deliverSessionEvent)
+      onMessage: (raw) =>
+        this.#handleSessionMessage(raw, request, deliverSessionEvent, traceRequestIds)
     })
     const completion = workerCompletion.finally(async () => {
       const error = new Error('Agent run ended before a queue action completed')
@@ -183,6 +187,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       ) {
         throw new Error('Agent queue command does not belong to the active run')
       }
+      if (parsed.operation === 'steer') traceRequestIds.add(parsed.modelRequestId)
       this.#worker.send(parsed)
     }
     return {
@@ -198,6 +203,9 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
           parsed.agentRunId !== request.agentRunId
         ) {
           return Promise.reject(new Error('Agent queue action does not belong to the active run'))
+        }
+        if (parsed.operation === 'commit_follow_up_steer') {
+          traceRequestIds.add(parsed.modelRequestId)
         }
         return new Promise<'completed' | 'stale'>((resolve, reject) => {
           pendingQueueActions.set(parsed.actionId, { resolve, reject })
@@ -224,6 +232,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         ) {
           throw new Error('Agent Follow-up authorization does not belong to the active run')
         }
+        traceRequestIds.add(parsed.modelRequestId)
         this.#worker.send(parsed)
       },
       authorizeModelCall: (command) => {
@@ -239,21 +248,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         ) {
           throw new Error('Agent model-call authorization does not belong to the active run')
         }
-        this.#worker.send(parsed)
-      },
-      authorizeModelRetry: (command) => {
-        const parsed = agentModelRetryAuthorizationSchema.parse({
-          operation: 'authorize_model_retry',
-          requestId,
-          ...command
-        })
-        if (
-          parsed.projectSessionId !== request.projectSessionId ||
-          parsed.agentSessionId !== request.agentSessionId ||
-          parsed.agentRunId !== request.agentRunId
-        ) {
-          throw new Error('Agent model retry authorization does not belong to the active run')
-        }
+        traceRequestIds.add(parsed.modelRequestId)
         this.#worker.send(parsed)
       }
     }
@@ -265,6 +260,21 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     signal: AbortSignal,
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
   ): { close: () => void; drain: () => Promise<void> } {
+    const diagnosticFor = (error: unknown): AgentDiagnosticError =>
+      serializeAgentDiagnosticError(error, 'tool.bridge', {
+        knownSensitiveValues: [
+          request.credential.apiKey,
+          ...Object.values(request.credential.headers ?? {}),
+          ...Object.values(request.credential.env ?? {})
+        ].filter((value): value is string => typeof value === 'string'),
+        privateBodies: [
+          request.prompt,
+          request.systemPrompt,
+          ...request.history.map((message) =>
+            message.role === 'user' ? message.content : message.message.content
+          )
+        ]
+      })
     const controller = new AbortController()
     const inFlight = new Set<Promise<void>>()
     let resolveDrain: (() => void) | undefined
@@ -319,6 +329,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         const parsed = agentToolRequestSchema.safeParse(envelope.data)
         let response: AgentToolResponse
         if (!parsed.success) {
+          const diagnostic = diagnosticFor(parsed.error)
           this.log.warn(
             {
               event: 'agent_tool_bridge.arguments_invalid',
@@ -329,7 +340,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
             },
             'Agent tool bridge rejected invalid tool arguments'
           )
-          response = invalidArgumentsToolResponse(envelope.data)
+          response = invalidArgumentsToolResponse(envelope.data, diagnostic)
         } else {
           try {
             if (!agentToolProfileAllows(request.toolProfile, parsed.data.toolName)) {
@@ -351,6 +362,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
                   : await onToolRequest(parsed.data, controller.signal)
             }
           } catch (err) {
+            const diagnostic = diagnosticFor(err)
             this.log.error(
               {
                 event: 'agent_tool_bridge.handler_failed',
@@ -361,7 +373,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
               },
               'Agent tool bridge handler failed'
             )
-            response = internalToolResponse(parsed.data)
+            response = internalToolResponse(parsed.data, diagnostic)
           }
         }
         const validated = agentToolResponseSchema.safeParse(response)
@@ -451,35 +463,20 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         }
       }
       try {
-        await trace.capture({
-          ...trace.context,
-          apiId: message.apiId,
-          physicalAttempt: message.physicalAttempt,
-          documents: message.documents
+        void Promise.resolve(
+          trace.capture({
+            ...trace.context,
+            apiId: message.apiId,
+            physicalAttempt: message.physicalAttempt,
+            documents: message.documents
+          })
+        ).catch((err) => {
+          this.log.error(
+            { event: 'agent_model.trace_capture_failed', err, requestId },
+            'Agent model trace capture failed'
+          )
         })
-        this.#worker.send(
-          agentUtilityTraceAckSchema.parse({
-            type: 'trace-ack',
-            requestId,
-            projectSessionId: message.projectSessionId,
-            captureId: message.captureId,
-            ok: true
-          })
-        )
       } catch (err) {
-        this.#worker.send(
-          agentUtilityTraceAckSchema.parse({
-            type: 'trace-ack',
-            requestId,
-            projectSessionId: message.projectSessionId,
-            captureId: message.captureId,
-            ok: false,
-            errorCode:
-              err instanceof Error && 'code' in err && typeof err.code === 'string'
-                ? err.code
-                : 'trace_capture_failed'
-          })
-        )
         this.log.error(
           { event: 'agent_model.trace_capture_failed', err, requestId },
           'Agent model trace capture failed'
@@ -504,9 +501,9 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       return { kind: 'event' }
     }
     if (message.type === 'error') {
-      const err = reconstructError(message.error)
+      const err = reconstructAgentDiagnosticError(message.error)
       this.log.error({ event: 'agent_model.failed', err, requestId }, 'Agent model request failed')
-      return { kind: 'reject', error: new Error('Agent model request failed', { cause: err }) }
+      return { kind: 'reject', error: err }
     }
     return { kind: 'resolve', value: message.result }
   }
@@ -514,7 +511,8 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
   async #handleSessionMessage(
     raw: unknown,
     request: ReturnType<typeof agentRunStartSchema.parse>,
-    onEvent: (event: AgentRuntimeEvent) => void | Promise<void>
+    onEvent: (event: AgentRuntimeEvent) => void | Promise<void>,
+    traceRequestIds: ReadonlySet<string>
   ): Promise<UtilityMessageDecision<AgentSessionRunResult>> {
     const parsed = agentRuntimeMessageSchema.safeParse(raw)
     if (
@@ -544,39 +542,30 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     }
     const message = parsed.data
     if (message.type === 'event') {
+      if (message.event.type === 'model_trace_capture_requested') {
+        if (!traceRequestIds.has(message.event.modelRequestId)) {
+          return {
+            kind: 'reject',
+            error: new Error('Agent trace capture has no matching Main authority'),
+            terminate: true
+          }
+        }
+        const failed = (err: unknown): void => {
+          this.log.error(
+            { event: 'agent_session.trace_capture_failed', err, agentRunId: request.agentRunId },
+            'Agent request continues without trace capture'
+          )
+        }
+        try {
+          void Promise.resolve(onEvent(message.event)).catch(failed)
+        } catch (err) {
+          failed(err)
+        }
+        return { kind: 'event' }
+      }
       try {
         await onEvent(message.event)
-        if (message.event.type === 'model_trace_capture_requested') {
-          this.#worker.send(
-            agentTraceCaptureAckSchema.parse({
-              operation: 'ack_trace_capture',
-              requestId: request.requestId,
-              projectSessionId: request.projectSessionId,
-              agentSessionId: request.agentSessionId,
-              agentRunId: request.agentRunId,
-              captureId: message.event.captureId,
-              ok: true
-            })
-          )
-        }
       } catch (err) {
-        if (message.event.type === 'model_trace_capture_requested') {
-          this.#worker.send(
-            agentTraceCaptureAckSchema.parse({
-              operation: 'ack_trace_capture',
-              requestId: request.requestId,
-              projectSessionId: request.projectSessionId,
-              agentSessionId: request.agentSessionId,
-              agentRunId: request.agentRunId,
-              captureId: message.event.captureId,
-              ok: false,
-              errorCode:
-                err instanceof Error && 'code' in err && typeof err.code === 'string'
-                  ? err.code
-                  : 'trace_capture_failed'
-            })
-          )
-        }
         this.log.error(
           {
             event: 'agent_session.event_delivery_failed',
@@ -595,7 +584,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       return { kind: 'event' }
     }
     if (message.type === 'error') {
-      const err = reconstructError(message.error)
+      const err = reconstructAgentDiagnosticError(message.error)
       this.log.error(
         {
           event: 'agent_session.failed',
@@ -623,34 +612,6 @@ function legacyLimits(contextWindowTokens?: number | null): AgentModelLimits {
     catalogModelKey: null,
     resolvedAt: null
   }
-}
-
-type AgentRuntimeErrorCode =
-  | 'context_overflow'
-  | 'tool_batch_context_exhausted'
-  | 'continuation_lost'
-  | 'trace_capture_failed'
-  | 'trace_payload_too_large'
-
-function reconstructError(input: {
-  name: string
-  message: string
-  stack?: string
-  httpStatus?: number
-  code?: AgentRuntimeErrorCode
-}): Error & {
-  status?: number
-  code?: AgentRuntimeErrorCode
-} {
-  const error: Error & {
-    status?: number
-    code?: AgentRuntimeErrorCode
-  } = new Error(input.message)
-  error.name = input.name
-  if (input.stack !== undefined) error.stack = input.stack
-  if (input.httpStatus !== undefined) error.status = input.httpStatus
-  if (input.code !== undefined) error.code = input.code
-  return error
 }
 
 function abortError(): Error {
@@ -697,9 +658,6 @@ function rejectedSessionHandle(error: Error): AgentSessionRunHandle {
     },
     authorizeModelCall: () => {
       throw error
-    },
-    authorizeModelRetry: () => {
-      throw error
     }
   }
 }
@@ -720,7 +678,7 @@ function unavailableToolResponse(request: AgentToolRequest): AgentToolResponse {
       code: 'unavailable',
       category: 'transient',
       message: 'Agent read tools are unavailable',
-      recovery: { action: 'retry', maxAttempts: 1 }
+      recovery: { action: 'retry' }
     }
   }
 }
@@ -746,7 +704,10 @@ function unauthorizedToolResponse(request: AgentToolRequest): AgentToolResponse 
   }
 }
 
-function invalidArgumentsToolResponse(request: AgentToolRequestEnvelope): AgentToolResponse {
+function invalidArgumentsToolResponse(
+  request: AgentToolRequestEnvelope,
+  details: AgentDiagnosticError
+): AgentToolResponse {
   return {
     type: 'tool_response',
     schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
@@ -761,13 +722,17 @@ function invalidArgumentsToolResponse(request: AgentToolRequestEnvelope): AgentT
     error: {
       code: 'invalid_arguments',
       category: 'validation',
-      message: 'Agent tool arguments are invalid',
+      message: details.message.slice(0, 1_000),
+      details,
       recovery: { action: 'fix_arguments', tool: request.toolName }
     }
   }
 }
 
-function internalToolResponse(request: AgentToolRequest): AgentToolResponse {
+function internalToolResponse(
+  request: AgentToolRequest,
+  details: AgentDiagnosticError
+): AgentToolResponse {
   return {
     type: 'tool_response',
     schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
@@ -782,7 +747,8 @@ function internalToolResponse(request: AgentToolRequest): AgentToolResponse {
     error: {
       code: 'internal',
       category: 'internal',
-      message: 'Agent read tool failed',
+      message: details.message.slice(0, 1_000),
+      details,
       recovery: { action: 'do_not_retry' }
     }
   }

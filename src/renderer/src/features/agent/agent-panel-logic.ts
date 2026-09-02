@@ -160,7 +160,6 @@ export function buildSkillMentionCandidates(input: {
       .filter((mention) => mention.end <= (input.queryStart ?? input.prompt.length))
       .map((mention) => mention.name)
   )
-  if (mentioned.size >= 4) return []
   const byName = new Map<string, InstalledSkill[]>()
   for (const skill of input.installed) {
     const group = byName.get(skill.name) ?? []

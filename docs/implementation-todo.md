@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+Status: Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
 complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070; Checkpoint 77 remains independently paused.
@@ -190,6 +190,13 @@ Checkpoint 78 detail: [`implementation-todo/phase-27.md`](implementation-todo/ph
 Checkpoint 80 detail: [`implementation-todo/phase-29.md`](implementation-todo/phase-29.md).
 
 Checkpoint 81 detail: [`implementation-todo/phase-30.md`](implementation-todo/phase-30.md).
+
+## Phase 32: Agent Occam Ablation And Error Propagation
+
+- [x] Checkpoint 83: remove redundant execution policy, simplify context/Skills/traces, and expose
+  concrete safe diagnostics while retaining authority and no-replay invariants.
+
+Authoritative detail: [`implementation-todo/phase-32.md`](implementation-todo/phase-32.md).
 
 ## Phase 30: Token-Pressure Agent Context Compaction
 

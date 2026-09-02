@@ -5,7 +5,7 @@ const commit = 'a'.repeat(40)
 const manifestSha256 = 'b'.repeat(64)
 
 describe('Writing Skill composition contracts', () => {
-  it('normalizes a v1 run snapshot into immutable v3 provenance and resources', () => {
+  it('normalizes a v1 run snapshot into immutable v4 provenance and resources', () => {
     expect(
       skillRunSnapshotSchema.parse({
         mode: 'explicit',
@@ -21,7 +21,7 @@ describe('Writing Skill composition contracts', () => {
         safeError: null
       })
     ).toEqual({
-      schemaVersion: 3,
+      schemaVersion: 4,
       mode: 'explicit',
       routingStatus: 'selected',
       requestedSkills: [
@@ -76,7 +76,7 @@ describe('Writing Skill composition contracts', () => {
         safeError: null
       })
     ).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       requestedSkills: [topLevel],
       skills: [{ ...topLevel, invocationSource: 'user' }]
     })
@@ -91,9 +91,58 @@ describe('Writing Skill composition contracts', () => {
         safeError: null
       })
     ).toMatchObject({
-      schemaVersion: 3,
+      schemaVersion: 4,
       requestedSkills: [],
       skills: [{ ...topLevel, invocationSource: 'agent' }]
     })
+  })
+
+  it('normalizes an existing v3 snapshot without applying the former runtime caps', () => {
+    const provenance = (index: number) => ({
+      skillId: `skill-${index}`,
+      displayName: `Skill ${index}`,
+      name: `skill-${index}`,
+      commit,
+      manifestSha256
+    })
+    const skills = Array.from({ length: 5 }, (_, index) => ({
+      ...provenance(index),
+      invocationSource: 'agent' as const
+    }))
+    const dependencies = Array.from({ length: 9 }, (_, index) => provenance(index + 10))
+    const resources = Array.from({ length: 13 }, (_, index) => ({
+      skillId: `skill-${index % 5}`,
+      commit,
+      relativePath: `reference-${index + 1}.md`,
+      sha256: manifestSha256,
+      byteSize: 20
+    }))
+
+    expect(
+      skillRunSnapshotSchema.parse({
+        schemaVersion: 3,
+        mode: 'auto',
+        routingStatus: 'selected',
+        requestedSkills: [],
+        skills,
+        dependencies,
+        resources,
+        safeError: null
+      })
+    ).toMatchObject({ schemaVersion: 4, skills, dependencies, resources })
+  })
+
+  it('enforces only the generic serialized snapshot byte bound', () => {
+    const oversized = {
+      schemaVersion: 4,
+      mode: 'auto' as const,
+      routingStatus: 'selected' as const,
+      requestedSkills: [],
+      skills: [],
+      dependencies: [],
+      resources: [],
+      safeError: 'x'.repeat(2_100_000)
+    }
+    expect(() => skillRunSnapshotSchema.parse(oversized)).toThrow('generic byte bound')
   })
 })

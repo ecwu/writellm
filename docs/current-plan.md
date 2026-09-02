@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+Status: Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
 complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070. Checkpoint 77 remains independently paused; CP78 is
@@ -31,9 +31,21 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Checkpoint 82 is complete under accepted ADR 073. Main now distinguishes dependency-complete
-  explicit `$skill-name` injection from progressive automatic tool reads, removes the system-level
-  incomplete-preparation failure gate, and reroutes new runs from current registry state. Focused
+- Checkpoint 83 is complete under ADR 074: structural Agent policy ablation, token-derived
+  single-summary context, progressive Skills, best-effort traces, and concrete safe diagnostics.
+  Production code is reduced by 778 lines, with authority/no-replay invariants and legacy readers
+  retained. Focused coverage, `check:fast`, 1,275 Electron-hosted tests with three benchmark skips,
+  the production build, all 49 fresh Electron E2E scenarios, and the complete no-Team-ID macOS
+  arm64 package gate passed. The package gate verified 31 recovery fixtures, 53,318 ASAR entries,
+  12 runtime smoke scenarios, and all 34 packaged Electron scenarios without failures, flakes,
+  or skips; the App, DMG, and ZIP are under `dist/macos-arm64`. No live-provider experiment,
+  migration, new setting/dependency, release, commit, tag, push, Developer ID signing, notarization,
+  promotion, or publication was performed. Evidence and upstream diagnostic limitations live in
+  [`implementation-todo/phase-32.md`](implementation-todo/phase-32.md).
+
+- Checkpoint 82 is complete historical evidence under ADR 073. Its dependency-complete explicit
+  injection is superseded by CP83 root-only injection and progressive reads. CP82 removed the
+  system-level incomplete-preparation failure gate and rerouted runs from current registry state. Focused
   CP82 coverage, `check:fast`, 1,253 Electron-hosted tests with three benchmark skips, a production
   build, all 49 fresh Electron E2E scenarios, the scoped Impeccable detector, and diff checks
   passed. Detailed evidence lives in
@@ -51,8 +63,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   gate produced an unpacked App, DMG, and ZIP under `dist/macos-arm64`. No Developer ID signing,
   notarization, tag, release, promotion, or publication action was performed.
 
-- Checkpoint 81 is complete under accepted ADR 072. Automatic Agent compaction
-  now depends only on final model-visible token pressure, rolling checkpoints explicitly defer to
+- Checkpoint 81 is complete historical evidence under ADR 072; its rolling checkpoint budgets are
+  superseded by CP83 single-summary compaction. CP81 made automatic compaction depend on final
+  model-visible token pressure, required checkpoints to defer to
   the latest real user request, and `/compact` invokes the existing manual path immediately. No
   migration, new IPC, provider fork, second summary call, or persistent memory authority is added.
   Focused coverage passed 59 tests, `check:fast` and the complete Electron/build gate passed, and
@@ -65,10 +78,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   gate produced an unpacked App, DMG, and ZIP under `dist/macos-arm64`. No Developer ID signing,
   notarization, release, commit, tag, push, promotion, or publication action was performed.
 
-- Checkpoint 80 is complete under accepted ADR 071. A live Worker restores the exact
-  request-before Pi state and calls `continue()` without adding another user message. Each click
-  creates one immutable logical `model_request`, records schema-v4 retry lineage, preserves failed
-  partial output as separate evidence, and never replays completed tools. The complete Electron
+- Checkpoint 80 is complete historical evidence under ADR 071. Its live Worker retry anchors and
+  retry UI are removed by CP83; old retry lineage and interrupted partial output remain readable.
+  The historical implementation restored request-before Pi state without replaying completed
+  tools or adding user messages. The complete Electron
   gate passed 1,240 tests with three benchmark skips, the production build succeeded, and all 49
   fresh Electron E2E scenarios passed without flakes, skips, or failures. Release, commit, tag,
   push, signing, and publication remain unauthorized.

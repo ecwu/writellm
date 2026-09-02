@@ -29,7 +29,7 @@ const request: AgentRunStart = {
     batchLimit: 1,
     fileSizeLimitMb: null
   },
-  credential: 'agent-secret',
+  credential: { apiKey: 'agent-secret' },
   systemPrompt: 'You draft prose.',
   history: [
     { role: 'user', content: 'Earlier request', timestamp: 1 },
@@ -89,10 +89,9 @@ afterEach(() => {
 })
 
 describe('runAgentSession', () => {
-  it('waits for durable trace acknowledgement before a writing provider call', async () => {
+  it('continues provider work when a trace capture is requested', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'response-trace'))
     vi.stubGlobal('fetch', fetchMock)
-    let control: AgentSessionRunControl | undefined
     const traceEvents: AgentRuntimeEvent[] = []
     const running = runAgentSession(
       { ...request, traceCapture: true },
@@ -100,19 +99,8 @@ describe('runAgentSession', () => {
         if (event.type !== 'model_trace_capture_requested') return
         expect(fetchMock).toHaveBeenCalledTimes(traceEvents.length === 0 ? 0 : 1)
         traceEvents.push(event)
-        control?.acknowledgeTraceCapture({
-          operation: 'ack_trace_capture',
-          requestId: request.requestId,
-          projectSessionId: request.projectSessionId,
-          agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId,
-          captureId: event.captureId,
-          ok: true
-        })
       },
-      (registered) => {
-        control = registered
-      },
+      () => undefined,
       undefined,
       new FakeMessagePort() as never
     )
@@ -131,37 +119,80 @@ describe('runAgentSession', () => {
     })
   })
 
-  it('fails closed before network I/O when Main rejects trace persistence', async () => {
-    const fetchMock = vi.fn<typeof fetch>()
+  it('continues provider work when trace delivery fails', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'trace-failure'))
     vi.stubGlobal('fetch', fetchMock)
-    let control: AgentSessionRunControl | undefined
+    const traceError = Object.assign(new Error('trace payload too large'), {
+      code: 'trace_payload_too_large'
+    })
+    const logs: Array<{ event: string; error?: unknown }> = []
     const running = runAgentSession(
       { ...request, traceCapture: true },
       (event) => {
         if (event.type !== 'model_trace_capture_requested') return
-        control?.acknowledgeTraceCapture({
-          operation: 'ack_trace_capture',
-          requestId: request.requestId,
-          projectSessionId: request.projectSessionId,
-          agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId,
-          captureId: event.captureId,
-          ok: false,
-          errorCode: 'trace_capture_failed'
-        })
+        throw traceError
       },
-      (registered) => {
-        control = registered
-      },
+      () => undefined,
       undefined,
-      new FakeMessagePort() as never
+      new FakeMessagePort() as never,
+      (_level, event, _message, _fields, error) => logs.push({ event, error })
     )
 
-    await expect(running).rejects.toMatchObject({
-      name: 'AgentTracePersistenceError',
-      code: 'trace_capture_failed'
+    await expect(running).resolves.toEqual({ outcome: 'finished' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(logs).toContainEqual({ event: 'agent.trace.capture_failed', error: traceError })
+  })
+
+  it('continues provider work when the trace failure reporter throws', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'trace-reporter'))
+    vi.stubGlobal('fetch', fetchMock)
+    const traceError = new Error('trace sink unavailable')
+    const reporter = vi.fn(() => {
+      throw new Error('trace reporter transport closed')
     })
-    expect(fetchMock).not.toHaveBeenCalled()
+    const running = runAgentSession(
+      { ...request, traceCapture: true },
+      (event) => {
+        if (event.type === 'model_trace_capture_requested') throw traceError
+      },
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never,
+      reporter
+    )
+
+    await expect(running).resolves.toEqual({ outcome: 'finished' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(reporter).toHaveBeenCalled()
+  })
+
+  it('preserves the original provider cause, status, and code at the session boundary', async () => {
+    const providerError = Object.assign(new Error('provider transport exploded'), {
+      code: 'E_PROVIDER_TRANSPORT',
+      status: 503
+    })
+    const headers = {} as Record<string, string>
+    Object.defineProperty(headers, 'authorization', {
+      enumerable: true,
+      get: () => {
+        throw providerError
+      }
+    })
+
+    await expect(
+      runAgentSession(
+        { ...request, credential: { apiKey: '', headers } },
+        () => undefined,
+        () => undefined,
+        undefined,
+        new FakeMessagePort() as never
+      )
+    ).rejects.toMatchObject({
+      message: 'provider transport exploded',
+      code: 'E_PROVIDER_TRANSPORT',
+      status: 503,
+      cause: providerError
+    })
   })
 
   it('recovers one authorized continuation or fails explicitly when Pi cannot consume it', async () => {
@@ -663,18 +694,6 @@ describe('runAgentSession', () => {
     await runAgentSession(
       { ...request, traceCapture: true },
       (event) => {
-        if (event.type === 'model_trace_capture_requested') {
-          control?.acknowledgeTraceCapture({
-            operation: 'ack_trace_capture',
-            requestId: request.requestId,
-            projectSessionId: request.projectSessionId,
-            agentSessionId: request.agentSessionId,
-            agentRunId: request.agentRunId,
-            captureId: event.captureId,
-            ok: true
-          })
-          return
-        }
         if (event.type !== 'model_call_requested') return
         control?.authorizeModelCall({
           operation: 'authorize_model_call',
@@ -779,7 +798,12 @@ describe('runAgentSession', () => {
         requestedToolName: 'submit_section_change',
         diagnostic: expect.objectContaining({
           code: 'invalid_arguments',
-          paths: expect.arrayContaining(['/sectionId'])
+          paths: expect.arrayContaining(['/sectionId']),
+          details: expect.objectContaining({
+            stage: 'tool.preflight',
+            code: 'invalid_arguments',
+            message: expect.stringContaining('failed preflight')
+          })
         })
       })
     )
@@ -789,6 +813,59 @@ describe('runAgentSession', () => {
           event.type === 'tool_preflight_failed' && event.diagnostic?.code === 'unknown_tool'
       )
     ).toBe(false)
+  })
+
+  it('exposes a concrete unknown-tool preflight diagnostic and continues the turn', async () => {
+    let fetchAttempt = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () => {
+        fetchAttempt += 1
+        return fetchAttempt === 1
+          ? toolCallResponse('tool-unknown', 'not_a_registered_tool', { value: 'private' })
+          : completionResponse('Recovered after the unknown tool.', 'response-unknown-tool')
+      })
+    )
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+    await runAgentSession(
+      request,
+      (event) => {
+        events.push(event)
+        if (event.type !== 'model_call_requested') return
+        control?.authorizeModelCall({
+          operation: 'authorize_model_call',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          continuationId: event.continuationId,
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc498',
+          systemPrompt: request.systemPrompt
+        })
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+
+    const failure = events.find((event) => event.type === 'tool_preflight_failed')
+    expect(fetchAttempt).toBe(2)
+    expect(failure).toMatchObject({
+      requestedToolName: 'not_a_registered_tool',
+      diagnostic: {
+        code: 'unknown_tool',
+        message: expect.stringContaining('not registered'),
+        details: {
+          stage: 'tool.preflight',
+          code: 'unknown_tool',
+          message: expect.stringContaining('not registered')
+        }
+      }
+    })
+    expect(JSON.stringify(failure)).not.toContain('private')
   })
 
   it('retains one exact policy diagnostic for duplicate mutations in one model response', async () => {
@@ -866,7 +943,7 @@ describe('runAgentSession', () => {
     ).toHaveLength(2)
   })
 
-  it('removes tools from a finalization authorization and returns a terminal assistant answer', async () => {
+  it('keeps the advertised tools after an authorized continuation', async () => {
     const bodies: Array<Record<string, unknown>> = []
     let fetchAttempt = 0
     vi.stubGlobal(
@@ -904,8 +981,7 @@ describe('runAgentSession', () => {
           agentRunId: request.agentRunId,
           continuationId: event.continuationId,
           modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
-          systemPrompt: 'Return the best result and unfinished items now.',
-          finalize: true
+          systemPrompt: 'Return the best result and unfinished items now.'
         })
       },
       (value) => {
@@ -917,7 +993,7 @@ describe('runAgentSession', () => {
 
     expect(fetchAttempt).toBe(2)
     expect(bodies[0]?.tools).toBeDefined()
-    expect(bodies[1]?.tools).toEqual([])
+    expect(bodies[1]?.tools).toBeDefined()
     expect(JSON.stringify(bodies[1]?.messages)).toContain('final evidence')
     expect(events).toContainEqual(
       expect.objectContaining({
@@ -1013,85 +1089,14 @@ describe('runAgentSession', () => {
     expect(events.filter((event) => event.type === 'tool_preflight_failed')).toEqual([])
     expect(toolCount).toBe(2)
     expect(JSON.stringify(bodies[1])).toContain('active_batch_retry')
-    expect(JSON.stringify(bodies[1])).toContain('maxConcurrentBodyReads')
+    expect(JSON.stringify(bodies[1])).toContain('requiredTokens')
+    expect(JSON.stringify(bodies[1])).toContain('availableTokens')
     expect(JSON.stringify(bodies[1])).not.toContain('oversized RQ3 body')
     expect(JSON.stringify(bodies[2])).toContain('bounded RQ3 body')
     expect(JSON.stringify(bodies[2])).toContain('block-rq3')
     expect(JSON.stringify(bodies[2])).toContain('b'.repeat(64))
-    expect(logs).toEqual([
-      'agent.context.active_batch_retry',
-      'agent.context.active_batch_recovered'
-    ])
+    expect(logs).toEqual([])
     expect(events.filter((event) => event.type === 'model_call_requested')).toHaveLength(2)
-  })
-
-  it('fails before a third provider call when the smaller active read is still oversized', async () => {
-    let fetchAttempt = 0
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async () => {
-        fetchAttempt += 1
-        return toolCallResponse(
-          fetchAttempt === 1 ? 'read-large-first' : 'read-large-second',
-          'read_section',
-          { sectionId: request.agentSessionId, limit: fetchAttempt === 1 ? 20 : 5 }
-        )
-      })
-    )
-    const { port1, port2 } = createFakeMessageChannel()
-    port2.on('message', (event: { data: Record<string, unknown> }) => {
-      port2.postMessage({
-        type: 'tool_response',
-        ...responseCapability(event.data),
-        ok: true,
-        data: sectionReadResult('still oversized '.repeat(2_000))
-      })
-    })
-    let control: AgentSessionRunControl | undefined
-    let authorizationIndex = 0
-    const modelRequestIds = [
-      '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
-      '019c6a5c-8d34-7a8e-a602-3d37a52dc417'
-    ]
-    const running = runAgentSession(
-      {
-        ...request,
-        modelLimits: {
-          contextWindowTokens: 21_000,
-          inputLimitTokens: null,
-          outputLimitTokens: 100,
-          source: 'manual_override',
-          catalogModelKey: null,
-          resolvedAt: null
-        }
-      },
-      (event) => {
-        if (event.type !== 'model_call_requested') return
-        const modelRequestId = modelRequestIds[authorizationIndex]
-        authorizationIndex += 1
-        if (modelRequestId === undefined) throw new Error('Unexpected model authorization')
-        control?.authorizeModelCall({
-          operation: 'authorize_model_call',
-          requestId: request.requestId,
-          projectSessionId: request.projectSessionId,
-          agentSessionId: request.agentSessionId,
-          agentRunId: request.agentRunId,
-          continuationId: event.continuationId,
-          modelRequestId,
-          systemPrompt: request.systemPrompt
-        })
-      },
-      (value) => {
-        control = value
-      },
-      undefined,
-      port1 as never
-    )
-
-    await expect(running).rejects.toMatchObject({
-      code: 'tool_batch_context_exhausted'
-    })
-    expect(fetchAttempt).toBe(2)
   })
 
   it('projects a safe preflight diagnostic and continues the turn after invalid arguments', async () => {
@@ -1158,7 +1163,7 @@ describe('runAgentSession', () => {
     )
   })
 
-  it('blocks Writing Skill reads mixed with non-Skill tools in one response', async () => {
+  it('allows multiple Skill reads mixed with other read-only tools in one response', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(
       'fetch',
@@ -1167,10 +1172,17 @@ describe('runAgentSession', () => {
         return fetchAttempt === 1
           ? toolCallsResponse([
               {
-                id: 'tool-skill',
+                id: 'tool-skill-root',
                 name: 'read_writing_skill',
                 args: {
                   uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/SKILL.md`
+                }
+              },
+              {
+                id: 'tool-skill-reference',
+                name: 'read_writing_skill',
+                args: {
+                  uri: `writellm://skills/nature-writing/${'b'.repeat(40)}/references/voice.md`
                 }
               },
               { id: 'tool-search', name: 'search_knowledge', args: { query: 'evidence' } }
@@ -1181,7 +1193,36 @@ describe('runAgentSession', () => {
     const events: AgentRuntimeEvent[] = []
     const { port1, port2 } = createFakeMessageChannel()
     const toolRequests: unknown[] = []
-    port2.on('message', (event: { data: unknown }) => toolRequests.push(event.data))
+    port2.on('message', (event: { data: Record<string, unknown> }) => {
+      toolRequests.push(event.data)
+      if (event.data.toolName === 'search_knowledge') {
+        port2.postMessage({
+          type: 'tool_response',
+          ...responseCapability(event.data),
+          ok: true,
+          data: { mode: 'fts', rerankStatus: 'disabled', hits: [knowledgeHit()] }
+        })
+        return
+      }
+      const isReference = event.data.toolCallId === 'tool-skill-reference'
+      port2.postMessage({
+        type: 'tool_response',
+        ...responseCapability(event.data),
+        ok: true,
+        data: {
+          skillId: 'nature-writing',
+          displayName: 'Nature Writing',
+          commit: (isReference ? 'b' : 'a').repeat(40),
+          relativePath: isReference ? 'references/voice.md' : 'SKILL.md',
+          uri: String(event.data.args && (event.data.args as { uri?: unknown }).uri),
+          sha256: 'c'.repeat(64),
+          byteSize: 18,
+          content: isReference ? 'Reference guidance' : 'Root guidance',
+          references: [],
+          dependencies: []
+        }
+      })
+    })
     let control: AgentSessionRunControl | undefined
     await runAgentSession(
       request,
@@ -1208,8 +1249,11 @@ describe('runAgentSession', () => {
     )
 
     expect(fetchAttempt).toBe(2)
-    expect(toolRequests).toEqual([])
-    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toHaveLength(2)
+    expect(toolRequests).toHaveLength(3)
+    expect(toolRequests.map((tool) => (tool as { toolName?: string }).toolName)).toEqual(
+      expect.arrayContaining(['read_writing_skill', 'search_knowledge'])
+    )
+    expect(events.filter((event) => event.type === 'tool_preflight_failed')).toEqual([])
   })
 
   it.each(['ask_user', 'activate_tool_groups'] as const)(
@@ -1488,26 +1532,21 @@ describe('runAgentSession', () => {
       error = caught
     }
     expect(error).toBeInstanceOf(Error)
-    expect((error as Error).message).toBe('Agent provider context window exceeded')
+    expect((error as Error).message).toContain('Maximum context length exceeded for this model')
     expect((error as Error & { code?: string }).code).toBe('context_overflow')
     expect(events).toContainEqual(
       expect.objectContaining({ type: 'model_call_finished', outcome: 'failed' })
     )
   })
 
-  it('offers one anchored logical retry after five physical transient failures', async () => {
+  it('exhausts five pre-content attempts without a live retry capability', async () => {
     vi.useFakeTimers()
     let attempts = 0
     const events: AgentRuntimeEvent[] = []
-    const requestBodies: string[] = []
-    let control: AgentSessionRunControl | undefined
-    const retryModelRequestId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
     vi.stubGlobal(
       'fetch',
-      vi.fn<typeof fetch>(async (_input, init) => {
+      vi.fn<typeof fetch>(async () => {
         attempts += 1
-        if (typeof init?.body === 'string') requestBodies.push(init.body)
-        if (attempts > 5) return completionResponse('recovered', 'response-retry')
         return new Response(JSON.stringify({ error: { message: 'service unavailable' } }), {
           status: 503,
           headers: { 'content-type': 'application/json' }
@@ -1516,27 +1555,16 @@ describe('runAgentSession', () => {
     )
 
     const running = runAgentSession(
-      { ...request, traceCapture: true },
-      (event) => {
-        events.push(event)
-        if (event.type === 'model_trace_capture_requested') {
-          control?.acknowledgeTraceCapture({
-            operation: 'ack_trace_capture',
-            requestId: request.requestId,
-            projectSessionId: request.projectSessionId,
-            agentSessionId: request.agentSessionId,
-            agentRunId: request.agentRunId,
-            captureId: event.captureId,
-            ok: true
-          })
-        }
-      },
-      (registered) => {
-        control = registered
-      },
+      request,
+      (event) => events.push(event),
+      () => undefined,
       undefined,
       new FakeMessagePort() as never
     )
+    const rejected = expect(running).rejects.toMatchObject({
+      name: 'ProviderRetriesExhaustedError',
+      message: expect.stringContaining('service unavailable')
+    })
     await vi.waitFor(() => expect(attempts).toBe(1))
     for (const [delayMs, expectedAttempts] of [
       [1_000, 2],
@@ -1547,8 +1575,10 @@ describe('runAgentSession', () => {
       await vi.advanceTimersByTimeAsync(delayMs)
       await vi.waitFor(() => expect(attempts).toBe(expectedAttempts))
     }
+    await rejected
     expect(attempts).toBe(5)
-    expect(events.filter((event) => event.type === 'model_call_retrying')).toHaveLength(4)
+    expect(JSON.stringify(events)).not.toContain('model_call_retrying')
+    expect(JSON.stringify(events)).not.toContain('model_retry_available')
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'model_call_finished',
@@ -1556,46 +1586,6 @@ describe('runAgentSession', () => {
         failureCode: 'provider_retries_exhausted',
         retryable: true,
         metadata: expect.objectContaining({ retryCount: 4 })
-      })
-    )
-    const retry = events.find((event) => event.type === 'model_retry_available')
-    expect(retry).toMatchObject({
-      type: 'model_retry_available',
-      modelRequestId: request.modelRequestId,
-      failureStage: 'before_content',
-      label: 'retry_request'
-    })
-    if (retry?.type !== 'model_retry_available') throw new Error('Retry capability was not emitted')
-    control?.authorizeModelRetry({
-      operation: 'authorize_model_retry',
-      requestId: request.requestId,
-      projectSessionId: request.projectSessionId,
-      agentSessionId: request.agentSessionId,
-      agentRunId: request.agentRunId,
-      capabilityId: retry.capabilityId,
-      sourceModelRequestId: request.modelRequestId,
-      targetModelRequestId: retryModelRequestId
-    })
-    await expect(running).resolves.toEqual({ outcome: 'finished' })
-    expect(attempts).toBe(6)
-    expect(requestBodies).toHaveLength(6)
-    expect(requestBodies[5]).toBe(requestBodies[0])
-    expect((requestBodies[5]?.match(/Write a line\./gu) ?? []).length).toBe(1)
-    expect(
-      events
-        .filter((event) => event.type === 'model_call_finished')
-        .map((event) => (event.type === 'model_call_finished' ? event.modelRequestId : ''))
-    ).toEqual([request.modelRequestId, retryModelRequestId])
-    expect(
-      events.filter(
-        (event) => event.type === 'assistant_message' && event.message.content === 'recovered'
-      )
-    ).toHaveLength(1)
-    expect(events).toContainEqual(
-      expect.objectContaining({
-        type: 'model_trace_capture_requested',
-        modelRequestId: retryModelRequestId,
-        parentModelRequestId: request.modelRequestId
       })
     )
   })

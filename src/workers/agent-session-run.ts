@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
-import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core'
+import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
+import { piApiSchema } from '../shared/contracts/providers'
+import type { JSONType } from 'zod'
 import { Value } from 'typebox/value'
 import {
   agentModelVisibleToolSpecs,
@@ -12,17 +14,12 @@ import {
   agentAssistantMessagePayloadSchema,
   agentFollowUpConsumptionAuthorizationSchema,
   agentModelCallAuthorizationSchema,
-  agentModelRetryAuthorizationSchema,
-  agentTraceCaptureAckSchema,
   agentQueueActionCommandSchema,
   agentQueueCommandSchema,
   type AgentAssistantMessagePayload,
   type AgentFollowUpConsumptionAuthorization,
   type AgentHistoryMessage,
   type AgentModelCallAuthorization,
-  type AgentModelRetryAuthorization,
-  type AgentModelRetryFailureStage,
-  type AgentTraceCaptureAck,
   type AgentTracePurpose,
   type AgentQueueActionCommand,
   type AgentQueueCommand,
@@ -31,7 +28,6 @@ import {
   type AgentSessionRunResult
 } from '../shared/contracts/agent'
 import { agentToolNameSchema } from '../shared/contracts/agent-tools'
-import type { ModelExecutionMetadata } from '../shared/contracts/model-runtime'
 import {
   AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
   createRetryingAgentProviderStream,
@@ -48,14 +44,16 @@ import {
   buildAgentProviderModel,
   loadAgentStreamSimple
 } from './agent-provider-runtime'
+import {
+  safeAgentDiagnosticMessage,
+  serializeAgentDiagnosticError
+} from '../shared/agent-diagnostic-error'
 
 export interface AgentSessionRunControl {
   enqueue(command: AgentQueueCommand): void
   queueAction(command: AgentQueueActionCommand): void
   authorizeFollowUpConsumption(command: AgentFollowUpConsumptionAuthorization): void
   authorizeModelCall(command: AgentModelCallAuthorization): void
-  authorizeModelRetry(command: AgentModelRetryAuthorization): void
-  acknowledgeTraceCapture(command: AgentTraceCaptureAck): void
   abort(): void
 }
 
@@ -66,10 +64,11 @@ export async function runAgentSession(
   externalSignal: AbortSignal | undefined,
   toolPort: MessagePortMain,
   log?: (
-    level: 'info' | 'warn',
+    level: 'info' | 'warn' | 'error',
     event: string,
     message: string,
-    fields?: Record<string, unknown>
+    fields?: Record<string, unknown>,
+    error?: unknown
   ) => void
 ): Promise<AgentSessionRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
@@ -110,68 +109,13 @@ export async function runAgentSession(
       systemPrompt: request.systemPrompt,
       advertisedTools: agentToolEnvelope(initialTools)
     })
-  const contextBudget = new AgentContextBudgetController(
-    currentRuntimeMessageBudgetTokens,
-    (event) => {
-      const batchHash = createHash('sha256').update(event.batchKey).digest('hex')
-      if (event.type === 'active_batch_retry') {
-        log?.(
-          'warn',
-          'agent.context.active_batch_retry',
-          'Retrying an oversized Agent read batch',
-          {
-            agentRunId: request.agentRunId,
-            batchHash,
-            toolNames: event.toolNames,
-            maxAttempts: 1
-          }
-        )
-        return
-      }
-      log?.(
-        'info',
-        'agent.context.active_batch_recovered',
-        'Recovered Agent context with a smaller read batch',
-        { agentRunId: request.agentRunId, batchHash }
-      )
-    }
-  )
+  const contextBudget = new AgentContextBudgetController(currentRuntimeMessageBudgetTokens)
   const modelRequestIds = [request.modelRequestId]
   const modelRequestPurposes = new Map<string, AgentTracePurpose>([
     [request.modelRequestId, 'agent_prompt']
   ])
   const authorizedContinuationRequestIds = new Set<string>()
   const systemPromptByModelRequestId = new Map<string, string>()
-  const retryParentByModelRequestId = new Map<string, string>()
-  const transformedMessagesByModelRequestId = new Map<string, AgentMessage[]>()
-  const transformedMessageOverrides = new Map<string, AgentMessage[]>()
-  const retryFingerprintByModelRequestId = new Map<string, string>()
-  interface ModelRetryAnchor {
-    sourceModelRequestId: string
-    purpose: AgentTracePurpose
-    transcript: AgentMessage[]
-    transformedMessages: AgentMessage[]
-    systemPrompt: string
-    tools: AgentTool[]
-    activeToolGroups: typeof activeToolGroups
-    runtimeMessageBudgetTokens: number
-    contextFingerprint: string
-    followsToolResults: boolean
-    retryableFailure: boolean
-    publishedContent: boolean
-    reasonCode: 'network' | 'rate_limited' | 'server_error' | 'stream_ended' | null
-    httpStatus: number | undefined
-  }
-  let latestRetryAnchor: ModelRetryAnchor | null = null
-  let retryBarrierActive = false
-  let pendingModelRetry:
-    | {
-        capabilityId: string
-        sourceModelRequestId: string
-        resolve: (authorization: AgentModelRetryAuthorization) => void
-        reject: (error: Error) => void
-      }
-    | undefined
   interface QueueEntry {
     pendingMessageId: string | null
     modelRequestId: string
@@ -199,10 +143,6 @@ export async function runAgentSession(
       reject: (error: Error) => void
     }
   >()
-  const pendingTraceCaptures = new Map<
-    string,
-    { resolve: () => void; reject: (error: Error) => void }
-  >()
   const callCompletions: Promise<void>[] = []
   const modelRequestByToolCallId = new Map<string, string>()
   const modelVisibleToolsByRequestId = new Map<
@@ -220,7 +160,7 @@ export async function runAgentSession(
   let lastAssistant: AssistantMessage | undefined
   let lastAssistantRetriesExhausted = false
   let lastAssistantHttpStatus: number | undefined
-  let terminalTraceError: AgentTracePersistenceError | undefined
+  let lastProviderError: unknown
   let awaitingReview = false
   const setRuntimeMessageBudget = (tokens: number): void => {
     currentRuntimeMessageBudgetTokens = tokens
@@ -254,22 +194,7 @@ export async function runAgentSession(
     },
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
-    transformContext: (messages) => {
-      const modelRequestId = modelRequestIds[0]
-      const override =
-        modelRequestId === undefined ? undefined : transformedMessageOverrides.get(modelRequestId)
-      if (modelRequestId !== undefined && override !== undefined) {
-        transformedMessageOverrides.delete(modelRequestId)
-        const restored = cloneAgentMessages(override)
-        transformedMessagesByModelRequestId.set(modelRequestId, cloneAgentMessages(restored))
-        return Promise.resolve(restored)
-      }
-      const transformed = contextBudget.transform(messages)
-      if (modelRequestId !== undefined) {
-        transformedMessagesByModelRequestId.set(modelRequestId, cloneAgentMessages(transformed))
-      }
-      return Promise.resolve(transformed)
-    },
+    transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
     prepareNextTurnWithContext: async ({ context, toolResults }) => {
       if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
@@ -325,18 +250,16 @@ export async function runAgentSession(
             maxOutputTokens: request.maxOutputTokens,
             limits: modelLimits,
             systemPrompt: authorization.systemPrompt,
-            advertisedTools: authorization.finalize
-              ? []
-              : agentToolEnvelope(
-                  agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
-                )
+            advertisedTools: agentToolEnvelope(
+              agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
+            )
           })
       )
       return {
         context: {
           ...context,
           systemPrompt: authorization.systemPrompt,
-          tools: authorization.finalize ? [] : toolBridge.tools(activeToolGroups)
+          tools: toolBridge.tools(activeToolGroups)
         }
       }
     },
@@ -351,7 +274,7 @@ export async function runAgentSession(
       const allowed = agentToolNameSchema.safeParse(toolCall.name)
       if (!allowed.success) {
         return block(
-          'The requested tool is not authorized by WriteLLM. Choose one of the advertised tools and retry once.',
+          'The requested tool is not authorized by WriteLLM. Choose one of the advertised tools.',
           'unknown_tool'
         )
       }
@@ -364,7 +287,7 @@ export async function runAgentSession(
         (clarificationCalls.length !== 1 || calls.length !== 1)
       ) {
         return block(
-          'User clarification must be the only tool in an assistant message. Ask one clarification and retry once.',
+          'User clarification must be the only tool in an assistant message. Ask one clarification.',
           'invalid_arguments'
         )
       }
@@ -375,17 +298,10 @@ export async function runAgentSession(
           'invalid_arguments'
         )
       }
-      const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')
-      if (skillCalls.length > 0 && calls.some((call) => call.name !== 'read_writing_skill')) {
-        return block(
-          'Writing Skill reads cannot be mixed with other tools. Finish the Skill read, then continue on the next turn.',
-          'invalid_arguments'
-        )
-      }
       const mutationCalls = calls.filter((call) => isMutationTool(call.name))
       if (isMutationTool(toolCall.name) && mutationCalls.length > 1) {
         return block(
-          'Only one mutation may be submitted in an assistant message. Submit exactly one mutation and retry once.',
+          'Only one mutation may be submitted in an assistant message.',
           'invalid_arguments'
         )
       }
@@ -436,49 +352,6 @@ export async function runAgentSession(
       )
       authorizedContinuationRequestIds.delete(modelRequestId)
       const tracePurpose = modelRequestPurposes.get(modelRequestId) ?? 'tool_continuation'
-      const transcript = cloneAgentMessages(agent.state.messages)
-      const transformedMessages = transformedMessagesByModelRequestId.get(modelRequestId)
-      if (transformedMessages === undefined) {
-        throw new Error('Agent provider call has no captured transformed context')
-      }
-      const followsToolResults = transcript.at(-1)?.role === 'toolResult'
-      const contextFingerprint = createHash('sha256')
-        .update(canonicalJson(serializableHarnessContext(context)))
-        .digest('hex')
-      const expectedRetryFingerprint = retryFingerprintByModelRequestId.get(modelRequestId)
-      retryFingerprintByModelRequestId.delete(modelRequestId)
-      if (
-        expectedRetryFingerprint !== undefined &&
-        contextFingerprint !== expectedRetryFingerprint
-      ) {
-        onEvent({
-          type: 'model_call_finished',
-          modelRequestId,
-          outcome: 'failed',
-          failureCode: 'retry_context_mismatch',
-          retryable: false,
-          metadata: emptyModelExecutionMetadata(activeModel.id)
-        })
-        throw new AgentRetryContextMismatchError()
-      }
-      latestRetryAnchor = {
-        sourceModelRequestId: modelRequestId,
-        purpose: tracePurpose,
-        transcript,
-        transformedMessages: cloneAgentMessages(transformedMessages),
-        systemPrompt: context.systemPrompt,
-        tools: agent.state.tools.filter((tool) =>
-          context.tools.some((advertised) => advertised.name === tool.name)
-        ),
-        activeToolGroups: [...activeToolGroups],
-        runtimeMessageBudgetTokens: currentRuntimeMessageBudgetTokens,
-        contextFingerprint,
-        followsToolResults,
-        retryableFailure: false,
-        publishedContent: false,
-        reasonCode: null,
-        httpStatus: undefined
-      }
       let lastResponseStatus: number | undefined
       let retryAfterMs: number | undefined
       let responseHeaders: Record<string, string> = {}
@@ -508,27 +381,22 @@ export async function runAgentSession(
               const transformed = await options?.onPayload?.(payload, payloadModel)
               const providerRequest = transformed === undefined ? payload : transformed
               if (request.traceCapture) {
-                try {
-                  await requestTraceCapture(
-                    onEvent,
-                    pendingTraceCaptures,
-                    modelRequestId,
-                    tracePurpose,
-                    payloadModel.api,
-                    attempt,
-                    [
-                      {
-                        kind: 'harness_request',
-                        value: serializableHarnessContext(context)
-                      },
-                      { kind: 'provider_request', value: jsonValue(providerRequest) }
-                    ],
-                    retryParentByModelRequestId.get(modelRequestId)
-                  )
-                } catch (err) {
-                  if (err instanceof AgentTracePersistenceError) terminalTraceError = err
-                  throw err
-                }
+                requestTraceCapture(
+                  onEvent,
+                  modelRequestId,
+                  tracePurpose,
+                  payloadModel.api,
+                  attempt,
+                  () => [
+                    {
+                      kind: 'harness_request',
+                      value: serializableHarnessContext(context)
+                    },
+                    { kind: 'provider_request', value: jsonValue(providerRequest) }
+                  ],
+                  log,
+                  request.agentRunId
+                )
               }
               return transformed
             },
@@ -542,63 +410,52 @@ export async function runAgentSession(
         },
         responseStatus: () => lastResponseStatus,
         retryAfterMs: () => retryAfterMs,
-        createErrorMessage: (error, aborted) => providerErrorMessage(activeModel, error, aborted),
+        createErrorMessage: (error, aborted) => {
+          lastProviderError = error
+          return providerErrorMessage(activeModel, error, aborted)
+        },
         onFirstAssistantContent: () => {
           ttftMs ??= Math.max(0, Date.now() - callStartedAt)
         },
         onRetry: ({ completedAttempts, maxAttempts, delayMs, reasonCode }) => {
-          onEvent({
-            type: 'model_call_retrying',
-            modelRequestId,
-            completedAttempts,
-            maxAttempts,
-            delayMs,
-            reasonCode
-          })
+          log?.(
+            'info',
+            'agent.provider.retrying',
+            'Agent provider transient failure; retrying request',
+            { modelRequestId, completedAttempts, maxAttempts, delayMs, reasonCode }
+          )
         }
       })
       const stream = retrying.stream
       const completion = stream.result().then(async (message) => {
-        if (terminalTraceError !== undefined) throw terminalTraceError
         lastAssistant = message
         lastAssistantRetriesExhausted = retrying.state.exhausted
         lastAssistantHttpStatus = lastResponseStatus
-        if (latestRetryAnchor?.sourceModelRequestId === modelRequestId) {
-          latestRetryAnchor.retryableFailure = retrying.state.retryableFailure
-          latestRetryAnchor.publishedContent = retrying.state.publishedContent
-          latestRetryAnchor.reasonCode = retrying.state.lastReasonCode
-          latestRetryAnchor.httpStatus = lastResponseStatus
-        }
         for (const part of message.content) {
           if (part.type === 'toolCall') modelRequestByToolCallId.set(part.id, modelRequestId)
         }
         if (request.traceCapture) {
-          try {
-            await requestTraceCapture(
-              onEvent,
-              pendingTraceCaptures,
-              modelRequestId,
-              tracePurpose,
-              activeModel.api,
-              Math.max(1, physicalAttempt),
-              [
-                {
-                  kind: 'provider_response',
-                  value: jsonValue(message),
-                  metadata: {
-                    ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
-                    responseHeaders,
-                    ...(ttftMs === undefined ? {} : { ttftMs }),
-                    totalDurationMs: Math.max(0, Date.now() - callStartedAt)
-                  }
+          requestTraceCapture(
+            onEvent,
+            modelRequestId,
+            tracePurpose,
+            activeModel.api,
+            Math.max(1, physicalAttempt),
+            () => [
+              {
+                kind: 'provider_response',
+                value: jsonValue(message),
+                metadata: {
+                  ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
+                  responseHeaders,
+                  ...(ttftMs === undefined ? {} : { ttftMs }),
+                  totalDurationMs: Math.max(0, Date.now() - callStartedAt)
                 }
-              ],
-              retryParentByModelRequestId.get(modelRequestId)
-            )
-          } catch (err) {
-            if (err instanceof AgentTracePersistenceError) terminalTraceError = err
-            throw err
-          }
+              }
+            ],
+            log,
+            request.agentRunId
+          )
         }
         const providerPromptTokens = message.usage.input + message.usage.cacheRead
         const contextTokensEstimated = providerPromptTokens === 0
@@ -639,83 +496,11 @@ export async function runAgentSession(
   })
 
   const loadFollowUpHead = (): void => {
-    if (retryBarrierActive || loadedFollowUpId !== null) return
+    if (loadedFollowUpId !== null) return
     const head = followUpEntries[0]
     if (head === undefined || head.pendingMessageId === null) return
     loadedFollowUpId = head.pendingMessageId
     agent.followUp(head.message)
-  }
-
-  const waitForModelRetryAuthorization = (
-    anchor: ModelRetryAnchor
-  ): Promise<AgentModelRetryAuthorization> => {
-    const capabilityId = randomUUID()
-    const failureStage: AgentModelRetryFailureStage = anchor.followsToolResults
-      ? 'after_tool_results'
-      : anchor.publishedContent
-        ? 'after_content'
-        : 'before_content'
-    retryBarrierActive = true
-    agent.clearAllQueues()
-    loadedFollowUpId = null
-    return new Promise((resolve, reject) => {
-      pendingModelRetry = {
-        capabilityId,
-        sourceModelRequestId: anchor.sourceModelRequestId,
-        resolve,
-        reject
-      }
-      try {
-        onEvent({
-          type: 'model_retry_available',
-          capabilityId,
-          modelRequestId: anchor.sourceModelRequestId,
-          reasonCode: anchor.reasonCode ?? 'network',
-          failureStage,
-          ...(anchor.httpStatus === undefined ? {} : { httpStatus: anchor.httpStatus }),
-          contextFingerprint: anchor.contextFingerprint,
-          label: anchor.publishedContent || anchor.followsToolResults ? 'continue' : 'retry_request'
-        })
-      } catch (err) {
-        pendingModelRetry = undefined
-        reject(new Error('Agent model retry capability could not be published', { cause: err }))
-      }
-    })
-  }
-
-  const restoreModelRetryAnchor = (
-    anchor: ModelRetryAnchor,
-    authorization: AgentModelRetryAuthorization
-  ): void => {
-    agent.state.messages = cloneAgentMessages(anchor.transcript)
-    agent.state.systemPrompt = anchor.systemPrompt
-    agent.state.tools = [...anchor.tools]
-    activeToolGroups = [...anchor.activeToolGroups]
-    setRuntimeMessageBudget(anchor.runtimeMessageBudgetTokens)
-    modelRequestIds.unshift(authorization.targetModelRequestId)
-    modelRequestPurposes.set(authorization.targetModelRequestId, anchor.purpose)
-    retryParentByModelRequestId.set(
-      authorization.targetModelRequestId,
-      authorization.sourceModelRequestId
-    )
-    transformedMessageOverrides.set(
-      authorization.targetModelRequestId,
-      cloneAgentMessages(anchor.transformedMessages)
-    )
-    retryFingerprintByModelRequestId.set(
-      authorization.targetModelRequestId,
-      anchor.contextFingerprint
-    )
-    lastAssistant = undefined
-    lastAssistantRetriesExhausted = false
-    lastAssistantHttpStatus = undefined
-  }
-
-  const releaseRetryQueueBarrier = (): void => {
-    if (!retryBarrierActive) return
-    retryBarrierActive = false
-    for (const entry of steeringEntries) agent.steer(entry.message)
-    loadFollowUpHead()
   }
 
   agent.subscribe(async (event) => {
@@ -758,21 +543,21 @@ export async function runAgentSession(
       if (request.traceCapture) {
         const traceOccurrence = (toolTraceOccurrenceByModelRequestId.get(modelRequestId) ?? 0) + 1
         toolTraceOccurrenceByModelRequestId.set(modelRequestId, traceOccurrence)
-        await requestTraceCapture(
+        requestTraceCapture(
           onEvent,
-          pendingTraceCaptures,
           modelRequestId,
           modelRequestPurposes.get(modelRequestId) ?? 'tool_continuation',
           model.api,
           traceOccurrence,
-          [
+          () => [
             {
               kind: 'tool_attempt',
               value: jsonValue({ toolName: event.toolName, args: event.args }),
               metadata: { toolCallId: event.toolCallId }
             }
           ],
-          retryParentByModelRequestId.get(modelRequestId)
+          log,
+          request.agentRunId
         )
       }
       onEvent({
@@ -797,7 +582,9 @@ export async function runAgentSession(
         modelVisibleToolsByRequestId.get(modelRequestId) ?? new Map(),
         event.toolName,
         rawArgumentsByToolCallId.get(event.toolCallId),
-        preflightPolicyDiagnosticByToolCallId.get(event.toolCallId)
+        preflightPolicyDiagnosticByToolCallId.get(event.toolCallId),
+        log,
+        request.agentRunId
       )
       const startedAt = toolStartedAtByToolCallId.get(event.toolCallId)
       const fingerprint = JSON.stringify([
@@ -874,7 +661,7 @@ export async function runAgentSession(
         modelRequestIds.push(parsed.modelRequestId)
         modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        if (!retryBarrierActive) agent.steer(message)
+        agent.steer(message)
       } else {
         followUpEntries.push({
           pendingMessageId: parsed.pendingMessageId,
@@ -915,7 +702,7 @@ export async function runAgentSession(
         modelRequestIds.push(parsed.modelRequestId)
         modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
         systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        if (!retryBarrierActive) agent.steer(entry.message)
+        agent.steer(entry.message)
         onEvent({
           type: 'queue_action_completed',
           actionId: parsed.actionId,
@@ -938,7 +725,7 @@ export async function runAgentSession(
       }
       const [entry] = followUpEntries.splice(index, 1)
       if (entry === undefined) throw new Error('Agent Follow-up queue removal failed')
-      if (!retryBarrierActive && index === 0 && loadedFollowUpId === parsed.pendingMessageId) {
+      if (index === 0 && loadedFollowUpId === parsed.pendingMessageId) {
         agent.clearFollowUpQueue()
         loadedFollowUpId = null
         loadFollowUpHead()
@@ -973,39 +760,12 @@ export async function runAgentSession(
       pendingModelCallAuthorizations.delete(parsed.continuationId)
       pending.resolve(parsed)
     },
-    authorizeModelRetry(command) {
-      const parsed = agentModelRetryAuthorizationSchema.parse(command)
-      if (
-        pendingModelRetry === undefined ||
-        pendingModelRetry.capabilityId !== parsed.capabilityId ||
-        pendingModelRetry.sourceModelRequestId !== parsed.sourceModelRequestId
-      ) {
-        throw new Error('Agent model retry authorization is stale')
-      }
-      const pending = pendingModelRetry
-      pendingModelRetry = undefined
-      pending.resolve(parsed)
-    },
-    acknowledgeTraceCapture(command) {
-      const parsed = agentTraceCaptureAckSchema.parse(command)
-      const pending = pendingTraceCaptures.get(parsed.captureId)
-      if (pending === undefined) throw new Error('Agent trace acknowledgement is stale')
-      pendingTraceCaptures.delete(parsed.captureId)
-      if (parsed.ok) pending.resolve()
-      else pending.reject(new AgentTracePersistenceError(parsed.errorCode))
-    },
     abort() {
       agent.abort()
-      pendingModelRetry?.reject(abortError('Agent request retry was cancelled'))
-      pendingModelRetry = undefined
     }
   })
 
-  const abortExternal = (): void => {
-    agent.abort()
-    pendingModelRetry?.reject(abortError('Agent request retry was cancelled'))
-    pendingModelRetry = undefined
-  }
+  const abortExternal = (): void => agent.abort()
   if (externalSignal?.aborted) agent.abort()
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
   let runError: unknown
@@ -1013,26 +773,8 @@ export async function runAgentSession(
     await agent.prompt(request.prompt)
     await agent.waitForIdle()
     while (true) {
-      await Promise.allSettled(callCompletions)
-      const promptContextError = contextBudget.terminalError()
-      if (promptContextError !== null) throw promptContextError
-      const anchor = latestRetryAnchor
-      if (
-        lastAssistant?.stopReason === 'error' &&
-        anchor !== null &&
-        anchor.retryableFailure &&
-        anchor.reasonCode !== null &&
-        toolProfile === 'writing' &&
-        terminalTraceError === undefined &&
-        !awaitingReview &&
-        agent.state.pendingToolCalls.size === 0
-      ) {
-        const authorization = await waitForModelRetryAuthorization(anchor)
-        restoreModelRetryAnchor(anchor, authorization)
-        await agent.continue()
-        await agent.waitForIdle()
-        continue
-      }
+      const completedCallCount = callCompletions.length
+      await Promise.all(callCompletions)
       if (lastAssistant?.stopReason === 'error' || lastAssistant?.stopReason === 'aborted') break
       await recoverAuthorizedContinuation({
         awaitingReview,
@@ -1041,14 +783,7 @@ export async function runAgentSession(
         waitForIdle: () => agent.waitForIdle(),
         log
       })
-      if (retryBarrierActive) {
-        releaseRetryQueueBarrier()
-        if (agent.hasQueuedMessages()) {
-          await agent.continue()
-          await agent.waitForIdle()
-          continue
-        }
-      }
+      if (callCompletions.length > completedCallCount) continue
       break
     }
   } catch (err) {
@@ -1063,35 +798,35 @@ export async function runAgentSession(
       pending.reject(abortError('Agent run ended before Follow-up consumption authorization'))
     }
     pendingFollowUpConsumptions.clear()
-    for (const pending of pendingTraceCaptures.values()) {
-      pending.reject(abortError('Agent run ended before trace persistence acknowledgement'))
-    }
-    pendingTraceCaptures.clear()
-    pendingModelRetry?.reject(abortError('Agent run ended before model retry authorization'))
-    pendingModelRetry = undefined
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
 
-  if (terminalTraceError !== undefined) throw terminalTraceError
   if (runError !== undefined) throw runError
-  const contextError = contextBudget.terminalError()
-  if (contextError !== null) throw contextError
 
   if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
   if (lastAssistant.stopReason === 'error') {
+    const providerDetails = providerErrorDetails(lastAssistant, lastProviderError)
+    const status = providerDetails.status ?? lastAssistantHttpStatus
     if (lastAssistantRetriesExhausted) {
-      throw new AgentProviderRetriesExhaustedError(lastAssistantHttpStatus)
+      throw new AgentProviderRetriesExhaustedError(
+        lastAssistant.errorMessage,
+        status,
+        providerDetails.cause,
+        providerDetails.code
+      )
     }
-    const contextOverflow = isContextOverflowFailure(
-      lastAssistant.errorMessage,
-      lastAssistantHttpStatus
-    )
+    const contextOverflow = isContextOverflowFailure(lastAssistant.errorMessage, status)
     const error: Error & { status?: number; code?: string } = new Error(
-      contextOverflow ? 'Agent provider context window exceeded' : 'Agent provider request failed'
+      lastAssistant.errorMessage ??
+        (contextOverflow
+          ? 'Agent provider context window exceeded'
+          : 'Agent provider request failed'),
+      providerDetails.cause === undefined ? undefined : { cause: providerDetails.cause }
     )
-    if (lastAssistantHttpStatus !== undefined) error.status = lastAssistantHttpStatus
+    if (status !== undefined) error.status = status
     if (contextOverflow) error.code = 'context_overflow'
+    else if (providerDetails.code !== undefined) error.code = providerDetails.code
     throw error
   }
   if (lastAssistant.stopReason === 'aborted') {
@@ -1194,20 +929,13 @@ function toAssistantPayload(
 
 class AgentProviderRetriesExhaustedError extends Error {
   readonly status?: number
+  readonly code?: string
 
-  constructor(status?: number) {
-    super('Agent provider request failed after 5 attempts')
+  constructor(message?: string, status?: number, cause?: unknown, code?: string) {
+    super(message ?? 'Agent provider request failed', cause === undefined ? undefined : { cause })
     this.name = 'ProviderRetriesExhaustedError'
     if (status !== undefined) this.status = status
-  }
-}
-
-class AgentRetryContextMismatchError extends Error {
-  readonly code = 'retry_context_mismatch'
-
-  constructor() {
-    super('Agent model retry context no longer matches the captured request')
-    this.name = 'AgentRetryContextMismatchError'
+    if (code !== undefined) this.code = code
   }
 }
 
@@ -1226,10 +954,11 @@ export async function recoverAuthorizedContinuation(input: {
   continueAgent(): Promise<void>
   waitForIdle(): Promise<void>
   log?: (
-    level: 'info' | 'warn',
+    level: 'info' | 'warn' | 'error',
     event: string,
     message: string,
-    fields?: Record<string, unknown>
+    fields?: Record<string, unknown>,
+    error?: unknown
   ) => void
 }): Promise<void> {
   const pendingCount = input.pendingAuthorizationCount()
@@ -1258,8 +987,11 @@ function providerErrorMessage(
   error: unknown,
   aborted: boolean
 ): AssistantMessage {
-  const message = error instanceof Error ? error.message : String(error)
-  return {
+  const message =
+    error instanceof Error
+      ? error.message
+      : safeAgentDiagnosticMessage(error) || 'Unknown provider error'
+  const assistantMessage: AssistantMessage = {
     role: 'assistant',
     content: [],
     api: model.api,
@@ -1277,6 +1009,90 @@ function providerErrorMessage(
     errorMessage: message,
     timestamp: Date.now()
   }
+  const details = providerErrorDetails(assistantMessage, error)
+  Object.defineProperty(assistantMessage, 'cause', {
+    configurable: true,
+    value: error,
+    writable: true
+  })
+  if (details.status !== undefined) {
+    Object.defineProperty(assistantMessage, 'status', {
+      configurable: true,
+      value: details.status,
+      writable: true
+    })
+  }
+  if (details.code !== undefined) {
+    Object.defineProperty(assistantMessage, 'code', {
+      configurable: true,
+      value: details.code,
+      writable: true
+    })
+  }
+  return assistantMessage
+}
+
+interface ProviderErrorDetails {
+  cause?: unknown
+  status?: number
+  code?: string
+}
+
+function providerErrorDetails(
+  message: AssistantMessage,
+  originalError?: unknown
+): ProviderErrorDetails {
+  const source = originalError === undefined ? message : originalError
+  const status = readProviderStatus(source)
+  const code = readProviderCode(source)
+  return {
+    ...(originalError === undefined
+      ? { cause: readProperty(message, 'cause') }
+      : { cause: originalError }),
+    ...(status === undefined ? {} : { status }),
+    ...(code === undefined ? {} : { code })
+  }
+}
+
+function readProviderStatus(value: unknown): number | undefined {
+  for (const key of ['httpStatus', 'statusCode', 'status'] as const) {
+    const status = readProviderProperty(value, key)
+    if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {
+      return status
+    }
+  }
+  return undefined
+}
+
+function readProviderCode(value: unknown): string | undefined {
+  for (const key of ['code', 'providerCode', 'errorCode'] as const) {
+    const code = readProviderProperty(value, key)
+    if (typeof code === 'string' && code.length > 0) return code
+    if (typeof code === 'number' && Number.isFinite(code)) return String(code)
+  }
+  return undefined
+}
+
+function readProviderProperty(
+  value: unknown,
+  property: 'code' | 'providerCode' | 'errorCode' | 'httpStatus' | 'statusCode' | 'status'
+): unknown {
+  const seen = new Set<object>()
+  let current = value
+  while (current !== null && typeof current === 'object') {
+    if (seen.has(current)) break
+    seen.add(current)
+    const candidate = (current as Record<string, unknown>)[property]
+    if (candidate !== undefined) return candidate
+    current = (current as Record<string, unknown>).cause
+  }
+  return undefined
+}
+
+function readProperty(value: unknown, property: string): unknown {
+  return value !== null && typeof value === 'object'
+    ? (value as Record<string, unknown>)[property]
+    : undefined
 }
 
 export type AgentInstance = Agent
@@ -1336,44 +1152,84 @@ function requestFollowUpConsumption(
 
 function requestTraceCapture(
   onEvent: (event: AgentRuntimeEvent) => void,
-  pending: Map<string, { resolve: () => void; reject: (error: Error) => void }>,
   modelRequestId: string,
   purpose: AgentTracePurpose,
-  apiId: Api,
+  apiId: string,
   physicalAttempt: number,
-  documents: Extract<AgentRuntimeEvent, { type: 'model_trace_capture_requested' }>['documents'],
-  parentModelRequestId?: string
-): Promise<void> {
-  const captureId = randomUUID()
-  return new Promise((resolve, reject) => {
-    pending.set(captureId, { resolve, reject })
-    try {
-      onEvent({
-        type: 'model_trace_capture_requested',
-        captureId,
+  documents: () => Extract<
+    AgentRuntimeEvent,
+    { type: 'model_trace_capture_requested' }
+  >['documents'],
+  log?: (
+    level: 'info' | 'warn' | 'error',
+    event: string,
+    message: string,
+    fields?: Record<string, unknown>,
+    error?: unknown
+  ) => void,
+  agentRunId?: string
+): void {
+  try {
+    const parsedApiId = piApiSchema.safeParse(apiId)
+    if (!parsedApiId.success) throw new Error(`Unsupported trace API: ${apiId}`)
+    onEvent({
+      type: 'model_trace_capture_requested',
+      modelRequestId,
+      purpose,
+      apiId: parsedApiId.data,
+      physicalAttempt,
+      documents: documents()
+    })
+  } catch (err) {
+    reportTraceCaptureFailure(
+      log,
+      {
+        ...(agentRunId === undefined ? {} : { agentRunId }),
         modelRequestId,
-        ...(parentModelRequestId === undefined ? {} : { parentModelRequestId }),
         purpose,
-        apiId,
-        physicalAttempt,
-        documents
-      })
-    } catch (err) {
-      pending.delete(captureId)
-      reject(new AgentTracePersistenceError('trace_capture_failed', { cause: err }))
-    }
-  })
+        physicalAttempt
+      },
+      err
+    )
+  }
+}
+
+function reportTraceCaptureFailure(
+  log:
+    | ((
+        level: 'info' | 'warn' | 'error',
+        event: string,
+        message: string,
+        fields?: Record<string, unknown>,
+        error?: unknown
+      ) => void)
+    | undefined,
+  fields: Record<string, unknown>,
+  error: unknown
+): void {
+  try {
+    log?.(
+      'error',
+      'agent.trace.capture_failed',
+      'Agent trace capture was skipped; provider work continues',
+      fields,
+      error
+    )
+  } catch {
+    // Trace is observational. If its reporter transport is closed, no safe
+    // diagnostic channel remains; keep the provider result independent of it.
+  }
 }
 
 function serializableHarnessContext(context: {
   systemPrompt?: string
-  messages: unknown[]
-  tools: Array<{ name: string; description: string; parameters: unknown }>
-}): unknown {
+  messages?: unknown[]
+  tools?: Array<{ name: string; description: string; parameters: unknown }>
+}): JSONType {
   return jsonValue({
     ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
-    messages: context.messages,
-    tools: context.tools.map((tool) => ({
+    messages: context.messages ?? [],
+    tools: (context.tools ?? []).map((tool) => ({
       name: tool.name,
       description: tool.description,
       parameters: tool.parameters
@@ -1381,40 +1237,10 @@ function serializableHarnessContext(context: {
   })
 }
 
-function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
+function jsonValue(value: unknown): JSONType {
   const serialized = JSON.stringify(value)
-  if (serialized === undefined) throw new AgentTracePersistenceError('trace_capture_failed')
-  return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
-}
-
-function cloneAgentMessages(messages: AgentMessage[]): AgentMessage[] {
-  return structuredClone(messages)
-}
-
-function emptyModelExecutionMetadata(providerModelId: string): ModelExecutionMetadata {
-  return {
-    usage: {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheWriteTokens: 0,
-      estimatedCostUsdMicros: null
-    },
-    responseIds: [],
-    retryCount: 0,
-    providerModelId,
-    contextTokensUsed: 0,
-    contextTokensEstimated: true
-  }
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`
-  return `{${Object.entries(value)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-    .join(',')}}`
+  if (serialized === undefined) throw new Error('Agent trace payload is not JSON serializable')
+  return JSON.parse(serialized) as JSONType
 }
 
 function safeProviderResponseHeaders(
@@ -1440,22 +1266,6 @@ function safeProviderResponseHeaders(
       .filter(([name]) => allowed.has(name))
       .map(([name, value]) => [name, value.slice(0, 2_048)])
   )
-}
-
-class AgentTracePersistenceError extends Error {
-  readonly code: 'trace_capture_failed' | 'trace_payload_too_large'
-
-  constructor(errorCode?: string, options?: ErrorOptions) {
-    const code = errorCode === 'trace_payload_too_large' ? errorCode : 'trace_capture_failed'
-    super(
-      code === 'trace_payload_too_large'
-        ? 'Agent request trace exceeds the diagnostic limit'
-        : 'Agent request trace could not be persisted',
-      options
-    )
-    this.name = 'AgentTracePersistenceError'
-    this.code = code
-  }
 }
 
 function abortError(message: string): Error {
@@ -1504,61 +1314,110 @@ function policyPreflightDiagnostic(
   code: 'invalid_arguments' | 'unknown_tool'
   message: string
   paths: string[]
+  details: ReturnType<typeof serializeAgentDiagnosticError>
 } {
-  return { code, message: message.slice(0, 1_000), paths: [] }
+  const boundedMessage = message.slice(0, 1_000)
+  return {
+    code,
+    message: boundedMessage,
+    paths: [],
+    details: serializePreflightDiagnostic(code, boundedMessage)
+  }
 }
 
 function safePreflightDiagnostic(
   modelVisibleTools: ReadonlyMap<string, AgentModelVisibleToolSpec>,
   requestedToolName: string,
   rawArguments: unknown,
-  policyDiagnostic?: ReturnType<typeof policyPreflightDiagnostic>
+  policyDiagnostic?: ReturnType<typeof policyPreflightDiagnostic>,
+  log?: (
+    level: 'info' | 'warn' | 'error',
+    event: string,
+    message: string,
+    fields?: Record<string, unknown>,
+    error?: unknown
+  ) => void,
+  agentRunId?: string
 ): {
   code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed'
   message: string
   paths: string[]
+  details: ReturnType<typeof serializeAgentDiagnosticError>
 } {
   if (policyDiagnostic !== undefined) return policyDiagnostic
   const tool = modelVisibleTools.get(requestedToolName)
   if (tool === undefined) {
+    const message =
+      'The requested tool is not registered. Choose one of the model-visible WriteLLM tools.'
     return {
       code: 'unknown_tool',
-      message:
-        'The requested tool is not registered. Choose one of the model-visible WriteLLM tools and retry once.',
-      paths: []
+      message,
+      paths: [],
+      details: serializePreflightDiagnostic('unknown_tool', message)
     }
   }
   try {
     const converted = structuredClone(rawArguments)
     Value.Convert(tool.parameters, converted)
-    const paths = [
-      ...new Set(
-        [...Value.Errors(tool.parameters, converted)]
-          .slice(0, 16)
-          .map((error) => error.instancePath || '/')
-      )
-    ]
+    const validationErrors = [...Value.Errors(tool.parameters, converted)].slice(0, 16)
+    const paths = [...new Set(validationErrors.map((error) => error.instancePath || '/'))]
     if (paths.length > 0) {
+      const reasons = validationErrors
+        .map((error) => `${error.instancePath || '/'}: ${error.message}`)
+        .join('; ')
+      const message =
+        `Arguments for ${tool.name} failed preflight at ${paths.join(', ')}. Validation: ${reasons}. Received shape: ${describeArgumentShape(rawArguments)}. Fix the named fields.`.slice(
+          0,
+          1_000
+        )
       return {
         code: 'invalid_arguments',
-        message:
-          `Arguments for ${tool.name} failed preflight at ${paths.join(', ')}. Received shape: ${describeArgumentShape(rawArguments)}. Fix the named fields and retry once.`.slice(
-            0,
-            1_000
-          ),
-        paths
+        message,
+        paths,
+        details: serializePreflightDiagnostic('invalid_arguments', message)
       }
     }
-  } catch {
+  } catch (error) {
+    const detail = safeAgentDiagnosticMessage(error)
+    log?.(
+      'error',
+      'agent.tool.preflight_failed',
+      'Agent tool arguments could not be prepared for preflight validation',
+      {
+        ...(agentRunId === undefined ? {} : { agentRunId }),
+        toolName: tool.name
+      },
+      error
+    )
     return {
       code: 'preparation_failed',
-      message: `Arguments for ${tool.name} could not be prepared safely. Use the documented object shape and retry once.`,
-      paths: []
+      message: `Arguments for ${tool.name} could not be prepared safely: ${detail}`.slice(0, 1_000),
+      paths: [],
+      details: serializePreflightDiagnostic(
+        'preparation_failed',
+        `Arguments for ${tool.name} could not be prepared safely`,
+        error
+      )
     }
   }
+  const message = `${tool.name} passed basic argument validation but was blocked before Main dispatch. Separate reads from mutations and submit at most one mutation.`
   return {
     code: 'preparation_failed',
-    message: `${tool.name} passed basic argument validation but was blocked before Main dispatch. Separate reads from mutations, submit at most one mutation, and retry once.`,
-    paths: []
+    message,
+    paths: [],
+    details: serializePreflightDiagnostic('preparation_failed', message)
   }
+}
+
+function serializePreflightDiagnostic(
+  code: 'invalid_arguments' | 'unknown_tool' | 'preparation_failed',
+  message: string,
+  cause?: unknown
+): ReturnType<typeof serializeAgentDiagnosticError> {
+  const error = new Error(message, cause === undefined ? undefined : { cause }) as Error & {
+    code?: string
+  }
+  error.name = 'AgentToolPreflightError'
+  error.code = code
+  return serializeAgentDiagnosticError(error, 'tool.preflight')
 }

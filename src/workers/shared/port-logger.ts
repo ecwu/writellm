@@ -6,6 +6,7 @@ import type {
   Subsystem
 } from '../../shared/observability/log-schema'
 import { currentLogContext } from '../../main/observability/log-context'
+import { agentDiagnosticForLogging } from '../../shared/agent-diagnostic-error'
 
 interface LogPort {
   postMessage(message: unknown): void
@@ -36,6 +37,8 @@ export function createPortLogger(
 
   return (level, event, message, fields, error) => {
     const original = error instanceof Error ? error : undefined
+    const diagnostic = agentDiagnosticForLogging(error)
+    const stack = diagnostic === undefined ? original?.stack : diagnostic.stack
     const envelope = {
       level,
       sourceTime: new Date().toISOString(),
@@ -48,12 +51,17 @@ export function createPortLogger(
         ? {}
         : {
             error: {
-              type: original.name.slice(0, 128),
-              message: original.message.slice(0, 4_096),
-              ...(original.stack === undefined ? {} : { stack: original.stack.slice(0, 32_768) }),
+              type: (diagnostic?.name ?? original.name).slice(0, 128),
+              message: (diagnostic?.message ?? original.message).slice(0, 4_096),
+              ...(stack === undefined ? {} : { stack: stack.slice(0, 32_768) }),
               ...(original.cause === undefined
                 ? {}
-                : { cause: String(original.cause).slice(0, 4_096) })
+                : {
+                    cause: (diagnostic === undefined
+                      ? String(original.cause)
+                      : JSON.stringify(diagnostic.causes)
+                    ).slice(0, 4_096)
+                  })
             }
           }),
       processSequence: sequence++

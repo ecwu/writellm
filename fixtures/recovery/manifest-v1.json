@@ -165,9 +165,9 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "fd3fe2459df58274709d549da0bb94caeb3c6b86fc89079e224cd4bcd42056c8",
+      "sourceSha256": "d2da5c1117822c6216104cc622ed911d8d364568298890dc9613dc416dd34f2c",
       "tests": [
-        "allows two runs plus one manual compaction and releases the slot after stop",
+        "runs four conversations concurrently and keeps queue, stop and session authority isolated",
         "cancels and settles every active conversation when the project closes",
         "releases a reserved slot when asynchronous run preparation fails"
       ]
@@ -176,10 +176,10 @@
       "id": "agent-interruption-messages-and-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.messages.test.ts",
-      "sourceSha256": "52d8bd1898dd5be3e6d737d3c7a42498f3302104f51b95be0173d98b854bd5a2",
+      "sourceSha256": "a3a081c3899233ab7d7459ac23561df84811b34ea7eb57a308b993221ce7e56c",
       "tests": [
         "publishes and completes an answer when automatic Skill dependencies remain unread",
-        "authorizes a live request retry without persisting the user prompt twice",
+        "persists exhausted retries without transient warnings and accepts the next normal run",
         "retries one provider overflow only before activity and records a fresh model request",
         "does not replay a provider overflow after assistant activity",
         "records an exhausted active read batch without replaying prior tool activity",
@@ -192,21 +192,21 @@
       "id": "agent-review-and-compaction-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.review.test.ts",
-      "sourceSha256": "0f5c18b63aea1a0a7872e1d085d309bd809a82b93260b72d8659bbebdbaa4a37",
+      "sourceSha256": "a2059051cf5ff775a49b34a8f8c4b39c303137380ce488d2422edead11fdecde",
       "tests": [
         "persists manual review as a completed wait state and locks only that conversation",
-        "stops before provider work when automatic failure would omit a user turn",
-        "rejects a run above the 2,000-event compaction ceiling without calling the provider"
+        "retains the concrete compaction failure when automatic summarization fails",
+        "compacts a history above the former 2,000-event ceiling"
       ]
     },
     {
       "id": "agent-tool-capability-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.tools.test.ts",
-      "sourceSha256": "f7aad877450648c0d675f76156c68b4cc7f34c227ae3b5c3860945bc47626e6b",
+      "sourceSha256": "7031eefb019b8fcc522ec256d6e60d39ae369b56fc15ce27188833997cdb7e9b",
       "tests": [
         "persists tool provenance and authorizes exactly one linked post-tool model call",
-        "authorizes exactly one tool-free finalization call after a run reaches 180 events",
+        "continues authorizing tool calls beyond 180 durable events without forced finalization",
         "rejects a tool request carrying a mismatched project-session capability"
       ]
     },
@@ -214,9 +214,9 @@
       "id": "agent-history-title-and-archive-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.compaction.test.ts",
-      "sourceSha256": "4c583a0deceb8fad63f70db36c7bbe649dfe1932e762665ac04fadfaa408179a",
+      "sourceSha256": "89a4b786a1fb00b93497a7dac800a98067bbd6f90b141ceaa70a283ed59fe3f6",
       "tests": [
-        "keeps the latest successful rolling checkpoint when a later step fails",
+        "compresses more than 2,000 historical events once while keeping the recent turn raw",
         "keeps the fallback on title failure and cancels an in-flight title request on close",
         "archives and restores idle conversations idempotently while rejecting archived writes"
       ]
@@ -283,7 +283,7 @@
       "id": "log-redaction-and-error-cause",
       "category": "logging",
       "source": "src/main/observability/logger.test.ts",
-      "sourceSha256": "3fa39bec8ad63fa6f76569d3215b100e4a5e43ff61dc578aace09de0139ffb7d",
+      "sourceSha256": "0b430115e65bd0f2f896c20e5976f84719c324a42120d1785679044d60b1ccc1",
       "tests": [
         "preserves errors and context while redacting sensitive fields",
         "preserves a primitive error cause from worker-boundary errors"

@@ -1,12 +1,11 @@
-import {
-  MAX_CONCURRENT_AGENT_RUNS,
-  type AgentEventRecord,
-  type AgentLiveCompactionSnapshot,
-  type AgentLiveRunSnapshot,
-  type AgentRendererEvent,
-  type AgentRunRecord,
-  type AgentSessionRecord,
-  type AgentStartScope
+import type {
+  AgentEventRecord,
+  AgentLiveCompactionSnapshot,
+  AgentLiveRunSnapshot,
+  AgentRendererEvent,
+  AgentRunRecord,
+  AgentSessionRecord,
+  AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentProviderCatalog } from '../../../../shared/contracts/providers'
@@ -36,11 +35,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   const [streamingBySession, setStreamingBySession] = useState<
     Record<string, Record<string, string>>
   >({})
-  const [activeRunLimit, setActiveRunLimit] = useState(MAX_CONCURRENT_AGENT_RUNS)
-  const [, setActiveRunIds] = useState<Set<string>>(() => new Set())
   const [liveRuns, setLiveRuns] = useState<AgentLiveRunSnapshot[]>([])
   const [activeCompactions, setActiveCompactions] = useState<AgentLiveCompactionSnapshot[]>([])
-  const [activeWorkCount, setActiveWorkCount] = useState(0)
   const [compactionConfirmOpen, setCompactionConfirmOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [scopePreference, setScopePreference] = useState<'auto' | AgentStartScope>('auto')
@@ -110,13 +106,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     setScopePreference('auto')
     setContinuationFailure(null)
     setStreamingBySession({})
-    setActiveRunIds(new Set())
     setLiveRuns([])
     setPendingActionIds(new Set())
     setWaitingMessagesOpen(false)
     setActiveCompactions([])
-    setActiveWorkCount(0)
-    setActiveRunLimit(MAX_CONCURRENT_AGENT_RUNS)
   }, [props.projectSessionId])
 
   useEffect(() => {
@@ -293,11 +286,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       const sectionId = sectionFollowTargetForAgentEvent(rendererEvent, activeSessionIdRef.current)
       if (sectionId !== null) void props.onFollowSection(sectionId)
       if (rendererEvent.kind === 'activity') {
-        setActiveRunLimit(rendererEvent.snapshot.limit)
-        setActiveRunIds(new Set(rendererEvent.snapshot.runs.map((run) => run.agentRunId)))
         setLiveRuns(rendererEvent.snapshot.runs)
         setActiveCompactions(rendererEvent.snapshot.compactions)
-        setActiveWorkCount(rendererEvent.snapshot.activeCount)
         return
       }
       if (rendererEvent.kind === 'session') {
@@ -308,7 +298,6 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         return
       }
       if (rendererEvent.kind === 'delta') {
-        setActiveRunIds((current) => new Set(current).add(rendererEvent.agentRunId))
         setStreamingBySession((current) => {
           const sessionStreaming = current[rendererEvent.agentSessionId] ?? {}
           return {
@@ -334,20 +323,6 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         return
       }
       const runId = rendererEvent.event.agentRunId
-      if (runId !== null) {
-        setActiveRunIds((current) => {
-          const next = new Set(current)
-          if (
-            rendererEvent.event.type === 'run_completed' ||
-            rendererEvent.event.type === 'run_interrupted'
-          ) {
-            next.delete(runId)
-          } else {
-            next.add(runId)
-          }
-          return next
-        })
-      }
       if (
         runId !== null &&
         (rendererEvent.event.type === 'assistant_message' ||
@@ -371,11 +346,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
           return
         }
         unsubscribe = subscription.unsubscribe
-        setActiveRunLimit(subscription.snapshot.limit)
-        setActiveRunIds(new Set(subscription.snapshot.runs.map((run) => run.agentRunId)))
         setLiveRuns(subscription.snapshot.runs)
         setActiveCompactions(subscription.snapshot.compactions)
-        setActiveWorkCount(subscription.snapshot.activeCount)
         setStreamingBySession(
           Object.fromEntries(
             subscription.snapshot.runs.map((run) => [
@@ -523,11 +495,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     proposals,
     setProposals,
     streamingBySession,
-    activeRunLimit,
-    setActiveRunIds,
     liveRuns,
     activeCompactions,
-    activeWorkCount,
     compactionConfirmOpen,
     setCompactionConfirmOpen,
     prompt,

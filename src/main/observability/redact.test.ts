@@ -12,8 +12,28 @@ describe('redactLogValue', () => {
     ).toEqual({
       credentials: '[REDACTED]',
       ciphertext: '[REDACTED]',
-      filePath: '[PRIVATE_PATH]'
+      filePath: '[REDACTED_PATH]'
     })
+  })
+
+  it('redacts credentials embedded inside error text rather than only object keys', () => {
+    const serialized = JSON.stringify(
+      redactLogValue({
+        message: 'HTTP 401 api_key=private-key Authorization: Bearer private-bearer',
+        cause: 'Cookie: session=private-cookie',
+        stack: 'at file:///workspace/private-file.md and https://host.test/a?signature=private-sig'
+      })
+    )
+    expect(serialized).toContain('HTTP 401')
+    for (const privateValue of [
+      'private-key',
+      'private-bearer',
+      'private-cookie',
+      'private-file',
+      'private-sig'
+    ]) {
+      expect(serialized).not.toContain(privateValue)
+    }
   })
 
   it('bounds depth and collection sizes', () => {

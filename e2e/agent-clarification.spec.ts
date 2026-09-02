@@ -270,7 +270,9 @@ test(
       await expect(questionnaire).toBeVisible()
       await expect(panel.getByTestId('agent-status')).toContainText('Waiting for your answer')
       await questionnaire.getByRole('button', { name: 'Stop' }).click()
-      await expect(panel.getByText('Stopped', { exact: false })).toBeVisible({ timeout: 20_000 })
+      await expect(
+        panel.getByText('Clarification ended without an answer', { exact: true })
+      ).toBeVisible({ timeout: 20_000 })
       expect(agentCall).toBe(3)
 
       const stoppedTruth = await launched.page.evaluate(async () => {

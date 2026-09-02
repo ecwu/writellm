@@ -553,7 +553,7 @@ export class MutationProposalService {
         if (err.code === 'stale_base') {
           throw new AgentToolDomainError(
             'conflict',
-            `${err.message}. Call get_writing_context and retry once with the refreshed version.`,
+            `${err.message}. Call get_writing_context and use the refreshed version.`,
             true,
             { cause: err }
           )

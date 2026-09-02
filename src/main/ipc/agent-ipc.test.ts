@@ -39,7 +39,7 @@ describe('Agent session IPC', () => {
       subscriptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc904'
     })
 
-    expect(snapshot).toMatchObject({ limit: 3, activeCount: 0, runs: [], compactions: [] })
+    expect(snapshot).toMatchObject({ activeCount: 0, runs: [], compactions: [] })
     expect(value.order).toEqual(['subscribe-activity', 'activity-snapshot'])
     await value.invoke(IPC_CHANNELS.agentCompleteActivitySnapshot, {
       projectSessionId,
@@ -449,30 +449,6 @@ describe('Agent session IPC', () => {
     expect(value.sessions.stopCompaction).toHaveBeenCalledWith(agentSessionId, compactionId)
   })
 
-  it('routes a retry capability without accepting prompt content', async () => {
-    const value = harness()
-    const capabilityId = '019c6a5c-8d34-7a8e-a602-3d37a52dc913'
-
-    await expect(
-      value.invoke(IPC_CHANNELS.agentRetryRequest, {
-        projectSessionId,
-        agentRunId,
-        capabilityId
-      })
-    ).resolves.toEqual({})
-    expect(value.sessions.retryRequest).toHaveBeenCalledWith(agentRunId, capabilityId)
-
-    await expect(
-      value.invoke(IPC_CHANNELS.agentRetryRequest, {
-        projectSessionId,
-        agentRunId,
-        capabilityId,
-        prompt: 'Do not resend this.'
-      })
-    ).rejects.toThrow()
-    expect(value.sessions.retryRequest).toHaveBeenCalledOnce()
-  })
-
   it('routes pending Follow-up Steer and delete through the active project capability', async () => {
     const value = harness()
     const pendingMessageId = '019c6a5c-8d34-7a8e-a602-3d37a52dc912'
@@ -603,14 +579,13 @@ function harness() {
     followUp: vi.fn(),
     steerPendingFollowUp: vi.fn(),
     deletePendingFollowUp: vi.fn(),
-    retryRequest: vi.fn(),
     abort: vi.fn(),
     answerUserQuestion: vi.fn(),
     compactSession: vi.fn(),
     stopCompaction: vi.fn(),
     projectActivitySnapshot: vi.fn(() => {
       order.push('activity-snapshot')
-      return { limit: 3, activeCount: 0, runs: [], compactions: [] }
+      return { activeCount: 0, runs: [], compactions: [] }
     })
   }
   const mutations = { list: vi.fn((): ListedProposal[] => []) }

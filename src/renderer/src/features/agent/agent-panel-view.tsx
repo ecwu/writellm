@@ -79,7 +79,6 @@ export function AgentPanelView({
     events,
     runs,
     proposals,
-    activeRunLimit,
     compactionConfirmOpen,
     setCompactionConfirmOpen,
     prompt,
@@ -126,9 +125,7 @@ export function AgentPanelView({
     waitingProposal,
     workflowState,
     conversationLocked,
-    agentCapacityReached,
     canControlTask,
-    workingSession,
     modelReady,
     supportedThinkingLevels,
     availableModelPresets,
@@ -150,7 +147,6 @@ export function AgentPanelView({
     restoreSession,
     startRun,
     stopRun,
-    retryRequest,
     answerUserQuestion,
     resumeWritingTask,
     reviseWritingTask,
@@ -158,7 +154,6 @@ export function AgentPanelView({
     actOnPendingMessage,
     proposalAction,
     decideChangeSet,
-    modelRetry,
     failedContinuationProposal,
     composerSettingsDisabled,
     interactionModeSwitchDisabled,
@@ -313,30 +308,7 @@ export function AgentPanelView({
               </Marker>
             </AgentAttentionDock>
           )}
-          {agentCapacityReached ? (
-            <AgentAttentionDock label='Agent capacity reached'>
-              <Marker role='status'>
-                <MarkerIcon>
-                  <TriangleAlert />
-                </MarkerIcon>
-                <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-2'>
-                  <span>
-                    {activeRunLimit} Agent runs are already working. Your draft is saved; wait for
-                    one to finish or stop one.
-                  </span>
-                  {workingSession === null ? null : (
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => openSession(workingSession.agentSessionId)}
-                    >
-                      Open working conversation
-                    </Button>
-                  )}
-                </MarkerContent>
-              </Marker>
-            </AgentAttentionDock>
-          ) : activeSessionArchived && activeSession ? (
+          {activeSessionArchived && activeSession ? (
             <AgentAttentionDock label='Archived conversation'>
               <Marker role='status'>
                 <MarkerIcon>
@@ -705,45 +677,7 @@ export function AgentPanelView({
                           onSelect={setInteractionMode}
                         />
                         {activeRun !== null ? (
-                          modelRetry !== null ? (
-                            <>
-                              {agentComposerRunningAction(prompt) === 'follow_up' ? (
-                                <InputGroupButton
-                                  variant='default'
-                                  size='icon-sm'
-                                  className='shrink-0 rounded-full'
-                                  aria-label='Queue follow-up'
-                                  title='Queue follow-up'
-                                  disabled={busy}
-                                  onClick={() => void queueMessage('follow_up')}
-                                >
-                                  <ArrowUp />
-                                </InputGroupButton>
-                              ) : null}
-                              <ComposerAction
-                                size='icon-sm'
-                                variant='outline'
-                                className='shrink-0 rounded-full'
-                                label={
-                                  modelRetry.label === 'continue' ? 'Continue' : 'Retry request'
-                                }
-                                disabled={busy}
-                                onClick={() => void retryRequest()}
-                              >
-                                <RotateCcw />
-                              </ComposerAction>
-                              <ComposerAction
-                                size='icon-sm'
-                                variant='destructive'
-                                className='shrink-0 rounded-full'
-                                label='Stop'
-                                disabled={busy}
-                                onClick={() => void stopRun()}
-                              >
-                                <CircleStop />
-                              </ComposerAction>
-                            </>
-                          ) : agentComposerRunningAction(prompt) === 'follow_up' ? (
+                          agentComposerRunningAction(prompt) === 'follow_up' ? (
                             <InputGroupButton
                               variant='default'
                               size='icon-sm'
@@ -777,8 +711,7 @@ export function AgentPanelView({
                             disabled={
                               busy ||
                               prompt.trim().length === 0 ||
-                              activeSession?.compatible === false ||
-                              agentCapacityReached
+                              activeSession?.compatible === false
                             }
                             onClick={() => void startRun(prompt)}
                           >

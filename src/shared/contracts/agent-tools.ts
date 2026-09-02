@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import {
   AGENT_TOOL_CONTRACT_VERSION,
   type agentProposalToolNameSchema,
@@ -61,7 +62,8 @@ export const toolResultMetaSchema = z
       z.literal(10),
       z.literal(11),
       z.literal(12),
-      z.literal(13)
+      z.literal(13),
+      z.literal(14)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -124,7 +126,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   ask_user: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 13,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -134,7 +136,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   },
   activate_tool_groups: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 13,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -156,7 +158,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 13,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -168,7 +170,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -207,7 +209,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 13,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -221,7 +223,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 13,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -1104,7 +1106,8 @@ const errorResponse = strictObject({
     ]),
     category: agentToolErrorCategorySchema,
     message: z.string().min(1).max(1_000),
-    recovery: agentToolRecoverySchema
+    recovery: agentToolRecoverySchema.optional(),
+    details: agentDiagnosticErrorSchema.optional()
   })
 })
 
@@ -1135,7 +1138,8 @@ export const agentToolResultPayloadSchema = strictObject({
       retryable: z.boolean().optional(),
       operationId: z.string().min(1).max(256).optional(),
       category: agentToolErrorCategorySchema.optional(),
-      recovery: agentToolRecoverySchema.optional()
+      recovery: agentToolRecoverySchema.optional(),
+      details: agentDiagnosticErrorSchema.optional()
     })
     .strict()
     .nullable(),
