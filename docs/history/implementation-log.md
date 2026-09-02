@@ -1471,3 +1471,67 @@ maintenance without turning the active tracker back into a historical log.
   Developer ID signing, notarization or publication was performed; starting worktree changes remain.
 - Final `pnpm check` and `git diff --check` passed. Only tool/reporting checks were repeated after
   the review fixes; the accepted application and installer contents were unaffected.
+
+
+## 2026-09-02 Agent Panel presentation maintenance
+
+- Authorization: the user explicitly approved the Agent Panel presentation implementation plan,
+  including ADR 075, six content categories, central visibility/disclosure rules, focused tests,
+  and desktop verification. ADR 075 records the pinned OpenCode/Codex/Pi source evidence and
+  Renderer boundary. No database, IPC, Worker, dependency, Pi pin, or release change was needed.
+- `projectAgentPresentation` owns message/activity/change/question/compaction/notice projection,
+  tool/result correlation, proposal truth, validated source attribution, run duration, and current
+  activity. Timeline and Details share the same result. The static exhaustive tool table replaces
+  scattered name switches and proposal-name prefix detection. Successful internal tools remain
+  in Details; failures/stops are visible. Read groups retain per-step sources and use elapsed
+  wall-clock span for parallel calls. Proposal failures/conflicts remain visible when collapsed.
+- Live and durable prose share the same message renderer and stable message keys. Live settlement
+  removes the partial and inserts the durable record in one state update; duplicate settlement
+  cannot erase the next partial and terminal runs reject late deltas. Background sessions retain
+  independent partials. Disclosure stores manual choices by item ID; untouched activities and
+  proposals follow lifecycle defaults. Compaction uses one lifecycle row; historical question
+  answers are shown once and synthetic answer/approval prompts remain filtered.
+- Focused Electron-hosted Renderer verification passed for five files: 77 tests in 1.4 seconds
+  (`1788386357077-80103-3c51efc4`). An additional proposal-truth assertion covering outdated,
+  applied, undone, conflicted, and failed states brought the view-model file to 45 passing tests
+  in 1.0 second (`1788386517302-81483-1af563a9`), for **78 distinct passing tests** overall.
+  An earlier 63-test development run had three old-shape assertion failures; those expectations
+  were corrected before the passing runs. Tests use the repository's Electron runner, not Node
+  Vitest. Electron's non-fatal macOS `task_name_for_pid` diagnostic did not affect results.
+- One `pnpm check:e2e` invocation selected agent-writing, agent-clarification, agent-concurrency,
+  agent-proposal-refresh, and agent-writing-task. Static checks passed (Biome 0.4 s, main types
+  4.6 s, Renderer types 4.9 s), native preparation took 0.6 s, and the **only production build**
+  took 11.1 s. Five of six scenarios passed; clarification stopped correctly but its assertion
+  expected the old generic message instead of the concrete abort reason. The composite took
+  66.7 s, including 44.8 s Playwright; evidence: `1788386377683-80306-82f8d733`.
+- Only clarification assertions changed after that build: concrete abort reason, one live
+  question, and one historical question/answer. `pnpm test:e2e e2e/agent-clarification.spec.ts`
+  passed against the same build in 5.5 s (5.0 s scenario), including restart/read-only history;
+  evidence: `1788386513057-81416-cccb44ce`. All **six distinct scenarios** therefore passed;
+  seven total attempts, one intentional assertion-fix rerun, zero automatic retries, flakes or
+  skips. Production source was unchanged between those E2E invocations.
+- Grounded writing also verifies keyboard expansion, preserved manual activity expansion across
+  later runs, pending-to-settled proposal defaults, real source titles/pages, native diff modes,
+  approvals, undo/reopen, and compaction. Concurrent conversations and proposal refresh retain
+  their existing authority assertions. Writing-task verification confirms internal tools are
+  absent from the timeline but present in Details, and retains keyboard/task identity checks.
+- Scoped Impeccable review: detector returned `[]` for the four changed UI files. The retained
+  shadcn primitives expose native disclosure state and keyboard controls; no parallel styles,
+  dependencies, or motion were added. Four real 1680×900 desktop screenshots cover collapsed/
+  expanded tasks, a sidebar resized to 640 px, and dark mode. Controls and scroll regions remain
+  contained and the resize handle works. Images: `.cache/verification/agent-presentation-screenshots/`.
+
+  | Scoped dimension | Score | Evidence / limit |
+  | --- | ---: | --- |
+  | Accessibility | 3/4 | Keyboard and disclosure ARIA verified; no full screen-reader audit |
+  | Performance | 3/4 | Shared memoized projection, bounded details; no performance benchmark |
+  | Desktop layout | 4/4 | Geometry, scrolling, keyboard and sidebar resize assertions pass |
+  | Theming | 3/4 | Existing tokens and light/dark screenshots; no full contrast measurement |
+  | Implementation integrity | 4/4 | Central typed policy and no detector findings |
+  | Total | 17/20 | Scoped check passed; no verified P0–P3 issue introduced by this change |
+
+- Reports are under `.cache/verification/` using the IDs above. Runtime was Electron 43.4.1,
+  embedded Node 24.18.1 / ABI 148, on macOS arm64. Host Node 26.8.1 retains the pre-existing
+  engine warning; exact pnpm 11.17.0 was preserved. Other platforms and full packaging/release
+  gates were outside this Renderer maintenance scope. Final `pnpm check` and `git diff --check`
+  passed after documentation synchronization.

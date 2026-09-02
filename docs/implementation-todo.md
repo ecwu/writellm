@@ -22,6 +22,9 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance: unify Agent Panel content, tool presentation, disclosure, and Details under
+  ADR 075. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance).
+
 - [x] Maintenance: separate build and verification commands, reuse packaged applications, simplify
   hash manifests, and report layered verification timings. Evidence: [`history/implementation-log.md`](history/implementation-log.md).
 

@@ -76,8 +76,6 @@ export function AgentPanelView({
   const {
     props,
     sessions,
-    events,
-    runs,
     proposals,
     compactionConfirmOpen,
     setCompactionConfirmOpen,
@@ -116,7 +114,6 @@ export function AgentPanelView({
     pendingQuestion,
     pendingMessages,
     choosingSkill,
-    streaming,
     usage,
     usageDetails,
     latestRun,
@@ -130,7 +127,7 @@ export function AgentPanelView({
     supportedThinkingLevels,
     availableModelPresets,
     effectiveRevisionIds,
-    timeline,
+    presentation,
     thinkingVisualState,
     headerStatus,
     beginNewConversation,
@@ -259,12 +256,8 @@ export function AgentPanelView({
             </div>
           ) : (
             <EventTimeline
-              timeline={timeline}
+              presentation={presentation}
               projectSessionId={props.projectSessionId}
-              proposals={proposals}
-              runs={runs}
-              streaming={streaming}
-              currentRevisionIds={effectiveRevisionIds}
               sectionTitles={props.sectionTitles}
               onProposalAction={proposalAction}
               onNew={beginNewConversation}
@@ -767,8 +760,7 @@ export function AgentPanelView({
         session={activeSession}
         activeRun={activeRun}
         latestRun={latestRun}
-        events={events}
-        proposals={proposals}
+        presentation={presentation}
         usage={usage}
         usageDetails={usageDetails}
         contextSnapshot={contextSnapshot}

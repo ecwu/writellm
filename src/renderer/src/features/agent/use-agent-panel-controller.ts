@@ -9,10 +9,9 @@ import {
   aggregateAgentUsage,
   agentHeaderStatusLabel,
   agentThinkingVisualState,
-  currentAgentActivitySummary,
   latestAgentContextSnapshot,
   protectTerminalAgentRuns,
-  projectAgentTimeline
+  projectAgentPresentation
 } from './agent-view-model'
 import type { WritingTaskStepStatus } from '../../../../shared/contracts/writing-task'
 import type { ChangeSetBatchResult } from '../../../../shared/contracts/agent-change-set'
@@ -195,14 +194,21 @@ export function useAgentPanelController(props: AgentPanelProps) {
     }
     return result
   }, [props.currentRevisionIds, revisionTransitions])
-  const timeline = useMemo(
-    () => projectAgentTimeline(events, proposals, runs, clockNow),
-    [clockNow, events, proposals, runs]
+  const presentation = useMemo(
+    () =>
+      projectAgentPresentation({
+        events,
+        proposals,
+        runs,
+        streaming,
+        activeRunId: activeRun?.agentRunId ?? null,
+        currentRevisionIds: effectiveRevisionIds,
+        now: clockNow
+      }),
+    [clockNow, events, proposals, runs, streaming, activeRun?.agentRunId, effectiveRevisionIds]
   )
-  const currentActivity = currentAgentActivitySummary(timeline, activeRun?.agentRunId ?? null)
   const thinkingVisualState = agentThinkingVisualState({
-    timeline,
-    runId: activeRun?.agentRunId ?? null,
+    currentVisual: presentation.currentVisual,
     workflowState,
     choosingSkill,
     hasStreamingRun
@@ -211,7 +217,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     archived: activeSessionArchived === true,
     workflowState,
     choosingSkill,
-    currentActivity,
+    currentActivity: presentation.currentActivity,
     hasStreamingRun,
     elapsedMs: elapsedRunMs(activeRun, clockNow)
   })
@@ -843,7 +849,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     supportedThinkingLevels,
     availableModelPresets,
     effectiveRevisionIds,
-    timeline,
+    presentation,
     thinkingVisualState,
     headerStatus,
     beginNewConversation,

@@ -105,6 +105,13 @@ test(
           exact: true
         })
       ).toBeVisible({ timeout: 20_000 })
+      await expect(panel.getByTestId('agent-activity-group')).toHaveCount(0)
+      await panel.getByTestId('agent-conversation-menu').click()
+      await first.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
+      const agentDetails = first.page.getByRole('dialog', { name: 'Agent details' })
+      await expect(agentDetails.getByText('activate_tool_groups', { exact: true })).toBeVisible()
+      await expect(agentDetails.getByText('create_writing_task', { exact: true })).toBeVisible()
+      await agentDetails.getByRole('button', { name: 'Close', exact: true }).click()
       const task = panel.getByTestId('agent-writing-task')
       const taskTrigger = task.getByTestId('agent-writing-task-trigger')
       await expect(taskTrigger).toHaveAccessibleName('Writing task, Step 1 of 2, open details')

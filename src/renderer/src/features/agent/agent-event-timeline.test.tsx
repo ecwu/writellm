@@ -1,3 +1,4 @@
+import { presentAgentTool } from './agent-tool-presentation'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { AgentPreflightFailure, AgentToolActivity } from './agent-view-model'
@@ -164,7 +165,7 @@ const failedTool: AgentToolActivity = {
 
 describe('Agent diagnostics', () => {
   it('keeps the concrete tool message visible and makes safe details expandable', () => {
-    const html = renderToStaticMarkup(<ToolActivityRow tool={failedTool} stopped={false} />)
+    const html = renderToStaticMarkup(<ToolActivityRow tool={presentAgentTool(failedTool)} />)
 
     expect(html).toContain(diagnostic.message)
     expect(html).toContain('Show diagnostic details')

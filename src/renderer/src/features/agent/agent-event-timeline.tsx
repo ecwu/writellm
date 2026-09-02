@@ -1,16 +1,11 @@
 import type { AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import { askUserArgsSchema, askUserResultSchema } from '../../../../shared/contracts/agent-tools'
-import {
-  agentDiagnosticErrorSchema,
-  type AgentDiagnosticError
-} from '../../../../shared/agent-diagnostic-error'
+import type { AgentDiagnosticError } from '../../../../shared/agent-diagnostic-error'
 import {
   AlertCircle,
   Check,
   ChevronDown,
   CircleDotDashed,
-  CircleHelp,
   CircleStop,
   Clock3,
   FileText,
@@ -21,7 +16,6 @@ import {
   Undo2,
   X
 } from 'lucide-react'
-import { useMemo } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Attachment,
@@ -49,31 +43,24 @@ import { Spinner } from '@/components/ui/spinner'
 import { useTheme } from '@/theme-provider'
 import { AgentMarkdown } from './agent-markdown'
 import {
-  agentActivityDefaultOpen,
-  agentToolActivityLabel,
   agentTerminalDetail,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
-  citationDisplaysForToolResult,
   formatAgentDuration,
-  isSectionProposalOutdated,
   type AgentPreflightFailure,
   type AgentActivityStatus,
   type AgentCitationDisplay,
   type AgentTimelineItem,
-  type AgentToolActivity,
-  toolWasStopped
+  type AgentToolPresentation,
+  type AgentPresentation
 } from './agent-view-model'
+import { AgentDisclosure, AgentDisclosureProvider } from './agent-disclosure'
 import { ProposalPresentation } from './proposal-presentation'
 import { blockOperationDisplays, deliveryLabel } from './agent-panel-logic'
 
 export function EventTimeline(props: {
-  timeline: AgentTimelineItem[]
+  presentation: AgentPresentation
   projectSessionId: string
-  proposals: MutationProposalRecord[]
-  runs: AgentRunRecord[]
-  streaming: Record<string, string>
-  currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   busy: boolean
   onNew(): void
@@ -82,97 +69,51 @@ export function EventTimeline(props: {
     action: 'approve' | 'approve_continue' | 'request_changes' | 'reject' | 'undo' | 'cancel_image'
   ): Promise<void>
 }): React.JSX.Element {
-  const citationsById = useMemo(() => {
-    const citations = new Map<string, AgentCitationDisplay>()
-    for (const item of props.timeline) {
-      if (item.type === 'activity') {
-        for (const citation of item.citations) citations.set(citation.citationId, citation)
-      } else if (item.type === 'proposal' && item.tool.result !== null) {
-        for (const citation of citationDisplaysForToolResult(item.tool.result)) {
-          citations.set(citation.citationId, citation)
-        }
-      }
-    }
-    return citations
-  }, [props.timeline])
-  const scrollAnchorIndex = agentTimelineScrollAnchorIndex(props.timeline)
-  const runDurationById = useMemo(() => {
-    const durations = new Map<string, number>()
-    for (const item of props.timeline) {
-      if (
-        (item.type === 'run_completed' || item.type === 'run_interrupted') &&
-        item.terminal.runId !== null
-      ) {
-        durations.set(item.terminal.runId, item.terminal.durationMs)
-      }
-    }
-    return durations
-  }, [props.timeline])
+  const { timeline } = props.presentation
+  const scrollAnchorIndex = agentTimelineScrollAnchorIndex(timeline)
 
   return (
-    <MessageScrollerProvider autoScroll>
-      <MessageScroller data-testid='agent-event-timeline'>
-        <MessageScrollerViewport>
-          <MessageScrollerContent className='gap-5 overflow-hidden px-4 py-4 pb-6'>
-            {props.timeline.map((item, index) => (
-              <MessageScrollerItem
-                key={item.id}
-                messageId={item.id}
-                scrollAnchor={
-                  Object.keys(props.streaming).length === 0 && index === scrollAnchorIndex
-                }
-              >
-                <TimelineItem
-                  item={item}
-                  projectSessionId={props.projectSessionId}
-                  proposals={props.proposals}
-                  runs={props.runs}
-                  citationsById={citationsById}
-                  busy={props.busy}
-                  currentRevisionIds={props.currentRevisionIds}
-                  sectionTitles={props.sectionTitles}
-                  onProposalAction={props.onProposalAction}
-                  onNew={props.onNew}
-                  runDurationById={runDurationById}
-                />
-              </MessageScrollerItem>
-            ))}
-            {Object.entries(props.streaming).map(([runId, content]) =>
-              content.length === 0 ? null : (
-                <MessageScrollerItem key={runId} messageId={runId} scrollAnchor>
-                  <Message>
-                    <MessageContent>
-                      <Bubble variant='ghost'>
-                        <BubbleContent>
-                          <AgentMarkdown content={content} />
-                        </BubbleContent>
-                      </Bubble>
-                      <MessageFooter>
-                        <span>Writing response…</span>
-                      </MessageFooter>
-                    </MessageContent>
-                  </Message>
+    <AgentDisclosureProvider key={props.projectSessionId}>
+      <MessageScrollerProvider autoScroll>
+        <MessageScroller data-testid='agent-event-timeline'>
+          <MessageScrollerViewport>
+            <MessageScrollerContent className='gap-5 overflow-hidden px-4 py-4 pb-6'>
+              {timeline.map((item, index) => (
+                <MessageScrollerItem
+                  key={item.id}
+                  messageId={item.id}
+                  scrollAnchor={index === scrollAnchorIndex}
+                >
+                  <TimelineItem
+                    item={item}
+                    projectSessionId={props.projectSessionId}
+                    busy={props.busy}
+                    sectionTitles={props.sectionTitles}
+                    onProposalAction={props.onProposalAction}
+                    onNew={props.onNew}
+                  />
+                  {item.runDurationMs === undefined ? null : (
+                    <MessageFooter className='mt-2 gap-1.5 tabular-nums'>
+                      <Clock3 className='size-3.5' /> Worked for{' '}
+                      {formatAgentDuration(item.runDurationMs)}
+                    </MessageFooter>
+                  )}
                 </MessageScrollerItem>
-              )
-            )}
-          </MessageScrollerContent>
-        </MessageScrollerViewport>
-        <MessageScrollerButton />
-      </MessageScroller>
-    </MessageScrollerProvider>
+              ))}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+          <MessageScrollerButton />
+        </MessageScroller>
+      </MessageScrollerProvider>
+    </AgentDisclosureProvider>
   )
 }
 
 function TimelineItem(props: {
   item: AgentTimelineItem
   projectSessionId: string
-  proposals: MutationProposalRecord[]
-  runs: AgentRunRecord[]
-  citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
   onNew(): void
-  runDurationById: ReadonlyMap<string, number>
-  currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   onProposalAction(
     proposal: MutationProposalRecord,
@@ -180,7 +121,7 @@ function TimelineItem(props: {
   ): Promise<void>
 }): React.JSX.Element | null {
   const { item } = props
-  if (item.type === 'user') {
+  if (item.type === 'message' && item.role === 'user') {
     return (
       <Message align='end'>
         <MessageContent>
@@ -216,8 +157,7 @@ function TimelineItem(props: {
       </Message>
     )
   }
-  if (item.type === 'assistant') {
-    const durationMs = item.runId === null ? undefined : props.runDurationById.get(item.runId)
+  if (item.type === 'message' && item.role === 'assistant') {
     return (
       <Message>
         <MessageContent>
@@ -226,21 +166,21 @@ function TimelineItem(props: {
               <AgentMarkdown content={item.payload.content} />
             </BubbleContent>
           </Bubble>
-          {durationMs === undefined ? null : (
-            <MessageFooter className='gap-1.5 tabular-nums'>
-              <Clock3 className='size-3.5' /> Worked for {formatAgentDuration(durationMs)}
+          {item.streaming ? (
+            <MessageFooter>
+              <span>Writing response…</span>
             </MessageFooter>
-          )}
+          ) : null}
         </MessageContent>
       </Message>
     )
   }
   if (item.type === 'question') return <QuestionHistoryMessage item={item} />
   if (item.type === 'activity') return <ActivityGroup item={item} />
-  if (item.type === 'preflight_failure') {
-    return <PreflightFailureMessage failure={item.failure} />
+  if (item.type === 'notice' && item.kind === 'preflight') {
+    return <PreflightFailureMessage failure={item.failure} disclosureId={item.id} />
   }
-  if (item.type === 'approval_decision') {
+  if (item.type === 'notice' && item.kind === 'approval') {
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -262,20 +202,18 @@ function TimelineItem(props: {
       </Marker>
     )
   }
-  if (item.type === 'proposal') {
+  if (item.type === 'change') {
     return (
       <ProposalMessage
         item={item}
         projectSessionId={props.projectSessionId}
-        citationsById={props.citationsById}
         busy={props.busy}
-        currentRevisionIds={props.currentRevisionIds}
         sectionTitles={props.sectionTitles}
         onAction={props.onProposalAction}
       />
     )
   }
-  if (item.type === 'run_interrupted') {
+  if (item.type === 'notice' && item.kind === 'terminal') {
     if (item.terminal.outcome === 'awaiting_review') {
       return null
     }
@@ -311,10 +249,19 @@ function TimelineItem(props: {
       </Marker>
     )
   }
-  if (item.type === 'run_completed') {
-    return null
+  if (item.type === 'notice' && item.kind === 'tool') {
+    return (
+      <AgentDisclosure disclosureId={item.id}>
+        <CollapsibleTrigger className='text-left text-sm'>
+          {item.tool.result?.error?.message ?? `${item.tool.label} · ${item.tool.statusLabel}`}
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <ToolActivityRow tool={item.tool} />
+        </CollapsibleContent>
+      </AgentDisclosure>
+    )
   }
-  if (item.type === 'compaction_started') {
+  if (item.type === 'compaction' && item.state === 'running') {
     return (
       <Marker role='status'>
         <MarkerIcon>
@@ -324,14 +271,16 @@ function TimelineItem(props: {
       </Marker>
     )
   }
-  if (item.type === 'compaction_failed') {
+  if (item.type === 'compaction' && item.state === 'error') {
     return <CompactionFailureMessage payload={item.payload} onNew={props.onNew} />
   }
-  return <CompactionCheckpointMarker payload={item.payload} />
+  if (item.type === 'compaction' && item.state === 'complete')
+    return <CompactionCheckpointMarker payload={item.payload} disclosureId={item.id} />
+  return null
 }
 
 export function CompactionFailureMessage(props: {
-  payload: Extract<AgentTimelineItem, { type: 'compaction_failed' }>['payload']
+  payload: Extract<AgentTimelineItem, { type: 'compaction'; state: 'error' }>['payload']
   onNew(): void
 }): React.JSX.Element {
   const sourceTooLarge = props.payload.code === 'compaction_run_too_large'
@@ -363,11 +312,13 @@ export function CompactionFailureMessage(props: {
 
 export function PreflightFailureMessage(props: {
   failure: AgentPreflightFailure
+  disclosureId?: string
   defaultOpen?: boolean
 }): React.JSX.Element {
   const { failure } = props
   return (
-    <Collapsible
+    <AgentDisclosure
+      disclosureId={props.disclosureId ?? 'preflight'}
       className='group/preflight min-w-0 max-w-full overflow-hidden'
       defaultOpen={props.defaultOpen}
       data-testid='agent-preflight-failure'
@@ -414,59 +365,25 @@ export function PreflightFailureMessage(props: {
           </Alert>
         </div>
       </CollapsibleContent>
-    </Collapsible>
+    </AgentDisclosure>
   )
 }
 
 function QuestionHistoryMessage(props: {
   item: Extract<AgentTimelineItem, { type: 'question' }>
 }): React.JSX.Element {
-  const args = askUserArgsSchema.safeParse(props.item.tool.call.args)
-  const result = askUserResultSchema.safeParse(props.item.tool.result?.result)
-  if (!args.success) {
+  if (props.item.questions.length === 0 || props.item.tool.status !== 'complete') {
     return (
       <Marker role='status'>
         <MarkerIcon>
-          <CircleHelp />
-        </MarkerIcon>
-        <MarkerContent>Agent requested clarification</MarkerContent>
-      </Marker>
-    )
-  }
-  if (props.item.tool.result === null && props.item.tool.stopped) {
-    return (
-      <Marker role='status'>
-        <MarkerIcon>
-          <CircleStop className='text-destructive' />
-        </MarkerIcon>
-        <MarkerContent>Clarification ended without an answer</MarkerContent>
-      </Marker>
-    )
-  }
-  if (props.item.tool.result === null) {
-    return (
-      <Marker role='status'>
-        <MarkerIcon>
-          <CircleHelp className='text-warning' />
+          <CircleStop />
         </MarkerIcon>
         <MarkerContent>
-          Agent asked {args.data.questions.length} clarification question
-          {args.data.questions.length === 1 ? '' : 's'}
+          {props.item.tool.result?.error?.message ?? 'Clarification ended without an answer'}
         </MarkerContent>
       </Marker>
     )
   }
-  if (props.item.tool.result.isError || !result.success) {
-    return (
-      <Marker role='status'>
-        <MarkerIcon>
-          <CircleStop className='text-destructive' />
-        </MarkerIcon>
-        <MarkerContent>Clarification ended without an answer</MarkerContent>
-      </Marker>
-    )
-  }
-  const answers = new Map(result.data.answers.map((answer) => [answer.questionId, answer]))
   return (
     <Message>
       <MessageContent>
@@ -474,8 +391,8 @@ function QuestionHistoryMessage(props: {
         <Bubble variant='ghost'>
           <BubbleContent>
             <ol className='flex min-w-0 list-none flex-col gap-4'>
-              {args.data.questions.map((question) => {
-                const answer = answers.get(question.id)
+              {props.item.questions.map((question) => {
+                const answer = question.answer
                 return (
                   <li key={question.id} className='flex min-w-0 flex-col gap-1.5'>
                     <p className='wrap-anywhere text-sm font-medium'>{question.question}</p>
@@ -499,7 +416,8 @@ function QuestionHistoryMessage(props: {
 }
 
 function CompactionCheckpointMarker(props: {
-  payload: Extract<AgentTimelineItem, { type: 'compaction_summary' }>['payload']
+  payload: Extract<AgentTimelineItem, { type: 'compaction'; state: 'complete' }>['payload']
+  disclosureId: string
 }): React.JSX.Element {
   if (!('schemaVersion' in props.payload)) {
     return (
@@ -515,7 +433,10 @@ function CompactionCheckpointMarker(props: {
       ? payload.omittedEventCount.toLocaleString()
       : null
   return (
-    <Collapsible className='group/checkpoint min-w-0 max-w-full'>
+    <AgentDisclosure
+      disclosureId={props.disclosureId}
+      className='group/checkpoint min-w-0 max-w-full'
+    >
       <CollapsibleTrigger className='w-full cursor-pointer rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'>
         <Marker variant='separator'>
           <MarkerIcon>
@@ -543,7 +464,7 @@ function CompactionCheckpointMarker(props: {
           <p>AI-generated context checkpoint, not manuscript authority.</p>
         </div>
       </CollapsibleContent>
-    </Collapsible>
+    </AgentDisclosure>
   )
 }
 
@@ -559,11 +480,12 @@ function ActivityGroup(props: {
   item: Extract<AgentTimelineItem, { type: 'activity' }>
 }): React.JSX.Element {
   const { item } = props
-  const durationMs = item.tools.reduce((total, tool) => total + tool.durationMs, 0)
+  const durationMs = item.durationMs
   return (
-    <Collapsible
+    <AgentDisclosure
+      disclosureId={item.id}
       className='group/activity min-w-0 max-w-full overflow-hidden'
-      defaultOpen={agentActivityDefaultOpen(item.status)}
+      defaultOpen={item.defaultOpen}
       data-testid='agent-activity-group'
       data-status={item.status}
     >
@@ -595,7 +517,6 @@ function ActivityGroup(props: {
               <AgentActivityStep key={tool.eventId} tool={tool} />
             ))}
           </div>
-          {item.citations.length > 0 ? <CitationAttachments citations={item.citations} /> : null}
           {item.failedCount > 0 ? (
             <p className='text-xs text-muted-foreground'>
               Some actions did not complete. Open Details for diagnostics.
@@ -603,46 +524,48 @@ function ActivityGroup(props: {
           ) : null}
         </div>
       </CollapsibleContent>
-    </Collapsible>
+    </AgentDisclosure>
   )
 }
 
-function AgentActivityStep(props: { tool: AgentToolActivity }): React.JSX.Element {
-  const stopped = toolWasStopped(props.tool)
+function AgentActivityStep(props: { tool: AgentToolPresentation }): React.JSX.Element {
   return (
-    <Marker data-testid={`agent-activity-step-${props.tool.call.toolCallId}`}>
-      <MarkerIcon>{toolResultIcon(props.tool, stopped)}</MarkerIcon>
-      <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-3'>
-        <span className='min-w-0 truncate text-foreground'>
-          {agentToolActivityLabel(props.tool)}
-        </span>
-        <span className='shrink-0 whitespace-nowrap text-xs'>
-          {toolResultLabel(props.tool, stopped)} · {formatAgentDuration(props.tool.durationMs)}
-        </span>
-      </MarkerContent>
-    </Marker>
+    <div className='flex min-w-0 flex-col gap-1'>
+      <Marker data-testid={`agent-activity-step-${props.tool.call.toolCallId}`}>
+        <MarkerIcon>{activityIcon(props.tool.status)}</MarkerIcon>
+        <MarkerContent className='flex min-w-0 flex-1 items-center justify-between gap-3'>
+          <span className='min-w-0 truncate text-foreground'>{props.tool.label}</span>
+          <span className='shrink-0 whitespace-nowrap text-xs'>
+            {props.tool.statusLabel} · {formatAgentDuration(props.tool.durationMs)}
+          </span>
+        </MarkerContent>
+      </Marker>
+      {props.tool.result?.error ? (
+        <p className='text-xs text-destructive'>{props.tool.result.error.message}</p>
+      ) : null}
+      {props.tool.citations.length > 0 ? (
+        <CitationAttachments citations={props.tool.citations} />
+      ) : null}
+    </div>
   )
 }
 
-export function ToolActivityRow(props: {
-  tool: AgentToolActivity
-  stopped: boolean
-}): React.JSX.Element {
+export function ToolActivityRow(props: { tool: AgentToolPresentation }): React.JSX.Element {
   const { tool } = props
-  const citations = tool.result === null ? [] : citationDisplaysForToolResult(tool.result)
+  const citations = tool.citations
   const error = tool.result?.error ?? null
-  const diagnostic = diagnosticFromUnknown(error?.details)
-  const recovery = toolRecoveryLabel(error?.recovery)
+  const diagnostic = tool.diagnostic
+  const recovery = tool.recoveryLabel
   return (
     <div
       className='flex min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm'
       data-testid={`agent-tool-${tool.call.toolCallId}`}
     >
       <div className='flex min-w-0 items-center gap-2'>
-        {toolResultIcon(tool, props.stopped)}
+        {activityIcon(tool.status)}
         <span className='min-w-0 flex-1 truncate font-medium'>{tool.call.toolName}</span>
         <span className='shrink-0 whitespace-nowrap text-xs text-muted-foreground'>
-          {toolResultLabel(tool, props.stopped)} · {formatAgentDuration(tool.durationMs)}
+          {tool.statusLabel} · {formatAgentDuration(tool.durationMs)}
         </span>
       </div>
       <BoundedJsonDetails label='Bounded arguments' value={tool.call.args} />
@@ -759,11 +682,9 @@ export function AgentDiagnosticDetails(props: {
 }
 
 function ProposalMessage(props: {
-  item: Extract<AgentTimelineItem, { type: 'proposal' }>
+  item: Extract<AgentTimelineItem, { type: 'change' }>
   projectSessionId: string
-  citationsById: Map<string, AgentCitationDisplay>
   busy: boolean
-  currentRevisionIds: Readonly<Record<string, string>>
   sectionTitles: Readonly<Record<string, string>>
   onAction(
     proposal: MutationProposalRecord,
@@ -774,16 +695,21 @@ function ProposalMessage(props: {
   const proposal = props.item.proposal
   if (proposal === null) {
     const failed = props.item.tool.result?.isError === true
-    const error = props.item.tool.result?.error ?? null
-    const diagnostic = diagnosticFromUnknown(error?.details)
-    const recovery = toolRecoveryLabel(error?.recovery)
+    const diagnostic = props.item.tool.diagnostic
+    const recovery = props.item.tool.recoveryLabel
     return (
       <Marker role='status'>
-        <MarkerIcon>{failed ? <X className='text-destructive' /> : <Spinner />}</MarkerIcon>
-        <MarkerContent className={failed ? 'flex flex-col gap-1 text-destructive' : 'shimmer'}>
-          {failed
-            ? (error?.message ?? 'Proposal could not be prepared')
-            : 'Preparing a reviewable proposal…'}
+        <MarkerIcon>{activityIcon(props.item.tool.status)}</MarkerIcon>
+        <MarkerContent
+          className={
+            failed
+              ? 'flex flex-col gap-1 text-destructive'
+              : props.item.tool.status === 'running'
+                ? 'shimmer'
+                : ''
+          }
+        >
+          {props.item.summary}
           {diagnostic === undefined ? null : <AgentDiagnosticDetails diagnostic={diagnostic} />}
           {recovery === null ? null : <span className='text-xs'>{recovery}</span>}
         </MarkerContent>
@@ -791,18 +717,10 @@ function ProposalMessage(props: {
     )
   }
   const preview = proposal.payload.preview
-  const isPending = proposal.status === 'pending'
-  const isOutdated = isSectionProposalOutdated(proposal, props.currentRevisionIds)
-  const canUndo =
-    proposal.status === 'applied' &&
-    (proposal.kind === 'section_patch' || proposal.kind === 'generated_image_insert')
-  const sources = preview.citedSources.map(
-    (source) =>
-      props.citationsById.get(source.citationId) ?? {
-        citationId: source.citationId,
-        title: source.citationId
-      }
-  )
+  const isPending = props.item.pending
+  const isOutdated = props.item.outdated
+  const canUndo = props.item.canUndo
+  const sources = props.item.citations
   const detail = (
     <div className='flex min-w-0 flex-col gap-3 overflow-hidden'>
       <div className='flex flex-wrap gap-1 text-xs'>
@@ -826,11 +744,6 @@ function ProposalMessage(props: {
       {sources.length > 0 ? <CitationAttachments citations={sources} /> : null}
       {proposal.replacesProposalId !== null ? (
         <p className='text-xs text-muted-foreground'>Refreshed from an outdated proposal.</p>
-      ) : null}
-      {proposal.status === 'conflicted' ? (
-        <p className='text-sm text-destructive' role='alert'>
-          This proposal conflicts with the latest section. {proposal.rejectedReason}
-        </p>
       ) : null}
       {proposal.status === 'satisfied' ? (
         <p className='text-sm text-muted-foreground'>
@@ -886,41 +799,22 @@ function ProposalMessage(props: {
                 ) : null}
               </div>
             </div>
-            {isPending ? (
-              detail
-            ) : (
-              <Collapsible>
-                <CollapsibleTrigger className='text-xs text-muted-foreground hover:text-foreground'>
-                  View proposal details
-                </CollapsibleTrigger>
-                <CollapsibleContent className='pt-3'>{detail}</CollapsibleContent>
-              </Collapsible>
+            {props.item.failureMessage === null ? null : (
+              <p className='text-sm text-destructive' role='alert'>
+                {props.item.failureMessage}
+              </p>
             )}
+            <AgentDisclosure disclosureId={props.item.id} defaultOpen={props.item.defaultOpen}>
+              <CollapsibleTrigger className='text-xs text-muted-foreground hover:text-foreground'>
+                View proposal details
+              </CollapsibleTrigger>
+              <CollapsibleContent className='pt-3'>{detail}</CollapsibleContent>
+            </AgentDisclosure>
           </BubbleContent>
         </Bubble>
       </MessageContent>
     </Message>
   )
-}
-
-function toolRecoveryLabel(
-  recovery:
-    | {
-        action: string
-        tool?: string
-        maxAttempts?: number
-        uri?: string
-      }
-    | undefined
-): string | null {
-  if (recovery === undefined) return null
-  const target = recovery.uri ?? recovery.tool
-  return `Recovery: ${recovery.action}${target === undefined ? '' : ` with ${target}`}`
-}
-
-function diagnosticFromUnknown(value: unknown): AgentDiagnosticError | undefined {
-  const parsed = agentDiagnosticErrorSchema.safeParse(value)
-  return parsed.success ? parsed.data : undefined
 }
 
 function CitationAttachments(props: { citations: AgentCitationDisplay[] }): React.JSX.Element {
@@ -963,20 +857,6 @@ function activityStatusLabel(status: AgentActivityStatus): string {
   if (status === 'error') return 'Failed'
   if (status === 'stopped') return 'Stopped'
   return 'Complete'
-}
-
-function toolResultIcon(tool: AgentToolActivity, stopped: boolean): React.JSX.Element {
-  if ((tool.result === null && stopped) || toolWasStopped(tool))
-    return <CircleStop className='text-destructive' />
-  if (tool.result === null) return <CircleDotDashed className='text-muted-foreground' />
-  if (tool.result.isError) return <X className='text-destructive' />
-  return <Check className='text-success' />
-}
-
-function toolResultLabel(tool: AgentToolActivity, stopped: boolean): string {
-  if ((tool.result === null && stopped) || toolWasStopped(tool)) return 'Stopped'
-  if (tool.result === null) return 'Running'
-  return tool.result.isError ? 'Error' : 'Complete'
 }
 
 export function elapsedRunMs(run: AgentRunRecord | null, now: number): number {

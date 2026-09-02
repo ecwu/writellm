@@ -10,7 +10,19 @@ import type {
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentProviderCatalog } from '../../../../shared/contracts/providers'
 import type { SkillsSnapshot } from '../../../../shared/contracts/skills'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type SetStateAction
+} from 'react'
+import {
+  applyAgentLiveContent,
+  emptyAgentContent,
+  type AgentContentState
+} from './agent-content-state'
 import {
   applyAgentTerminalEvent,
   mergeAgentEvents,
@@ -29,12 +41,26 @@ import { subscribeProviderCatalogChanged } from '../providers/provider-catalog-e
 export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   const [sessions, setSessions] = useState<AgentSessionRecord[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
-  const [events, setEvents] = useState<AgentEventRecord[]>([])
+  const [content, setContent] = useState(emptyAgentContent)
+  const { events, streamingBySession } = content
+  const setEvents = useCallback((update: SetStateAction<AgentEventRecord[]>) => {
+    setContent((current) => ({
+      ...current,
+      events: typeof update === 'function' ? update(current.events) : update
+    }))
+  }, [])
+  const setStreamingBySession = useCallback(
+    (update: SetStateAction<AgentContentState['streamingBySession']>) => {
+      setContent((current) => ({
+        ...current,
+        streamingBySession:
+          typeof update === 'function' ? update(current.streamingBySession) : update
+      }))
+    },
+    []
+  )
   const [runs, setRuns] = useState<AgentRunRecord[]>([])
   const [proposals, setProposals] = useState<MutationProposalRecord[]>([])
-  const [streamingBySession, setStreamingBySession] = useState<
-    Record<string, Record<string, string>>
-  >({})
   const [liveRuns, setLiveRuns] = useState<AgentLiveRunSnapshot[]>([])
   const [activeCompactions, setActiveCompactions] = useState<AgentLiveCompactionSnapshot[]>([])
   const [compactionConfirmOpen, setCompactionConfirmOpen] = useState(false)
@@ -105,7 +131,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     setReviewFeedback('')
     setScopePreference('auto')
     setContinuationFailure(null)
-    setStreamingBySession({})
+    setContent(emptyAgentContent())
     setLiveRuns([])
     setPendingActionIds(new Set())
     setWaitingMessagesOpen(false)
@@ -272,15 +298,6 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     if (!props.open) return
     let disposed = false
     let unsubscribe: (() => void) | undefined
-    const removeStreamingRun = (agentSessionId: string, agentRunId: string): void => {
-      setStreamingBySession((current) => {
-        const sessionStreaming = current[agentSessionId]
-        if (sessionStreaming?.[agentRunId] === undefined) return current
-        const nextSessionStreaming = { ...sessionStreaming }
-        delete nextSessionStreaming[agentRunId]
-        return { ...current, [agentSessionId]: nextSessionStreaming }
-      })
-    }
     const onActivity = (rendererEvent: AgentRendererEvent): void => {
       if (disposed) return
       const sectionId = sectionFollowTargetForAgentEvent(rendererEvent, activeSessionIdRef.current)
@@ -298,20 +315,9 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         return
       }
       if (rendererEvent.kind === 'delta') {
-        setStreamingBySession((current) => {
-          const sessionStreaming = current[rendererEvent.agentSessionId] ?? {}
-          return {
-            ...current,
-            [rendererEvent.agentSessionId]: {
-              ...sessionStreaming,
-              [rendererEvent.agentRunId]:
-                `${sessionStreaming[rendererEvent.agentRunId] ?? ''}${rendererEvent.delta}`.slice(
-                  0,
-                  2_097_152
-                )
-            }
-          }
-        })
+        setContent((current) =>
+          applyAgentLiveContent(current, rendererEvent, activeSessionIdRef.current)
+        )
         if (
           activeSessionIdRef.current === rendererEvent.agentSessionId &&
           skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)
@@ -322,15 +328,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         }
         return
       }
-      const runId = rendererEvent.event.agentRunId
-      if (
-        runId !== null &&
-        (rendererEvent.event.type === 'assistant_message' ||
-          rendererEvent.event.type === 'run_completed' ||
-          rendererEvent.event.type === 'run_interrupted')
-      ) {
-        removeStreamingRun(rendererEvent.event.agentSessionId, runId)
-      }
+      const selectedSessionId = activeSessionIdRef.current
+      setContent((current) => applyAgentLiveContent(current, rendererEvent, selectedSessionId))
       if (
         rendererEvent.event.type === 'run_completed' ||
         rendererEvent.event.type === 'run_interrupted'
@@ -371,7 +370,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     props.open,
     props.projectSessionId,
     refreshSessions,
-    refreshSessionTruth
+    refreshSessionTruth,
+    setStreamingBySession
   ])
 
   useEffect(() => {
@@ -480,7 +480,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     props.open,
     props.projectSessionId,
     refreshSessions,
-    refreshSessionTruth
+    refreshSessionTruth,
+    setEvents
   ])
 
   return {

@@ -14,7 +14,6 @@ import {
   applyAgentTerminalEvent,
   buildWritingTaskChangeSet,
   citationDisplaysForToolResult,
-  currentAgentActivitySummary,
   formatAgentDuration,
   findLatestPrompt,
   findToolResult,
@@ -22,7 +21,7 @@ import {
   latestAgentContextSnapshot,
   mergeAgentEvents,
   protectTerminalAgentRuns,
-  projectAgentTimeline,
+  projectAgentPresentation,
   writingSkillDegradationLabel
 } from './agent-view-model'
 
@@ -35,13 +34,12 @@ const base = {
 
 describe('Agent renderer view model', () => {
   it('maps typed Agent work to the bounded thinking-orb states', () => {
-    const searching = projectAgentTimeline([
+    const searching = timelineFor([
       toolCallRecord(1, 'search', 'search_knowledge', { query: 'evidence' })
     ])
     expect(
       agentThinkingVisualState({
-        timeline: searching,
-        runId: base.agentRunId,
+        currentVisual: searching[0]?.type === 'activity' ? searching[0].tools[0].visual : 'working',
         workflowState: 'running',
         choosingSkill: false,
         hasStreamingRun: false
@@ -49,8 +47,7 @@ describe('Agent renderer view model', () => {
     ).toBe('searching')
     expect(
       agentThinkingVisualState({
-        timeline: searching,
-        runId: base.agentRunId,
+        currentVisual: searching[0]?.type === 'activity' ? searching[0].tools[0].visual : 'working',
         workflowState: 'running',
         choosingSkill: false,
         hasStreamingRun: true
@@ -58,8 +55,7 @@ describe('Agent renderer view model', () => {
     ).toBe('composing')
     expect(
       agentThinkingVisualState({
-        timeline: [],
-        runId: null,
+        currentVisual: 'working',
         workflowState: 'generating',
         choosingSkill: false,
         hasStreamingRun: false
@@ -128,7 +124,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('projects new and historical preflight failures with safe fallbacks', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       record(1, 'tool_preflight_failed', {
         requestedToolName: 'submit_section_change',
         diagnostic: {
@@ -159,7 +155,10 @@ describe('Agent renderer view model', () => {
 
     expect(timeline).toEqual([
       {
-        type: 'preflight_failure',
+        type: 'notice',
+        kind: 'preflight',
+        runId: base.agentRunId,
+        defaultOpen: false,
         id: '019c6a5c-8d34-7a8e-a602-000000000001',
         failure: {
           toolName: 'submit_section_change',
@@ -184,7 +183,10 @@ describe('Agent renderer view model', () => {
         }
       },
       {
-        type: 'preflight_failure',
+        type: 'notice',
+        kind: 'preflight',
+        runId: base.agentRunId,
+        defaultOpen: false,
         id: '019c6a5c-8d34-7a8e-a602-000000000002',
         failure: {
           toolName: 'submit_outline_change',
@@ -224,11 +226,12 @@ describe('Agent renderer view model', () => {
         }
       })
     ]
-    const timeline = projectAgentTimeline(events)
+    const timeline = timelineFor(events)
 
     expect(timeline).toMatchObject([
       {
-        type: 'user',
+        type: 'message',
+        role: 'user',
         payload: {
           content: 'Use a quieter opening.',
           presentation: { kind: 'review_feedback' }
@@ -251,11 +254,12 @@ describe('Agent renderer view model', () => {
         displayInstruction: null
       }
     })
-    const timeline = projectAgentTimeline([event])
+    const timeline = timelineFor([event])
 
     expect(timeline).toMatchObject([
       {
-        type: 'user',
+        type: 'message',
+        role: 'user',
         payload: {
           presentation: {
             kind: 'quick_action',
@@ -404,7 +408,7 @@ describe('Agent renderer view model', () => {
 
   it('projects durable approval decisions into the visible timeline', () => {
     const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc426'
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       record(1, 'approval_decision', {
         schemaVersion: 2,
         proposalId,
@@ -425,7 +429,10 @@ describe('Agent renderer view model', () => {
 
     expect(timeline).toEqual([
       {
-        type: 'approval_decision',
+        type: 'notice',
+        kind: 'approval',
+        runId: base.agentRunId,
+        defaultOpen: false,
         id: '019c6a5c-8d34-7a8e-a602-000000000002',
         payload: expect.objectContaining({ decision: 'approved', continueRequested: true })
       }
@@ -509,8 +516,8 @@ describe('Agent renderer view model', () => {
       assistantRecord(7, 'Here is the grounded answer.')
     ]
 
-    const timeline = projectAgentTimeline(events)
-    expect(timeline.map((item) => item.type)).toEqual(['assistant', 'activity', 'assistant'])
+    const timeline = timelineFor(events)
+    expect(timeline.map((item) => item.type)).toEqual(['message', 'activity', 'message'])
     expect(timeline[1]).toMatchObject({
       type: 'activity',
       status: 'complete',
@@ -521,7 +528,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('names the live activity and its individual steps without exposing raw tool names', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       toolCallRecord(1, 'read', 'read_section'),
       toolResultRecord(2, 'read', 'read_section'),
       assistantRecord(3, 'The section establishes the baseline. I will now check the sources.'),
@@ -529,7 +536,7 @@ describe('Agent renderer view model', () => {
     ])
     const activities = timeline.filter((item) => item.type === 'activity')
 
-    expect(currentAgentActivitySummary(timeline, base.agentRunId)).toBe('Searching sources')
+    expect(activities.at(-1)?.tools.at(-1)?.label).toBe('Searching sources')
     expect(activities).toHaveLength(2)
     const read = activities[0]?.tools[0]
     const search = activities[1]?.tools[0]
@@ -539,7 +546,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('reveals the authoritative section title only for a completed successful read', () => {
-    const completed = projectAgentTimeline([
+    const completed = timelineFor([
       toolCallRecord(1, 'read', 'read_section', {
         sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc427',
         view: 'summary'
@@ -566,7 +573,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('projects ask_user as a dedicated question record and hides its duplicate answer event', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       toolCallRecord(1, 'tool-question', 'ask_user', {
         questions: [
           {
@@ -608,7 +615,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('keeps an unanswered clarification as stopped, non-actionable history after interruption', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       toolCallRecord(1, 'tool-question', 'ask_user', {
         questions: [
           {
@@ -629,11 +636,11 @@ describe('Agent renderer view model', () => {
       type: 'question',
       tool: { result: null, stopped: true }
     })
-    expect(timeline.some((item) => item.type === 'user')).toBe(false)
+    expect(timeline.some((item) => item.type === 'message' && item.role === 'user')).toBe(false)
   })
 
   it('names visible Writing Skill entrypoint and reference activity from safe projections', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       toolCallRecord(1, 'skill-entry', 'read_writing_skill', {
         uri: `writellm://skills/nature-writing/${'a'.repeat(40)}/SKILL.md`
       }),
@@ -668,7 +675,7 @@ describe('Agent renderer view model', () => {
   })
 
   it('shows the safe Writing Skill display name while an Auto entrypoint is loading', () => {
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       toolCallRecord(1, 'skill-entry', 'read_writing_skill', {
         uri: `writellm://skills/github%3Aopaque/${'a'.repeat(40)}/SKILL.md`,
         displayName: 'Nature Writing'
@@ -699,23 +706,23 @@ describe('Agent renderer view model', () => {
       assistantRecord(9, 'I need another approach.')
     ]
 
-    const timeline = projectAgentTimeline(events)
+    const timeline = timelineFor(events)
     expect(timeline.map((item) => item.type)).toEqual([
-      'assistant',
+      'message',
       'activity',
-      'proposal',
+      'change',
       'activity',
-      'assistant'
+      'message'
     ])
     expect(timeline[1]).toMatchObject({ type: 'activity', status: 'running' })
-    expect(timeline[2]).toMatchObject({ type: 'proposal', proposal: null })
+    expect(timeline[2]).toMatchObject({ type: 'change', proposal: null })
     expect(timeline[3]).toMatchObject({
       type: 'activity',
       status: 'partial',
       failedCount: 1
     })
 
-    const failed = projectAgentTimeline([
+    const failed = timelineFor([
       toolCallRecord(1, 'read-one', 'read_section'),
       toolCallRecord(2, 'read-two', 'read_section'),
       toolResultRecord(3, 'read-one', 'read_section', {
@@ -736,6 +743,50 @@ describe('Agent renderer view model', () => {
     })
   })
 
+  it('derives change disclosure, conflicts, and undo availability only from proposal truth', () => {
+    const events = [
+      toolCallRecord(1, 'proposal-chain', 'submit_section_change'),
+      toolResultRecord(2, 'proposal-chain', 'submit_section_change')
+    ]
+    const pending = proposalRecord('019c6a5c-8d34-7a8e-a602-3d37a52dc430', null, 'pending')
+    const project = (proposal: MutationProposalRecord) =>
+      projectAgentPresentation({
+        events,
+        proposals: [proposal],
+        currentRevisionIds: { '019c6a5c-8d34-7a8e-a602-3d37a52dc432': 'newer-revision' }
+      }).timeline[0]
+    expect(project(pending)).toMatchObject({
+      type: 'change',
+      pending: true,
+      outdated: true,
+      defaultOpen: true,
+      canUndo: false,
+      failureMessage: null
+    })
+    expect(project({ ...pending, status: 'applied' })).toMatchObject({
+      pending: false,
+      defaultOpen: false,
+      canUndo: true
+    })
+    expect(project({ ...pending, status: 'undone' })).toMatchObject({
+      pending: false,
+      defaultOpen: false,
+      canUndo: false
+    })
+    expect(
+      project({ ...pending, status: 'conflicted', rejectedReason: 'The target block changed.' })
+    ).toMatchObject({
+      defaultOpen: false,
+      failureMessage: 'This proposal conflicts with the latest section. The target block changed.'
+    })
+    expect(
+      project({ ...pending, status: 'failed', rejectedReason: 'Image generation timed out.' })
+    ).toMatchObject({
+      defaultOpen: false,
+      failureMessage: 'Image generation timed out.'
+    })
+  })
+
   it('projects only the latest leaf of a refreshed proposal chain', () => {
     const events = [
       toolCallRecord(1, 'proposal-chain', 'submit_section_change'),
@@ -748,8 +799,8 @@ describe('Agent renderer view model', () => {
       'pending'
     )
 
-    expect(projectAgentTimeline(events, [original, refreshed])).toMatchObject([
-      { type: 'proposal', proposal: { proposalId: refreshed.proposalId } }
+    expect(timelineFor(events, [original, refreshed])).toMatchObject([
+      { type: 'change', proposal: { proposalId: refreshed.proposalId } }
     ])
     if (refreshed.payload.kind !== 'section_patch') throw new Error('Expected section proposal')
     expect(
@@ -912,33 +963,31 @@ describe('Agent renderer view model', () => {
       updatedAt: '2026-07-21T00:00:05.000Z'
     } satisfies AgentRunRecord
 
-    const timeline = projectAgentTimeline(events, [], [run], Date.parse('2026-07-21T00:00:09.000Z'))
+    const timeline = timelineFor(events, [], [run], Date.parse('2026-07-21T00:00:09.000Z'))
     const activity = timeline.find((item) => item.type === 'activity')
     expect(activity).toMatchObject({ type: 'activity', status: 'stopped' })
     if (activity?.type !== 'activity') throw new Error('Expected an activity')
     expect(activity.tools.map((tool) => tool.durationMs)).toEqual([1_500, 1_000])
-    const terminal = timeline.find((item) => item.type === 'run_interrupted')
+    const terminal = timeline.find((item) => item.type === 'notice' && item.kind === 'terminal')
     expect(terminal).toMatchObject({
-      type: 'run_interrupted',
+      type: 'notice',
+      kind: 'terminal',
       terminal: { code: 'user_stopped', durationMs: 5_000 }
     })
     expect(formatAgentDuration(68_000)).toBe('1m 08s')
   })
 
   it('renders current and historical manual-review pauses without hiding genuine failures', () => {
-    const current = projectAgentTimeline([
+    const current = timelineFor([
       record(1, 'run_completed', {
         status: 'completed',
         outcome: 'awaiting_review',
         proposalId: '019c6a5c-8d34-7a8e-a602-3d37a52dc430'
       })
     ])
-    expect(current[0]).toMatchObject({
-      type: 'run_completed',
-      terminal: { status: 'completed', outcome: 'awaiting_review', code: 'awaiting_review' }
-    })
+    expect(current).toEqual([])
 
-    const historical = projectAgentTimeline([
+    const historical = timelineFor([
       toolResultRecord(1, 'proposal', 'submit_brief_change', {
         result: {
           proposal: {
@@ -953,24 +1002,23 @@ describe('Agent renderer view model', () => {
       }),
       record(2, 'run_interrupted', { status: 'failed', code: 'agent_run_failed' })
     ])
-    expect(historical.at(-1)).toMatchObject({
-      type: 'run_interrupted',
-      terminal: { status: 'completed', outcome: 'awaiting_review', code: 'awaiting_review' }
-    })
+    expect(historical).toEqual([])
 
-    const failed = projectAgentTimeline([
+    const failed = timelineFor([
       record(1, 'run_interrupted', { status: 'failed', code: 'provider_timeout' })
     ])
     expect(failed[0]).toMatchObject({
-      type: 'run_interrupted',
+      type: 'notice',
+      kind: 'terminal',
       terminal: { status: 'failed', outcome: 'finished', code: 'provider_timeout' }
     })
 
-    const retriesExhausted = projectAgentTimeline([
+    const retriesExhausted = timelineFor([
       record(1, 'run_interrupted', { status: 'failed', code: 'provider_retries_exhausted' })
     ])
     expect(retriesExhausted[0]).toMatchObject({
-      type: 'run_interrupted',
+      type: 'notice',
+      kind: 'terminal',
       terminal: {
         status: 'failed',
         outcome: 'finished',
@@ -1018,9 +1066,10 @@ describe('Agent renderer view model', () => {
       updatedAt: '2026-07-21T00:00:05.000Z'
     }
 
-    const fromEvent = projectAgentTimeline([event], [], [run], Date.parse(event.createdAt))[0]
+    const fromEvent = timelineFor([event], [], [run], Date.parse(event.createdAt))[0]
     expect(fromEvent).toMatchObject({
-      type: 'run_interrupted',
+      type: 'notice',
+      kind: 'terminal',
       terminal: {
         status: 'failed',
         code: 'provider_timeout',
@@ -1028,7 +1077,7 @@ describe('Agent renderer view model', () => {
       }
     })
 
-    const fromRun = projectAgentTimeline(
+    const fromRun = timelineFor(
       [
         recordAt(
           1,
@@ -1046,7 +1095,8 @@ describe('Agent renderer view model', () => {
       Date.parse(event.createdAt)
     )[0]
     expect(fromRun).toMatchObject({
-      type: 'run_interrupted',
+      type: 'notice',
+      kind: 'terminal',
       terminal: { diagnostic: runDiagnostic }
     })
   })
@@ -1063,10 +1113,10 @@ describe('Agent renderer view model', () => {
         proposalId
       })
     ]
-    const timeline = projectAgentTimeline(events, [pending])
+    const timeline = timelineFor(events, [pending])
 
     expect(timeline[agentTimelineScrollAnchorIndex(timeline)]).toMatchObject({
-      type: 'proposal',
+      type: 'change',
       proposal: { proposalId, status: 'pending' }
     })
     expect(agentReviewState(base.agentRunId, [pending])).toBe('waiting')
@@ -1076,7 +1126,7 @@ describe('Agent renderer view model', () => {
 
   it('replaces a settled compaction start with checkpoint detail without inventing a run', () => {
     const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       {
         ...record(1, 'compaction_started', {
           schemaVersion: 2,
@@ -1130,9 +1180,10 @@ describe('Agent renderer view model', () => {
       }
     ])
 
-    expect(timeline.map((item) => item.type)).toEqual(['compaction_summary', 'compaction_failed'])
+    expect(timeline.map((item) => item.type)).toEqual(['compaction', 'compaction'])
     expect(timeline[0]).toMatchObject({
-      type: 'compaction_summary',
+      type: 'compaction',
+      state: 'complete',
       payload: {
         trigger: 'manual',
         coveredFromSequence: 1,
@@ -1183,9 +1234,8 @@ describe('Agent renderer view model', () => {
       modelRequestId: null
     }
 
-    expect(projectAgentTimeline([started, firstStep]).map((item) => item.type)).toEqual([
-      'compaction_started',
-      'compaction_summary'
+    expect(timelineFor([started, firstStep])).toMatchObject([
+      { type: 'compaction', state: 'running' }
     ])
 
     const failed = {
@@ -1200,16 +1250,15 @@ describe('Agent renderer view model', () => {
       }),
       modelRequestId: null
     }
-    expect(projectAgentTimeline([started, firstStep, failed]).map((item) => item.type)).toEqual([
-      'compaction_summary',
-      'compaction_failed'
+    expect(timelineFor([started, firstStep, failed])).toMatchObject([
+      { type: 'compaction', state: 'error' }
     ])
   })
 
   it('hides a compaction failure after a later successful checkpoint recovers the conversation', () => {
     const failedCompactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc500'
     const successfulCompactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc501'
-    const timeline = projectAgentTimeline([
+    const timeline = timelineFor([
       {
         ...record(1, 'compaction_failed', {
           schemaVersion: 2,
@@ -1253,7 +1302,7 @@ describe('Agent renderer view model', () => {
       }
     ])
 
-    expect(timeline.map((item) => item.type)).toEqual(['compaction_summary'])
+    expect(timeline.map((item) => item.type)).toEqual(['compaction'])
   })
 
   it('labels every Main-emitted terminal code instead of falling back to interrupted', () => {
@@ -1552,3 +1601,153 @@ function legacySkillSnapshot(): AgentRunRecord['skillSnapshot'] {
     safeError: null
   }
 }
+
+function timelineFor(
+  events: AgentEventRecord[],
+  proposals: MutationProposalRecord[] = [],
+  runs: AgentRunRecord[] = [],
+  now?: number
+) {
+  return projectAgentPresentation({ events, proposals, runs, now }).timeline
+}
+
+describe('Unified Agent presentation', () => {
+  it.each([
+    'activate_tool_groups',
+    'get_writing_task',
+    'create_writing_task',
+    'update_writing_task'
+  ])('keeps %s in the live header and Details, promoting only failure or interruption', (name) => {
+    const call = toolCallRecord(1, 'internal', name)
+    const live = projectAgentPresentation({ events: [call], activeRunId: base.agentRunId })
+    expect(live.timeline).toEqual([])
+    expect(live.currentActivity).toBe(live.tools[0].label)
+    expect(live.tools[0].status).toBe('running')
+    const done = projectAgentPresentation({ events: [call, toolResultRecord(2, 'internal', name)] })
+    expect(done.timeline).toEqual([])
+    expect(done.tools).toHaveLength(1)
+    expect(done.tools[0].status).toBe('complete')
+    const failed = projectAgentPresentation({
+      events: [
+        call,
+        toolResultRecord(2, 'internal', name, {
+          isError: true,
+          result: null,
+          error: { code: 'internal', category: 'internal', message: 'The plan version changed.' }
+        })
+      ]
+    })
+    expect(failed.timeline).toMatchObject([
+      {
+        type: 'notice',
+        kind: 'tool',
+        defaultOpen: false,
+        tool: { status: 'error', result: { error: { message: 'The plan version changed.' } } }
+      }
+    ])
+    const stopped = projectAgentPresentation({
+      events: [call, record(2, 'run_interrupted', { code: 'user_stopped' })]
+    })
+    expect(stopped.timeline[0]).toMatchObject({
+      type: 'notice',
+      kind: 'tool',
+      tool: { status: 'stopped' }
+    })
+  })
+
+  it('keeps adjacent runs separate and correlates reused tool IDs within their run', () => {
+    const first = toolCallRecord(1, 'same-id', 'read_section')
+    const second = { ...toolCallRecord(2, 'same-id', 'read_section'), agentRunId: 'another-run' }
+    const result = {
+      ...toolResultRecord(3, 'same-id', 'read_section', {
+        result: readSectionResult('Second run title')
+      }),
+      agentRunId: second.agentRunId
+    }
+    const presentation = projectAgentPresentation({
+      events: [result, second, first, first],
+      now: 10
+    })
+    expect(presentation.timeline).toHaveLength(2)
+    expect(presentation.tools).toHaveLength(2)
+    expect(presentation.tools[0].result).toBeNull()
+    expect(presentation.tools[1].label).toBe('Read · Second run title')
+    expect(presentation.timeline.map((item) => item.runId)).toEqual([
+      first.agentRunId,
+      second.agentRunId
+    ])
+  })
+
+  it('uses the parallel wall-clock span and changes default disclosure without changing identity', () => {
+    const first = toolCallRecord(1, 'first', 'read_section')
+    const second = toolCallRecord(2, 'second', 'read_outline')
+    const live = projectAgentPresentation({ events: [first, second], now: 10 })
+    const done = projectAgentPresentation({
+      events: [
+        first,
+        second,
+        toolResultRecord(3, 'second', 'read_outline', { timestamp: 7 }),
+        toolResultRecord(4, 'first', 'read_section', { timestamp: 9 })
+      ]
+    })
+    expect(live.timeline[0]).toMatchObject({ type: 'activity', defaultOpen: true })
+    expect(done.timeline[0]).toMatchObject({
+      id: live.timeline[0].id,
+      defaultOpen: false,
+      durationMs: 8
+    })
+    expect(done.tools.map((tool) => tool.durationMs)).toEqual([8, 5])
+  })
+
+  it('shares message identity across live settlement and displays run duration only once', () => {
+    const first = assistantRecord(1, 'A progress update.')
+    const live = projectAgentPresentation({
+      events: [first],
+      streaming: { [base.agentRunId]: 'Final answer.' }
+    })
+    const done = projectAgentPresentation({
+      events: [
+        first,
+        assistantRecord(2, 'Final answer.'),
+        recordAt(3, 'run_completed', { status: 'completed' }, '2026-07-21T00:00:05.000Z')
+      ],
+      runs: [runRecord('completed')]
+    })
+    expect(live.timeline.at(-1)).toMatchObject({
+      type: 'message',
+      role: 'assistant',
+      streaming: true
+    })
+    expect(done.timeline.at(-1)?.id).toBe(live.timeline.at(-1)?.id)
+    expect(done.timeline.filter((item) => item.runDurationMs !== undefined)).toHaveLength(1)
+    expect(done.timeline).toHaveLength(2)
+    expect(done.timeline.at(-1)).toMatchObject({ streaming: false })
+  })
+
+  it('leaves a live question in the answer dock and stops an unresolved change without a spinner', () => {
+    const live = projectAgentPresentation({
+      events: [toolCallRecord(1, 'question', 'ask_user')],
+      activeRunId: base.agentRunId
+    })
+    expect(live.timeline).toEqual([])
+    expect(live.currentActivity).toBe('Waiting for your answer')
+    const stopped = projectAgentPresentation({
+      events: [
+        toolCallRecord(1, 'change', 'submit_section_change'),
+        record(2, 'run_interrupted', { code: 'user_stopped' })
+      ]
+    })
+    expect(stopped.timeline[0]).toMatchObject({
+      type: 'change',
+      summary: 'Proposal preparation stopped',
+      tool: { status: 'stopped' }
+    })
+  })
+
+  it('retains malformed historical content in Details without projecting it as a valid message', () => {
+    const event = record(1, 'assistant_message', { content: 'Legacy malformed record' })
+    const presentation = projectAgentPresentation({ events: [event] })
+    expect(presentation.timeline).toEqual([])
+    expect(presentation.historicalDiagnostics).toEqual([event])
+  })
+})

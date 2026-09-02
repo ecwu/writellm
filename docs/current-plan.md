@@ -31,6 +31,15 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Agent Panel presentation maintenance is complete under ADR 075: six typed content objects,
+  one projection for timeline/header/Details, an exhaustive tool table, atomic live-text settlement,
+  and stable lifecycle-aware disclosure. Focused coverage totals 78 passing Renderer tests and
+  six passing Electron scenarios on macOS arm64. One composite E2E invocation supplied static
+  checks and the only build; a clarification text assertion was updated and that scenario alone
+  rerun against the same build. Desktop keyboard, sidebar resizing, light/dark screenshots, and
+  scoped Impeccable checks passed. Persistence, protocols, dependencies, and Pi pins are unchanged.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance).
+
 - Build and verification maintenance is complete under the approved 2026-09-02 plan. Focused
   tooling/Trace tests and the complete no-Team-ID macOS arm64 package gate passed, including static
   checks, 12 runtime smoke scenarios, all 34 packaged E2E scenarios, and DMG/ZIP creation from the

@@ -1,16 +1,10 @@
-import type {
-  AgentEventRecord,
-  AgentRunRecord,
-  AgentSessionRecord
-} from '../../../../shared/contracts/agent-ipc'
-import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
+import type { AgentRunRecord, AgentSessionRecord } from '../../../../shared/contracts/agent-ipc'
 import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
 import type {
   AgentModelSelection,
   AgentProviderCatalog,
   AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
-import { useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,8 +26,7 @@ import { AgentThinkingPicker, thinkingLevelLabel } from './agent-thinking-picker
 import {
   formatAgentDuration,
   type latestAgentContextSnapshot,
-  projectAgentTimeline,
-  toolWasStopped
+  type AgentPresentation
 } from './agent-view-model'
 import { approvalModeLabel, humanizeSkillId } from './agent-panel-logic'
 
@@ -43,8 +36,7 @@ export function AgentDetailsDialog(props: {
   session: AgentSessionRecord | null
   activeRun: AgentRunRecord | null
   latestRun: AgentRunRecord | null
-  events: AgentEventRecord[]
-  proposals: MutationProposalRecord[]
+  presentation: AgentPresentation
   usage: {
     inputTokens: number
     outputTokens: number
@@ -63,18 +55,7 @@ export function AgentDetailsDialog(props: {
   onThinkingSelect(level: AgentThinkingLevel): Promise<void>
   onApprovalModeSelect(mode: AgentApprovalMode): Promise<void>
 }): React.JSX.Element {
-  const timeline = useMemo(
-    () =>
-      projectAgentTimeline(props.events, props.proposals, props.latestRun ? [props.latestRun] : []),
-    [props.events, props.latestRun, props.proposals]
-  )
-  const tools = timeline.flatMap((item) =>
-    item.type === 'activity'
-      ? item.tools
-      : item.type === 'proposal' || item.type === 'question'
-        ? [item.tool]
-        : []
-  )
+  const { tools, providerMetadata, historicalDiagnostics } = props.presentation
   const readonly =
     props.busy || props.session?.status === 'archived' || props.session?.compatible === false
   const run = props.activeRun ?? props.latestRun
@@ -171,20 +152,20 @@ export function AgentDetailsDialog(props: {
             ) : (
               <div className='grid gap-4'>
                 {tools.map((tool) => (
-                  <ToolActivityRow key={tool.eventId} tool={tool} stopped={toolWasStopped(tool)} />
+                  <ToolActivityRow key={tool.eventId} tool={tool} />
                 ))}
               </div>
             )}
-            {props.events
-              .filter((event) => event.type === 'assistant_message')
-              .slice(-1)
-              .map((event) => (
-                <BoundedJsonDetails
-                  key={event.agentEventId}
-                  label='Provider metadata'
-                  value={event.payload.metadata}
-                />
-              ))}
+            {providerMetadata === null ? null : (
+              <BoundedJsonDetails label='Provider metadata' value={providerMetadata} />
+            )}
+            {historicalDiagnostics.map((event) => (
+              <BoundedJsonDetails
+                key={event.agentEventId}
+                label={`Historical ${event.type} · ${event.sequence}`}
+                value={event.payload}
+              />
+            ))}
           </section>
         </div>
       </DialogContent>

@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 074
+Status: accepted implementation baseline, amended through accepted ADR 075
 Recorded: 2026-07-31; amended through 2026-09-02
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -9,6 +9,13 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-02 Agent presentation amendment
+
+ADR 075 establishes one Renderer-owned typed projection for Agent messages, activity, changes,
+questions, compaction, notices, and technical Details. Tool presentation and disclosure policy are
+centralized; successful internal tool preparation and writing-plan maintenance appear only in
+Details. Existing events/proposals remain authoritative, with no schema or protocol change.
 
 ## 2026-09-02 Agent Occam ablation amendment
 

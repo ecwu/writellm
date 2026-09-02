@@ -1,4 +1,25 @@
 import {
+  citationDisplaysForToolResult,
+  presentAgentTool,
+  summarizeAgentActivity,
+  toolWasStopped,
+  type AgentToolActivity,
+  type AgentToolPresentation,
+  type AgentCitationDisplay,
+  type AgentThinkingVisualState
+} from './agent-tool-presentation'
+export {
+  agentToolActivityLabel,
+  citationDisplaysForToolResult,
+  toolWasStopped
+} from './agent-tool-presentation'
+export type {
+  AgentToolActivity,
+  AgentToolPresentation,
+  AgentCitationDisplay,
+  AgentThinkingVisualState
+} from './agent-tool-presentation'
+import {
   agentApprovalDecisionPayloadSchema,
   agentAssistantMessagePayloadSchema,
   agentCompactionFailedPayloadSchema,
@@ -21,13 +42,11 @@ import type { AgentModelSelection } from '../../../../shared/contracts/providers
 import {
   agentToolCallPayloadSchema,
   agentToolResultPayloadSchema,
-  readCitationsResultSchema,
-  readSectionResultSchema,
-  searchKnowledgeResultSchema
+  askUserArgsSchema,
+  askUserResultSchema
 } from '../../../../shared/contracts/agent-tools'
 
 type AgentToolResultPayload = ReturnType<typeof agentToolResultPayloadSchema.parse>
-type AgentToolCallPayload = ReturnType<typeof agentToolCallPayloadSchema.parse>
 type AgentUserMessagePayload = ReturnType<typeof agentUserMessagePayloadSchema.parse>
 type AgentAssistantMessagePayload = ReturnType<typeof agentAssistantMessagePayloadSchema.parse>
 type AgentCompactionSummaryPayload = ReturnType<typeof agentCompactionSummaryPayloadSchema.parse>
@@ -36,21 +55,6 @@ type AgentCompactionFailedPayload = ReturnType<typeof agentCompactionFailedPaylo
 type AgentApprovalDecisionPayload = ReturnType<typeof agentApprovalDecisionPayloadSchema.parse>
 type AgentTerminalEvent = AgentEventRecord & {
   type: 'run_interrupted' | 'run_completed'
-}
-
-export interface AgentCitationDisplay {
-  citationId: string
-  title: string
-  page?: number
-}
-
-export interface AgentToolActivity {
-  eventId: string
-  runId: string | null
-  call: AgentToolCallPayload
-  result: AgentToolResultPayload | null
-  durationMs: number
-  stopped: boolean
 }
 
 export interface AgentPreflightFailure {
@@ -83,13 +87,6 @@ export interface WritingTaskChangeSet {
 }
 
 export type AgentActivityStatus = 'running' | 'partial' | 'error' | 'complete' | 'stopped'
-export type AgentThinkingVisualState =
-  | 'working'
-  | 'searching'
-  | 'solving'
-  | 'connecting'
-  | 'composing'
-  | 'shaping'
 
 export type AgentRunTerminal = {
   runId: string | null
@@ -164,38 +161,78 @@ export function groupAgentConversations(sessions: readonly AgentSessionRecord[])
   }
 }
 
-export type AgentTimelineItem =
-  | { type: 'user'; id: string; runId: string | null; payload: AgentUserMessagePayload }
+type AgentContent =
   | {
-      type: 'assistant'
+      type: 'message'
+      role: 'user'
       id: string
       runId: string | null
-      payload: AgentAssistantMessagePayload
+      payload: AgentUserMessagePayload
+    }
+  | {
+      type: 'message'
+      role: 'assistant'
+      id: string
+      runId: string | null
+      payload: Pick<AgentAssistantMessagePayload, 'content' | 'interrupted'>
+      streaming: boolean
     }
   | {
       type: 'activity'
       id: string
       runId: string | null
-      tools: AgentToolActivity[]
+      tools: AgentToolPresentation[]
       status: AgentActivityStatus
       summary: string
       failedCount: number
       citations: AgentCitationDisplay[]
+      durationMs: number
     }
   | {
-      type: 'proposal'
+      type: 'change'
       id: string
-      tool: AgentToolActivity
+      tool: AgentToolPresentation
       proposal: MutationProposalRecord | null
+      pending: boolean
+      outdated: boolean
+      canUndo: boolean
+      failureMessage: string | null
+      summary: string
+      citations: AgentCitationDisplay[]
     }
-  | { type: 'question'; id: string; tool: AgentToolActivity }
-  | { type: 'preflight_failure'; id: string; failure: AgentPreflightFailure }
-  | { type: 'approval_decision'; id: string; payload: AgentApprovalDecisionPayload }
-  | { type: 'run_interrupted'; id: string; terminal: AgentRunTerminal }
-  | { type: 'run_completed'; id: string; terminal: AgentRunTerminal }
-  | { type: 'compaction_started'; id: string; payload: AgentCompactionStartedPayload }
-  | { type: 'compaction_summary'; id: string; payload: AgentCompactionSummaryPayload }
-  | { type: 'compaction_failed'; id: string; payload: AgentCompactionFailedPayload }
+  | {
+      type: 'question'
+      id: string
+      tool: AgentToolPresentation
+      questions: {
+        id: string
+        question: string
+        answer?: { kind: 'option' | 'custom'; value: string }
+      }[]
+    }
+  | { type: 'notice'; kind: 'preflight'; id: string; failure: AgentPreflightFailure }
+  | { type: 'notice'; kind: 'tool'; id: string; tool: AgentToolPresentation }
+  | { type: 'notice'; kind: 'approval'; id: string; payload: AgentApprovalDecisionPayload }
+  | { type: 'notice'; kind: 'terminal'; id: string; terminal: AgentRunTerminal }
+  | { type: 'compaction'; state: 'running'; id: string; payload: AgentCompactionStartedPayload }
+  | { type: 'compaction'; state: 'complete'; id: string; payload: AgentCompactionSummaryPayload }
+  | { type: 'compaction'; state: 'error'; id: string; payload: AgentCompactionFailedPayload }
+
+export type AgentTimelineItem = AgentContent & {
+  runId: string | null
+  defaultOpen: boolean
+  runDurationMs?: number
+}
+
+export interface AgentPresentation {
+  timeline: AgentTimelineItem[]
+  tools: AgentToolPresentation[]
+  citationsById: ReadonlyMap<string, AgentCitationDisplay>
+  currentActivity: string | null
+  currentVisual: AgentThinkingVisualState
+  providerMetadata: AgentAssistantMessagePayload['metadata'] | null
+  historicalDiagnostics: AgentEventRecord[]
+}
 
 export function mergeAgentEvents(
   current: AgentEventRecord[],
@@ -284,46 +321,28 @@ export function findToolResult(
   return null
 }
 
-export function citationDisplaysForToolResult(
-  result: AgentToolResultPayload
-): AgentCitationDisplay[] {
-  const displays = new Map<string, AgentCitationDisplay>()
-  if (result.toolName === 'search_knowledge') {
-    const parsed = searchKnowledgeResultSchema.safeParse(result.result)
-    if (parsed.success) {
-      for (const hit of parsed.data.hits) {
-        displays.set(hit.citationId, {
-          citationId: hit.citationId,
-          title: hit.title,
-          ...(hit.page === undefined ? {} : { page: hit.page })
-        })
-      }
-    }
-  } else if (result.toolName === 'read_citations') {
-    const parsed = readCitationsResultSchema.safeParse(result.result)
-    if (parsed.success) {
-      for (const citation of parsed.data.citations) {
-        displays.set(citation.citationId, {
-          citationId: citation.citationId,
-          title: citation.title,
-          ...(citation.page === undefined ? {} : { page: citation.page })
-        })
-      }
-    }
-  }
-
-  return [...new Set(result.citationIds)].map(
-    (citationId) => displays.get(citationId) ?? { citationId, title: citationId }
+export function projectAgentPresentation(input: {
+  events: AgentEventRecord[]
+  proposals?: MutationProposalRecord[]
+  runs?: AgentRunRecord[]
+  streaming?: Readonly<Record<string, string>>
+  activeRunId?: string | null
+  currentRevisionIds?: Readonly<Record<string, string>>
+  now?: number
+}): AgentPresentation {
+  const {
+    events,
+    proposals = [],
+    runs = [],
+    streaming = {},
+    activeRunId = null,
+    currentRevisionIds = {},
+    now = Date.now()
+  } = input
+  const historicalDiagnostics: AgentEventRecord[] = []
+  const orderedEvents = [...new Map(events.map((event) => [event.sequence, event])).values()].sort(
+    (left, right) => left.sequence - right.sequence
   )
-}
-
-export function projectAgentTimeline(
-  events: AgentEventRecord[],
-  proposals: MutationProposalRecord[] = [],
-  runs: AgentRunRecord[] = [],
-  now = Date.now()
-): AgentTimelineItem[] {
-  const orderedEvents = [...events].sort((left, right) => left.sequence - right.sequence)
   const latestSuccessfulCompactionSequence = orderedEvents.reduce((latest, event) => {
     if (event.type !== 'compaction_summary') return latest
     return agentCompactionSummaryPayloadSchema.safeParse(event.payload).success
@@ -364,7 +383,7 @@ export function projectAgentTimeline(
   for (const event of orderedEvents) {
     if (event.type !== 'tool_result') continue
     const parsed = agentToolResultPayloadSchema.safeParse(event.payload)
-    if (parsed.success) results.set(parsed.data.toolCallId, parsed.data)
+    if (parsed.success) results.set(`${event.agentRunId}:${parsed.data.toolCallId}`, parsed.data)
   }
   const replacedProposalIds = new Set(
     proposals.flatMap((proposal) =>
@@ -377,8 +396,11 @@ export function projectAgentTimeline(
       .map((proposal) => [proposal.agentToolCallId, proposal] as const)
   )
 
-  const items: AgentTimelineItem[] = []
-  let pendingTools: AgentToolActivity[] = []
+  const items: AgentContent[] = []
+  const toolsById = new Map<string, AgentToolPresentation>()
+  const messageCounts = new Map<string, number>()
+  let providerMetadata: AgentAssistantMessagePayload['metadata'] | null = null
+  let pendingTools: AgentToolPresentation[] = []
   const flushTools = (): void => {
     if (pendingTools.length === 0) return
     const tools = pendingTools
@@ -392,6 +414,9 @@ export function projectAgentTimeline(
       tools,
       status: activityStatus(tools, terminal?.status),
       summary: summarizeAgentActivity(tools),
+      durationMs:
+        Math.max(...tools.map((tool) => tool.call.timestamp + tool.durationMs)) -
+        Math.min(...tools.map((tool) => tool.call.timestamp)),
       failedCount: failedAgentToolCount(tools),
       citations: dedupeCitationDisplays(
         tools.flatMap((tool) =>
@@ -404,7 +429,10 @@ export function projectAgentTimeline(
   for (const event of orderedEvents) {
     if (event.type === 'user_message') {
       const parsed = agentUserMessagePayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
       flushTools()
       if (
         parsed.data.presentation?.kind === 'approval_continuation' ||
@@ -412,7 +440,8 @@ export function projectAgentTimeline(
       )
         continue
       items.push({
-        type: 'user',
+        type: 'message',
+        role: 'user',
         id: event.agentEventId,
         runId: event.agentRunId,
         payload:
@@ -425,11 +454,21 @@ export function projectAgentTimeline(
     }
     if (event.type === 'assistant_message') {
       const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
-      if (!parsed.success || parsed.data.content.trim().length === 0) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
+      providerMetadata = parsed.data.metadata
+      if (parsed.data.content.trim().length === 0) continue
       flushTools()
+      const count = (messageCounts.get(event.agentRunId ?? '') ?? 0) + 1
+      messageCounts.set(event.agentRunId ?? '', count)
       items.push({
-        type: 'assistant',
-        id: event.agentEventId,
+        type: 'message',
+        role: 'assistant',
+        streaming: false,
+        id:
+          event.agentRunId === null ? event.agentEventId : `assistant-${event.agentRunId}-${count}`,
         runId: event.agentRunId,
         payload: parsed.data
       })
@@ -437,38 +476,87 @@ export function projectAgentTimeline(
     }
     if (event.type === 'tool_call') {
       const parsed = agentToolCallPayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
-      const tool = {
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
+      const toolKey = `${event.agentRunId}:${parsed.data.toolCallId}`
+      if (toolsById.has(toolKey)) continue
+      const tool = presentAgentTool({
         eventId: event.agentEventId,
         runId: event.agentRunId,
         call: parsed.data,
-        result: results.get(parsed.data.toolCallId) ?? null,
+        result: results.get(`${event.agentRunId}:${parsed.data.toolCallId}`) ?? null,
         durationMs: toolDurationMs(
           parsed.data.timestamp,
           toolEndTimestamp(event, parsed.data.toolCallId, results, orderedEvents, runsById, now)
         ),
         stopped:
-          results.get(parsed.data.toolCallId) === undefined &&
+          results.get(`${event.agentRunId}:${parsed.data.toolCallId}`) === undefined &&
           event.agentRunId !== null &&
-          terminalsByRunId.has(event.agentRunId)
-      }
-      if (parsed.data.toolName === 'ask_user') {
+          (terminalsByRunId.has(event.agentRunId) ||
+            (runsById.has(event.agentRunId) &&
+              runsById.get(event.agentRunId)?.status !== 'running'))
+      })
+      toolsById.set(toolKey, tool)
+      if (pendingTools.length > 0 && pendingTools[0]?.runId !== tool.runId) flushTools()
+      if (tool.kind === 'question') {
         flushTools()
-        items.push({ type: 'question', id: event.agentEventId, tool })
+        if (tool.status !== 'running') {
+          const args = askUserArgsSchema.safeParse(tool.call.args)
+          const result = askUserResultSchema.safeParse(tool.result?.result)
+          const answers = new Map(
+            result.success ? result.data.answers.map((answer) => [answer.questionId, answer]) : []
+          )
+          items.push({
+            type: 'question',
+            id: event.agentEventId,
+            tool,
+            questions: args.success
+              ? args.data.questions.map((question) => ({
+                  id: question.id,
+                  question: question.question,
+                  answer: answers.get(question.id)
+                }))
+              : []
+          })
+        }
         continue
       }
-      if (
-        parsed.data.toolName.startsWith('propose_') ||
-        parsed.data.toolName.startsWith('submit_') ||
-        parsed.data.toolName === 'generate_image'
-      ) {
+      if (tool.kind === 'change') {
         flushTools()
+        const proposal = proposalsByToolCall.get(parsed.data.toolCallId) ?? null
         items.push({
-          type: 'proposal',
+          type: 'change',
           id: event.agentEventId,
           tool,
-          proposal: proposalsByToolCall.get(parsed.data.toolCallId) ?? null
+          proposal,
+          pending: proposal?.status === 'pending',
+          failureMessage:
+            proposal?.status === 'conflicted'
+              ? `This proposal conflicts with the latest section. ${proposal.rejectedReason ?? ''}`.trim()
+              : proposal?.status === 'failed'
+                ? (proposal.rejectedReason ?? 'The proposed change failed.')
+                : null,
+          outdated: proposal !== null && isSectionProposalOutdated(proposal, currentRevisionIds),
+          canUndo:
+            proposal?.status === 'applied' &&
+            (proposal.kind === 'section_patch' || proposal.kind === 'generated_image_insert'),
+          summary:
+            proposal?.payload.preview.summary ??
+            tool.result?.error?.message ??
+            (tool.status === 'running'
+              ? 'Preparing a reviewable proposal…'
+              : tool.status === 'stopped'
+                ? 'Proposal preparation stopped'
+                : 'No reviewable proposal is available'),
+          citations: []
         })
+      } else if (tool.internal) {
+        if (tool.status === 'error' || tool.status === 'stopped') {
+          flushTools()
+          items.push({ type: 'notice', kind: 'tool', id: event.agentEventId, tool })
+        }
       } else {
         pendingTools.push(tool)
       }
@@ -478,7 +566,8 @@ export function projectAgentTimeline(
       flushTools()
       const diagnostic = agentToolPreflightDiagnosticSchema.safeParse(event.payload.diagnostic)
       items.push({
-        type: 'preflight_failure',
+        type: 'notice',
+        kind: 'preflight',
         id: event.agentEventId,
         failure: {
           toolName:
@@ -503,7 +592,10 @@ export function projectAgentTimeline(
     }
     if (event.type === 'approval_decision') {
       const parsed = agentApprovalDecisionPayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
       flushTools()
       if (
         parsed.data.decision === 'rejected' &&
@@ -519,12 +611,14 @@ export function projectAgentTimeline(
       }
       const previous = items.at(-1)
       if (
-        previous?.type === 'approval_decision' &&
+        previous?.type === 'notice' &&
+        previous.kind === 'approval' &&
         previous.payload.proposalId === parsed.data.proposalId &&
         previous.payload.decision === parsed.data.decision
       ) {
         items[items.length - 1] = {
-          type: 'approval_decision',
+          type: 'notice',
+          kind: 'approval',
           id: event.agentEventId,
           payload: {
             ...parsed.data,
@@ -532,7 +626,12 @@ export function projectAgentTimeline(
           }
         }
       } else {
-        items.push({ type: 'approval_decision', id: event.agentEventId, payload: parsed.data })
+        items.push({
+          type: 'notice',
+          kind: 'approval',
+          id: event.agentEventId,
+          payload: parsed.data
+        })
       }
       continue
     }
@@ -540,7 +639,8 @@ export function projectAgentTimeline(
       flushTools()
       const run = event.agentRunId === null ? undefined : runsById.get(event.agentRunId)
       items.push({
-        type: event.type,
+        type: 'notice',
+        kind: 'terminal',
         id: event.agentEventId,
         terminal: terminalFromEvent(event as AgentTerminalEvent, run, orderedEvents, now)
       })
@@ -548,29 +648,155 @@ export function projectAgentTimeline(
     }
     if (event.type === 'compaction_summary') {
       const parsed = agentCompactionSummaryPayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
+      const checkpoint = parsed.data
+      if (
+        'finalStep' in checkpoint &&
+        !checkpoint.finalStep &&
+        items.some(
+          (item) =>
+            item.type === 'compaction' &&
+            item.state === 'running' &&
+            item.payload.compactionId === checkpoint.compactionId
+        )
+      ) {
+        historicalDiagnostics.push(event)
+        continue
+      }
       flushTools()
-      items.push({ type: 'compaction_summary', id: event.agentEventId, payload: parsed.data })
+      items.push({
+        type: 'compaction',
+        state: 'complete',
+        id:
+          'compactionId' in parsed.data
+            ? `compaction-${parsed.data.compactionId}`
+            : event.agentEventId,
+        payload: parsed.data
+      })
       continue
     }
     if (event.type === 'compaction_started') {
       const parsed = agentCompactionStartedPayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
       flushTools()
       if ((settledCompactionSequences.get(parsed.data.compactionId) ?? 0) > event.sequence) continue
-      items.push({ type: 'compaction_started', id: event.agentEventId, payload: parsed.data })
+      items.push({
+        type: 'compaction',
+        state: 'running',
+        id: `compaction-${parsed.data.compactionId}`,
+        payload: parsed.data
+      })
       continue
     }
     if (event.type === 'compaction_failed') {
       if (event.sequence < latestSuccessfulCompactionSequence) continue
       const parsed = agentCompactionFailedPayloadSchema.safeParse(event.payload)
-      if (!parsed.success) continue
+      if (!parsed.success) {
+        historicalDiagnostics.push(event)
+        continue
+      }
       flushTools()
-      items.push({ type: 'compaction_failed', id: event.agentEventId, payload: parsed.data })
+      items.push({
+        type: 'compaction',
+        state: 'error',
+        id: `compaction-${parsed.data.compactionId}`,
+        payload: parsed.data
+      })
+      continue
     }
+    if (event.type === 'tool_attempted' || event.type === 'model_retry')
+      historicalDiagnostics.push(event)
   }
   flushTools()
-  return items
+  for (const [runId, content] of Object.entries(streaming)) {
+    if (
+      !content.trim() ||
+      terminalsByRunId.has(runId) ||
+      (runsById.has(runId) && runsById.get(runId)?.status !== 'running')
+    )
+      continue
+    items.push({
+      type: 'message',
+      role: 'assistant',
+      id: `assistant-${runId}-${(messageCounts.get(runId) ?? 0) + 1}`,
+      runId,
+      payload: { content, interrupted: false },
+      streaming: true
+    })
+  }
+  const tools = [...toolsById.values()]
+  const citationsById = new Map(
+    dedupeCitationDisplays(tools.flatMap((tool) => tool.citations)).map((citation) => [
+      citation.citationId,
+      citation
+    ])
+  )
+  const eventById = new Map(orderedEvents.map((event) => [event.agentEventId, event]))
+  const timeline: AgentTimelineItem[] = items
+    .filter((item, index) => {
+      if (item.type === 'notice' && item.kind === 'terminal')
+        return item.terminal.status !== 'completed' && item.terminal.outcome !== 'awaiting_review'
+      if (item.type === 'compaction') {
+        // Keep one lifecycle row. Historical rolling checkpoints do not settle a live start.
+        return !items
+          .slice(index + 1)
+          .some((next) => next.type === 'compaction' && next.id === item.id)
+      }
+      return true
+    })
+    .map((item) => {
+      const runId =
+        'runId' in item
+          ? item.runId
+          : 'tool' in item
+            ? item.tool.runId
+            : (eventById.get(item.id)?.agentRunId ?? null)
+      if (item.type === 'change' && item.proposal !== null) {
+        item.citations = item.proposal.payload.preview.citedSources.map(
+          (source) =>
+            citationsById.get(source.citationId) ?? {
+              citationId: source.citationId,
+              title: source.citationId
+            }
+        )
+      }
+      return {
+        ...item,
+        runId,
+        defaultOpen:
+          item.type === 'activity'
+            ? agentActivityDefaultOpen(item.status)
+            : item.type === 'change' && item.pending
+      }
+    })
+  for (const terminal of terminalsByRunId.values()) {
+    if (terminal.runId === null) continue
+    const item =
+      timeline.findLast(
+        (candidate) =>
+          candidate.runId === terminal.runId &&
+          candidate.type === 'message' &&
+          candidate.role === 'assistant'
+      ) ?? timeline.findLast((candidate) => candidate.runId === terminal.runId)
+    if (item !== undefined && terminal.status === 'completed')
+      item.runDurationMs = terminal.durationMs
+  }
+  const current = tools.findLast((tool) => tool.runId === activeRunId && tool.status === 'running')
+  return {
+    timeline,
+    tools,
+    citationsById,
+    currentActivity: current?.label ?? null,
+    currentVisual: current?.visual ?? 'working',
+    providerMetadata,
+    historicalDiagnostics
+  }
 }
 
 export function agentReviewState(
@@ -604,7 +830,7 @@ export function agentTimelineScrollAnchorIndex(timeline: AgentTimelineItem[]): n
     const item = timeline[index]
     if (item?.type === 'question' && item.tool.result === null) return index
     if (
-      item?.type === 'proposal' &&
+      item?.type === 'change' &&
       (item.proposal?.status === 'pending' || item.proposal?.status === 'generating')
     ) {
       return index
@@ -716,10 +942,6 @@ export function activityStatus(
 
 export function failedAgentToolCount(tools: AgentToolActivity[]): number {
   return tools.filter((tool) => tool.result?.isError === true && !toolWasStopped(tool)).length
-}
-
-export function toolWasStopped(tool: AgentToolActivity): boolean {
-  return tool.stopped || tool.result?.error?.code === 'aborted'
 }
 
 export function toolDurationMs(startTimestamp: number, endTimestamp: number | undefined): number {
@@ -941,285 +1163,26 @@ function toolEndTimestamp(
   runs: Map<string, AgentRunRecord>,
   now: number
 ): number | undefined {
-  const resultTimestamp = results.get(toolCallId)?.timestamp
+  const resultTimestamp = results.get(`${event.agentRunId}:${toolCallId}`)?.timestamp
   if (resultTimestamp !== undefined) return resultTimestamp
   if (event.agentRunId === null) return undefined
   return terminalTimestamp(event.agentRunId, events, runs, now)
-}
-
-type WritingSkillActivityIdentity = {
-  displayName: string
-  relativePath: string
-}
-
-function writingSkillActivityIdentity(tool: AgentToolActivity): WritingSkillActivityIdentity {
-  const projected = tool.result?.result
-  const projectedName =
-    projected !== null && typeof projected?.displayName === 'string' ? projected.displayName : null
-  const projectedPath =
-    projected !== null && typeof projected?.relativePath === 'string'
-      ? projected.relativePath
-      : null
-  const argumentName =
-    typeof tool.call.args.displayName === 'string' ? tool.call.args.displayName : null
-  const argumentPath =
-    typeof tool.call.args.relativePath === 'string' ? tool.call.args.relativePath : null
-  const uri = typeof tool.call.args.uri === 'string' ? tool.call.args.uri : ''
-  const match = /^writellm:\/\/skills\/([^/]+)\/[a-f0-9]{40}\/(.+)$/u.exec(uri)
-  const skillId = match?.[1] ?? 'writing-skill'
-  return {
-    displayName: projectedName ?? argumentName ?? humanizeSkillId(skillId),
-    relativePath: projectedPath ?? argumentPath ?? match?.[2] ?? 'SKILL.md'
-  }
-}
-
-function humanizeSkillId(skillId: string): string {
-  const name = skillId.split(':').at(-1) ?? skillId
-  return name
-    .split('-')
-    .filter(Boolean)
-    .map((part) => `${part.charAt(0).toLocaleUpperCase()}${part.slice(1)}`)
-    .join(' ')
-}
-
-function summarizeWritingSkillActivity(tools: AgentToolActivity[]): string {
-  const skillTools = tools.filter((tool) => tool.call.toolName === 'read_writing_skill')
-  const successful = skillTools.filter((tool) => tool.result !== null && !tool.result.isError)
-  const entrypoints = successful.filter(
-    (tool) => writingSkillActivityIdentity(tool).relativePath === 'SKILL.md'
-  )
-  const references = successful.filter(
-    (tool) => writingSkillActivityIdentity(tool).relativePath !== 'SKILL.md'
-  )
-  const parts: string[] = []
-  if (entrypoints.length === 1) {
-    parts.push(`Loaded ${writingSkillActivityIdentity(entrypoints[0]).displayName}`)
-  } else if (entrypoints.length > 1) {
-    parts.push(`Loaded ${entrypoints.length} Writing Skills`)
-  }
-  if (references.length > 0) {
-    parts.push(
-      `${references.length} ${references.length === 1 ? 'reference file' : 'reference files'}`
-    )
-  }
-  if (parts.length > 0) return parts.join(' · ')
-  const running = skillTools.find((tool) => tool.result === null && !toolWasStopped(tool))
-  if (running !== undefined) {
-    const identity = writingSkillActivityIdentity(running)
-    return identity.relativePath === 'SKILL.md'
-      ? `Loading ${identity.displayName}`
-      : `Reading ${identity.displayName} · ${identity.relativePath}`
-  }
-  return 'Writing Skill loading failed'
-}
-
-function writingSkillActivityLabel(tool: AgentToolActivity, running: boolean): string {
-  const identity = writingSkillActivityIdentity(tool)
-  const entrypoint = identity.relativePath === 'SKILL.md'
-  if (running) {
-    return entrypoint
-      ? `Loading ${identity.displayName}`
-      : `Reading ${identity.displayName} · ${identity.relativePath}`
-  }
-  if (tool.result?.isError === true || toolWasStopped(tool)) {
-    return entrypoint
-      ? `Could not load ${identity.displayName}`
-      : `Could not read ${identity.displayName} · ${identity.relativePath}`
-  }
-  return entrypoint
-    ? `Loaded ${identity.displayName} · SKILL.md`
-    : `Read ${identity.displayName} · ${identity.relativePath}`
-}
-
-export function summarizeAgentActivity(tools: AgentToolActivity[]): string {
-  const counts = new Map<string, number>()
-  for (const tool of tools)
-    counts.set(tool.call.toolName, (counts.get(tool.call.toolName) ?? 0) + 1)
-
-  const summaries: string[] = []
-  const contextCount = (counts.get('get_writing_context') ?? 0) + (counts.get('read_outline') ?? 0)
-  if (contextCount > 0) summaries.push('Reading the manuscript')
-  const sectionCount = counts.get('read_section') ?? 0
-  if (sectionCount > 0)
-    summaries.push(`Read ${sectionCount} ${sectionCount === 1 ? 'section' : 'sections'}`)
-  const manuscriptSearchCount = counts.get('search_manuscript') ?? 0
-  if (manuscriptSearchCount > 0) summaries.push('Searching the manuscript')
-  const searchCount = counts.get('search_knowledge') ?? 0
-  if (searchCount > 0) summaries.push('Searching sources')
-  const citationCount = counts.get('read_citations') ?? 0
-  if (citationCount > 0) summaries.push('Checking source evidence')
-  const inspectCount = counts.get('inspect_change') ?? 0
-  if (inspectCount > 0) summaries.push('Reviewing the change')
-  const checkCount = counts.get('check_draft') ?? 0
-  if (checkCount > 0) summaries.push('Checking the draft')
-  const issueCount =
-    (counts.get('list_review_issues') ?? 0) +
-    (counts.get('record_review_issues') ?? 0) +
-    (counts.get('update_review_issues') ?? 0)
-  if (issueCount > 0) summaries.push('Updating review issues')
-  const skillCount = counts.get('read_writing_skill') ?? 0
-  if (skillCount > 0) summaries.push(summarizeWritingSkillActivity(tools))
-  const activationCount = counts.get('activate_tool_groups') ?? 0
-  if (activationCount > 0) summaries.push('Prepared writing tools')
-  const taskCount =
-    (counts.get('get_writing_task') ?? 0) +
-    (counts.get('create_writing_task') ?? 0) +
-    (counts.get('update_writing_task') ?? 0)
-  if (taskCount > 0) summaries.push('Updating the writing plan')
-  const knownCount =
-    contextCount +
-    sectionCount +
-    manuscriptSearchCount +
-    searchCount +
-    citationCount +
-    inspectCount +
-    checkCount +
-    issueCount +
-    skillCount +
-    activationCount +
-    taskCount
-  if (tools.length > knownCount) {
-    const otherCount = tools.length - knownCount
-    summaries.push(`Ran ${otherCount} ${otherCount === 1 ? 'action' : 'actions'}`)
-  }
-  return summaries.length > 0 ? joinSummaryParts(summaries) : 'Worked on the request'
-}
-
-export function agentToolActivityLabel(tool: AgentToolActivity): string {
-  const running = tool.result === null && !toolWasStopped(tool)
-  switch (tool.call.toolName) {
-    case 'get_writing_context':
-      return running ? 'Reading manuscript context' : 'Read manuscript context'
-    case 'read_outline':
-      return running ? 'Reading the outline' : 'Read the outline'
-    case 'read_section': {
-      if (running) return 'Reading a section'
-      const result =
-        tool.result?.isError === false
-          ? readSectionResultSchema.safeParse(tool.result.result)
-          : null
-      return result?.success === true ? `Read · ${result.data.section.title}` : 'Read a section'
-    }
-    case 'search_manuscript':
-      return running ? 'Searching the manuscript' : 'Searched the manuscript'
-    case 'search_knowledge':
-      return running ? 'Searching sources' : 'Searched sources'
-    case 'read_citations':
-      return running ? 'Checking source evidence' : 'Checked source evidence'
-    case 'read_writing_skill':
-      return writingSkillActivityLabel(tool, running)
-    case 'ask_user':
-      return running ? 'Waiting for your answer' : 'Asked for clarification'
-    case 'activate_tool_groups':
-      return running ? 'Preparing writing tools' : 'Prepared writing tools'
-    case 'inspect_change':
-      return running ? 'Reviewing the change' : 'Reviewed the change'
-    case 'check_draft':
-      return running ? 'Checking the draft' : 'Checked the draft'
-    case 'list_review_issues':
-      return running ? 'Reading review issues' : 'Read review issues'
-    case 'record_review_issues':
-      return running ? 'Recording review issues' : 'Recorded review issues'
-    case 'update_review_issues':
-      return running ? 'Updating review issues' : 'Updated review issues'
-    case 'get_writing_task':
-      return running ? 'Reading the writing plan' : 'Read the writing plan'
-    case 'create_writing_task':
-      return running ? 'Creating the writing plan' : 'Created the writing plan'
-    case 'update_writing_task':
-      return running ? 'Updating the writing plan' : 'Updated the writing plan'
-    case 'submit_brief_change':
-    case 'submit_writing_rules_change':
-    case 'submit_outline_change':
-    case 'submit_section_change':
-    case 'propose_brief_update':
-    case 'propose_outline_patch':
-    case 'propose_section_patch':
-      return running ? 'Preparing a reviewable change' : 'Prepared a reviewable change'
-    case 'generate_image':
-      return running ? 'Generating an image' : 'Generated an image'
-  }
 }
 
 export function agentActivityDefaultOpen(status: AgentActivityStatus): boolean {
   return status !== 'complete'
 }
 
-export function currentAgentActivitySummary(
-  timeline: AgentTimelineItem[],
-  runId: string | null
-): string | null {
-  if (runId === null) return null
-  for (const item of [...timeline].reverse()) {
-    if (item.type === 'activity' && item.runId === runId && item.status === 'running') {
-      return item.summary
-    }
-    if (item.type === 'proposal' && item.tool.runId === runId && item.tool.result === null) {
-      return agentToolActivityLabel(item.tool)
-    }
-    if (item.type === 'question' && item.tool.runId === runId && item.tool.result === null) {
-      return 'Waiting for your answer'
-    }
-  }
-  return null
-}
-
 export function agentThinkingVisualState(input: {
-  timeline: AgentTimelineItem[]
-  runId: string | null
-  workflowState:
-    | 'idle'
-    | 'running'
-    | 'awaiting_input'
-    | 'compacting'
-    | 'generating'
-    | 'awaiting_review'
+  currentVisual: AgentThinkingVisualState
+  workflowState: AgentSessionRecord['workflowState']
   choosingSkill: boolean
   hasStreamingRun: boolean
 }): AgentThinkingVisualState {
   if (input.workflowState === 'generating') return 'shaping'
-  if (input.workflowState === 'compacting') return 'composing'
-  if (input.workflowState === 'awaiting_input') return 'connecting'
-  if (input.hasStreamingRun) return 'composing'
-  if (input.choosingSkill) return 'connecting'
-  if (input.runId === null) return 'working'
-  for (const item of [...input.timeline].reverse()) {
-    const tool =
-      item.type === 'activity' && item.runId === input.runId && item.status === 'running'
-        ? [...item.tools].reverse().find((candidate) => candidate.result === null)
-        : item.type === 'proposal' && item.tool.runId === input.runId && item.tool.result === null
-          ? item.tool
-          : item.type === 'question' && item.tool.runId === input.runId && item.tool.result === null
-            ? item.tool
-            : undefined
-    if (tool === undefined) continue
-    const name = tool.call.toolName
-    if (name === 'generate_image') return 'shaping'
-    if (name === 'inspect_change' || name === 'check_draft') return 'solving'
-    if (
-      name === 'get_writing_context' ||
-      name === 'read_outline' ||
-      name === 'read_section' ||
-      name === 'search_manuscript' ||
-      name === 'search_knowledge' ||
-      name === 'read_citations' ||
-      name === 'read_writing_skill' ||
-      name === 'list_review_issues' ||
-      name === 'get_writing_task'
-    ) {
-      return 'searching'
-    }
-    if (
-      name === 'submit_brief_change' ||
-      name === 'submit_writing_rules_change' ||
-      name === 'submit_outline_change' ||
-      name === 'submit_section_change'
-    ) {
-      return 'composing'
-    }
-    return 'working'
-  }
-  return 'working'
+  if (input.workflowState === 'compacting' || input.hasStreamingRun) return 'composing'
+  if (input.workflowState === 'awaiting_input' || input.choosingSkill) return 'connecting'
+  return input.currentVisual
 }
 
 function dedupeCitationDisplays(citations: AgentCitationDisplay[]): AgentCitationDisplay[] {
@@ -1231,13 +1194,6 @@ function dedupeCitationDisplays(citations: AgentCitationDisplay[]): AgentCitatio
     }
   }
   return [...deduped.values()]
-}
-
-function joinSummaryParts(parts: string[]): string {
-  if (parts.length === 1) return parts[0] ?? 'Worked on the request'
-  return parts
-    .map((part, index) => (index === 0 ? part : `${part.charAt(0).toLowerCase()}${part.slice(1)}`))
-    .join(', ')
 }
 
 export function findLatestPrompt(events: AgentEventRecord[]): string | null {

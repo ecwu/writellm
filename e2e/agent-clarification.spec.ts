@@ -215,6 +215,9 @@ test(
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       const questionnaire = panel.getByTestId('agent-questionnaire')
       await expect(questionnaire).toBeVisible()
+      await expect(
+        panel.getByText('Which scope should the revision use?', { exact: true })
+      ).toHaveCount(1)
       await expect(panel.getByTestId('agent-status')).toContainText('Waiting for your answer')
       await expect(panel.getByTestId('agent-conversation-switcher')).toBeEnabled()
       await panel.getByTestId('agent-conversation-switcher').click()
@@ -262,6 +265,8 @@ test(
       await expect(
         panel.getByText('Precise but warm', { exact: true }).filter({ visible: true }).first()
       ).toBeVisible()
+      await expect(panel.getByText('Agent asked · You answered', { exact: true })).toHaveCount(1)
+      await expect(panel.getByText('Precise but warm', { exact: true })).toHaveCount(1)
       expect(JSON.stringify(providerBodies[1])).toContain('WRITELLM_USER_CLARIFICATION')
       expect(JSON.stringify(providerBodies[1])).toContain('Precise but warm')
 
@@ -271,7 +276,9 @@ test(
       await expect(panel.getByTestId('agent-status')).toContainText('Waiting for your answer')
       await questionnaire.getByRole('button', { name: 'Stop' }).click()
       await expect(
-        panel.getByText('Clarification ended without an answer', { exact: true })
+        panel.getByText('Agent clarification wait was aborted. Next: Do not retry automatically.', {
+          exact: true
+        })
       ).toBeVisible({ timeout: 20_000 })
       expect(agentCall).toBe(3)
 
@@ -306,7 +313,10 @@ test(
       const restoredQuestionnaire = restoredPanel.getByTestId('agent-questionnaire')
       await expect(restoredQuestionnaire).toHaveCount(0)
       await expect(
-        restoredPanel.getByText('Clarification ended without an answer', { exact: true })
+        restoredPanel.getByText(
+          'Agent clarification wait was aborted. Next: Do not retry automatically.',
+          { exact: true }
+        )
       ).toHaveCount(1)
       await expect(restoredPanel.getByTestId('agent-status')).toContainText('Ready')
       const restartTruth = await restarted.page.evaluate(async () => {

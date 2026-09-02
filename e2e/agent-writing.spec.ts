@@ -958,9 +958,10 @@ test(
       })
       await expect(searchActivity).toBeVisible()
       const searchedSourcesStep = searchActivity.getByText('Searched sources', { exact: true })
-      if (!(await searchedSourcesStep.isVisible())) {
-        await searchActivity.getByRole('button').first().click()
-      }
+      await expect(searchActivity).toHaveAttribute('data-state', 'closed')
+      await searchActivity.getByRole('button').first().focus()
+      await launched.page.keyboard.press('Enter')
+      await expect(searchActivity).toHaveAttribute('data-state', 'open')
       await expect(searchedSourcesStep).toBeVisible()
       await expect(
         panel.getByText(
@@ -1011,6 +1012,11 @@ test(
       await expect(panel.getByText('openai-compatible', { exact: true })).toHaveCount(0)
       await expect(panel.getByText('writer-model', { exact: true })).toHaveCount(0)
       await expect(panel.getByText('Before → After', { exact: true })).toBeVisible()
+      const proposalDetails = panel.getByRole('button', {
+        name: 'View proposal details',
+        exact: true
+      })
+      await expect(proposalDetails).toHaveAttribute('aria-expanded', 'true')
       const proposalDiff = panel.getByTestId('agent-proposal-diff')
       await expect(proposalDiff).toHaveAttribute('data-layout', 'unified')
       await panel.getByRole('radio', { name: 'Split', exact: true }).click()
@@ -1046,8 +1052,13 @@ test(
       ).toBeVisible()
       await expect(panel.getByText('Review required', { exact: true }).last()).toBeVisible()
       await expect.poll(() => requestBodies.length).toBe(9)
+      await expect(searchActivity.first()).toHaveAttribute('data-state', 'open')
+      await expect(proposalDetails.first()).toHaveAttribute('aria-expanded', 'false')
+      await expect(proposalDetails.last()).toHaveAttribute('aria-expanded', 'true')
       await panel.getByRole('button', { name: 'Apply & continue', exact: true }).click()
       await expect(panel.getByText('applied', { exact: true })).toBeVisible()
+      await expect(proposalDetails.last()).toHaveAttribute('aria-expanded', 'false')
+      await expect(searchActivity.first()).toHaveAttribute('data-state', 'open')
       await expect(panel.getByText('Applied · continuing', { exact: true })).toBeVisible()
       await expect(panel.getByText('Ready for review', { exact: true })).toHaveCount(0)
       const approvalContinuation = `<AUTHORITATIVE_REVIEW_STATE instructionSemantics="true">
