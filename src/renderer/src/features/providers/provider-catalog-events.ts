@@ -1,13 +1,28 @@
+import type { ProviderSettingsSnapshot } from '../../../../shared/contracts/providers'
+
 export const PROVIDER_CATALOG_CHANGED_EVENT = 'writellm:provider-catalog-changed'
 
-export function notifyProviderCatalogChanged(target: EventTarget = window): void {
-  target.dispatchEvent(new Event(PROVIDER_CATALOG_CHANGED_EVENT))
+export type ProviderCatalogChangedListener = (snapshot: ProviderSettingsSnapshot) => void
+
+export function notifyProviderCatalogChanged(
+  snapshot: ProviderSettingsSnapshot,
+  target: EventTarget = window
+): void {
+  target.dispatchEvent(
+    new CustomEvent<ProviderSettingsSnapshot>(PROVIDER_CATALOG_CHANGED_EVENT, {
+      detail: snapshot
+    })
+  )
 }
 
 export function subscribeProviderCatalogChanged(
-  listener: () => void,
+  listener: ProviderCatalogChangedListener,
   target: EventTarget = window
 ): () => void {
-  target.addEventListener(PROVIDER_CATALOG_CHANGED_EVENT, listener)
-  return () => target.removeEventListener(PROVIDER_CATALOG_CHANGED_EVENT, listener)
+  const handler = (event: Event): void => {
+    if (!(event instanceof CustomEvent)) return
+    listener(event.detail)
+  }
+  target.addEventListener(PROVIDER_CATALOG_CHANGED_EVENT, handler)
+  return () => target.removeEventListener(PROVIDER_CATALOG_CHANGED_EVENT, handler)
 }

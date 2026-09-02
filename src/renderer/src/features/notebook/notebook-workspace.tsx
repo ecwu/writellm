@@ -8,7 +8,7 @@ import {
 } from '../../../../shared/contracts/notebook'
 import type { AgentProviderCatalog } from '../../../../shared/contracts/providers'
 import type { ExpandedCitation } from '../../../../shared/contracts/search'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
   FileQuestion,
@@ -79,12 +79,14 @@ import { Spinner } from '@/components/ui/spinner'
 import { AgentMarkdown } from '@/features/agent/agent-markdown'
 import { AgentModelEffortPicker } from '@/features/agent/agent-model-effort-picker'
 import { ExpandedCitationPreview } from '@/features/knowledge/citation-preview'
+import { subscribeProviderCatalogChanged } from '../providers/provider-catalog-events'
 
 const EMPTY_CATALOG: AgentProviderCatalog = {
   presets: [],
   defaultSelection: null,
   defaultThinkingLevel: 'off'
 }
+const PROVIDER_SETTINGS_QUERY_KEY = ['provider-settings'] as const
 
 interface NotebookNavigationProps {
   onOpenManuscript(): void
@@ -106,6 +108,7 @@ export function NotebookWorkspace(
     onError(message: string): void
   }
 ): React.JSX.Element {
+  const queryClient = useQueryClient()
   const [snapshot, setSnapshot] = useState<NotebookChatSnapshot | null>(null)
   const snapshotRef = useRef<NotebookChatSnapshot | null>(null)
   const pendingEventsRef = useRef<NotebookChatEvent[]>([])
@@ -124,9 +127,16 @@ export function NotebookWorkspace(
     refetchInterval: snapshot?.sourceReadiness === 'preparing' ? 1_000 : false
   })
   const providersQuery = useQuery({
-    queryKey: ['provider-settings'],
+    queryKey: PROVIDER_SETTINGS_QUERY_KEY,
     queryFn: () => window.desktop.providers.snapshot()
   })
+  useEffect(() => {
+    return subscribeProviderCatalogChanged((next) => {
+      void queryClient.cancelQueries({ queryKey: PROVIDER_SETTINGS_QUERY_KEY }).then(() => {
+        queryClient.setQueryData(PROVIDER_SETTINGS_QUERY_KEY, next)
+      })
+    })
+  }, [queryClient])
   const providerCatalog = providersQuery.data?.agentCatalog ?? EMPTY_CATALOG
   const availableModelPresets = useMemo(
     () =>

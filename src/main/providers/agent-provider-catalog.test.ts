@@ -95,7 +95,7 @@ afterEach(async () => {
 })
 
 describe('AgentProviderCatalogService', () => {
-  it('projects exact Pi Thinking levels only for built-in non-manual models', async () => {
+  it('projects exact Pi Thinking levels from Pi metadata', async () => {
     const { database, catalog } = await createHarness()
     const snapshot = await catalog.snapshot()
     expect(snapshot.defaultThinkingLevel).toBe('medium')
@@ -306,7 +306,7 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
-  it('keeps manual model overlays and rejects disabled selections', async () => {
+  it('keeps manual model overlays, reasoning metadata, and rejects disabled selections', async () => {
     const { database, catalog } = await createHarness()
     await catalog.saveCustomPreset({
       presetId: 'custom:overlay',
@@ -349,7 +349,7 @@ describe('AgentProviderCatalogService', () => {
           source: 'manual',
           enabled: true,
           reasoning: true,
-          supportedThinkingLevels: ['off'],
+          supportedThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
           input: ['text', 'image']
         }),
         expect.objectContaining({ id: 'writer-2', source: 'discovered', enabled: true })
@@ -364,9 +364,26 @@ describe('AgentProviderCatalogService', () => {
     ).rejects.toThrow('Agent model is disabled')
 
     await catalog.setModelEnabled('custom:overlay', 'writer-1', true)
+    await catalog.saveManualModel('custom:overlay', {
+      id: 'writer-1',
+      name: 'Updated Manual Writer',
+      api: 'openai-responses',
+      contextWindow: 65_536,
+      maxTokens: 12_288,
+      reasoning: true,
+      input: ['text']
+    })
     await expect(
       catalog.resolve({ presetId: 'custom:overlay', modelId: 'writer-1' })
-    ).resolves.toMatchObject({ model: { reasoning: false } })
+    ).resolves.toMatchObject({
+      model: {
+        name: 'Updated Manual Writer',
+        reasoning: true,
+        contextWindow: 65_536,
+        maxTokens: 12_288,
+        input: ['text']
+      }
+    })
     const withoutManual = await catalog.removeManualModel('custom:overlay', 'writer-1')
     expect(
       withoutManual.presets

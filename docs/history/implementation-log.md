@@ -1535,3 +1535,89 @@ maintenance without turning the active tracker back into a historical log.
   engine warning; exact pnpm 11.17.0 was preserved. Other platforms and full packaging/release
   gates were outside this Renderer maintenance scope. Final `pnpm check` and `git diff --check`
   passed after documentation synchronization.
+
+## 2026-09-02 Agent model configuration and output completion
+
+- Authorization: the user explicitly requested correction of the ignored 65,536-token model
+  allowance, discarded manual-model reasoning capability, successful classification of `length`,
+  and delayed model configuration refresh. ADR 076 records the decision and supersedes ADR 014's
+  manual/custom reasoning exclusion. The paused Writing Task checkpoint remains unchanged.
+- The two inspected writing traces sent only 8,192 output tokens, omitted `thinkingConfig` despite
+  Thinking being `off`, and ended with `length` after roughly 7,860 reasoning tokens. Read/search
+  actions completed, but no section mutation proposal was submitted. The final announcements of
+  imminent writing were truncated responses, not successful chapter writes.
+- Main now derives runtime identity, reasoning, context limits, output limits, and run provenance
+  from one current catalog resolution. Interactive output defaults to the declared model allowance
+  within the existing 131,072-token runtime bound; explicit lower budgets remain respected. Legacy
+  configurations without metadata retain the 8,192-token fallback. Title and summary budgets retain
+  their existing purposes, while their model limits come from the same current catalog.
+- Manual/custom reasoning metadata reaches Pi unchanged. A focused test captures the real pinned
+  Google Vertex adapter's serialized request for `gemini-3.8-flash`: `maxOutputTokens: 65536` and
+  `thinkingConfig.thinkingLevel: MINIMAL` for Thinking `off`. Pi owns that provider-specific mapping;
+  this does not promise that the provider supports zero reasoning tokens.
+- `length` now produces `output_limit_reached`, marks the request/run failed, logs the original
+  error, preserves usage and interrupted visible text, and avoids automatic follow-up consumption
+  or request replay. Interrupted answers are excluded from subsequent conversation context.
+  Truncated auxiliary summaries also fail instead of becoming authoritative compaction output.
+- Settings broadcasts the returned credential-free snapshot directly to Agent and Notebook
+  selectors. Old initial catalog responses cannot overwrite a newer event; skills initialization
+  remains independent. New runs resolve changed metadata without model reselection. An active run
+  and its continuations retain their immutable original configuration.
+- Focused Electron-hosted verification covers **115 distinct passing tests across nine files**.
+  Budget and worker execution coverage (11 + 29 tests) passed in the initial 3.8-second invocation
+  (`1788388997432-448-81d99733`). That invocation's one failing Main assertion used the wrong test
+  helper shape; its focused rerun passed in 1.4 seconds (`1788389039179-1525-fa464922`). Final Main
+  runtime, message, review, compaction and auxiliary-request coverage passed 65 tests in 4.4 seconds
+  (`1788389222170-3176-5ebad272`). Catalog and event delivery passed 10 tests in 2.2 seconds
+  (`1788389337358-4120-c55ca254`). Earlier fixture-only type errors were corrected; final static
+  checks passed. Passing coverage for unchanged files was reused rather than rerun.
+- One `pnpm check:e2e` invocation performed Biome (0.4 s), Main types (4.7 s), Renderer types
+  (5.2 s), native preparation (0.6 s), and the only production compile (11.3 s), then ran four
+  scenarios. Existing Thinking memory, exhausted-request recovery, and grounded proposal/reopen
+  scenarios passed. The new configuration fixture initially lacked the API key required by Pi's
+  execution path, so it failed before reaching the local test endpoint. Evidence:
+  `1788389433330-5125-f19a06ab`, 56.3 seconds including 34.1 seconds of E2E.
+- Only the fixture credential setup changed after that build. A focused `pnpm test:e2e` rerun
+  passed the new configuration scenario and existing provider settings/persistence scenario in
+  9.8 seconds (`1788389521275-6005-37b0698b`). The new scenario edits the selected model through
+  Settings, observes its new selector label immediately, and captures the next request changing
+  from 16,384 to 65,536 output tokens. Persisted run limits change from 262,144 to 1,048,576 context
+  tokens while the earlier run stays unchanged. A subsequent truncated response displays the
+  output-limit diagnostic and persists `failed` / `output_limit_reached`, with one request only.
+  Overall: **five distinct passing Electron scenarios**, six attempts, one fixture correction,
+  zero automatic retries, flakes, or skipped scenarios.
+- Evidence is under `.cache/verification/` using the IDs above. Runtime: macOS arm64, Electron
+  43.4.1, embedded Node 24.18.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.1 retains its pre-existing
+  engine warning; no toolchain pin was changed. Tests use local provider fixtures, not a live
+  paid Gemini request. Other platforms and packaging/release gates were outside this repair.
+  Final `pnpm check` and `git diff --check` passed after documentation synchronization.
+
+## 2026-09-03 Local build 0.2026.9.1
+
+- Authorization: the user requested an App build followed by a commit of the current code and
+  a `0.2026.9.1` tag. The tag uses the existing `v0.2026.9.1` canonical spelling required by
+  `verify-release-source.mjs`. Package SemVer is `0.2026.9`; release metadata and artifact names
+  carry `0.2026.9.1`; the macOS bundle build is `2026.9.1`.
+- `pnpm install --frozen-lockfile --offline` passed in 4 seconds, preserving the lockfile and
+  exact pnpm 11.17.0 toolchain. Native preparation verified Electron 43.4.1 / ABI 148 with
+  better-sqlite3 12.11.1 and sqlite-vec 0.1.9. Existing Agent repair source coverage (115 focused
+  tests and five Electron scenarios) was reused because only version metadata changed afterward.
+- One `pnpm check:package` invocation passed in 188.0 seconds, using one production build and
+  one assembled App. Static checks took 10.4 seconds, build/native preparation 11.4 seconds,
+  App assembly 20.1 seconds, runtime smoke 39.5 seconds, packaged E2E 84.3 seconds, and installers
+  from that same App 21.7 seconds. All 31 recovery fixtures from 29 sources, native/resource
+  inventory, 12 runtime smoke scenarios, and all 34 packaged E2E scenarios passed. There were
+  zero failures, retries, flakes, or skipped scenarios. Signature inspection verified the accepted
+  no-Team-ID ad-hoc/linker signature.
+- Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`, `WriteLLM-0.2026.9.1-arm64.dmg`
+  (194,631,862 bytes), and `WriteLLM-0.2026.9.1-arm64.zip` (192,544,089 bytes).
+  DMG SHA-256: `3cfa5182040c619733ad1d9911aca12b55fb582db7feee6bbe0ecb8872c090fe`.
+  ZIP SHA-256: `ae54eba6ccd2c9c2515d3885f75abeeb3c822177df032c8ced44d5c91efc6a68`.
+  Evidence: `dist/macos-arm64/package-evidence.json` and
+  `.cache/verification/1788389930863-8969-23a73ef3/`.
+- The package was built from the working tree before the requested commit; its original evidence
+  retains that provenance rather than claiming a clean tagged build. Final documentation changes
+  do not change the built application. `pnpm check` and `git diff --check` passed before the local
+  commit and annotated tag. Other-platform builds, remote push, Developer ID signing,
+  notarization, GitHub Release creation, and publication are outside this request. Host Node
+  26.8.1 retains the pre-existing engine-range warning; tests run in the canonical Electron runtime.

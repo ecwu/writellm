@@ -89,6 +89,126 @@ afterEach(() => {
 })
 
 describe('runAgentSession', () => {
+  it('fails truncated output without consuming a queued follow-up or losing the partial response', async () => {
+    let resolveResponse: ((response: Response) => void) | undefined
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve
+        })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+    const running = runAgentSession(
+      request,
+      (event) => events.push(event),
+      (value) => {
+        control = value
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+    const rejected = expect(running).rejects.toMatchObject({
+      code: 'output_limit_reached',
+      message: expect.stringContaining('100 tokens')
+    })
+    await vi.waitFor(() => expect(resolveResponse).toBeTypeOf('function'))
+    control?.enqueue({
+      operation: 'follow_up',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+      content: 'Next task',
+      timestamp: 5,
+      systemPrompt: request.systemPrompt
+    })
+    resolveResponse?.(
+      completionResponse('Starting the draft.', 'truncated-response', undefined, 'length')
+    )
+    await rejected
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'model_call_finished',
+        outcome: 'failed',
+        failureCode: 'output_limit_reached',
+        retryable: false
+      })
+    )
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        message: expect.objectContaining({
+          content: 'Starting the draft.',
+          stopReason: 'length',
+          interrupted: true
+        })
+      })
+    )
+    expect(events.some((event) => event.type === 'follow_up_consumption_requested')).toBe(false)
+  })
+
+  it('sends the selected Vertex model output and supported off configuration through Pi', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return new Response(
+          `data: ${JSON.stringify({
+            candidates: [
+              {
+                content: { role: 'model', parts: [{ text: 'Draft complete.' }] },
+                finishReason: 'STOP'
+              }
+            ],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, totalTokenCount: 14 }
+          })}\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } }
+        )
+      })
+    )
+    await runAgentSession(
+      {
+        ...request,
+        history: [],
+        maxOutputTokens: 65_536,
+        config: {
+          ...request.config,
+          api: 'google-vertex',
+          providerId: 'google-vertex',
+          model: 'gemini-3.8-flash'
+        },
+        runtimeModel: {
+          id: 'gemini-3.8-flash',
+          name: 'Manual Gemini',
+          api: 'google-vertex',
+          provider: 'google-vertex',
+          baseUrl: 'https://aiplatform.googleapis.com',
+          reasoning: true,
+          input: ['text'],
+          contextWindow: 1_048_576,
+          maxTokens: 65_536
+        }
+      },
+      () => undefined,
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never
+    )
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]).toMatchObject({
+      generationConfig: {
+        maxOutputTokens: 65_536,
+        thinkingConfig: { thinkingLevel: 'MINIMAL' }
+      }
+    })
+  })
+
   it('continues provider work when a trace capture is requested', async () => {
     const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'response-trace'))
     vi.stubGlobal('fetch', fetchMock)
@@ -1608,7 +1728,12 @@ function createFakeMessageChannel(): { port1: FakeMessagePort; port2: FakeMessag
   return { port1, port2 }
 }
 
-function completionResponse(text: string, responseId: string, reasoning?: string): Response {
+function completionResponse(
+  text: string,
+  responseId: string,
+  reasoning?: string,
+  finishReason = 'stop'
+): Response {
   const chunks = [
     `data: ${JSON.stringify({
       id: responseId,
@@ -1632,7 +1757,7 @@ function completionResponse(text: string, responseId: string, reasoning?: string
       object: 'chat.completion.chunk',
       created: 1,
       model: 'writer-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
       usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 }
     })}\n\n`,
     'data: [DONE]\n\n'

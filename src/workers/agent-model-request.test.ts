@@ -7,6 +7,64 @@ afterEach(() => {
 })
 
 describe('runAgentModelRequest', () => {
+  it('rejects an incomplete auxiliary response instead of accepting a truncated summary', async () => {
+    const fetchMock = vi.fn<typeof fetch>(
+      async () =>
+        new Response(
+          `data: ${JSON.stringify({
+            id: 'truncated-summary',
+            object: 'chat.completion.chunk',
+            created: 1,
+            model: 'writer-model',
+            choices: [
+              {
+                index: 0,
+                delta: { role: 'assistant', content: 'Partial summary' },
+                finish_reason: 'length'
+              }
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 100, total_tokens: 110 }
+          })}\n\ndata: [DONE]\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } }
+        )
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(
+      runAgentModelRequest(
+        {
+          requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc301',
+          config: {
+            role: 'agent',
+            providerId: 'openai-compatible',
+            baseUrl: 'https://agent.example.test/v1',
+            model: 'writer-model',
+            modelRevision: 'writer-r1',
+            timeoutMs: 5_000,
+            embeddingDimension: null,
+            batchLimit: 1,
+            fileSizeLimitMb: null
+          },
+          credential: { apiKey: 'fixture-secret' },
+          modelLimits: {
+            contextWindowTokens: 131_072,
+            inputLimitTokens: null,
+            outputLimitTokens: null,
+            source: 'legacy_fallback',
+            catalogModelKey: null,
+            resolvedAt: null
+          },
+          input: {
+            systemPrompt: 'Summarize the history.',
+            prompt: 'Summarize.',
+            maxOutputTokens: 100
+          }
+        },
+        () => undefined
+      )
+    ).rejects.toMatchObject({ code: 'output_limit_reached' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the Pi Agent lifecycle with injected OpenAI-compatible streaming and no storage', async () => {
     let authorization = ''
     let requestBody = ''

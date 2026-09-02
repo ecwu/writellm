@@ -41,6 +41,7 @@ import {
 import { AgentToolBridge } from './agent-tools'
 import {
   apiKeyForProvider,
+  AgentOutputLimitError,
   buildAgentProviderModel,
   loadAgentStreamSimple
 } from './agent-provider-runtime'
@@ -144,6 +145,7 @@ export async function runAgentSession(
     }
   >()
   const callCompletions: Promise<void>[] = []
+  let outputLimitError: AgentOutputLimitError | undefined
   const modelRequestByToolCallId = new Map<string, string>()
   const modelVisibleToolsByRequestId = new Map<
     string,
@@ -195,7 +197,18 @@ export async function runAgentSession(
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
     transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
-    prepareNextTurnWithContext: async ({ context, toolResults }) => {
+    prepareNextTurnWithContext: async ({ message, context, toolResults }) => {
+      if (message.stopReason === 'length') {
+        outputLimitError = new AgentOutputLimitError(request.maxOutputTokens)
+        log?.(
+          'error',
+          'agent.model.output_limit_reached',
+          outputLimitError.message,
+          { maxOutputTokens: request.maxOutputTokens },
+          outputLimitError
+        )
+        throw outputLimitError
+      }
       if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
       if (queuedModelRequestId !== undefined) {
@@ -465,7 +478,8 @@ export async function runAgentSession(
           contextTokensEstimated ? estimateAgentTokens(context) : providerPromptTokens,
           contextTokensEstimated
         )
-        const failed = message.stopReason === 'error'
+        const truncated = message.stopReason === 'length'
+        const failed = message.stopReason === 'error' || truncated
         onEvent({
           type: 'model_call_finished',
           modelRequestId,
@@ -473,10 +487,12 @@ export async function runAgentSession(
           metadata: payload.metadata,
           ...(failed
             ? {
-                failureCode: retrying.state.exhausted
-                  ? ('provider_retries_exhausted' as const)
-                  : ('provider_request_failed' as const),
-                retryable: retrying.state.retryableFailure
+                failureCode: truncated
+                  ? ('output_limit_reached' as const)
+                  : retrying.state.exhausted
+                    ? ('provider_retries_exhausted' as const)
+                    : ('provider_request_failed' as const),
+                retryable: !truncated && retrying.state.retryableFailure
               }
             : {}),
           ...(lastResponseStatus === undefined ? {} : { httpStatus: lastResponseStatus }),
@@ -775,7 +791,12 @@ export async function runAgentSession(
     while (true) {
       const completedCallCount = callCompletions.length
       await Promise.all(callCompletions)
-      if (lastAssistant?.stopReason === 'error' || lastAssistant?.stopReason === 'aborted') break
+      if (
+        lastAssistant?.stopReason === 'error' ||
+        lastAssistant?.stopReason === 'aborted' ||
+        lastAssistant?.stopReason === 'length'
+      )
+        break
       await recoverAuthorizedContinuation({
         awaitingReview,
         pendingAuthorizationCount: () => authorizedContinuationRequestIds.size,
@@ -802,9 +823,12 @@ export async function runAgentSession(
     externalSignal?.removeEventListener('abort', abortExternal)
   }
 
+  if (outputLimitError !== undefined) throw outputLimitError
   if (runError !== undefined) throw runError
 
   if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
+  if (lastAssistant.stopReason === 'length')
+    throw new AgentOutputLimitError(request.maxOutputTokens)
   if (lastAssistant.stopReason === 'error') {
     const providerDetails = providerErrorDetails(lastAssistant, lastProviderError)
     const status = providerDetails.status ?? lastAssistantHttpStatus
@@ -923,7 +947,10 @@ function toAssistantPayload(
       contextTokensEstimated
     },
     timestamp: message.timestamp,
-    interrupted: message.stopReason === 'aborted' || message.stopReason === 'error'
+    interrupted:
+      message.stopReason === 'aborted' ||
+      message.stopReason === 'error' ||
+      message.stopReason === 'length'
   })
 }
 

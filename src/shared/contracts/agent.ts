@@ -377,7 +377,12 @@ export const agentRuntimeEventSchema = z.discriminatedUnion('type', [
       metadata: modelExecutionMetadataSchema,
       httpStatus: z.number().int().min(100).max(599).optional(),
       failureCode: z
-        .enum(['provider_retries_exhausted', 'provider_request_failed', 'retry_context_mismatch'])
+        .enum([
+          'provider_retries_exhausted',
+          'provider_request_failed',
+          'retry_context_mismatch',
+          'output_limit_reached'
+        ])
         .optional(),
       retryable: z.boolean().optional(),
       physicalAttemptCount: z.number().int().min(1).max(20).optional(),

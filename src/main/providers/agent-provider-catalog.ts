@@ -190,11 +190,6 @@ export function clampResolvedAgentThinkingLevel(
   return agentThinkingLevelSchema.parse(clampPiThinkingLevel(resolved.model, level))
 }
 
-function withoutReasoning(model: Model<Api>): Model<Api> {
-  const { thinkingLevelMap: _thinkingLevelMap, ...rest } = model
-  return { ...rest, reasoning: false }
-}
-
 export class AgentProviderCatalogService {
   readonly #credentialStore: MainPiCredentialStore
   readonly #modelsStore: DatabaseModelsStore
@@ -606,16 +601,12 @@ export class AgentProviderCatalogService {
       throw new Error('Selected Agent model is disabled')
     }
     const custom = await this.#customPreset(parsed.presetId)
-    const manual = (await this.#manualModels(parsed.presetId)).some(
-      (candidate) => candidate.id === parsed.modelId
-    )
-    const effectiveModel = custom === null && !manual ? model : withoutReasoning(model)
     return {
       presetId: parsed.presetId,
       presetName: custom?.name ?? provider.name,
       providerId,
       timeoutMs: custom?.timeoutMs ?? 60_000,
-      model: effectiveModel,
+      model,
       auth
     }
   }
@@ -677,10 +668,7 @@ export class AgentProviderCatalogService {
                   ? 'packaged'
                   : 'discovered',
               reasoning: model.reasoning,
-              supportedThinkingLevels:
-                custom === null && !manualIds.has(model.id)
-                  ? getSupportedThinkingLevels(model)
-                  : ['off'],
+              supportedThinkingLevels: getSupportedThinkingLevels(model),
               input: model.input,
               contextWindow: model.contextWindow,
               maxTokens: model.maxTokens,

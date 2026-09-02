@@ -8,7 +8,10 @@ import type {
   AgentStartScope
 } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import type { AgentProviderCatalog } from '../../../../shared/contracts/providers'
+import type {
+  AgentProviderCatalog,
+  ProviderSettingsSnapshot
+} from '../../../../shared/contracts/providers'
 import type { SkillsSnapshot } from '../../../../shared/contracts/skills'
 import {
   useCallback,
@@ -96,6 +99,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     presets: [],
     defaultSelection: null
   })
+  const providerCatalogEventVersionRef = useRef(0)
   const [skillsSnapshot, setSkillsSnapshot] = useState<SkillsSnapshot | null>(null)
   const [revisionTransitions, setRevisionTransitions] = useState<
     Record<string, { from: string | undefined; to: string }>
@@ -229,6 +233,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   useEffect(() => {
     if (!props.open) return
     let disposed = false
+    const requestEventVersion = providerCatalogEventVersionRef.current
     setLoading(true)
     setError(null)
     void Promise.all([
@@ -237,10 +242,11 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       window.desktop.skills.snapshot().catch(() => null)
     ])
       .then(([, snapshot, nextSkillsSnapshot]) => {
-        if (!disposed) {
+        if (disposed) return
+        if (providerCatalogEventVersionRef.current === requestEventVersion) {
           setProviderCatalog(snapshot.agentCatalog)
-          if (nextSkillsSnapshot !== null) setSkillsSnapshot(nextSkillsSnapshot)
         }
+        if (nextSkillsSnapshot !== null) setSkillsSnapshot(nextSkillsSnapshot)
       })
       .catch(() => {
         if (disposed) return
@@ -277,15 +283,9 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   useEffect(() => {
     if (!props.open) return
     let disposed = false
-    const refresh = (): void => {
-      void window.desktop.providers
-        .snapshot()
-        .then((snapshot) => {
-          if (!disposed) setProviderCatalog(snapshot.agentCatalog)
-        })
-        .catch((cause) => {
-          if (!disposed) setError(errorMessage(cause))
-        })
+    const refresh = (snapshot: ProviderSettingsSnapshot): void => {
+      providerCatalogEventVersionRef.current += 1
+      if (!disposed) setProviderCatalog(snapshot.agentCatalog)
     }
     const unsubscribe = subscribeProviderCatalogChanged(refresh)
     return () => {

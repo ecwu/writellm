@@ -13,6 +13,132 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: runtime', () => {
+  it('uses refreshed selected-model limits on the next run while retaining the active snapshot', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    let model = {
+      id: 'manual-writer',
+      name: 'Manual Writer',
+      api: 'google-vertex' as const,
+      provider: 'google-vertex',
+      baseUrl: 'https://aiplatform.googleapis.com',
+      reasoning: true,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_048_576,
+      maxTokens: 65_536
+    }
+    const resolve = vi.fn(async () => ({
+      presetId: 'builtin:google-vertex',
+      presetName: 'Vertex',
+      providerId: 'google-vertex',
+      timeoutMs: 60_000,
+      model,
+      auth: { auth: { apiKey: 'fixture-secret' }, source: 'Stored API key' }
+    }))
+    const resolveModelLimits = vi.fn(async () => {
+      throw new Error('Catalog selections must not use the legacy limits cache')
+    })
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve } as never,
+      resolveModelLimits
+    })
+    const session = service.createSession('Current model', undefined, {
+      presetId: 'builtin:google-vertex',
+      modelId: model.id
+    })
+    const input = {
+      agentSessionId: session.agentSessionId,
+      prompt: 'Write a paragraph.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    const first = await service.startRun(input)
+    expect(runtime.active().input).toMatchObject({
+      maxOutputTokens: 65_536,
+      modelLimits: { contextWindowTokens: 1_048_576, outputLimitTokens: 65_536 },
+      runtimeModel: { reasoning: true, contextWindow: 1_048_576, maxTokens: 65_536 }
+    })
+    model = { ...model, name: 'Updated Writer', contextWindow: 200_000, maxTokens: 32_768 }
+    expect(runtime.active(first.agentRunId).input.maxOutputTokens).toBe(65_536)
+    runtime.active(first.agentRunId).resolve()
+    await first.completion
+    const second = await service.startRun(input)
+    expect(runtime.active().input).toMatchObject({
+      maxOutputTokens: 32_768,
+      modelLimits: { contextWindowTokens: 200_000, outputLimitTokens: 32_768 },
+      runtimeModel: { name: 'Updated Writer', contextWindow: 200_000, maxTokens: 32_768 }
+    })
+    expect(service.requireRun(first.agentRunId).modelLimits).toMatchObject({
+      contextWindowTokens: 1_048_576,
+      outputLimitTokens: 65_536
+    })
+    expect(service.requireRun(second.agentRunId).modelLimits).toMatchObject({
+      contextWindowTokens: 200_000,
+      outputLimitTokens: 32_768
+    })
+    runtime.active().resolve()
+    await second.completion
+    const smaller = await service.startRun({ ...input, maxOutputTokens: 4_096 })
+    expect(runtime.active().input.maxOutputTokens).toBe(4_096)
+    runtime.active().resolve()
+    await smaller.completion
+    expect(resolveModelLimits).not.toHaveBeenCalled()
+    expect(resolve).toHaveBeenCalledTimes(3)
+    database.close()
+  })
+
+  it('persists output truncation as a failed run and omits its partial answer from the next context', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Output truncation')
+    const input = {
+      agentSessionId: session.agentSessionId,
+      prompt: 'Write the chapter.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    const first = await service.startRun(input)
+    const active = runtime.active()
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'failed',
+      failureCode: 'output_limit_reached',
+      retryable: false,
+      metadata: metadata('partial')
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: active.input.modelRequestId,
+      message: {
+        ...assistant('Starting the draft.', 'partial'),
+        stopReason: 'length',
+        interrupted: true
+      }
+    })
+    active.reject(
+      Object.assign(new Error('Response cut off by output limit'), { code: 'output_limit_reached' })
+    )
+    await first.completion
+    expect(service.requireRun(first.agentRunId)).toMatchObject({
+      status: 'failed',
+      errorCode: 'output_limit_reached'
+    })
+    const events = service.listEvents(session.agentSessionId)
+    expect(events.some((event) => event.type === 'run_completed')).toBe(false)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'assistant_message',
+        payload: expect.objectContaining({ content: 'Starting the draft.', interrupted: true })
+      })
+    )
+    const next = await service.startRun({ ...input, prompt: 'Continue with a smaller section.' })
+    expect(JSON.stringify(runtime.active().input.history)).not.toContain('Starting the draft.')
+    runtime.active().resolve()
+    await next.completion
+    database.close()
+  })
+
   it('persists a sticky mode and snapshots it immutably into each run', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()

@@ -8,6 +8,7 @@ import {
 } from './agent-provider-stream'
 import {
   apiKeyForProvider,
+  AgentOutputLimitError,
   buildAgentProviderModel,
   loadAgentStreamSimple
 } from './agent-provider-runtime'
@@ -199,6 +200,9 @@ export async function runAgentModelRequest(
     const error = new Error('Agent provider request aborted')
     error.name = 'AbortError'
     throw error
+  }
+  if (finalMessage.stopReason === 'length') {
+    throw new AgentOutputLimitError(request.input.maxOutputTokens)
   }
   const text = finalMessage.content
     .filter((part) => part.type === 'text')

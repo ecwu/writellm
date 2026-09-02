@@ -4,6 +4,7 @@ import type { AgentModelLimits } from './contracts/agent'
 
 export const AGENT_CONTEXT_WINDOW_TOKENS = 131_072
 export const AGENT_DEFAULT_OUTPUT_TOKENS = 8_192
+export const AGENT_MAX_OUTPUT_TOKENS = 131_072
 /** The existing generic runtime message boundary, shared with agentHistorySchema. */
 export const AGENT_RUNTIME_HISTORY_MAX_BYTES = 2_097_152
 
@@ -21,11 +22,11 @@ const PROJECTABLE_READ_TOOLS = new Set([
 ])
 
 export function agentOutputLimit(
-  requestedTokens: number,
+  requestedTokens: number | undefined,
   limits: AgentModelLimits = legacyLimits()
 ): number {
-  const outputLimit = limits.outputLimitTokens ?? requestedTokens
-  return Math.min(requestedTokens, outputLimit)
+  const requested = requestedTokens ?? limits.outputLimitTokens ?? AGENT_DEFAULT_OUTPUT_TOKENS
+  return Math.min(requested, limits.outputLimitTokens ?? requested, AGENT_MAX_OUTPUT_TOKENS)
 }
 
 /**

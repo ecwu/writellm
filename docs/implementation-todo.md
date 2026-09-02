@@ -7,7 +7,7 @@ complete under ADR 070; Checkpoint 77 remains independently paused.
 Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-09-02
+Recorded: 2026-09-03
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -21,6 +21,14 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Candidate `0.2026.9.1`: build and verify the macOS arm64 App, then commit the current
+  source and create the local annotated `v0.2026.9.1` tag.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).
+
+- [x] Maintenance: honor current Agent model output/reasoning configuration, classify truncated
+  output as incomplete, and refresh open model selectors under ADR 076.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-02-agent-model-configuration-and-output-completion).
 
 - [x] Maintenance: unify Agent Panel content, tool presentation, disclosure, and Details under
   ADR 075. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance).

@@ -6,6 +6,18 @@ import type {
 } from '../shared/contracts/agent'
 import type { ProviderConfig } from '../shared/contracts/providers'
 
+export class AgentOutputLimitError extends Error {
+  readonly code = 'output_limit_reached'
+  readonly stage = 'provider'
+
+  constructor(maxOutputTokens: number) {
+    super(
+      `The model response was cut off by the output limit (requested budget: ${maxOutputTokens} tokens). Lower Thinking or request a smaller section, then continue.`
+    )
+    this.name = 'AgentOutputLimitError'
+  }
+}
+
 export function buildAgentProviderModel(input: {
   config: Extract<ProviderConfig, { role: 'agent' }>
   runtimeModel?: AgentRuntimeModel

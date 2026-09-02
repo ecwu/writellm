@@ -268,4 +268,20 @@ describe('Agent token context budget', () => {
       })
     ).toThrow(AgentModelCapacityError)
   })
+
+  it('defaults to the model output allowance while preserving explicit smaller budgets and the wire bound', () => {
+    const limits = {
+      contextWindowTokens: 1_048_576,
+      inputLimitTokens: null,
+      outputLimitTokens: 65_536,
+      source: 'manual_override' as const,
+      catalogModelKey: null,
+      resolvedAt: null
+    }
+    expect(agentOutputLimit(undefined, limits)).toBe(65_536)
+    expect(agentOutputLimit(4_096, limits)).toBe(4_096)
+    expect(agentOutputLimit(100_000, limits)).toBe(65_536)
+    expect(agentOutputLimit(undefined, { ...limits, outputLimitTokens: 262_144 })).toBe(131_072)
+    expect(agentOutputLimit(undefined, { ...limits, outputLimitTokens: null })).toBe(8_192)
+  })
 })

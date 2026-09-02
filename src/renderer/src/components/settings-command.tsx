@@ -233,7 +233,7 @@ export function SettingsCommand({
 
   const updateProviderSnapshot = (next: ProviderSettingsSnapshot): void => {
     setSnapshot(next)
-    notifyProviderCatalogChanged()
+    notifyProviderCatalogChanged(next)
   }
 
   return (

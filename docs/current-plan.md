@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-02
+Recorded: 2026-09-03
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,19 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Candidate `0.2026.9.1` is locally built and verified under the user's build, commit, and tag
+  request. The no-Team-ID macOS arm64 package gate passed in 188.0 seconds: 12 runtime smoke
+  scenarios and all 34 packaged E2E scenarios, with no failures, retries, flakes, or skips.
+  The App, DMG, and ZIP are under `dist/macos-arm64`. Version metadata and the local annotated
+  tag use the repository's canonical `v0.2026.9.1` convention; remote push and publication are
+  outside this request. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).
+
+- Agent model configuration maintenance is complete under ADR 076: new runs use current catalog
+  limits/reasoning, truncated output is reported as incomplete, and model selectors refresh after
+  configuration changes. Existing selections use updated metadata on the next run. Verification
+  passed with 115 distinct focused tests, five real Electron scenarios, and static checks; evidence
+  and development reruns are recorded in the maintenance history.
 
 - Agent Panel presentation maintenance is complete under ADR 075: six typed content objects,
   one projection for timeline/header/Details, an exhaustive tool table, atomic live-text settlement,

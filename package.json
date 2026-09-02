@@ -1,8 +1,8 @@
 {
   "name": "writellm",
-  "version": "0.2026.8",
+  "version": "0.2026.9",
   "release": {
-    "version": "0.2026.8.49"
+    "version": "0.2026.9.1"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.17.0",

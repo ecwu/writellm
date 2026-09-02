@@ -27,6 +27,7 @@ export type AgentRunTermination =
         | 'context_overflow'
         | 'context_overflow_after_activity'
         | 'current_turn_too_large'
+        | 'output_limit_reached'
         | 'compaction_required'
         | 'compaction_run_too_large'
         | 'continuation_lost'
@@ -112,6 +113,9 @@ export function classifyRunFailure(error: unknown, signal: AbortSignal): AgentRu
   }
   if (hasErrorCode(error, 'current_turn_too_large')) {
     return { status: 'failed', code: 'current_turn_too_large' }
+  }
+  if (hasErrorCode(error, 'output_limit_reached')) {
+    return { status: 'failed', code: 'output_limit_reached' }
   }
   if (error instanceof AgentCompactionRequiredError) {
     return { status: 'failed', code: error.code }

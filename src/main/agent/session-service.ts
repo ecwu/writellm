@@ -90,6 +90,7 @@ import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { ProviderService } from '../providers/provider-service'
 import {
   agentCredentialFromResolved,
+  agentModelLimitsFromResolved,
   agentProviderConfigFromResolved,
   agentRuntimeModelFromResolved,
   clampResolvedAgentThinkingLevel,
@@ -546,9 +547,7 @@ export class AgentSessionService {
     const completion = this.#withSessionProvider(
       agentSessionId,
       async (config, credential, resolved) => {
-        const modelLimits =
-          (await this.options.resolveModelLimits?.(config, controller.signal)) ??
-          legacyModelLimits()
+        const modelLimits = await this.#resolveModelLimits(config, controller.signal, resolved)
         return this.#executeTitleRequest({
           agentSessionId,
           agentRunId: run.agentRunId,
@@ -1011,10 +1010,12 @@ export class AgentSessionService {
       },
       () =>
         this.#withSessionProvider(input.agentSessionId, async (config, credential, resolved) => {
-          const modelLimits =
-            (await this.options.resolveModelLimits?.(config, input.controller.signal)) ??
-            legacyModelLimits()
-          const maxOutputTokens = agentOutputLimit(input.maxOutputTokens ?? 8_192, modelLimits)
+          const modelLimits = await this.#resolveModelLimits(
+            config,
+            input.controller.signal,
+            resolved
+          )
+          const maxOutputTokens = agentOutputLimit(input.maxOutputTokens, modelLimits)
           const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
           const interactionMode =
             input.interactionMode ?? this.#sessionInteractionMode(input.agentSessionId)
@@ -1753,29 +1754,34 @@ export class AgentSessionService {
 
   async #executeManualCompaction(active: ActiveCompaction): Promise<void> {
     try {
-      await this.#withSessionProvider(active.agentSessionId, async (config, credential) => {
-        const modelLimits =
-          (await this.options.resolveModelLimits?.(config, active.controller.signal)) ??
-          legacyModelLimits()
-        active.phase = 'summarizing'
-        void this.#publishActivitySnapshot()
-        const compacted = await this.#runCompaction({
-          agentSessionId: active.agentSessionId,
-          agentRunId: null,
-          compactionId: active.compactionId,
-          trigger: 'manual',
-          config,
-          credential,
-          modelLimits,
-          signal: active.controller.signal,
-          conversationBudgetTokens: agentMessageBudget(8_192, modelLimits),
-          estimatedHistoryTokensBefore: estimateAgentTokens(
-            loadContinuousRuntimeHistory(this.options.database, active.agentSessionId)
-          ),
-          requestedOutputTokens: 8_192
-        })
-        if (!compacted) throw new Error('Conversation has no history to summarize')
-      })
+      await this.#withSessionProvider(
+        active.agentSessionId,
+        async (config, credential, resolved) => {
+          const modelLimits = await this.#resolveModelLimits(
+            config,
+            active.controller.signal,
+            resolved
+          )
+          active.phase = 'summarizing'
+          void this.#publishActivitySnapshot()
+          const compacted = await this.#runCompaction({
+            agentSessionId: active.agentSessionId,
+            agentRunId: null,
+            compactionId: active.compactionId,
+            trigger: 'manual',
+            config,
+            credential,
+            modelLimits,
+            signal: active.controller.signal,
+            conversationBudgetTokens: agentMessageBudget(8_192, modelLimits),
+            estimatedHistoryTokensBefore: estimateAgentTokens(
+              loadContinuousRuntimeHistory(this.options.database, active.agentSessionId)
+            ),
+            requestedOutputTokens: 8_192
+          })
+          if (!compacted) throw new Error('Conversation has no history to summarize')
+        }
+      )
       this.options.log.info(
         {
           event: 'agent.compaction.manual_completed',
@@ -3664,6 +3670,15 @@ export class AgentSessionService {
     return this.options.providers.withConfiguredProvider('agent', (config, credential) =>
       operation(config, credential)
     )
+  }
+
+  async #resolveModelLimits(
+    config: Extract<ProviderConfig, { role: 'agent' }>,
+    signal: AbortSignal,
+    resolved?: ResolvedAgentCatalogModel
+  ): Promise<AgentModelLimits> {
+    if (resolved !== undefined) return agentModelLimitsFromResolved(resolved, this.#now())
+    return (await this.options.resolveModelLimits?.(config, signal)) ?? legacyModelLimits()
   }
 
   #sessionModelSelection(agentSessionId: string): AgentModelSelection | null {
