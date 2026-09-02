@@ -6,7 +6,7 @@ Date: 2026-07-30
 ## Decision
 
 WriteLLM keeps Settings as one application-global shadcn Command surface, but replaces the
-command-to-nested-dialog flow with a responsive settings workspace. Its primary navigation owns
+command-to-nested-dialog flow with a settings workspace. Its primary navigation owns
 General, Agent API, Embedding API, Reranking API, MinerU API, and Image API. Agent API adds a
 provider list before the selected provider's credential, endpoint, and model details. The other
 provider roles remain singleton configuration surfaces.

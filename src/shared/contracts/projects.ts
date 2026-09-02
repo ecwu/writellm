@@ -88,6 +88,8 @@ export const recentProjectOpenInputSchema = z
   })
   .strict()
 
+export const recentProjectRemoveInputSchema = recentProjectOpenInputSchema
+
 export const projectSessionInputSchema = z
   .object({
     projectSessionId: projectSessionIdSchema

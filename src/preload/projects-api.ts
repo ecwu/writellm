@@ -18,6 +18,7 @@ import {
   projectRecoveryActionInputSchema,
   projectSnapshotResultSchema,
   recentProjectOpenInputSchema,
+  recentProjectRemoveInputSchema,
   recentProjectsSchema,
   projectSelectionResultSchema,
   projectSessionInputSchema,
@@ -47,6 +48,14 @@ export const projectsApi: DesktopApi['projects'] = {
   },
   async recent() {
     return recentProjectsSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.projectGetRecent))
+  },
+  async removeRecent(input) {
+    return recentProjectsSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.projectRemoveRecent,
+        recentProjectRemoveInputSchema.parse(input)
+      )
+    )
   },
   async create(input) {
     return projectSelectionResultSchema.parse(

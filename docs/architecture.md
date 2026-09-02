@@ -173,6 +173,10 @@ WriteLLM v2 is a local-first desktop AI writing application with three product d
 2. A project knowledge base populated from local documents and MinerU parsing.
 3. A Pi-based writing agent that reads project context, retrieves evidence, and proposes structured manuscript changes.
 
+The product targets normal desktop windows. Mobile layouts and special narrow-window adaptation or
+verification are outside the accepted product boundary. The configured desktop Agent sidebar must
+remain usable, with action controls kept non-overlapping and its resize handle working.
+
 The project shell additionally exposes a transient Notebook workspace over the Knowledge domain.
 It selects existing indexed sources and performs read-only, cited question answering; it is not a
 fourth persistence domain and does not duplicate Knowledge management or indexing.
@@ -1302,9 +1306,9 @@ When the latest valid assistant context usage belongs to a run matching the conv
 model selection, a neutral read-only circular indicator appears immediately before the model trigger.
 It uses that same run's immutable context window, exposes used/left percentages and compact token
 counts on hover or keyboard focus, and stays hidden for unknown or mismatched usage rather than
-claiming zero. The indicator has no click action and remains inside the elastic model/Thinking group,
-so the four top-level composer actions and narrow-panel truncation rules do not change. Agent Details
-uses the same matched snapshot. See ADR 050.
+claiming zero. The indicator has no click action and remains inside the elastic
+model/Thinking group, so the four top-level composer actions and configured desktop-panel
+truncation rules do not change. Agent Details uses the same matched snapshot. See ADR 050.
 
 Approval uses the compact `Manual`, `Section`, and `YOLO` labels without a status icon; its menu
 describes the existing WriteLLM proposal policy and must never imply generic computer, shell,

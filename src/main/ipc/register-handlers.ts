@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import {
   accentPreferenceSchema,
   appInfoSchema,
+  appQuitResultSchema,
   citationDisplayModeSchema,
   onboardingStateSchema,
   setAccentPreferenceInputSchema,
@@ -22,6 +23,7 @@ import {
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { Logger } from 'pino'
+import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 
 export interface AppIpcMain {
@@ -33,6 +35,8 @@ export interface AppIpcMain {
 }
 
 export interface RegisterIpcHandlersOptions {
+  projectManager: Pick<ProjectManager, 'snapshot' | 'close'>
+  quit?: () => void
   appSettings: AppSettingsRepository
   publicationPresets: PublicationPresetRepository
   logger: Logger
@@ -42,11 +46,30 @@ export interface RegisterIpcHandlersOptions {
 
 export function registerIpcHandlers({
   appSettings,
+  projectManager,
+  quit = () => app.quit(),
   publicationPresets,
   logger,
   developmentUrl,
   ipc = ipcMain
 }: RegisterIpcHandlersOptions): () => void {
+  ipc.handle(IPC_CHANNELS.appQuit, async (event) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    try {
+      if (projectManager.snapshot().state === 'open') await projectManager.close()
+      if (projectManager.snapshot().state !== 'closed') {
+        throw new Error('Resolve the project lifecycle before quitting')
+      }
+      logger.info({ event: 'app.quit.requested' }, 'Application exit requested')
+      // Return the acknowledgement before shutdown destroys the invoking renderer.
+      setImmediate(quit)
+      return appQuitResultSchema.parse({ accepted: true })
+    } catch (err) {
+      logger.error({ event: 'app.quit.failed', err }, 'Unable to close project before exit')
+      throw new Error('Unable to exit. Resolve the project close issue and try again.')
+    }
+  })
+
   ipc.handle(IPC_CHANNELS.appGetInfo, (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
 
@@ -173,6 +196,7 @@ export function registerIpcHandlers({
 
   return () => {
     for (const channel of [
+      IPC_CHANNELS.appQuit,
       IPC_CHANNELS.appGetInfo,
       IPC_CHANNELS.appGetThemePreference,
       IPC_CHANNELS.appSetThemePreference,

@@ -1,4 +1,5 @@
 export const IPC_CHANNELS = {
+  appQuit: 'app:quit',
   appGetInfo: 'app:get-info',
   appGetThemePreference: 'app:get-theme-preference',
   appSetThemePreference: 'app:set-theme-preference',
@@ -31,6 +32,7 @@ export const IPC_CHANNELS = {
   projectClose: 'project:close',
   projectSwitch: 'project:switch',
   projectGetLifecycle: 'project:get-lifecycle',
+  projectRemoveRecent: 'project:remove-recent',
   projectGetRecent: 'project:get-recent',
   projectOpenRecent: 'project:open-recent',
   projectSubscribeLifecycle: 'project:subscribe-lifecycle',

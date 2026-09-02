@@ -12,7 +12,9 @@ async function createProject(page: Page, name: string): Promise<void> {
 
 async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+    .click()
 }
 
 async function currentProjectSessionId(page: Page): Promise<string> {

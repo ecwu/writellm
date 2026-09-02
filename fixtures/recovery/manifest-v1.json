@@ -7,7 +7,6 @@
       "id": "app-schema-history",
       "category": "migration",
       "source": "src/main/app-db/connection.test.ts",
-      "sourceSha256": "a9634428d512be593cae22174c7a23dd0483c9734ad1eaf9997a02ac6dfac7d9",
       "tests": [
         "upgrades the v1 application schema, preserves data, and verifies a pre-migration backup",
         "keeps the newest pointer per project path when upgrading the recent-project schema"
@@ -17,7 +16,6 @@
       "id": "project-schema-history",
       "category": "migration",
       "source": "src/main/db/migrations.test.ts",
-      "sourceSha256": "99db5283de92796abd685e25e94d5818ba16693a8ce04bec674a38f9ce73f5ce",
       "tests": [
         "upgrades an older schema sequentially",
         "rolls back schema and metadata and logs the original migration error",
@@ -28,7 +26,6 @@
       "id": "agent-context-checkpoint-schema-history",
       "category": "migration",
       "source": "src/main/project/migrations/0027-agent-event-schema-v3.test.ts",
-      "sourceSha256": "ccfd5e8e1b49b2e669630ae97324b7c7e4c0f10fa33422d710f4be44df3bed78",
       "tests": [
         "preserves legacy summaries, upgrades compatible sessions, and accepts compaction lifecycle events"
       ]
@@ -37,7 +34,6 @@
       "id": "citation-count-schema-history",
       "category": "migration",
       "source": "src/main/project/migrations/0028-citation-counts-v2.test.ts",
-      "sourceSha256": "f64031876746e1b030cce37110758cd63b2f37b1627d5709741d010a273fb725",
       "tests": [
         "backfills retained bodies, preserves pruned history, and widens the version constraint"
       ]
@@ -46,14 +42,12 @@
       "id": "inline-math-schema-v4-history",
       "category": "migration",
       "source": "src/main/project/migrations/0037-inline-math-schema-v4.test.ts",
-      "sourceSha256": "af7c35aadc5b996f3516b6f52fd011fa2c1cc214d9619b95737186b7334b8439",
       "tests": ["appends an identical v4 current revision and preserves the current relation graph"]
     },
     {
       "id": "native-block-math-diagram-schema-v5-history",
       "category": "migration",
       "source": "src/main/project/migrations/0038-native-block-math-diagram-schema-v5.test.ts",
-      "sourceSha256": "194d1b2632d3dbed6c89d4da50e2c1a7e8892aee707e4331a0a51c6fa0c4559e",
       "tests": [
         "projects the active v4 head while preserving history, IDs, assets, and relation tables"
       ]
@@ -62,7 +56,6 @@
       "id": "wal-online-backup-and-restore",
       "category": "database-backup",
       "source": "src/main/db/backup.test.ts",
-      "sourceSha256": "222e112f87cc4c9a23d24a7bd025ee15152f85cc63ae35aa527f00da240af86c",
       "tests": [
         "includes committed data that remains in the WAL",
         "does not publish an aborted or unverifiable backup",
@@ -73,7 +66,6 @@
       "id": "snapshot-v1-v2-history",
       "category": "snapshot",
       "source": "src/main/project/project-manager.test.ts",
-      "sourceSha256": "bde47f2423c87f8e2f0c19a12cfc5d35422e12a105b85de556fa5aaf31e736f7",
       "tests": [
         "creates a verified snapshot through the live manager and restores it elsewhere",
         "restores an older checkpoint and appends a history-preserving restore commit"
@@ -83,7 +75,6 @@
       "id": "interrupted-history-restore",
       "category": "history",
       "source": "src/main/project/project-manager.test.ts",
-      "sourceSha256": "bde47f2423c87f8e2f0c19a12cfc5d35422e12a105b85de556fa5aaf31e736f7",
       "tests": [
         "recovers interrupted restore rename boundaries from the durable journal",
         "requeues runtime work on close and completes it once after reopen without spending an attempt"
@@ -93,7 +84,6 @@
       "id": "stale-and-live-locks",
       "category": "lock",
       "source": "src/main/project/project-lock.test.ts",
-      "sourceSha256": "31162139ce1d636d46d3455b8e050272f078ec41772142b1dea2b2dfbe59b6b1",
       "tests": [
         "requires explicit stale recovery and rejects recovery of a live lock",
         "recovers only the observed stale owner and logs the explicit recovery"
@@ -103,7 +93,6 @@
       "id": "stale-project-sessions",
       "category": "session",
       "source": "src/main/project/project-manager.test.ts",
-      "sourceSha256": "bde47f2423c87f8e2f0c19a12cfc5d35422e12a105b85de556fa5aaf31e736f7",
       "tests": [
         "rejects stale sessions, rejects immediately while closing, and guards delayed results"
       ]
@@ -112,9 +101,8 @@
       "id": "moved-unicode-and-case-collision-roots",
       "category": "path",
       "source": "e2e/project-lifecycle.spec.ts",
-      "sourceSha256": "8f88b9748e55c46f83a490287d368f3f0b4d73b6d5f8fc35aa1d5488529c2ab1",
       "tests": [
-        "creates, closes, reopens, switches, and reopens after app restart",
+        "creates, removes recent pointers, returns to chooser, and safely quits across restarts",
         "opens a moved root with the stable manifest project ID",
         "rejects lock contention across two application processes"
       ]
@@ -123,7 +111,6 @@
       "id": "missing-materializations",
       "category": "materialization",
       "source": "src/main/manuscript/editor-persistence-service.test.ts",
-      "sourceSha256": "862b979ee6a59707fda84e02ee05a71e91b87142b596351bafde0fe04e61897e",
       "tests": [
         "reports a pending mirror after rename failure and repairs missing, corrupt, and stale metadata from DB",
         "repairs a file published before its materialization metadata commit"
@@ -133,7 +120,6 @@
       "id": "missing-and-incompatible-index",
       "category": "index",
       "source": "src/main/search/index-service.test.ts",
-      "sourceSha256": "48913b85b9f9087ccac142e9a206febfd4d5e19ec73ee76c223433baf92deeb5",
       "tests": [
         "does not activate a generation built from a superseded parse revision",
         "does not activate when a parse revision changes during index build"
@@ -143,7 +129,6 @@
       "id": "mineru-normalization-interruption",
       "category": "knowledge",
       "source": "e2e/parsed-knowledge.spec.ts",
-      "sourceSha256": "2f18c4c3887ad511d3ef9a808f72de8ad407c320f597a0c2965d4b637cba4381",
       "tests": [
         "parses, normalizes, and inspects a MinerU document with image provenance",
         "rebuilds a missing or corrupt derived search index after a worker crash",
@@ -154,7 +139,6 @@
       "id": "asset-backed-manuscript-export",
       "category": "export",
       "source": "src/main/manuscript/manuscript-export.test.ts",
-      "sourceSha256": "4e4baea9260808b0eb5395888609814065c4be4e4c6580fcce7bf410e938504d",
       "tests": [
         "publishes deterministic native and Markdown packages with verified referenced assets",
         "never overwrites an existing destination and cleans interrupted staging",
@@ -165,7 +149,6 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "d2da5c1117822c6216104cc622ed911d8d364568298890dc9613dc416dd34f2c",
       "tests": [
         "runs four conversations concurrently and keeps queue, stop and session authority isolated",
         "cancels and settles every active conversation when the project closes",
@@ -176,7 +159,6 @@
       "id": "agent-interruption-messages-and-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.messages.test.ts",
-      "sourceSha256": "a3a081c3899233ab7d7459ac23561df84811b34ea7eb57a308b993221ce7e56c",
       "tests": [
         "publishes and completes an answer when automatic Skill dependencies remain unread",
         "persists exhausted retries without transient warnings and accepts the next normal run",
@@ -192,7 +174,6 @@
       "id": "agent-review-and-compaction-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.review.test.ts",
-      "sourceSha256": "a2059051cf5ff775a49b34a8f8c4b39c303137380ce488d2422edead11fdecde",
       "tests": [
         "persists manual review as a completed wait state and locks only that conversation",
         "retains the concrete compaction failure when automatic summarization fails",
@@ -203,7 +184,6 @@
       "id": "agent-tool-capability-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.tools.test.ts",
-      "sourceSha256": "7031eefb019b8fcc522ec256d6e60d39ae369b56fc15ce27188833997cdb7e9b",
       "tests": [
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "continues authorizing tool calls beyond 180 durable events without forced finalization",
@@ -214,7 +194,6 @@
       "id": "agent-history-title-and-archive-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.compaction.test.ts",
-      "sourceSha256": "89a4b786a1fb00b93497a7dac800a98067bbd6f90b141ceaa70a283ed59fe3f6",
       "tests": [
         "compresses more than 2,000 historical events once while keeping the recent turn raw",
         "keeps the fallback on title failure and cancels an in-flight title request on close",
@@ -225,7 +204,6 @@
       "id": "agent-proposal-refresh-and-lineage",
       "category": "agent",
       "source": "src/main/agent/section-proposal-refresh.test.ts",
-      "sourceSha256": "e9ce78d8d72c1cee4385db08bece1443e8aa2ddeca1753b9b2fa785572bf8d64",
       "tests": [
         "replays an edit when another block changed",
         "merges different properties on the same block and conflicts on the same field",
@@ -236,7 +214,6 @@
       "id": "ipc-sender-and-navigation-denial",
       "category": "security",
       "source": "src/shared/security/urls.test.ts",
-      "sourceSha256": "2a510c95a35892416080a019dabede9c86afeb0d9afcc79723a0814bf66bc30b",
       "tests": [
         "allows only plain https hostnames without credentials, ports, or localhost",
         "rejects IP literals and trailing-dot hostnames that bypass the host checks"
@@ -246,7 +223,6 @@
       "id": "credential-backend-reporting",
       "category": "security",
       "source": "src/main/providers/provider-service.test.ts",
-      "sourceSha256": "a4aff473d7fd0ccfd883d0f3e3f49dd63042a7ffad2d4b9cf8345837b7de85df",
       "tests": [
         "persists only ciphertext, reports status, replaces keys, and removes the provider",
         "rejects insecure Linux basic_text persistence and reports the backend"
@@ -256,7 +232,6 @@
       "id": "centralized-worker-logging",
       "category": "logging",
       "source": "src/main/observability/log-collector.test.ts",
-      "sourceSha256": "9d87e7f545b23e895ffd094e3007951de24388f55d85fd7744630aec9d46c18d",
       "tests": [
         "validates, correlates, and redacts utility events",
         "rejects oversized or invalid envelopes"
@@ -266,14 +241,12 @@
       "id": "log-rotation",
       "category": "logging",
       "source": "src/main/observability/log-rotation.test.ts",
-      "sourceSha256": "f9e910217ba8442a682af43a80814372af67661ddc9ab91b1218cf320295cc3a",
       "tests": ["rotates NDJSON files by size"]
     },
     {
       "id": "log-retention",
       "category": "logging",
       "source": "src/main/observability/log-retention.test.ts",
-      "sourceSha256": "a4e2acd228fd4914c34fc078e3c175bf55312952ecb7ec2536798708aa43899d",
       "tests": [
         "deletes expired logs without deleting the active file",
         "deletes oldest logs when the directory exceeds its size cap"
@@ -283,7 +256,6 @@
       "id": "log-redaction-and-error-cause",
       "category": "logging",
       "source": "src/main/observability/logger.test.ts",
-      "sourceSha256": "0b430115e65bd0f2f896c20e5976f84719c324a42120d1785679044d60b1ccc1",
       "tests": [
         "preserves errors and context while redacting sensitive fields",
         "preserves a primitive error cause from worker-boundary errors"
@@ -293,7 +265,6 @@
       "id": "shutdown-log-flush",
       "category": "logging",
       "source": "src/main/bootstrap/shutdown-coordinator.test.ts",
-      "sourceSha256": "17780c6f8a495051cc69c2774c15b87762c8593cf063f2eaa3e6fea823362377",
       "tests": [
         "prevents the first quit and closes resources in order before reissuing quit",
         "logs the original close error and continues shutdown"
@@ -303,14 +274,12 @@
       "id": "fatal-log-flush",
       "category": "logging",
       "source": "src/main/observability/process-errors.test.ts",
-      "sourceSha256": "7dddee62af9c335ac5bb6f13b5bf78ad99813b79b272cf0d01bafd4cf8bf30a9",
       "tests": ["logs the original fatal error and exits after flushing"]
     },
     {
       "id": "agent-thinking-level-schema-history",
       "category": "migration",
       "source": "src/main/project/migrations/0025-agent-thinking-level.test.ts",
-      "sourceSha256": "7c3457cc689c50be44f564a752614bbc2b087384cab8db91dc16ed7f49e13b92",
       "tests": ["preserves existing rows as off and enforces bounded levels"]
     }
   ]

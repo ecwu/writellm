@@ -87,6 +87,7 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
   }
   const recentProjects = {
     list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
+    remove: vi.fn(async () => true),
     find: vi.fn(async (): Promise<RecentProjectPointer | null> => null)
   }
   const projectTemplates = {
@@ -136,10 +137,50 @@ function harness(snapshot = closedSnapshot as typeof closedSnapshot | typeof ope
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input?: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { invoke, manager, projectDialog, projectTemplates, recentProjects, sender, window }
+  return {
+    invoke,
+    handlers,
+    manager,
+    projectDialog,
+    projectTemplates,
+    recentProjects,
+    sender,
+    window
+  }
 }
 
 describe('project IPC', () => {
+  it('removes only the recent pointer and returns the remaining list', async () => {
+    const { invoke, recentProjects, manager } = harness()
+    await expect(invoke(IPC_CHANNELS.projectRemoveRecent, { projectId })).resolves.toEqual([])
+    expect(recentProjects.remove).toHaveBeenCalledWith(projectId)
+    expect(manager.close).not.toHaveBeenCalled()
+    expect(manager.open).not.toHaveBeenCalled()
+    await expect(
+      invoke(IPC_CHANNELS.projectRemoveRecent, { projectId, path: '/private' })
+    ).rejects.toThrow()
+    expect(recentProjects.remove).toHaveBeenCalledOnce()
+  })
+
+  it('authorizes recent removal before accessing persistence', async () => {
+    const { handlers, recentProjects } = harness()
+    await expect(
+      handlers.get(IPC_CHANNELS.projectRemoveRecent)?.(
+        { senderFrame: { url: 'https://attacker.invalid/' } } as never,
+        { projectId } as never
+      )
+    ).rejects.toThrow()
+    expect(recentProjects.remove).not.toHaveBeenCalled()
+  })
+
+  it('reports recent removal failures without returning a success list', async () => {
+    const { invoke, recentProjects } = harness()
+    recentProjects.remove.mockRejectedValueOnce(new Error('database unavailable'))
+    await expect(invoke(IPC_CHANNELS.projectRemoveRecent, { projectId })).rejects.toThrow(
+      'Unable to remove recent project'
+    )
+  })
+
   it('validates checkpoint input and never accepts renderer paths', async () => {
     const { invoke, manager } = harness(openSnapshot)
     await expect(
@@ -169,6 +210,7 @@ describe('project IPC', () => {
       manager: {} as never,
       recentProjects: {
         list: vi.fn(async (): Promise<RecentProjectPointer[]> => []),
+        remove: vi.fn(async () => true),
         find: vi.fn(async (): Promise<RecentProjectPointer | null> => null)
       },
       publicationPresets: {

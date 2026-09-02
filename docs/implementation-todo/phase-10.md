@@ -709,7 +709,7 @@ frozen install plus complete 1,160-test Electron/build gate. Every platform's E2
 React error 185 at Floating UI's `setPositionReference`: deduplicating the DOM reference had left a
 new virtual position object allocated on each effect turn. Windows and Linux otherwise reached the
 same citation-coverage failure; Windows also retried a remounting project-menu item. macOS arm64
-also exposed transient slash-menu and narrow-layout sampling, while macOS x64 rejected three
+also exposed transient slash-menu sampling, while macOS x64 rejected three
 first-attempt setup/materialization/menu races under the no-flake policy. All four package steps
 were independently skipped after their own E2E failure; the run reached terminal failure only after
 Linux printed its complete 35-minute summary.
@@ -717,7 +717,7 @@ Linux printed its complete 35-minute summary.
 Local post-candidate remediation evidence (2026-08-30): the BlockNote patch now retains a stable
 virtual position reference until its context element or measured geometry changes, while delegated
 bounding/client-rect callbacks always read the latest source. The Agent flow waits for dropdown
-closure and settled narrow control geometry; the custom Agent-provider scenario opens Settings
+closure and settled control geometry; the custom Agent-provider scenario opens Settings
 through its visible command; and the parsed-document scenario waits for the durable normalization
 job before selecting the source. A fresh frozen pnpm 12 install applied the updated patch. Two
 independent focused runs passed the arm64 citation/Agent pair; a combined run passed the three x64

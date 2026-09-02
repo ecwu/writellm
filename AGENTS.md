@@ -91,22 +91,36 @@ Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` wi
 
 ## Verification Gates
 
-Use the smallest gate that covers the changed boundary:
+Choose tests by the changed boundary, not by running every gate in sequence. Before verification,
+state the selected scope and reason; afterwards report counts, duration, retries, and any remaining
+platform limits. Reuse results that still cover the final source; rerun only affected checks.
 
-- `pnpm check:fast`: Biome plus Node/Renderer typechecks.
-- `pnpm check:electron`: the Electron-hosted Vitest suite plus a production build.
-- `pnpm check:e2e`: a fresh production build plus the silent Electron Playwright suite.
-- `pnpm check:package`: a no-identity unpacked build plus packaged hybrid smoke. It explicitly
-  disables Apple signing-identity discovery and, on macOS, fails if the resulting application has
-  an Apple Team identity signature. An upstream ad-hoc/linker signature without a Team ID is
-  allowed because it does not run the project's deep signing pass.
-- `pnpm check:release`: an opt-in signed macOS unpacked build plus strict deep signature validation
-  and packaged hybrid smoke. Run it only when the user explicitly requests release/distribution
-  verification. It does not notarize while `electron-builder.yml` keeps notarization disabled.
+| Change | Default verification |
+| --- | --- |
+| Text, styling, small Renderer change | `check:fast`; a corresponding E2E only when interaction changes |
+| Local business logic | `check:fast` plus `pnpm test <files> [-t <name>]` |
+| IPC, persistence, project lifecycle | Relevant integration tests plus affected real Electron scenarios |
+| Shared infrastructure or cross-module feature | Expand related coverage; use complete suites when justified |
+| Electron, native libraries, worker entrypoint, Pino transport, package resources | Packaged runtime verification; full package gate for packaging/native compatibility changes |
+| Comprehensive release acceptance | Explicit complete acceptance with one build per invocation |
 
-Routine development verification must not run `check:release`. Ordinary product changes do not
-need `check:package`; require it for Electron major, native SQLite/sqlite-vec, electron-builder,
-worker entrypoint, Pino transport, packaged resource, or release-branch changes.
+- `pnpm check:fast`: Biome and Node/Renderer typechecks.
+- `pnpm check:electron [test filters]`: static checks, Electron-hosted tests, and one build.
+- `pnpm check:e2e [file or --grep filters]`: static checks, one fresh build, and silent E2E.
+- `pnpm check:full`: static checks, complete Vitest, one build, and complete source E2E.
+- `pnpm check:package:smoke`: static checks, one unpacked App, inventory, and packaged runtime smoke.
+- `pnpm check:package`: static checks, recovery scenario inventory, one App, runtime smoke,
+  complete packaged E2E, and installers made from that same App. macOS permits no Team identity;
+  the upstream ad-hoc/linker signature is allowed.
+- `pnpm check:release`: explicit signed distribution validation, including existing macOS
+  notarization requirements. Never run it for routine development.
+
+`pnpm build` prepares native modules and compiles without typechecking or testing. `build:*` and
+`package:*` generate checked package contents and artifacts without functional tests. A successful
+build is not test evidence. `critical` is a coverage subset, not the default for small changes.
+Do not chain `check:electron`, `check:e2e`, and `check:package` reflexively: select a composite gate
+or focused tests and avoid repeated builds. Reports live under `.cache/verification/`; timing
+statistics are diagnostic, separate from test hard timeouts. Benchmarks remain explicit.
 
 The repository's exact `packageManager` version must match the locally
 installed pnpm used by agents. pnpm 11 tries to download and switch to the
@@ -146,7 +160,7 @@ actually required.
 
 ## Testing And Native Runtime
 
-Run the full test suite from the repository root with:
+When complete Electron test coverage is warranted, run from the repository root with:
 
 ```sh
 pnpm test
@@ -253,14 +267,18 @@ and application log errors as test/product results instead.
 
 ## UI Design Requirements
 
+WriteLLM targets normal desktop windows. Do not introduce mobile layouts, special narrow-window
+breakpoints, or narrow-window-specific verification. The configured desktop Agent sidebar must
+remain usable: its controls must not overlap, and its resize handle must continue to work.
+
 - Use the official shadcn/ui `new-york` preset and its generated components as the renderer design system. Do not create a parallel visual system or hand-write replacements for components available from shadcn/ui.
 - Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives. Compose them with standard Tailwind layout utilities; do not add product-specific CSS unless an interaction or platform constraint cannot be expressed by the preset and utilities.
-- Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts, and define responsive breakpoints deliberately for different screen sizes.
+- Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts for the configured desktop surfaces.
 - Keep a global shadcn `Menubar` at the top of every application state. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
 - Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
 - Base the active-project workspace on the official shadcn `sidebar-09` block: a collapsible icon rail plus contextual secondary sidebar and a `SidebarInset` content region.
 - Extend the established shell and official component language for future screens. Do not introduce bespoke gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.
-- Preserve responsive and keyboard-accessible behavior from the official components. Any unavailable future action must be visibly disabled or labeled as unavailable rather than simulated.
+- Preserve keyboard-accessible behavior from the official components. Any unavailable future action must be visibly disabled or labeled as unavailable rather than simulated.
 
 ## Decision Changes
 

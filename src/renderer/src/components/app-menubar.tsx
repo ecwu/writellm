@@ -6,7 +6,8 @@ import {
   FileJson2,
   FileDown,
   FolderOpen,
-  FolderSync,
+  LogOut,
+  Power,
   GitCommitHorizontal,
   History,
   Logs,
@@ -36,7 +37,7 @@ interface AppMenubarProps {
   agentOpen: boolean
   onCreate: () => void
   onOpen: () => void
-  onSwitch: () => void
+  onQuit: () => void
   onSave: () => void
   onClone: () => void
   onSaveTemplate: () => void
@@ -67,7 +68,7 @@ export function AppMenubar({
   agentOpen,
   onCreate,
   onOpen,
-  onSwitch,
+  onQuit,
   onSave,
   onClone,
   onSaveTemplate,
@@ -105,9 +106,6 @@ export function AppMenubar({
               <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onOpen}>
                 <FolderOpen /> Open project
                 <MenubarShortcut>⌘O</MenubarShortcut>
-              </MenubarItem>
-              <MenubarItem disabled={busy || !hasProject} onSelect={onSwitch}>
-                <FolderSync /> Switch project
               </MenubarItem>
             </MenubarGroup>
             <MenubarSeparator />
@@ -164,8 +162,14 @@ export function AppMenubar({
                   <TriangleAlert /> Version history unavailable…
                 </MenubarItem>
               ) : null}
-              <MenubarItem disabled={busy || !hasProject} variant='destructive' onSelect={onClose}>
-                <FileText /> Close project
+            </MenubarGroup>
+            <MenubarSeparator />
+            <MenubarGroup>
+              <MenubarItem disabled={busy || !hasProject} onSelect={onClose}>
+                <LogOut /> Close project and return to chooser
+              </MenubarItem>
+              <MenubarItem disabled={busy} onSelect={onQuit}>
+                <Power /> Quit WriteLLM
               </MenubarItem>
             </MenubarGroup>
           </MenubarContent>

@@ -27,7 +27,7 @@ Recorded: 2026-08-23
   application-owned Diagram uses plain content plus `SourceBlockWithPreview`, keeps the last legal
   preview, dynamic light/dark Mermaid rendering, sanitized isolated SVG, and shared caption/alt-text
   metadata. Runtime checks covered invalid source recovery, undo/redo, reload, no-caption layout,
-  620 px width, keyboard flow, and metadata persistence.
+  keyboard flow, and metadata persistence.
 - Frozen installation passed. Both `pnpm audit --prod` and `pnpm audit` completed outside the
   network-restricted sandbox with zero advisories. Scoped Impeccable inspection found no design
   violations.
@@ -39,7 +39,7 @@ Recorded: 2026-08-23
 - The fresh-build `pnpm check:e2e` gate passed all 45/45 required Real-Electron scenarios with no
   flaky, skipped, or failed scenario. It includes native Inline Math, native Block Math,
   application-owned Diagram, Agent contract v9, safe source rejection, dark-theme rerender,
-  sanitized SVG, narrow-window layout, persistence, reopen, and Markdown export evidence.
+  sanitized SVG, persistence, reopen, and Markdown export evidence.
 - The local shell reported Node 26.7.0 outside the repository's declared Node 24 range; pnpm
   11.17.0, Electron 43.4.1 / ABI 148, native preparation, typechecks, tests, and builds all passed.
   No packaging, signing, notarization, `check:release`, candidate, commit, tag, push, hosted CI,

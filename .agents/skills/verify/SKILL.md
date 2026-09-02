@@ -3,15 +3,26 @@ name: verify
 description: Verify the Electron app and its application database at runtime.
 ---
 
-Use the smallest gate that covers the changed boundary:
+Select verification from the changed boundary using the table in `AGENTS.md`. Explain the selected
+scope before running it and report counts, elapsed time, retries, and platform limits afterwards.
+Local logic uses `check:fast` plus focused `pnpm test <files> [-t <name>]`; interaction changes add
+only the affected real Electron scenarios. Do not run every complete gate for a small feature.
 
-1. `pnpm check:fast` for Biome and Node/Renderer typechecks.
-2. `pnpm check:electron` for the Electron-hosted Vitest suite and production build.
-3. `pnpm check:e2e` for a fresh production build followed by the real Electron Playwright suite.
-4. `pnpm check:package` only for Electron, native SQLite/sqlite-vec, electron-builder, worker-entrypoint, Pino transport, packaged-resource, or release-branch changes. This gate explicitly disables Apple signing identity discovery, proves the macOS bundle has no Apple Team identity signature (an upstream ad-hoc/linker signature is allowed), and then runs packaged hybrid smoke.
-5. `pnpm check:release` only when the user explicitly requests a signed distribution/release check. This opt-in gate permits configured macOS identity discovery and performs strict deep signature validation. It does not notarize while `electron-builder.yml` keeps `mac.notarize: false`.
+- `pnpm check:electron [filters]`: static checks, Electron tests, one production build.
+- `pnpm check:e2e [file or --grep filters]`: static checks, one fresh build, selected E2E.
+- `pnpm check:full`: static checks, complete Electron tests, one build, complete source E2E.
+- `pnpm check:package:smoke`: static checks, unpacked App, inventory, existing runtime smoke.
+- `pnpm check:package`: complete package acceptance, including packaged E2E and installers made
+  from the same tested App. Use for native/packaging compatibility changes; ordinary business
+  changes do not require it. Signing identity discovery is disabled; no Team identity is allowed.
+- `pnpm check:release`: explicit signed distribution acceptance only, preserving the release
+  script's macOS signing and notarization requirements. Never use for routine development.
 
-Routine development verification must never run `check:release` or perform Apple deep signing.
+`build` and `build:*` create artifacts without functional tests or typechecks. A successful build
+is not test evidence. `critical` is a coverage subset, not a default small-change gate. Avoid
+chaining overlapping composite gates; reuse final-source results and rerun only affected checks.
+Stage and test-attempt reports are under `.cache/verification/`; timings do not create new
+performance failure thresholds. Benchmarks are explicit (`pnpm benchmark:trace` for trace scale).
 
 When runtime application-database evidence is relevant:
 

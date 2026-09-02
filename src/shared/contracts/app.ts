@@ -1,4 +1,6 @@
 import { z } from 'zod'
+
+export const appQuitResultSchema = z.object({ accepted: z.literal(true) }).strict()
 import { agentApprovalModeSchema } from './agent'
 
 export const appInfoSchema = z.object({

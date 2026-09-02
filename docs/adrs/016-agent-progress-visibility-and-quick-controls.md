@@ -21,8 +21,8 @@ compact activity summary that expands to individual operations.
 
 The Agent composer keeps context, approval policy, model, Thinking, and Writing Skill directly
 available as compact shadcn controls. The same values remain in Details for diagnostics and the
-existing run/review/image-generation snapshot lock remains authoritative. Responsive layouts may
-shorten labels, but must not remove the controls from the default composer.
+existing run/review/image-generation snapshot lock remains authoritative. Labels may truncate
+within their allocated desktop controls, but must not remove controls from the default composer.
 
 The running status names the current user-facing activity and elapsed time instead of displaying a
 generic `Working` label. Activity groups expand to human-readable individual steps with status and
@@ -45,5 +45,5 @@ tool boundaries, typed proposals, revision revalidation, approval authority, req
 cancellation, immutable run snapshots, the Renderer trust boundary, and all current persistence.
 
 The primary conversation becomes more observable and configurable, at the cost of a denser
-composer footer. Container-responsive labels and compact official controls keep the narrow sidebar
-usable without hiding the choices.
+composer footer. Compact labels and official controls keep the configured desktop sidebar usable
+without hiding the choices.

@@ -397,9 +397,9 @@ exact section and text target without opening the Agent or risking a stale range
   rewriting the document. A stale result refreshes and remains unselected; nearest-text guessing
   is prohibited.
 - Add `Cmd/Ctrl+F` plus an enabled-project Menubar item. Find is a workspace-rail destination that
-  keeps the editor mounted and uses the existing secondary-sidebar/mobile-sheet behavior.
+  keeps the editor mounted and uses the existing secondary sidebar.
 - Compose the remote result list with shadcn `Command` (`shouldFilter={false}`) and existing
-  Sidebar/Sheet, Button, DropdownMenu/Popover, Badge, and Empty primitives. Filters use progressive
+  Sidebar, Button, DropdownMenu/Popover, Badge, and Empty primitives. Filters use progressive
   disclosure. The selected result, not a short timer, remains the accessible state.
 
 ### Exact offset source-map decision
@@ -490,9 +490,9 @@ No migration, Agent tool, worker, durable job, or persisted search history is ex
    map, semantic-span/property tests, snapshot fingerprint, filters/order, and the maximum fixture.
 2. Main and compatibility: strict contracts, request-scoped service/IPC, cursor/budget/cancellation,
    safe logs, navigation revalidation, and unchanged Agent-tool projection over the shared matcher.
-3. Renderer vertical outcome: Find rail/sheet, Menubar/shortcut, query/filter/pagination states,
+3. Renderer vertical outcome: Find rail, Menubar/shortcut, query/filter/pagination states,
    serialized flush/revalidate/switch sequence, editor decoration adapter, title/objective/caption
-   targets, and accessibility/responsiveness.
+   targets, and accessibility.
 4. Integrated verification and evidence: focused suites, benchmark gate, Electron/build/E2E,
    recovery/session cleanup, scoped Impeccable detector, diff check, and documentation/status
    update.
@@ -517,8 +517,8 @@ mapping invariants or performance decision gate fail.
 - A result never targets an old revision after flush/revalidation. Unrelated saves may validate;
   edits to the target path/range/slice never auto-relocate. Unsaved content is preserved.
 - Exact editor decoration, readable-citation coexistence, edit invalidation, title/objective/caption
-  navigation, Agent-state/focus preservation, reduced motion, keyboard-only use, screen-reader
-  status, and desktop/narrow layouts pass focused and Real-Electron coverage.
+  navigation, Agent-state/focus preservation, reduced motion, keyboard-only use, and screen-reader
+  status pass focused and Real-Electron coverage in the desktop layout.
 - `scripts/benchmark-manuscript-search.mjs` uses 1,000 sections and 8 MiB with five warmups and at
   least 30 samples. Representative complete scans pass p95 <= 250 ms and maximum synchronous Main
   slice <= 16 ms, with recorded runtime, fixture fingerprint, counts, slow-path surfaces, and RSS
@@ -534,7 +534,7 @@ mapping invariants or performance decision gate fail.
   warmups, 30 Node v24.18.0 arm64 samples passed at p50 32.34 ms, p95 34.66 ms, and maximum
   synchronous Main slice 12.02 ms.
 - Focused source-map, semantic-span, Main service, IPC, Agent compatibility, editor decoration,
-  panel, outline-targeting, and responsive close-path suites pass. Exact revalidation accepts an
+  panel, outline-targeting, and close-path suites pass. Exact revalidation accepts an
   unrelated new revision only when the path, original range, and slice remain identical.
 - `check:fast`; `check:electron` with 146 passing files, 798 passing tests, two opt-in benchmark
   skips, and a production build; fresh focused and full Real-Electron E2E with 26/26 scenarios;
@@ -619,7 +619,7 @@ Implementation slices:
 4. Sender/session-authorized IPC, active-editor barrier, optional project checkpoint, typed change
    events, preload projection, and close/switch revocation.
 5. Find/Replace preview, default-empty grouped selection, skip reasons, apply/conflict/repair/Undo
-   states, narrow layout, accessibility, and editor reconciliation.
+   states, accessibility, and editor reconciliation.
 6. Focused, fault, Electron, E2E, performance, recovery, Impeccable, and diff gates.
 
 ### Acceptance gate
@@ -631,7 +631,7 @@ manual and Agent edits; changed match counts and outline; exact revision/block/s
 revalidation; nested rich blocks, citations, links, code, assets, and duplicate matches; injected
 failure at every transaction step; parent retention; materialization failure and restart repair;
 same-command retry; per-section stale/successful Undo; version-history states; project switch;
-mounted-editor reconciliation; keyboard/screen-reader and narrow Replace UI; and no interaction
+mounted-editor reconciliation; keyboard/screen-reader behavior in the Replace UI; and no interaction
 with Agent conversation/proposal state.
 
 The disposable-database performance fixture applies 500 selected replacements across 100 sections
@@ -674,7 +674,7 @@ same review and safety behavior as the full Agent panel.
   Evidence-check style actions may legitimately end in a review-only outcome with no proposal;
   the UI must present that as a success state, not a failure.
 - Preserve the selected model, Thinking level, Writing Skill, context scope, and approval policy.
-- Keep selection actions available on narrow layouts and fully keyboard accessible.
+- Keep selection actions fully keyboard accessible.
 
 ### Integration And Complexity Control
 
@@ -695,7 +695,7 @@ review-only outcome.
 - [x] Add bounded quick-action and exact-selection contracts without a migration or new Agent tool.
 - [x] Add Main-owned task templates and current-revision/block/text revalidation.
 - [x] Reuse the visible normal Agent conversation and preserve all session/run settings.
-- [x] Add the compact selection toolbar, `Cmd/Ctrl+Shift+K`, custom instruction, and narrow/a11y states.
+- [x] Add the compact selection toolbar, `Cmd/Ctrl+Shift+K`, custom instruction, and a11y states.
 - [x] Display the frozen selection snapshot in the ordinary Agent timeline.
 - [x] Cover stale selection, prompt escaping, review-only success, lineage, controls, and E2E flows.
 - [x] Pass focused suites, `check:fast`, `check:electron`, fresh E2E, recovery fixtures,
@@ -736,7 +736,7 @@ projection and never starts a review.
   proposal linkage.
 - [x] Add bounded `list_review_issues`, `record_review_issues`, and `update_review_issues`
   Agent fixture tools without manuscript/task authority.
-- [x] Add a passive responsive Issues Workbench with priority/status/category/section filters,
+- [x] Add a passive Issues Workbench with priority/status/category/section filters,
   navigation, evidence, lineage, proposal, history, and user correction controls.
 
 ## Checkpoint 45: Agent-Native Writing Rules
@@ -1627,7 +1627,7 @@ Each checkpoint receives the smallest applicable gate plus focused tests for its
   coverage.
 - IPC and capabilities: sender authorization, `projectSessionId`, bounds, stale-session, and safe
   error tests.
-- Renderer flows: keyboard, focus, narrow-window, accessibility, save barriers, and exact
+- Renderer flows: keyboard, focus, accessibility, save barriers, and exact
   navigation behavior.
 - Cross-section mutations, Agent tasks, staged import, export, clone, and packaged rendering:
   fresh Real-Electron scenarios.

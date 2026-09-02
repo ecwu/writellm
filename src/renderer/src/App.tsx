@@ -10,6 +10,7 @@ import {
   Settings2,
   Trash2,
   TriangleAlert,
+  X,
   XCircle
 } from 'lucide-react'
 import type {
@@ -62,6 +63,7 @@ import {
   ItemMedia,
   ItemTitle
 } from '@/components/ui/item'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { Spinner } from '@/components/ui/spinner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
@@ -85,7 +87,8 @@ type ProjectAction =
   | 'open'
   | 'openRecent'
   | 'close'
-  | 'switch'
+  | 'quit'
+  | 'removeRecent'
   | 'clone'
   | 'recovery'
   | 'snapshot'
@@ -104,7 +107,8 @@ const actionErrorMessages: Record<
   open: 'WriteLLM could not open the project. Check that it is available and try again.',
   openRecent: 'WriteLLM could not open the recent project. Check that it is still available.',
   close: 'WriteLLM could not close the project. Please try again.',
-  switch: 'WriteLLM could not switch projects. Check the project state and try again.',
+  quit: 'WriteLLM could not exit. Resolve the project close issue and try again.',
+  removeRecent: 'WriteLLM could not remove the project from the list. Please try again.',
   clone:
     'WriteLLM could not create an independent project copy. Choose another destination and try again.',
   diagnostics: 'WriteLLM could not complete the diagnostics action. Please try again.',
@@ -356,20 +360,28 @@ function App(): React.JSX.Element {
     }
   }, [projectSessionId, refreshLifecycle, refreshRecentProjects])
 
-  const switchProject = useCallback(async (): Promise<void> => {
-    if (!projectSessionId) return
-    setActiveAction('switch')
+  const quitApp = useCallback(async (): Promise<void> => {
+    setActiveAction('quit')
     try {
-      const result = await window.desktop.projects.switch({ projectSessionId })
-      if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
-      else await refreshLifecycle()
+      await window.desktop.app.quit()
     } catch {
-      notifyActionError(actionErrorMessages.switch)
+      notifyActionError(actionErrorMessages.quit)
       await refreshLifecycle()
     } finally {
       setActiveAction(null)
     }
-  }, [projectSessionId, refreshLifecycle])
+  }, [refreshLifecycle])
+
+  const removeRecentProject = useCallback(async (projectId: string): Promise<void> => {
+    setActiveAction('removeRecent')
+    try {
+      setRecentProjects(await window.desktop.projects.removeRecent({ projectId }))
+    } catch {
+      notifyActionError(actionErrorMessages.removeRecent)
+    } finally {
+      setActiveAction(null)
+    }
+  }, [])
 
   const createSnapshot = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
@@ -550,10 +562,7 @@ function App(): React.JSX.Element {
   const lifecycleBusy = ['creating', 'opening', 'closing'].includes(snapshot.state)
   const isBusy = initialLoading || activeAction !== null || lifecycleBusy
   const projectOpening =
-    snapshot.state === 'opening' ||
-    activeAction === 'open' ||
-    activeAction === 'openRecent' ||
-    activeAction === 'switch'
+    snapshot.state === 'opening' || activeAction === 'open' || activeAction === 'openRecent'
   const projectSelectionDisabled = snapshot.state !== 'closed'
   const activeProject = snapshot.activeProject
   const onboardingPending = onboardingState?.status === 'pending'
@@ -612,7 +621,7 @@ function App(): React.JSX.Element {
           setCreateDialogOpen(true)
         }}
         onOpen={() => void openProject()}
-        onSwitch={() => void switchProject()}
+        onQuit={() => void quitApp()}
         onSave={() => window.dispatchEvent(new Event('writellm:save'))}
         onClone={() => void cloneProject()}
         onSaveTemplate={() => void openTemplateDialog()}
@@ -811,36 +820,60 @@ function App(): React.JSX.Element {
                               Open one of your five most recently opened projects.
                             </p>
                           </div>
-                          <ItemGroup className='gap-2'>
-                            {recentProjects.map((recentProject) => (
-                              <Item key={recentProject.projectId} size='sm' className='p-0'>
-                                <Button
-                                  className='h-auto w-full min-w-0 justify-start gap-3 px-3 py-3 text-left'
-                                  variant='ghost'
-                                  disabled={isBusy || projectSelectionDisabled}
-                                  aria-label={`Open ${recentProject.displayName}`}
-                                  onClick={() => void openRecentProject(recentProject.projectId)}
+                          <TooltipProvider>
+                            <ItemGroup className='gap-2'>
+                              {recentProjects.map((recentProject) => (
+                                <Item
+                                  key={recentProject.projectId}
+                                  size='sm'
+                                  className='flex-nowrap gap-1 p-0'
                                 >
-                                  <ItemMedia variant='icon'>
-                                    <FolderOpen />
-                                  </ItemMedia>
-                                  <ItemContent className='min-w-0'>
-                                    <ItemTitle className='block w-full truncate'>
-                                      {recentProject.displayName}
-                                    </ItemTitle>
-                                    <ItemDescription className='block truncate text-left'>
-                                      <span title={recentProject.projectPath}>
-                                        {recentProject.projectPath}
-                                      </span>
-                                      <span className='block'>
-                                        {formatRecentProjectDate(recentProject.lastOpenedAt)}
-                                      </span>
-                                    </ItemDescription>
-                                  </ItemContent>
-                                </Button>
-                              </Item>
-                            ))}
-                          </ItemGroup>
+                                  <Button
+                                    className='h-auto min-w-0 flex-1 shrink justify-start gap-3 px-3 py-3 text-left'
+                                    variant='ghost'
+                                    disabled={isBusy || projectSelectionDisabled}
+                                    aria-label={`Open ${recentProject.displayName}`}
+                                    onClick={() => void openRecentProject(recentProject.projectId)}
+                                  >
+                                    <ItemMedia variant='icon'>
+                                      <FolderOpen />
+                                    </ItemMedia>
+                                    <ItemContent className='min-w-0'>
+                                      <ItemTitle className='block w-full truncate'>
+                                        {recentProject.displayName}
+                                      </ItemTitle>
+                                      <ItemDescription className='block truncate text-left'>
+                                        <span title={recentProject.projectPath}>
+                                          {recentProject.projectPath}
+                                        </span>
+                                        <span className='block'>
+                                          {formatRecentProjectDate(recentProject.lastOpenedAt)}
+                                        </span>
+                                      </ItemDescription>
+                                    </ItemContent>
+                                  </Button>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Button
+                                        variant='ghost'
+                                        size='icon-sm'
+                                        disabled={isBusy || projectSelectionDisabled}
+                                        aria-label={`Remove ${recentProject.displayName} from recent projects`}
+                                        onClick={() =>
+                                          void removeRecentProject(recentProject.projectId)
+                                        }
+                                      >
+                                        <X />
+                                      </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      Remove from list. Project files stay on disk.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </Item>
+                              ))}
+                            </ItemGroup>
+                          </TooltipProvider>
                         </CardContent>
                       )}
                       <CardFooter className='flex-col gap-2 border-t sm:flex-row'>

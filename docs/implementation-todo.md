@@ -22,6 +22,15 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance: separate build and verification commands, reuse packaged applications, simplify
+  hash manifests, and report layered verification timings. Evidence: [`history/implementation-log.md`](history/implementation-log.md).
+
+- [x] Maintenance: remove narrow-window test coverage and documentation requirements; retain desktop sidebar checks.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md).
+
+- [x] Maintenance: remove recent-project pointers on demand and clarify project close versus app exit.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md).
+
 - [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 trial App containing
   the completed Checkpoint 82 explicit Writing Skill injection and non-blocking auto-loading work.
 
@@ -132,7 +141,7 @@ Status markers:
 - [x] Checkpoint 74: add Protocol v11 hash-bound table reads and typed edits, bounded review,
   native header editing, and portable Markdown/PDF/LaTeX projection under ADR 066.
 - [x] Checkpoint 73: establish a summary-first Agent sidebar hierarchy with compact live status,
-  bounded activity, inline task and attention docks, and a calmer responsive composer under ADR
+  bounded activity, inline task and attention docks, and a calmer desktop composer under ADR
   065.
 - [x] Checkpoint 72: discard re-readable tool bodies, retain exhaustive writing continuation
   facts, and size the final escaped compaction request under ADR 064.
@@ -229,7 +238,7 @@ Authoritative detail: [`implementation-todo/phase-27.md`](implementation-todo/ph
 ## Phase 25: Agent Interaction Modes
 
 - [x] Checkpoint 76: writing-only interaction ceilings, Protocol v13, exact Main/Worker
-  enforcement, mode prompt layer, and responsive composer selector.
+  enforcement, mode prompt layer, and desktop composer selector.
 - [!] Checkpoint 77: Writing Task v2 and execution handoff; not authorized.
 
 Authoritative detail: [`implementation-todo/phase-25.md`](implementation-todo/phase-25.md).
@@ -250,7 +259,7 @@ Authoritative detail: [`implementation-todo/phase-23.md`](implementation-todo/ph
 
 ## Phase 22: Agent Sidebar Focus Hierarchy
 
-- [x] Checkpoint 73: summary-first activity, stable task and attention docks, responsive composer,
+- [x] Checkpoint 73: summary-first activity, stable task and attention docks, desktop composer,
   focused conversation navigation, and a verified local no-identity macOS arm64 App build.
 
 Authoritative detail: [`implementation-todo/phase-22.md`](implementation-todo/phase-22.md).
@@ -293,7 +302,7 @@ Authoritative detail: [`implementation-todo/phase-17.md`](implementation-todo/ph
 
 ## Phase 16: First-Run Onboarding
 
-- [x] Checkpoint 67: add a responsive optional first-run flow that reuses the existing provider
+- [x] Checkpoint 67: add an optional first-run flow that reuses the existing provider
   workspaces and Main-owned project creation boundary under ADR 059.
 
 Authoritative detail: [`implementation-todo/phase-16.md`](implementation-todo/phase-16.md).

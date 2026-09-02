@@ -4,6 +4,7 @@ import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveReleaseMetadata } from './release-version.mjs'
+import { verifyRecoveryFixtures } from './verify-recovery-fixtures.mjs'
 
 const EXPECTED_FORMATS = Object.freeze({
   'windows-x64': ['NSIS'],
@@ -50,6 +51,7 @@ export async function verifyReleaseEvidence({
     throw new Error('Production release target set must be macos')
   }
   if (!/^[a-f0-9]{40}$/u.test(revision)) throw new Error('Release revision must be a full Git SHA')
+  const recoveryFixtureManifest = await verifyRecoveryFixtures()
 
   const evidencePaths = (await recursiveFiles(resolve(root))).filter(
     (path) => basename(path) === 'package-evidence.json'
@@ -78,13 +80,16 @@ export async function verifyReleaseEvidence({
     if (
       evidence.recoveryFixtures?.format !== 'writellm-recovery-fixtures' ||
       evidence.recoveryFixtures.version !== 1 ||
-      evidence.recoveryFixtures.cases !== 22 ||
-      evidence.recoveryFixtures.sources !== 20 ||
+      evidence.recoveryFixtures.cases !== recoveryFixtureManifest.cases ||
+      evidence.recoveryFixtures.sources !== recoveryFixtureManifest.sources ||
       !Array.isArray(evidence.recoveryFixtures.categories) ||
-      evidence.recoveryFixtures.categories.length < 14 ||
-      !/^[a-f0-9]{64}$/u.test(evidence.recoveryFixtures.sha256)
+      JSON.stringify([...evidence.recoveryFixtures.categories].sort()) !==
+        JSON.stringify(recoveryFixtureManifest.categories) ||
+      evidence.recoveryFixtures.sha256 !== recoveryFixtureManifest.sha256
     ) {
-      throw new Error(`${evidence.target} recovery fixture evidence is invalid`)
+      throw new Error(
+        `${evidence.target} recovery fixture evidence does not match the current manifest`
+      )
     }
     recoveryFixtureHashes.add(evidence.recoveryFixtures.sha256)
     verifyPackagedSmokeEvidence(evidence)

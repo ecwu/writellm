@@ -51,6 +51,15 @@ jobs:
         run: pnpm check:fixtures
       - name: Static gate
         run: pnpm check:fast
+      - name: Upload static timings
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: verification-static-${{ github.sha }}
+          path: .cache/verification/**/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30
 
   platform:
     name: ${{ matrix.label }} build
@@ -108,3 +117,33 @@ jobs:
             dist/${{ matrix.target }}/package-evidence.json
           if-no-files-found: error
           retention-days: 30
+      - name: Upload verification timings
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: verification-${{ matrix.target }}-${{ github.sha }}
+          path: .cache/verification/**/*.json
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 30
+
+  timing:
+    name: Build timing summary
+    if: always()
+    needs: [static, platform]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Summarize build wall time and runner time
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/summarize-ci.mjs

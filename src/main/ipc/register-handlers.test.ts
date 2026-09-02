@@ -7,6 +7,7 @@ import type {
   OnboardingState,
   ThemePreference
 } from '../../shared/contracts/app'
+import type { ProjectLifecycleSnapshot } from '../../shared/contracts/projects'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
   registerIpcHandlers,
@@ -81,7 +82,14 @@ function harness() {
     delete: vi.fn(() => presetSnapshot),
     setDefault: vi.fn(() => presetSnapshot)
   }
+  const projectManager = {
+    snapshot: vi.fn((): ProjectLifecycleSnapshot => ({ state: 'closed', activeProject: null })),
+    close: vi.fn(async () => ({ state: 'closed' as const, activeProject: null }))
+  }
+  const quit = vi.fn()
   const options: RegisterIpcHandlersOptions = {
+    projectManager,
+    quit,
     appSettings: appSettings as never,
     publicationPresets: publicationPresets as never,
     logger: pino({ level: 'silent' }),
@@ -94,6 +102,8 @@ function harness() {
   } as unknown as IpcMainInvokeEvent
 
   return {
+    projectManager,
+    quit,
     appSettings,
     publicationPresets,
     event,
@@ -107,6 +117,41 @@ function harness() {
 }
 
 describe('application IPC', () => {
+  it('closes the project before accepting an application exit', async () => {
+    const { invoke, projectManager, quit } = harness()
+    projectManager.snapshot.mockReturnValueOnce({ state: 'open', activeProject: null })
+    await expect(invoke(IPC_CHANNELS.appQuit)).resolves.toEqual({ accepted: true })
+    expect(projectManager.close).toHaveBeenCalledOnce()
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(quit).toHaveBeenCalledOnce()
+  })
+
+  it('exits from the chooser without closing a project', async () => {
+    const { invoke, projectManager, quit } = harness()
+    await expect(invoke(IPC_CHANNELS.appQuit)).resolves.toEqual({ accepted: true })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(projectManager.close).not.toHaveBeenCalled()
+    expect(quit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the app running when close fails or recovery is required', async () => {
+    const { invoke, projectManager, quit } = harness()
+    projectManager.snapshot.mockReturnValueOnce({ state: 'open', activeProject: null })
+    projectManager.close.mockRejectedValueOnce(new Error('final flush failed'))
+    await expect(invoke(IPC_CHANNELS.appQuit)).rejects.toThrow('Unable to exit')
+    projectManager.snapshot.mockReturnValue({ state: 'recovery-required', activeProject: null })
+    await expect(invoke(IPC_CHANNELS.appQuit)).rejects.toThrow('Unable to exit')
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(quit).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unauthorized application exit before closing the project', async () => {
+    const { handlers, unauthorized, projectManager, quit } = harness()
+    await expect(handlers.get(IPC_CHANNELS.appQuit)?.(unauthorized as never)).rejects.toThrow()
+    expect(projectManager.close).not.toHaveBeenCalled()
+    expect(quit).not.toHaveBeenCalled()
+  })
+
   it('reads and validates the persisted theme preference', async () => {
     const { appSettings, invoke } = harness()
 

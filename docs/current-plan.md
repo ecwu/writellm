@@ -31,6 +31,28 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Build and verification maintenance is complete under the approved 2026-09-02 plan. Focused
+  tooling/Trace tests and the complete no-Team-ID macOS arm64 package gate passed, including static
+  checks, 12 runtime smoke scenarios, all 34 packaged E2E scenarios, and DMG/ZIP creation from the
+  single assembled App. The gate took 187.9 seconds with no E2E retries or flakes. ASAR size fell
+  48.3% against the retained package baseline; DMG/ZIP sizes fell 18.6%/18.8%. Ordinary builds are
+  test-free; layered gates and timing reports are documented. Other platforms have static/argument
+  coverage; hosted timing confirmation waits for the next normally authorized tag. Evidence lives
+  in [`history/implementation-log.md`](history/implementation-log.md).
+
+- Desktop-only test/documentation maintenance is complete: dedicated narrow-window checks and
+  requirements are removed; desktop sidebar usability and all 28 affected functional scenarios
+  are retained. `pnpm check:fast`, the production build, and the six-file focused Electron E2E
+  run passed without failures, retries, flakes, or skips. Evidence lives in
+  [`history/implementation-log.md`](history/implementation-log.md).
+
+- Project chooser maintenance is complete. Recent-project rows can be removed without touching
+  project files and return after a manual reopen. The menu replaces Switch project with explicit
+  return-to-chooser close and Quit WriteLLM actions. Exit closes the project before shutdown and
+  remains recoverable if close fails. `check:fast`, 45 focused Electron-hosted tests, the production
+  build, the focused lifecycle/restart E2E scenario, and screenshot inspection passed. Evidence
+  lives in [`history/implementation-log.md`](history/implementation-log.md).
+
 - Checkpoint 83 is complete under ADR 074: structural Agent policy ablation, token-derived
   single-summary context, progressive Skills, best-effort traces, and concrete safe diagnostics.
   Production code is reduced by 778 lines, with authority/no-replay invariants and legacy readers
@@ -300,7 +322,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 - Candidate `.38` passed the shared static gate and every platform's 1,160-test Electron/build gate.
   All four E2E rows then reproduced the same React error 185 at Floating UI's
   `setPositionReference`, proving the remaining loop came from a newly allocated virtual reference
-  rather than its DOM reference. Hosted timing also exposed one arm64 narrow-layout sampling race,
+  rather than its DOM reference. Hosted timing also exposed
   one arm64 dropdown-close race, two x64 first-attempt setup/materialization races, and one Windows
   menu detachment; Linux had no additional failure. Candidate `.39` keeps one delegated virtual
   reference object until its element or geometry changes, while refreshing its live callbacks, and
@@ -363,7 +385,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 - Checkpoint 73 is complete. It applies summary-first AI interaction patterns to the existing
   Agent sidebar while preserving the shadcn/new-york visual language and every Agent authority
   boundary. Work is Renderer-only: header status, activity disclosure, task and attention docks,
-  composer context, responsive behavior, and accessibility.
+  composer context, desktop sidebar layout, and accessibility.
 - Checkpoint 72 is complete. It replaces generic tool-result projection with exhaustive
   writing-specific continuation facts, excludes re-readable content, and sizes the final escaped
   compaction request before provider work without changing payload-v3 or raw event authority.
@@ -406,7 +428,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   workspace, while Notebook adds project-session-scoped selected-source chat with bounded
   retrieval, streamed source-only answers, validated per-message citations, and no durable chat
   content under ADR 058.
-- Checkpoint 67 is complete. A true first launch now opens a responsive, fully optional Welcome →
+- Checkpoint 67 is complete. A true first launch now opens a fully optional Welcome →
   Agent → Embedding → Reranking → MinerU → Create Project flow beneath the global Menubar. The
   versioned application-global step resumes after interruption, completed or upgraded installs do
   not reopen it, and provider configuration plus project creation continue through their existing
@@ -422,12 +444,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 Checkpoint 61 passed focused shared/Main/Renderer/Real-Electron coverage, `check:fast`, the complete
 Electron-hosted gate (187 files / 1043 tests with three intentional benchmark skips), the production
-build, all 25 recovery fixtures from 23 sources, the fresh 41/41 Real-Electron suite, responsive UI
+build, all 25 recovery fixtures from 23 sources, the fresh 41/41 Real-Electron suite, desktop UI
 inspection, scoped Impeccable, and `git diff --check`.
 
 Checkpoint 62 passed focused Renderer and Real-Electron coverage, `check:fast`, the complete
 Electron-hosted gate (188 files / 1048 tests with three intentional benchmark skips), the
-production build, the fresh 41/41 Real-Electron suite, desktop/narrow visual inspection, scoped
+production build, the fresh 41/41 Real-Electron suite, desktop visual inspection, scoped
 Impeccable, and `git diff --check`.
 
 Checkpoint 63 passed 61 focused shared/Main/Renderer tests, `check:fast`, the complete
@@ -489,7 +511,7 @@ Electron-hosted gate (199 passing files / 1102 passing tests with three intentio
 skips) and production build; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or
 failed scenario. The dedicated scenario proved first-launch entry, optional provider steps,
 interrupted-step resume, real project creation through the native folder boundary, completion
-persistence, and restart suppression. Wide and 620 px runtime inspection, zero-overflow checks,
+persistence, and restart suppression. Desktop runtime inspection,
 scoped Impeccable, and `git diff --check` also passed.
 
 Checkpoint 68 passed frozen installation and zero-advisory production/full audits; focused
@@ -498,8 +520,8 @@ schema, migration, editor, Agent, interchange, publication, and safety coverage;
 intentional benchmark skips) and production build; all 27 recovery fixtures from 25 protected
 sources; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or failed scenario.
 Runtime verification covered native Inline/Block Math, application-owned plain-content Diagram,
-source safety and recovery, metadata, dynamic theme rendering, sanitized isolated SVG, 620 px
-layout, persistence, reopen, Agent contract v9, and Markdown export. No package/release action,
+source safety and recovery, metadata, dynamic theme rendering, sanitized isolated SVG,
+persistence, reopen, Agent contract v9, and Markdown export. No package/release action,
 hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
 
 Checkpoint 69 passed exact frozen dependency installation; 168 focused shared, Worker, Main, IPC,
@@ -514,8 +536,7 @@ push, signing, notarization, promotion, or publication ran.
 Checkpoint 73 passed 46 focused Renderer tests, `check:fast`, the complete Electron-hosted gate
 (200 passing files / 1,140 passing tests with three intentional benchmark skips) and production
 build, and the fresh 46/46 Real-Electron manifest with no flaky, skipped, or failed scenario.
-Runtime visual QA covered 360, 480, and 640 px light-theme layouts plus 480 px dark theme, kept the
-composer and primary action visible with no horizontal overflow, and completed the bounded
+Runtime visual QA covered the 640 px desktop Agent sidebar and completed the bounded
 Impeccable review with no findings. No dependency, database, IPC, shared Agent protocol, tool
 permission, persistence, package, release, commit, tag, push, signing, or publication action ran.
 

@@ -657,6 +657,7 @@ if (!hasSingleInstanceLock) {
       )
       const ipc = withIpcLogging(ipcMain)
       const unregisterAppIpc = registerIpcHandlers({
+        projectManager,
         appSettings,
         publicationPresets,
         logger: loggerSystem.createModuleLogger('ipc', 'app'),

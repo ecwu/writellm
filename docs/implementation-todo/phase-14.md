@@ -31,7 +31,7 @@ Local evidence:
   completed a production build.
 - The native Inline Math Real-Electron scenario covers both delimiter input rules, Slash insertion,
   the source popup, keyboard commit/exit, invalid-source recovery, undo/redo, autosave/reopen,
-  search isolation, hostile links, narrow layout, and light/dark rendering. The LaTeX import
+  search isolation, hostile links, and light/dark rendering. The LaTeX import
   scenario verifies native inline Math before and after reopen.
 - The fresh-build full Real-Electron manifest passed 44/44 scenarios serially with no flaky,
   skipped, or failed result. Two preceding default-parallel runs each exposed a different unrelated

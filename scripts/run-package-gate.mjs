@@ -4,11 +4,9 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { inspectPackageArtifacts, verifyPackageInventory } from './package-inventory.mjs'
-import {
-  assertNativePackageHost,
-  currentPackageTarget,
-  resolvePackageTarget
-} from './package-targets.mjs'
+import { assertNativePackageHost } from './package-targets.mjs'
+import { packageOptions, installerArguments } from './package-plan.mjs'
+import { VerificationRun } from './verification-run.mjs'
 import { releaseBuilderArguments, resolveReleaseMetadata } from './release-version.mjs'
 
 const require = createRequire(import.meta.url)
@@ -17,30 +15,13 @@ const releaseMetadata = resolveReleaseMetadata(rootPackage)
 const electronBuilderCli = require.resolve('electron-builder/cli.js')
 const packagedSmoke = fileURLToPath(new URL('./run-packaged-hybrid-smoke.mjs', import.meta.url))
 const packagedE2e = fileURLToPath(new URL('./run-e2e.mjs', import.meta.url))
-const nativePreparation = fileURLToPath(new URL('./prepare-native-target.mjs', import.meta.url))
+const checks = fileURLToPath(new URL('./run-checks.mjs', import.meta.url))
 const recoveryFixtureVerification = fileURLToPath(
   new URL('./verify-recovery-fixtures.mjs', import.meta.url)
 )
-const rawArguments = process.argv.slice(2)
-const targetArgument = rawArguments.find((argument) => argument.startsWith('--target='))
-const target = resolvePackageTarget(
-  targetArgument?.slice('--target='.length) ?? currentPackageTarget().id
+const { target, release, buildOnly, smokeOnly, unpackedOnly, planOnly } = packageOptions(
+  process.argv.slice(2)
 )
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
-const allowedArguments = new Set([
-  '--plan',
-  '--release',
-  '--build-only',
-  '--unpacked-only',
-  ...(targetArgument === undefined ? [] : [targetArgument])
-])
-for (const argument of rawArguments) {
-  if (!allowedArguments.has(argument)) throw new Error(`Unknown package-gate argument: ${argument}`)
-}
-const release = rawArguments.includes('--release')
-const buildOnly = rawArguments.includes('--build-only')
-const unpackedOnly = rawArguments.includes('--unpacked-only')
-if (release && buildOnly) throw new Error('--build-only cannot be combined with --release')
 const signedPlatform = target.platform === 'darwin' || target.platform === 'win32'
 const outputDirectory = resolve('dist', target.id)
 const plan = {
@@ -68,9 +49,11 @@ const plan = {
       ? 'verified'
       : 'disabled for unsigned or non-macOS artifacts',
   authenticode: release && target.platform === 'win32' ? 'verified' : 'not applicable',
-  verificationMode: buildOnly ? 'build-only' : 'full-package-gate',
+  verificationMode: buildOnly ? 'build-only' : smokeOnly ? 'package-smoke' : 'full-package-gate',
   steps: [
     'frozen target and native-host assertion',
+    ...(buildOnly ? [] : ['static verification']),
+    ...(!buildOnly && !smokeOnly ? ['recovery scenario inventory'] : []),
     'Electron ABI/native architecture preparation',
     'production build',
     'unpacked package and signature-policy verification',
@@ -79,132 +62,144 @@ const plan = {
       ? []
       : [
           'source-independent packaged runtime smoke',
-          'complete Electron E2E against the unpacked packaged executable'
+          ...(smokeOnly ? [] : ['complete Electron E2E against the unpacked packaged executable'])
         ]),
     ...(unpackedOnly ? [] : ['installer/archive creation and structural inspection'])
   ]
 }
 
-if (rawArguments.includes('--plan')) {
+if (planOnly) {
   process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
   process.exit(0)
 }
 assertNativePackageHost(target)
 process.stdout.write(`${JSON.stringify(plan)}\n`)
-await rm(outputDirectory, { recursive: true, force: true })
-await mkdir(outputDirectory, { recursive: true })
+const verification = new VerificationRun(`package-${target.id}-${plan.verificationMode}`)
+let failure
+try {
+  await rm(outputDirectory, { recursive: true, force: true })
+  await mkdir(outputDirectory, { recursive: true })
+  if (!buildOnly) await verification.command('static', process.execPath, [checks, 'fast'])
+  const recoveryFixtures =
+    buildOnly || smokeOnly
+      ? undefined
+      : JSON.parse(
+          (
+            await verification.command(
+              'recovery-inventory',
+              process.execPath,
+              [recoveryFixtureVerification],
+              { capture: true }
+            )
+          ).trim()
+        )
+  await verification.command('production-build', process.execPath, [checks, 'build'])
 
-const recoveryFixtures = buildOnly
-  ? undefined
-  : JSON.parse(runWithOutput(process.execPath, [recoveryFixtureVerification]).trim())
-run(process.execPath, [nativePreparation, '--install', `--target=${target.id}`])
-run(npmCommand, ['run', 'build'])
-
-const packageEnvironment = {
-  ...process.env,
-  WRITELLM_RELEASE_VERSION: releaseMetadata.releaseVersion,
-  ...(release ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
-}
-const builderBaseArguments = [
-  target.builderPlatform,
-  target.builderArch,
-  '--publish=never',
-  `--config.directories.output=${outputDirectory}`,
-  ...(target.builderTarget === undefined ? [] : [`--config.win.target=${target.builderTarget}`]),
-  ...releaseBuilderArguments(target, releaseMetadata),
-  ...(release && target.platform === 'darwin' ? ['--config.mac.notarize=true'] : [])
-]
-run(
-  process.execPath,
-  [
-    electronBuilderCli,
-    '--dir',
-    ...builderBaseArguments,
+  const packageEnvironment = {
+    WRITELLM_RELEASE_VERSION: releaseMetadata.releaseVersion,
+    ...(release ? {} : { CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
+  }
+  const builderBaseArguments = [
+    target.builderPlatform,
+    target.builderArch,
+    '--publish=never',
+    `--config.directories.output=${outputDirectory}`,
+    ...(target.builderTarget === undefined ? [] : [`--config.win.target=${target.builderTarget}`]),
+    ...releaseBuilderArguments(target, releaseMetadata),
+    ...(release && target.platform === 'darwin' ? ['--config.mac.notarize=true'] : []),
     ...(release && signedPlatform ? ['--config.forceCodeSigning=true'] : [])
-  ],
-  packageEnvironment
-)
-
-const resources = await resolvePackagedResources(outputDirectory)
-if (target.platform === 'darwin') {
-  const app = resolve(resources, '..', '..')
-  if (release) verifySignedAndNotarizedMacApp(app)
-  else verifyNoIdentityMacSignature(app)
-}
-
-const unpackedInventory = await verifyPackageInventory(resources, target)
-const packagedSmokeEvidence = buildOnly
-  ? undefined
-  : verifyPackagedSmokeOutput(runWithOutput(process.execPath, [packagedSmoke, resources]), target)
-const packagedE2eEvidence = buildOnly
-  ? undefined
-  : verifyPackagedE2eOutput(
-      runWithOutput(process.execPath, [packagedE2e, '--suite=packaged'], {
-        ...process.env,
-        WRITELLM_E2E_EXECUTABLE_PATH: await resolvePackagedExecutable(resources, target)
-      })
-    )
-let artifacts = []
-if (!unpackedOnly) {
-  run(
+  ]
+  await verification.command(
+    'package-application',
     process.execPath,
-    [
-      electronBuilderCli,
-      ...builderBaseArguments,
-      ...(release && signedPlatform ? ['--config.forceCodeSigning=true'] : [])
-    ],
-    packageEnvironment
+    [electronBuilderCli, '--dir', ...builderBaseArguments],
+    { env: packageEnvironment }
   )
-  artifacts = await inspectPackageArtifacts(outputDirectory, target, releaseMetadata.releaseVersion)
-  if (release && target.platform === 'win32') {
-    verifyWindowsAuthenticode(outputDirectory, artifacts)
+  const resources = await resolvePackagedResources(outputDirectory)
+  if (target.platform === 'darwin') {
+    await verification.stage('signature-policy', () => {
+      const app = resolve(resources, '..', '..')
+      if (release) verifySignedAndNotarizedMacApp(app)
+      else verifyNoIdentityMacSignature(app)
+    })
   }
+  const unpackedInventory = await verification.stage('package-inventory', () =>
+    verifyPackageInventory(resources, target)
+  )
+  const packagedSmokeEvidence = buildOnly
+    ? undefined
+    : verifyPackagedSmokeOutput(
+        await verification.command(
+          'packaged-runtime-smoke',
+          process.execPath,
+          [packagedSmoke, resources],
+          { capture: true }
+        ),
+        target
+      )
+  const packagedE2eEvidence =
+    buildOnly || smokeOnly
+      ? undefined
+      : verifyPackagedE2eOutput(
+          await verification.command(
+            'packaged-e2e',
+            process.execPath,
+            [packagedE2e, '--suite=packaged'],
+            {
+              capture: true,
+              env: {
+                WRITELLM_E2E_EXECUTABLE_PATH: await resolvePackagedExecutable(resources, target)
+              }
+            }
+          )
+        )
+  let artifacts = []
+  if (!unpackedOnly) {
+    await verification.command(
+      'package-installers',
+      process.execPath,
+      [electronBuilderCli, ...installerArguments(builderBaseArguments, resources, target)],
+      { env: packageEnvironment }
+    )
+    artifacts = await verification.stage('artifact-checksums', () =>
+      inspectPackageArtifacts(outputDirectory, target, releaseMetadata.releaseVersion)
+    )
+    if (release && target.platform === 'win32') {
+      await verification.stage('authenticode', () =>
+        verifyWindowsAuthenticode(outputDirectory, artifacts)
+      )
+    }
+  }
+  const evidence = {
+    ...plan,
+    startedAt: verification.startedAt,
+    completedAt: new Date().toISOString(),
+    durationMs: Math.round(performance.now() - verification.started),
+    stages: verification.stages,
+    sourceRevision: gitRevision(),
+    sourceState: gitSourceState(),
+    ...(recoveryFixtures === undefined ? {} : { recoveryFixtures }),
+    inventory: unpackedInventory,
+    ...(packagedSmokeEvidence === undefined ? {} : { packagedSmoke: packagedSmokeEvidence }),
+    ...(packagedE2eEvidence === undefined ? {} : { packagedE2e: packagedE2eEvidence }),
+    artifacts
+  }
+  await writeFile(
+    join(outputDirectory, 'package-evidence.json'),
+    `${JSON.stringify(evidence, null, 2)}\n`
+  )
+  process.stdout.write(`${JSON.stringify(evidence)}\n`)
+} catch (error) {
+  failure = error
+} finally {
+  await verification.finish(failure)
 }
 
-const evidence = {
-  ...plan,
-  completedAt: new Date().toISOString(),
-  sourceRevision: gitRevision(),
-  sourceState: gitSourceState(),
-  ...(recoveryFixtures === undefined ? {} : { recoveryFixtures }),
-  inventory: unpackedInventory,
-  ...(packagedSmokeEvidence === undefined ? {} : { packagedSmoke: packagedSmokeEvidence }),
-  ...(packagedE2eEvidence === undefined ? {} : { packagedE2e: packagedE2eEvidence }),
-  artifacts
-}
-await writeFile(
-  join(outputDirectory, 'package-evidence.json'),
-  `${JSON.stringify(evidence, null, 2)}\n`
-)
-process.stdout.write(`${JSON.stringify(evidence)}\n`)
-
-function run(command, commandArgs, env = process.env) {
-  const result = spawnSync(command, commandArgs, {
-    env,
-    stdio: 'inherit',
-    ...(process.platform === 'win32' && command === 'npm.cmd' ? { shell: true } : {})
-  })
+function run(command, commandArgs) {
+  const result = spawnSync(command, commandArgs, { stdio: 'inherit' })
   if (result.error) throw result.error
-  if (result.signal !== null) throw new Error(`${command} terminated by signal ${result.signal}`)
-  if (result.status !== 0) {
-    throw new Error(`${command} exited with status ${result.status ?? 'unknown'}`)
-  }
-}
-
-function runWithOutput(command, commandArgs, env = process.env) {
-  const result = spawnSync(command, commandArgs, {
-    env,
-    encoding: 'utf8',
-    maxBuffer: 16 * 1_024 * 1_024
-  })
-  if (result.error) throw result.error
-  process.stdout.write(result.stdout ?? '')
-  process.stderr.write(result.stderr ?? '')
-  if (result.signal !== null) throw new Error(`${command} terminated by signal ${result.signal}`)
-  if (result.status !== 0) {
-    throw new Error(`${command} exited with status ${result.status ?? 'unknown'}`)
-  }
-  return result.stdout ?? ''
+  if (result.status !== 0)
+    throw new Error(`${command} exited with status ${result.status ?? result.signal}`)
 }
 
 function verifyPackagedSmokeOutput(output, target) {

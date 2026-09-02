@@ -235,15 +235,15 @@ stream, selection capture, or proposal state.
 workspace-rail destination that keeps the editor mounted and replaces the contextual secondary
 sidebar contents, like References. The shadcn `Command` composition renders the query and remote
 result list with client filtering disabled; official Button, DropdownMenu/Popover, Badge, Empty,
-and Sidebar/Sheet behavior provide filters and states. No parallel component system or general
+and Sidebar behavior provide filters and states. No parallel component system or general
 command-palette framework is introduced.
 
 The default result shows section/outline context, one bounded excerpt with the matched text
 distinguished, and target type only when it is not ordinary body text. Filters are progressive
 disclosure, not an always-visible form. Enter activates the selected result; next/previous
-commands and result counts are keyboard and screen-reader accessible. Narrow layouts use the
-existing Sidebar mobile sheet behavior and keep results, filters, empty/error/incomplete states,
-and close controls reachable. Scrolling honors reduced motion.
+commands and result counts are keyboard and screen-reader accessible. Results, filters,
+empty/error/incomplete states, and close controls remain reachable in the desktop workspace.
+Scrolling honors reduced motion.
 
 ### 7. Reuse is at the matching core, not through an Agent or Renderer dependency
 
@@ -313,7 +313,7 @@ Implementation acceptance requires all of the following:
   legacy ranges on original Agent text;
 - navigation flush/revalidation, unrelated-save tolerance, same-target stale rejection, revision
   load ordering, decoration/citation coexistence, edit invalidation, and project-switch cleanup;
-- desktop and narrow Real-Electron coverage for Menubar and `Cmd/Ctrl+F`, keyboard-only filters and
+- desktop Real-Electron coverage for Menubar and `Cmd/Ctrl+F`, keyboard-only filters and
   result traversal, unsaved edits, exact scroll/highlight, incomplete/error/empty states, focus
   preservation, reduced motion, and screen-reader labels/status;
 - the performance decision gate above, `pnpm check:fast`, focused Electron tests,

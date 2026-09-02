@@ -112,10 +112,10 @@ test(
       if (screenshotDirectory !== undefined) {
         await mkdir(screenshotDirectory, { recursive: true })
         const browserWindow = await first.app.browserWindow(first.page)
-        await browserWindow.evaluate((window) => window.setContentSize(480, 900))
-        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(480)
+        await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
+        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(1680)
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp73-agent-task-collapsed-480.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-collapsed-desktop.png'),
           animations: 'disabled'
         })
       }
@@ -129,19 +129,9 @@ test(
       await expect(taskDetails.getByText(/Revise and verify both sections/u)).toBeVisible()
       if (screenshotDirectory !== undefined) {
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp73-agent-task-open-480.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-open-desktop.png'),
           animations: 'disabled'
         })
-        const browserWindow = await first.app.browserWindow(first.page)
-        await browserWindow.evaluate((window) => window.setContentSize(360, 900))
-        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(360)
-        await expectElementInsidePanel(panel, taskDetails)
-        await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp73-agent-task-open-360.png'),
-          animations: 'disabled'
-        })
-        await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
-        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(1680)
         const resizeHandle = first.page.getByRole('separator')
         await expect(resizeHandle).toBeVisible()
         await resizeAgentPanel(panel, resizeHandle, 640)
@@ -162,14 +152,10 @@ test(
           .toBe('dark')
         await first.page.keyboard.press('Escape')
         await expect(settings).not.toBeVisible()
-        await browserWindow.evaluate((window) => window.setContentSize(480, 900))
-        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(480)
         await first.page.screenshot({
-          path: join(screenshotDirectory, 'cp73-agent-task-open-dark-480.png'),
+          path: join(screenshotDirectory, 'cp73-agent-task-open-dark-desktop.png'),
           animations: 'disabled'
         })
-        await browserWindow.evaluate((window) => window.setContentSize(900, 670))
-        await expect.poll(() => first.page.evaluate(() => window.innerWidth)).toBe(900)
       }
       await taskTrigger.press('Space')
       await expect(taskDetails).not.toBeVisible()

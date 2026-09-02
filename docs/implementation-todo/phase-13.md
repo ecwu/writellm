@@ -26,7 +26,7 @@ presentation projection cannot participate in proposal approval or mutation appl
 - [x] Replace the generic Proposal diff call sites with one reusable full/compact dispatcher and
   dedicated Brief, Outline, Writing Rules, section, and generated-image views.
 - [x] Add focused shared/Main/Renderer coverage and fresh affected Real-Electron coverage.
-- [x] Pass static, Electron, complete E2E, responsive visual, reduced-motion, Impeccable, and diff
+- [x] Pass static, Electron, complete E2E, desktop visual, reduced-motion, Impeccable, and diff
   gates and record exact local evidence.
 
 ### Acceptance gate
@@ -39,8 +39,8 @@ presentation projection cannot participate in proposal approval or mutation appl
   unified/split diff where it is meaningful.
 - Historical proposals without semantic presentation use an explicit legacy diff fallback. The
   timeline and compact task change set reuse the same dispatcher.
-- The 360–640 px Agent panel, light/dark themes, keyboard and screen-reader paths, hidden/offscreen
-  behavior, and `prefers-reduced-motion` path remain usable.
+- The configured desktop Agent panel, light/dark themes, keyboard and screen-reader paths,
+  hidden/offscreen behavior, and `prefers-reduced-motion` path remain usable.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete `pnpm check:e2e`, bounded
   screenshot inspection, scoped Impeccable, and `git diff --check` pass. No package/release gate,
   hosted CI, commit, push, signing, notarization, promotion, or publication runs.
@@ -56,12 +56,12 @@ presentation projection cannot participate in proposal approval or mutation appl
 - The fresh complete Real-Electron gate passed 41/41 scenarios. It directly asserts the running
   thinking indicator, review attention wrapper, Brief presentation, Outline presentation, and
   retained section diff behavior.
-- Full-width section review plus 640 px semantic Outline runtime screenshots were inspected.
+- Desktop section review plus semantic Outline runtime screenshots were inspected.
   Scoped Impeccable detection returned no findings; `pnpm check:fast` and `git diff --check`
   passed.
-- The complete E2E run exposed an existing mobile References selector race. The test now targets
-  the mobile sidebar that actually contains Manuscript references and waits for its responsive
-  transition; its focused rerun and the final full suite passed. Product behavior was unchanged.
+- The complete E2E run exposed an existing References selector race. The test now targets the
+  sidebar that contains Manuscript references; its focused rerun and the final full suite passed.
+  Product behavior was unchanged.
 
 ### Explicit exclusions
 
@@ -131,7 +131,7 @@ Kysely 0.29, KaTeX 0.18, @shadcn/react 0.3, or thinking-orbs 0.3 migrations.
   from 23 sources passed with manifest SHA-256
   `4b4d3e989fbedf3d8caff2f51c673bc0bce9fb42d572c1d2fb3f6064d00046d9`.
 - The fresh complete Real-Electron suite passed 42/42 scenarios. It covers BlockNote 0.54 slash
-  menu, formatting, Mermaid, keyboard, narrow-layout and stable replacement focus behavior in
+  menu, formatting, Mermaid, keyboard, and stable replacement focus behavior in
   addition to provider/Agent, project history, PDF worker, custom protocol, and CSP regressions.
 - The final no-identity macOS arm64 package gate passed Electron 43.4.1 / embedded Node 24.18.1 /
   ABI 148 preparation, Mach-O arm64 `better-sqlite3` 12.11.1 and `sqlite-vec` 0.1.9 inventory,

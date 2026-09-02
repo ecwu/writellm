@@ -15,14 +15,14 @@ Recorded: 2026-08-30
 - [x] Add the application-owned mode prompt layer without changing provider behavior or prompt
   trust ordering.
 - [x] Add the sticky composer selector beside Send, mode-specific placeholders, approval disabled
-  state, and 360/480/640 px behavior.
+  state, and configured desktop composer behavior.
 - [x] Verify migration, contracts, tools, prompts, run recovery, IPC, Renderer, and Electron flows.
 
 Acceptance criteria: new and migrated writing conversations default to Write; users may select Ask,
 Plan, or Write before each ordinary run; every live run retains its immutable mode across queued
 messages and model continuations; Worker and Main reject tools outside the exact ceiling; Ask and
 Plan cannot produce manuscript or Review Issue mutations; Notebook remains unchanged; the compact
-selector and its disabled states remain accessible and contained at supported widths.
+selector and its disabled states remain keyboard accessible and contained in the desktop composer.
 
 ## Checkpoint 77: Detailed Writing Plans And Execution Handoff
 
@@ -43,7 +43,7 @@ notarization, promotion, or publication is authorized.
 - `node scripts/run-tests.mjs` passed 1,180 tests with three benchmark tests skipped.
 - `npm run build` passed after the canonical Electron native-target check and both typechecks.
 - `npm run test:e2e` passed all 47 Electron Playwright scenarios after a focused Protocol v13
-  assertion update; the suite includes Ask → Plan → Write selector behavior and the 360 px composer.
+  assertion update; the suite includes Ask → Plan → Write selector behavior in the desktop composer.
 - Under separate post-checkpoint authorization, the recovery fixture manifest was refreshed for
   three intentionally changed Agent test sources and `pnpm --config.engine-strict=false
   check:package` passed: 31 recovery fixtures, 12 packaged smoke scenarios, 34 packaged Electron

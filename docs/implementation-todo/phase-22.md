@@ -11,7 +11,7 @@ Recorded: 2026-08-26
 - [x] Replace the floating Writing Task capsule with a bounded inline task row and unify
   clarification, review, and recovery in the attention dock.
 - [x] Add bounded composer growth, visible non-default context, and collapsed waiting messages.
-- [x] Cover responsive, keyboard, reduced-motion, background-session, and existing Agent flows.
+- [x] Cover desktop, keyboard, reduced-motion, background-session, and existing Agent flows.
 - [x] Pass focused tests, `check:fast`, `check:electron`, fresh `check:e2e`, scoped Impeccable,
   bounded visual QA, and `git diff --check`.
 - [x] Build and verify the separately authorized local no-identity macOS arm64 App.
@@ -31,10 +31,9 @@ Recorded: 2026-08-26
 - The fresh `pnpm check:e2e` gate passed all 46 Real-Electron scenarios with no flaky, skipped, or
   failed scenario, including background conversations, clarification, proposal review, Writing
   Task identity, queue/steer/stop behavior, and keyboard accessibility.
-- Bounded runtime visual QA passed at 360, 480, and 640 px in light theme plus 480 px in dark theme.
-  The one correction reduced the expanded task height and fixed the composer in place; confirmation
-  screenshots show no horizontal overflow and a continuously visible primary action. Evidence lives
-  under `.impeccable/review/cp73/`.
+- Bounded runtime visual QA included the desktop Agent sidebar. The one correction reduced the
+  expanded task height and fixed the composer in place; confirmation screenshots show a continuously
+  visible primary action. Evidence lives under `.impeccable/review/cp73/`.
 - The scoped Impeccable detector reported no findings. Reduced-motion and icon-plus-text state
   treatment were inspected, and `git diff --check` passed. No dependency, database, IPC, shared
   Agent protocol, tool permission, or persistence format changed.

@@ -29,7 +29,8 @@ warning colors. Agent Details keeps its existing usage presentation and consumes
 snapshot so the two surfaces cannot disagree.
 
 The ring stays fixed-width while the model label truncates first. Approval, model/Thinking, Send,
-Queue, Steer, retry, and Stop behavior remain unchanged, including narrow-panel containment.
+Queue, Steer, retry, and Stop behavior remain unchanged, including containment in the configured
+desktop Agent panel.
 
 ## Consequences
 

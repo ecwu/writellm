@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
 import { Kysely, SqliteDialect } from 'kysely'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { traceBenchmarkTestTimeoutMs } from '../../../scripts/test-timeouts.mjs'
 import type { ProjectDatabaseSchema } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import { migration0040 } from '../project/migrations/0040-agent-request-traces'
@@ -9,6 +10,7 @@ import { AgentTraceRepository } from './trace-repository'
 
 describe('AgentTraceRepository', () => {
   let database: Database.Database | undefined
+  const traceBenchmark = process.env['WRITELLM_TRACE_BENCHMARK'] === '1'
   afterEach(() => database?.close())
 
   it('deduplicates repeated message chunks and reconstructs semantic request JSON', () => {
@@ -162,64 +164,72 @@ describe('AgentTraceRepository', () => {
     ).not.toThrow()
   })
 
-  it('deduplicates long repeated histories and rebuilds every request through SQL', () => {
-    database = baseDatabase()
-    const repository = new AgentTraceRepository(projectDatabase(database), logger())
-    const toolSchema = {
-      name: 'read_document',
-      description: 'Read a project document by its stable identifier.',
-      parameters: {
-        type: 'object',
-        properties: { documentId: { type: 'string' } },
-        required: ['documentId']
+  it(
+    'deduplicates long repeated histories and rebuilds every request through SQL',
+    () => {
+      database = baseDatabase()
+      const repository = new AgentTraceRepository(projectDatabase(database), logger())
+      const toolSchema = {
+        name: 'read_document',
+        description: 'Read a project document by its stable identifier.',
+        parameters: {
+          type: 'object',
+          properties: { documentId: { type: 'string' } },
+          required: ['documentId']
+        }
       }
-    }
-    const history = Array.from({ length: 80 }, (_, index) => ({
-      role: index % 2 === 0 ? 'user' : 'assistant',
-      content: `${index}:${'context '.repeat(512)}`
-    }))
-    const harness = { systemPrompt: 'stable policy', messages: history, tools: [toolSchema] }
-    const provider = { model: 'test-model', input: history, tools: [toolSchema], stream: true }
-    const rawBytesPerRequest =
-      Buffer.byteLength(JSON.stringify(harness)) + Buffer.byteLength(JSON.stringify(provider))
+      const history = Array.from({ length: traceBenchmark ? 80 : 8 }, (_, index) => ({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: `${index}:${'context '.repeat(512)}`
+      }))
+      const requestCount = traceBenchmark ? 12 : 3
+      const harness = { systemPrompt: 'stable policy', messages: history, tools: [toolSchema] }
+      const provider = { model: 'test-model', input: history, tools: [toolSchema], stream: true }
+      const rawBytesPerRequest =
+        Buffer.byteLength(JSON.stringify(harness)) + Buffer.byteLength(JSON.stringify(provider))
 
-    for (let request = 1; request <= 12; request += 1) {
-      const modelRequestId = `capacity-${request}`
-      database
-        .prepare('INSERT INTO model_requests VALUES (?, ?, ?, ?, ?, ?)')
-        .run(modelRequestId, 'agent', 'openai', 'gpt', 'running', 'run-1')
-      repository.capture({
-        modelRequestId,
-        purpose: 'agent_prompt',
-        apiId: 'openai-responses',
-        traceId: 'run-1',
-        agentSessionId: 'session-1',
-        agentRunId: 'run-1',
-        physicalAttempt: 1,
-        documents: [
-          { kind: 'harness_request', value: harness },
-          { kind: 'provider_request', value: provider }
-        ]
-      })
-    }
+      for (let request = 1; request <= requestCount; request += 1) {
+        const modelRequestId = `capacity-${request}`
+        database
+          .prepare('INSERT INTO model_requests VALUES (?, ?, ?, ?, ?, ?)')
+          .run(modelRequestId, 'agent', 'openai', 'gpt', 'running', 'run-1')
+        repository.capture({
+          modelRequestId,
+          purpose: 'agent_prompt',
+          apiId: 'openai-responses',
+          traceId: 'run-1',
+          agentSessionId: 'session-1',
+          agentRunId: 'run-1',
+          physicalAttempt: 1,
+          documents: [
+            { kind: 'harness_request', value: harness },
+            { kind: 'provider_request', value: provider }
+          ]
+        })
+      }
 
-    const rawBytes = rawBytesPerRequest * 12
-    const deduplicatedBytes = Number(
-      database.prepare('SELECT COALESCE(SUM(byte_size), 0) FROM agent_trace_payloads').pluck().get()
-    )
-    const rows = database
-      .prepare(
-        "SELECT harness_request_json, provider_requests_json FROM agent_model_request_trace_v WHERE model_request_id LIKE 'capacity-%'"
+      const rawBytes = rawBytesPerRequest * requestCount
+      const deduplicatedBytes = Number(
+        database
+          .prepare('SELECT COALESCE(SUM(byte_size), 0) FROM agent_trace_payloads')
+          .pluck()
+          .get()
       )
-      .all() as Array<{ harness_request_json: string; provider_requests_json: string }>
+      const rows = database
+        .prepare(
+          "SELECT harness_request_json, provider_requests_json FROM agent_model_request_trace_v WHERE model_request_id LIKE 'capacity-%'"
+        )
+        .all() as Array<{ harness_request_json: string; provider_requests_json: string }>
 
-    expect(rows).toHaveLength(12)
-    for (const row of rows) {
-      expect(JSON.parse(row.harness_request_json)).toEqual(harness)
-      expect(JSON.parse(row.provider_requests_json)).toEqual([provider])
-    }
-    expect(deduplicatedBytes).toBeLessThan(rawBytes)
-  }, 20_000)
+      expect(rows).toHaveLength(requestCount)
+      for (const row of rows) {
+        expect(JSON.parse(row.harness_request_json)).toEqual(harness)
+        expect(JSON.parse(row.provider_requests_json)).toEqual([provider])
+      }
+      expect(deduplicatedBytes).toBeLessThan(rawBytes)
+    },
+    traceBenchmarkTestTimeoutMs
+  )
 
   it('survives serialization and SQLite faults, logging the original errors', () => {
     database = baseDatabase()

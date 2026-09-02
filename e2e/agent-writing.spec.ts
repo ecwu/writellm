@@ -91,7 +91,9 @@ async function createProject(page: Page, name: string): Promise<void> {
 
 async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+    .click()
 }
 
 function sendToolCall(
@@ -825,29 +827,6 @@ test(
       expect(approvalBox.x + approvalBox.width).toBeLessThanOrEqual(modelBox.x)
       expect(modelBox.x + modelBox.width).toBeLessThanOrEqual(modeBox.x)
       expect(modeBox.x + modeBox.width).toBeLessThanOrEqual(sendBox.x)
-      await browserWindow.evaluate((window) => window.setContentSize(360, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBe(360)
-      await expect(panel.getByTestId('agent-add-menu-trigger')).toBeVisible()
-      await expect(approvalSelector).toBeVisible()
-      await expect(modelSelector).toBeVisible()
-      await expect(modeSelector).toBeVisible()
-      await expect(sendButton).toBeVisible()
-      const narrowPanel = await panel.boundingBox()
-      const narrowControls = await Promise.all(
-        [approvalSelector, modelSelector, modeSelector, sendButton].map((control) =>
-          control.boundingBox()
-        )
-      )
-      if (narrowPanel === null || narrowControls.some((box) => box === null)) {
-        throw new Error('Narrow Agent composer controls must have visible bounds')
-      }
-      for (const box of narrowControls) {
-        if (box === null) throw new Error('Narrow Agent composer control is missing')
-        expect(box.x).toBeGreaterThanOrEqual(narrowPanel.x)
-        expect(box.x + box.width).toBeLessThanOrEqual(narrowPanel.x + narrowPanel.width)
-      }
-      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
       await expect(panel.getByLabel('Agent message')).toBeVisible()
       const screenshotDirectory = process.env.WRITELLM_CP48_SCREENSHOT_DIR
       if (screenshotDirectory !== undefined) {
@@ -994,30 +973,6 @@ test(
       const conversationSwitcher = panel.getByTestId('agent-conversation-switcher')
       await conversationSwitcher.focus()
       await expect(conversationSwitcher).toBeFocused()
-      const manuscriptScroller = launched.page.locator('[data-slot="sidebar-inset"]')
-      await manuscriptScroller.evaluate((element) => {
-        const manuscript = element.querySelector(':scope > main')
-        if (!(manuscript instanceof HTMLElement)) throw new Error('Manuscript content missing')
-        manuscript.style.minHeight = `${element.clientHeight + 1_000}px`
-        element.scrollTop = element.scrollHeight
-      })
-      await expect
-        .poll(() => manuscriptScroller.evaluate((element) => element.scrollTop))
-        .toBeGreaterThan(0)
-      await browserWindow.evaluate((window) => window.setContentSize(1000, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
-      await expect
-        .poll(() => launched.page.getByLabel('Section title').inputValue())
-        .toBe('Agent revision target')
-      await expect(conversationSwitcher).toBeFocused()
-      await expect.poll(() => manuscriptScroller.evaluate((element) => element.scrollTop)).toBe(0)
-      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
-      await manuscriptScroller.evaluate((element) => {
-        const manuscript = element.querySelector(':scope > main')
-        if (manuscript instanceof HTMLElement) manuscript.style.removeProperty('min-height')
-        element.scrollTop = 0
-      })
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       const sourceTruth = await launched.page.evaluate(async (expectedSourceSectionId) => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -1184,8 +1139,6 @@ Continue only the original user request that remains unresolved after this appro
       await expect(contextUsageTooltip).toContainText('59k / 131k tokens used')
       await modelSelector.focus()
       await expect(contextUsageTooltip).not.toBeVisible()
-      await browserWindow.evaluate((window) => window.setContentSize(1000, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1280)
       await expect
         .poll(async () => {
           const [approvalBox, ringBox, modelBox, sendBox] = await Promise.all([
@@ -1204,8 +1157,6 @@ Continue only the original user request that remains unresolved after this appro
           )
         })
         .toBe(true)
-      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
       const contextScreenshotDirectory = process.env.WRITELLM_CP55_SCREENSHOT_DIR
       if (contextScreenshotDirectory !== undefined) {
         await mkdir(contextScreenshotDirectory, { recursive: true })

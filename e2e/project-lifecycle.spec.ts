@@ -19,12 +19,7 @@ async function clickAndExpectProject(
   displayName: string,
   projectName?: string
 ): Promise<void> {
-  if (action === 'Switch project') {
-    await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-    await page.getByRole('menuitem', { name: action, exact: true }).click()
-  } else {
-    await page.getByRole('button', { name: action, exact: true }).click()
-  }
+  await page.getByRole('button', { name: action, exact: true }).click()
   if (projectName !== undefined) {
     const dialog = page.getByRole('dialog', { name: 'Create project' })
     await dialog.getByLabel('Project name').fill(projectName)
@@ -35,7 +30,9 @@ async function clickAndExpectProject(
 
 async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+    .click()
 }
 
 async function clickRecentAndExpectProject(page: Page, displayName: string): Promise<void> {
@@ -521,17 +518,17 @@ test(
 )
 
 test(
-  'creates, closes, reopens, switches, and reopens after app restart',
+  'creates, removes recent pointers, returns to chooser, and safely quits across restarts',
   scenario('project.lifecycle-restart', ['@critical', '@packaged']),
-  async ({ testRoot }) => {
+  async ({ testRoot }, testInfo) => {
     const userData = join(testRoot, 'user-data')
     const alpha = join(testRoot, 'Alpha project.writellm')
-    const beta = join(testRoot, 'Beta project.writellm')
 
     const first = await launchApp({
       userData,
-      dialogPaths: [testRoot, testRoot, alpha, beta]
+      dialogPaths: [testRoot, testRoot, alpha]
     })
+    const firstProcess = first.app.process()
     try {
       await expect(first.page.getByRole('menubar')).toBeVisible()
       await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
@@ -579,24 +576,70 @@ test(
       ).resolves.toBe(true)
       await expectActiveProject(first.page, 'Alpha project')
       await expect(sectionEditor(first.page)).toContainText('Close flush persistence')
-      await clickAndExpectProject(first.page, 'Switch project', 'Beta project')
-      await expectWindowMaximized(first.app, false)
+      await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await expect(
+        first.page.getByRole('menuitem', { name: 'Switch project', exact: true })
+      ).toHaveCount(0)
+      await first.page.keyboard.press('Escape')
+      await closeProject(first.page)
+      await clickRecentAndExpectProject(first.page, 'Beta project')
+      await closeProject(first.page)
+      const alphaManifest = await readFile(join(alpha, 'writellm.project.json'), 'utf8')
+      await first.page
+        .getByRole('button', { name: 'Remove Alpha project from recent projects', exact: true })
+        .click()
+      await expect(
+        first.page.getByRole('button', { name: 'Open Alpha project', exact: true })
+      ).toHaveCount(0)
+      expect(await readFile(join(alpha, 'writellm.project.json'), 'utf8')).toBe(alphaManifest)
+      await expect(
+        first.page.getByRole('button', { name: 'Create project', exact: true })
+      ).toBeEnabled()
+      await first.page.screenshot({ path: testInfo.outputPath('project-chooser.png') })
+      await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await first.page.screenshot({ path: testInfo.outputPath('project-menu.png') })
+      const exited = first.app.waitForEvent('close')
+      await first.page.getByRole('menuitem', { name: 'Quit WriteLLM', exact: true }).click()
+      await exited
     } finally {
-      await closeApp(first.app)
+      if (firstProcess.exitCode === null) await closeApp(first.app)
     }
 
-    const restarted = await launchApp({ userData })
+    const restarted = await launchApp({ userData, dialogPaths: [alpha] })
+    const restartedProcess = restarted.app.process()
     try {
       await expectWindowMaximized(restarted.app, true)
       await expect(restarted.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await expect(
         restarted.page.getByRole('button', { name: 'Open Beta project', exact: true })
       ).toBeVisible()
+      await expect(
+        restarted.page.getByRole('button', { name: 'Open Alpha project', exact: true })
+      ).toHaveCount(0)
+      await clickAndExpectProject(restarted.page, 'Open project', 'Alpha project')
+      await expect(sectionEditor(restarted.page)).toContainText('Close flush persistence')
+      await closeProject(restarted.page)
+      await expect(
+        restarted.page.getByRole('button', { name: 'Open Alpha project', exact: true })
+      ).toBeVisible()
       await manuallyRestoreWindow(restarted.app)
       await clickRecentAndExpectProject(restarted.page, 'Beta project')
       await expectWindowMaximized(restarted.app, false)
+      await sectionEditor(restarted.page).click()
+      await restarted.page.keyboard.type('Quit flush persistence')
+      await restarted.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      const exited = restarted.app.waitForEvent('close')
+      await restarted.page.getByRole('menuitem', { name: 'Quit WriteLLM', exact: true }).click()
+      await exited
     } finally {
-      await closeApp(restarted.app)
+      if (restartedProcess.exitCode === null) await closeApp(restarted.app)
+    }
+    const afterQuit = await launchApp({ userData })
+    try {
+      await clickRecentAndExpectProject(afterQuit.page, 'Beta project')
+      await expect(sectionEditor(afterQuit.page)).toContainText('Quit flush persistence')
+    } finally {
+      await closeApp(afterQuit.app)
     }
   }
 )

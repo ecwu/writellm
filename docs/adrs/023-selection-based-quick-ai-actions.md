@@ -43,7 +43,7 @@ projection defined by ADR 021. Failure starts no run.
 The toolbar is one compact shadcn-compatible control inside BlockNote's formatting toolbar. It
 opens a grouped menu with labels and descriptions; `Cmd/Ctrl+Shift+K` opens the same menu while a
 selection is active. Custom instruction uses a titled, focus-managed dialog with the frozen
-selection preview. Narrow layouts retain the compact trigger and use a viewport-bounded menu.
+selection preview. The desktop menu remains bounded to its available content area.
 
 Main persists the generated task as the ordinary user message and adds bounded presentation
 metadata containing only the action ID/label, optional display instruction, and exact selected

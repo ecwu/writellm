@@ -77,7 +77,8 @@ The idle composer keeps its single footer row: Add, approval, elastic model/effo
 mode, and Send. The mode trigger uses a shadcn Dropdown Menu Radio Group with Ask, Plan, and Write
 plus short truthful descriptions. It stays visible but disabled while a run is live. Ask and Plan
 leave the approval selector visible but disabled and retain its stored value for the next Write
-run. At 360 px, Add, approval, mode, and Send remain complete while model/effort truncates first.
+run. The configured desktop composer keeps Add, approval, mode, and Send complete while
+model/effort truncates first when space is needed.
 
 ## Consequences
 

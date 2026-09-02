@@ -11,10 +11,10 @@ credential, provider, project, or Renderer authority.
 
 - [x] Persist a versioned application-global onboarding step/completion marker through bounded,
   sender-authorized IPC.
-- [x] Compose a responsive six-step onboarding surface beneath the global Menubar.
+- [x] Compose a six-step onboarding surface beneath the global Menubar.
 - [x] Reuse the existing Provider Settings workspaces and real project-creation workflow.
 - [x] Make every step optional, resume interrupted progress, and stop showing completed onboarding.
-- [x] Verify repository, IPC, Preload, Renderer, responsive, and Real-Electron behavior.
+- [x] Verify repository, IPC, Preload, Renderer, and Real-Electron behavior.
 
 Local evidence:
 
@@ -37,8 +37,7 @@ Local evidence:
   scenario. The onboarding scenario covers first launch, optional provider navigation,
   restart/resume, real native-folder project creation, completion persistence, and restart
   suppression; the fixture default kept all pre-existing scenarios on their established shell.
-- Wide desktop and 620 px narrow runtime screenshots passed visual review and the narrow project
-  step passed horizontal-overflow assertions. Scoped Impeccable mechanical detection returned no
-  findings, and `git diff --check` passed.
+- Desktop runtime screenshots passed visual review. Scoped Impeccable mechanical detection returned
+  no findings, and `git diff --check` passed.
 - No dependency, migration, package/release, hosted CI, commit, tag, push, signing, notarization,
   promotion, or publication action ran.

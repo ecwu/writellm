@@ -7,8 +7,11 @@ proposal-based writing Agent. Authors keep direct control of every manuscript mu
 ## Users And Use Scene
 
 The primary user is an author working for long periods on a structured manuscript. The interface
-must remain calm, dense enough for sustained desktop work, keyboard-accessible, and usable in a
-narrow window without hiding essential actions.
+must remain calm, dense enough for sustained desktop work, and keyboard-accessible.
+
+WriteLLM is a desktop-only application. Mobile layouts and special narrow-window adaptation or
+verification are outside the product scope. The configured desktop Agent sidebar must remain
+usable, with its controls kept non-overlapping and its resize handle working.
 
 ## Product Principles
 
@@ -29,4 +32,4 @@ component system.
 ## Current Delivery Boundary
 
 Checkpoint 29 adds exact manuscript-wide literal Find and navigation. It reuses the current shell,
-secondary sidebar/mobile sheet, and editor rather than creating a standalone search page.
+secondary sidebar, and editor rather than creating a standalone search page.

@@ -231,22 +231,7 @@ test(
           animations: 'disabled'
         })
       }
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(1_000)
       await expect(panel.getByRole('button', { name: 'Choose writing skill' })).toHaveCount(0)
-      const panelWidth = await panel.evaluate((element) => ({
-        clientWidth: element.clientWidth,
-        scrollWidth: element.scrollWidth
-      }))
-      expect(panelWidth.scrollWidth).toBeLessThanOrEqual(panelWidth.clientWidth + 1)
-      if (screenshotDirectory !== undefined) {
-        await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp61-writing-skills-narrow.png'),
-          animations: 'disabled'
-        })
-      }
-      await browserWindow.evaluate((window) => window.setContentSize(1680, 900))
 
       const autoTruth = await launched.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
@@ -443,5 +428,7 @@ async function createProject(page: import('@playwright/test').Page, name: string
 
 async function closeProject(page: import('@playwright/test').Page) {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+    .click()
 }

@@ -207,6 +207,7 @@ import type {
 
 export interface DesktopApi {
   app: {
+    quit(): Promise<void>
     getInfo(): Promise<AppInfo>
     getThemePreference(): Promise<ThemePreference>
     setThemePreference(input: SetThemePreferenceInput): Promise<ThemePreference>
@@ -238,6 +239,7 @@ export interface DesktopApi {
   projects: {
     lifecycle(): Promise<ProjectLifecycleSnapshot>
     recent(): Promise<RecentProjects>
+    removeRecent(input: RecentProjectOpenInput): Promise<RecentProjects>
     create(input: ProjectCreateInput): Promise<ProjectSelectionResult>
     open(): Promise<ProjectSelectionResult>
     openRecent(input: RecentProjectOpenInput): Promise<ProjectSelectionResult>

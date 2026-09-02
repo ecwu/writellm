@@ -248,17 +248,17 @@ visually primary; Replace does not become a standalone page or decorative diff e
 
 Find gains a progressive-disclosure Replace mode. Entering replacement text performs no mutation.
 `Review replacement` requests a complete plan and opens a grouped preview in the same workspace
-rail/sheet language. Each candidate shows bounded before/after context, section/outline context,
+rail language. Each candidate shows bounded before/after context, section/outline context,
 target type when useful, eligibility, and a human-readable skip reason. Selection controls expose
 individual, per-section, and all-eligible actions; the default selection is empty.
 
 Preview uses one scroll region. Sections are ordered like the manuscript and use compact headings;
 eligible candidates are immediately visible, while each section's skipped candidates sit in one
-collapsed `Skipped (n)` disclosure. Before and after appear as stacked text at sidebar widths, not
+collapsed `Skipped (n)` disclosure. Before and after appear as stacked text in each candidate, not
 side-by-side columns. A sticky action footer shows selected replacement/section counts and the
 single confirmation action without covering the final result. The surface composes the existing
 shadcn `Command` result language with official `Checkbox`, `Button`, `Collapsible`, `Badge`,
-`Alert`, Sidebar, and Sheet primitives. It does not use Cards as layout, add nested scroll regions,
+`Alert`, and Sidebar primitives. It does not use Cards as layout, add nested scroll regions,
 create product-specific form controls, or introduce a second preview component system.
 
 The confirmation action states the exact selected replacement and section counts. It is disabled
@@ -275,8 +275,8 @@ specific (`Review replacements`, `Apply 12 replacements in 3 sections`, `Manuscr
 review refreshed`, and `Saved; 1 local mirror will repair automatically`) instead of generic
 `Continue`, `Success`, or `Error` labels.
 
-Desktop and narrow layouts keep query, replacement, filters, preview, skipped reasons, selection,
-apply, repair warning, and Undo reachable by keyboard and screen reader. Escape closes the current
+The desktop layout keeps query, replacement, filters, preview, skipped reasons, selection, apply,
+repair warning, and Undo reachable by keyboard and screen reader. Escape closes the current
 Replace layer before closing Find. The feature introduces no generic command palette, generic
 batch framework, Agent conversation, or automatic model call.
 
@@ -323,7 +323,7 @@ manuscript index, provider call, Agent tool/schema change, or Renderer authority
    protection, materialization finalization, idempotent retry, and per-section Undo capabilities.
 4. Wire sender/session-authorized IPC, active-editor mutation flush, optional version checkpoint,
    typed section-change events, preload projection, and session revocation.
-5. Extend the Find rail/sheet with Replace disclosure, complete preview, skip reasons, selection,
+5. Extend the Find rail with Replace disclosure, complete preview, skip reasons, selection,
    conflict refresh, repair warning, and Undo.
 6. Complete focused, transaction/fault, Electron, Real-Electron, performance, recovery, accessibility,
    Impeccable, and diff gates.
@@ -352,8 +352,8 @@ Implementation acceptance requires all of the following:
 - version-history ready/uninitialized/damaged/checkpoint-failure states without automatic enable or
   repair;
 - Renderer stale-plan refresh, default-empty and grouped selection, skipped reasons, exact counts,
-  mounted-editor reconciliation, repair warning, keyboard/screen-reader behavior, narrow sheet, and
-  no interaction with Agent proposal/conversation state;
+  mounted-editor reconciliation, repair warning, keyboard/screen-reader behavior, and no
+  interaction with Agent proposal/conversation state;
 - the 100-section/500-selection transaction performance gate, `pnpm check:fast`, focused
   Electron-hosted tests, `pnpm check:electron`, fresh focused/full Real-Electron E2E, all recovery
   fixtures, scoped Impeccable review, and `git diff --check`.

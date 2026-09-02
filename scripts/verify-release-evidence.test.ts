@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { verifyReleaseEvidence } from './verify-release-evidence.mjs'
 import { releaseBuilderArguments, resolveReleaseMetadata } from './release-version.mjs'
+import { verifyRecoveryFixtures } from './verify-recovery-fixtures.mjs'
 
 const roots: string[] = []
 const revision = 'a'.repeat(40)
@@ -162,7 +163,7 @@ describe('release evidence verification', () => {
         packageVersion: '0.2026.8',
         releaseVersion: '0.2026.8.7'
       })
-    ).rejects.toThrow('disagree')
+    ).rejects.toThrow('current manifest')
   })
 
   it('maps the four-component release version to platform-native build metadata', () => {
@@ -207,6 +208,7 @@ async function updateEvidence(
 async function fixtureRoot(omitted: string[] = []) {
   const root = await mkdtemp(join(tmpdir(), 'writellm-release-evidence-'))
   roots.push(root)
+  const recoveryFixtureManifest = await verifyRecoveryFixtures()
   for (const [target, targetFormats] of Object.entries(formats)) {
     if (omitted.includes(target)) continue
     const directory = join(root, target)
@@ -239,10 +241,10 @@ async function fixtureRoot(omitted: string[] = []) {
         recoveryFixtures: {
           format: 'writellm-recovery-fixtures',
           version: 1,
-          cases: 22,
-          sources: 20,
-          categories: Array.from({ length: 14 }, (_, index) => `category-${index}`),
-          sha256: 'b'.repeat(64)
+          cases: recoveryFixtureManifest.cases,
+          sources: recoveryFixtureManifest.sources,
+          categories: recoveryFixtureManifest.categories,
+          sha256: recoveryFixtureManifest.sha256
         },
         packagedSmoke: {
           format: 'writellm-packaged-smoke',

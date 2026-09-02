@@ -99,19 +99,16 @@ export async function verifyPackageInventory(resources, target) {
   return {
     target: target.id,
     resources: basename(absoluteResources),
-    asarSha256: await fileSha256(appAsar),
     asarEntries: paths.length,
     rendererEntry: rendererScripts[0],
     betterSqlite3: {
       format: addonInspection.format,
-      arch: addonInspection.arch,
-      sha256: await fileSha256(addonPath)
+      arch: addonInspection.arch
     },
     sqliteVec: {
       file: relative(absoluteResources, sqliteVecPath).split(sep).join('/'),
       format: sqliteVecInspection.format,
-      arch: sqliteVecInspection.arch,
-      sha256: await fileSha256(sqliteVecPath)
+      arch: sqliteVecInspection.arch
     }
   }
 }

@@ -18,6 +18,7 @@ import {
   projectLifecycleSnapshotSchema,
   projectRecoveryActionInputSchema,
   recentProjectOpenInputSchema,
+  recentProjectRemoveInputSchema,
   recentProjectsSchema,
   reinitializeVersionHistoryInputSchema,
   restoreCheckpointInputSchema,
@@ -64,7 +65,7 @@ export interface ProjectDialog {
 
 export interface RegisterProjectIpcOptions {
   manager: ProjectManager
-  recentProjects: Pick<RecentProjectsRepository, 'find' | 'list'>
+  recentProjects: Pick<RecentProjectsRepository, 'find' | 'list' | 'remove'>
   appSettings?: Pick<
     AppSettingsRepository,
     'getVersionHistoryPromptDismissed' | 'setVersionHistoryPromptDismissed'
@@ -265,6 +266,25 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         'Failed to load recent projects'
       )
       throw operationError('Unable to load recent projects')
+    }
+  })
+
+  handle(IPC_CHANNELS.projectRemoveRecent, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const { projectId } = recentProjectRemoveInputSchema.parse(input)
+    try {
+      await options.recentProjects.remove(projectId)
+      options.logger.info(
+        { event: 'ipc.project_recent.removed', projectId },
+        'Removed project from recent projects'
+      )
+      return recentProjectsSchema.parse((await options.recentProjects.list()).slice(0, 5))
+    } catch (err) {
+      options.logger.error(
+        { event: 'ipc.project_recent.remove_failed', projectId, err },
+        'Failed to remove recent project'
+      )
+      throw operationError('Unable to remove recent project')
     }
   })
 
@@ -850,6 +870,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     for (const channel of [
       IPC_CHANNELS.projectGetLifecycle,
       IPC_CHANNELS.projectGetRecent,
+      IPC_CHANNELS.projectRemoveRecent,
       IPC_CHANNELS.projectCreate,
       IPC_CHANNELS.projectOpen,
       IPC_CHANNELS.projectOpenRecent,

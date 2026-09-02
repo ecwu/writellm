@@ -112,44 +112,6 @@ test(
         })
       }
 
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-      await expect(
-        dialog.getByRole('button', { name: 'Back to settings categories' })
-      ).toBeVisible()
-      const dialogWidth = await dialog.evaluate((element) => ({
-        clientWidth: element.clientWidth,
-        scrollWidth: element.scrollWidth
-      }))
-      expect(dialogWidth.scrollWidth).toBeLessThanOrEqual(dialogWidth.clientWidth + 1)
-      if (screenshotDirectory !== undefined) {
-        await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp62-settings-narrow.png'),
-          animations: 'disabled'
-        })
-      }
-
-      await dialog.getByRole('button', { name: 'Back to settings categories' }).click()
-      await expect(dialog.locator('[data-settings-section="shortcuts"]')).toBeVisible()
-      await dialog.locator('[data-settings-section="shortcuts"]').click()
-      await expect(
-        dialog.getByRole('heading', { name: 'Keyboard Shortcuts', exact: true })
-      ).toBeVisible()
-      const shortcutDialogWidth = await dialog.evaluate((element) => ({
-        clientWidth: element.clientWidth,
-        scrollWidth: element.scrollWidth
-      }))
-      expect(shortcutDialogWidth.scrollWidth).toBeLessThanOrEqual(
-        shortcutDialogWidth.clientWidth + 1
-      )
-      if (screenshotDirectory !== undefined) {
-        await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp62-settings-shortcuts-narrow.png'),
-          animations: 'disabled'
-        })
-      }
-      await dialog.getByRole('button', { name: 'Back to settings categories' }).click()
       await dialog.locator('[data-settings-section="general"]').click()
       await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
 

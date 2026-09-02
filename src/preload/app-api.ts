@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron'
 import {
   accentPreferenceSchema,
   appInfoSchema,
+  appQuitResultSchema,
   citationDisplayModeSchema,
   onboardingStateSchema,
   setAccentPreferenceInputSchema,
@@ -22,6 +23,9 @@ import {
 import type { DesktopApi } from './desktop-api'
 
 export const appApi: DesktopApi['app'] = {
+  async quit() {
+    appQuitResultSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appQuit))
+  },
   async getInfo() {
     return appInfoSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appGetInfo))
   },

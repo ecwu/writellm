@@ -1,12 +1,26 @@
-import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import electron from 'electron'
+import { VerificationRun } from './verification-run.mjs'
 
 const vitestEntry = fileURLToPath(new URL('../node_modules/vitest/vitest.mjs', import.meta.url))
-const result = spawnSync(electron, [vitestEntry, 'run', ...process.argv.slice(2)], {
-  env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-  stdio: 'inherit'
-})
-
-if (result.error) throw result.error
-process.exit(result.status ?? 1)
+const args = process.argv.slice(2)
+const run = new VerificationRun(args.length ? 'tests-focused' : 'tests-full', { selection: args })
+let failure
+try {
+  await run.command(
+    'vitest',
+    electron,
+    [
+      vitestEntry,
+      'run',
+      ...args,
+      ...(!args.some((arg) => arg.startsWith('--reporter')) ? ['--reporter=default'] : []),
+      '--reporter=./scripts/vitest-reporter.mjs'
+    ],
+    { env: { ELECTRON_RUN_AS_NODE: '1' } }
+  )
+} catch (error) {
+  failure = error
+} finally {
+  await run.finish(failure)
+}

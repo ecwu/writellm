@@ -424,8 +424,8 @@ maintenance without turning the active tracker back into a historical log.
   the composer and opens a bounded, accessible shadcn Popover containing the semantic step list,
   plan controls, and unchanged change-set workflow; terminal plans remain available as
   `Plan complete`. Focused tests, `check:fast`, 183 Electron-hosted files / 991 tests plus
-  production build, one fresh focused Real-Electron scenario, four responsive screenshot
-  inspections, scoped Impeccable, independent finish review, and diff checks passed. No IPC,
+  production build, one fresh focused Real-Electron scenario, scoped Impeccable, independent finish
+  review, and diff checks passed. No IPC,
   persistence, provider, worker, migration, dependency, package/release, hosted CI, commit, push,
   signing, notarization, or publication work ran.
 - Accepted ADR 051 and completed Checkpoint 57. Image generation now uses one fixed Google Gemini,
@@ -457,7 +457,7 @@ maintenance without turning the active tracker back into a historical log.
   Requested/Discovered provenance without session state or a database migration. Focused coverage,
   `check:fast`, 187 Electron-hosted files / 1043 tests with three benchmark skips plus production
   build, 25 recovery fixtures from 23 sources, and the fresh 41/41 Real-Electron suite passed.
-  Desktop, narrow, Details, Impeccable, and diff checks passed. No tag, package/release, hosted CI,
+  Desktop, Details, Impeccable, and diff checks passed. No tag, package/release, hosted CI,
   commit, push, signing, notarization, promotion, or publication ran.
 - Completed the separately authorized local `0.2026.8.19` App candidate for Checkpoint 60.
   Release metadata advanced after `check:fast`, the 186-file / 1031-test Electron gate and build,
@@ -474,14 +474,14 @@ maintenance without turning the active tracker back into a historical log.
   provenance, safe activity projection, and read-only Agent Details history without scripts or
   broader authority. Focused coverage passed; `check:fast`, 186 Electron-hosted files / 1031 tests
   with three benchmark skips plus production build, and the fresh 41/41 Real-Electron suite passed.
-  Desktop, narrow, and Details screenshots plus diff checks passed. No migration, package/release
+  Desktop and Details screenshots plus diff checks passed. No migration, package/release
   gate, hosted CI, commit, push, signing, notarization, promotion, or publication ran.
 - Completed Checkpoint 58. Whole-manuscript Markdown preview moved from the Outline Dialog into an
   independent Preview rail workspace, using the existing export projection and a project-owned
   shadcn Typeset preset. Session-bound assets, sanitized Mermaid, bounded KaTeX, safe HTTPS links,
-  loss reporting, responsive layout, and return-to-section context remain enforced. Focused tests,
+  loss reporting, desktop layout, and return-to-section context remain enforced. Focused tests,
   `check:fast`, 185 Electron-hosted files / 1012 tests plus production build, the fresh 41/41
-  Real-Electron suite, light/dark desktop and narrow visual inspection, scoped Impeccable, and diff
+  Real-Electron suite, light/dark desktop visual inspection, scoped Impeccable, and diff
   checks passed. No IPC, shared contract, migration, dependency, package/release action, hosted CI,
   commit, push, signing, notarization, or publication ran.
 - Built the separately authorized Checkpoint 58 hands-on App with the no-identity macOS arm64
@@ -537,8 +537,8 @@ maintenance without turning the active tracker back into a historical log.
   security state and warning, logs directory action, and sanitized diagnostic export. Existing
   Renderer-safe APIs and persistence paths were reused unchanged. Five focused Renderer tests,
   `check:fast`, 188 Electron-hosted files / 1048 tests with three benchmark skips plus production
-  build, and the fresh 41/41 Real-Electron suite passed. Desktop and 620 px narrow screenshots,
-  preference persistence, mobile back navigation, focus return, axe, overflow, scoped Impeccable,
+  build, and the fresh 41/41 Real-Electron suite passed. Desktop screenshots,
+  preference persistence, focus return, axe, scoped Impeccable,
   and diff checks passed. No ADR, shared contract, IPC, persistence, migration, dependency,
   package/release action, hosted CI, commit, push, signing, notarization, promotion, or publication
   ran.
@@ -549,10 +549,9 @@ maintenance without turning the active tracker back into a historical log.
   Writing Task change set; legacy proposals retain their diff fallback, and presentation data
   remains optional derived review data with no apply authority. Focused coverage passed 61 tests;
   `check:fast`, 189 Electron-hosted files / 1054 tests with three benchmark skips plus production
-  build, and the fresh 41/41 Real-Electron suite passed. Full-width and 640 px screenshots,
-  dependency/reduced-motion review, frozen install, scoped Impeccable, and diff checks passed. A
-  mobile References E2E selector race found during the full gate was narrowed to the correct
-  responsive sidebar without changing product behavior. No package/release, hosted CI, commit,
+  build, and the fresh 41/41 Real-Electron suite passed. Full-width screenshots,
+  dependency/reduced-motion review, frozen install, scoped Impeccable, and diff checks passed. No
+  package/release, hosted CI, commit,
   push, signing, notarization, promotion, or publication action ran.
 - Built the separately authorized Checkpoint 63 hands-on macOS arm64 artifacts from the current
   dirty worktree. The no-identity package gate verified Electron 43.1.0 / ABI 148, arm64 native
@@ -611,13 +610,13 @@ maintenance without turning the active tracker back into a historical log.
   benchmark skips plus production build, and the fresh-build 44/44 serial Real-Electron manifest
   passed. No package/release action, hosted CI, commit, tag, push, signing, notarization,
   promotion, or publication ran.
-- Accepted ADR 059 and completed Checkpoint 67. True first launches now enter a responsive,
+- Accepted ADR 059 and completed Checkpoint 67. True first launches now enter a
   fully optional Welcome → Agent → Embedding → Reranking → MinerU → Create Project flow beneath
   the global Menubar. Versioned Main-owned application state resumes an interrupted step and
   suppresses completed or upgraded installs; existing provider workspaces and the native
   project-creation authority remain unchanged. Seventeen focused tests, `check:fast`, 199
   Electron-hosted files / 1102 tests with three intentional benchmark skips plus production build,
-  and the fresh 45/45 Real-Electron manifest passed. Desktop and 620 px visual/overflow inspection,
+  and the fresh 45/45 Real-Electron manifest passed. Desktop visual inspection,
   scoped Impeccable, and diff checks also passed. No migration, dependency, package/release action,
   hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
 - Accepted ADR 060 and completed Checkpoint 68. BlockNote native `mathBlock` now joins the native
@@ -629,7 +628,7 @@ maintenance without turning the active tracker back into a historical log.
   fallbacks. Frozen install, zero-advisory production/full audits, focused coverage, `check`,
   `check:fast`, 200 Electron-hosted files / 1107 tests with three intentional benchmark skips plus
   production build, all 27 recovery fixtures from 25 sources, and the fresh 45/45 Real-Electron
-  manifest passed. Theme, metadata, malicious source, sanitized SVG, no-caption, 620 px, reopen,
+  manifest passed. Theme, metadata, malicious source, sanitized SVG, no-caption, reopen,
   and export behavior were verified. No package/release action, hosted CI, commit, tag, push,
   signing, notarization, promotion, or publication ran.
 - Built and prepared the separately authorized local `0.2026.8.22` candidate for the completed
@@ -727,9 +726,8 @@ maintenance without turning the active tracker back into a historical log.
   dock above the composer, exposes only non-default composer context, and progressively discloses
   waiting follow-ups. Forty-six focused Renderer tests, `check:fast`, 200 Electron-hosted files /
   1,140 tests with three intentional benchmark skips plus production build, and the fresh 46/46
-  Real-Electron manifest passed. Runtime inspection covered 360, 480, and 640 px light layouts and
-  480 px dark theme with no horizontal overflow and a continuously visible composer after one
-  bounded correction; scoped Impeccable and `git diff --check` also passed. No dependency,
+  Real-Electron manifest passed. Runtime inspection covered the 640 px desktop Agent sidebar;
+  scoped Impeccable and `git diff --check` also passed. No dependency,
   database, IPC, Agent protocol, permission, persistence, package/release, commit, tag, push,
   signing, or publication action ran.
 - Built the separately authorized local Checkpoint 73 macOS arm64 App from the current dirty
@@ -1017,7 +1015,7 @@ maintenance without turning the active tracker back into a historical log.
 - Completed Phase 25 Checkpoint 76 without entering Checkpoint 77. Migration 0039 persists sticky
   Ask, Plan, and Write selection with Write defaults; Protocol v13 carries an immutable run mode;
   shared ModePolicy enforcement bounds Worker advertisement and Main execution; and the shadcn
-  composer selector keeps Approval orthogonal and remains contained at 360 px. Direct Biome and
+  composer selector keeps Approval orthogonal. Direct Biome and
   Node/Renderer typechecks, all 1,179 Electron-hosted tests, the production build, all 47 Electron
   Playwright scenarios, and `git diff --check` passed. No package, signing, notarization, release,
   commit, tag, or push action was performed.
@@ -1354,3 +1352,122 @@ maintenance without turning the active tracker back into a historical log.
   [`../implementation-todo/phase-32.md`](../implementation-todo/phase-32.md).
 - No real provider, dependency/setting addition, migration, release, commit, tag, push, Developer
   ID signing, notarization, promotion, or publication action was performed.
+
+
+## 2026-09-02 — Recent-project removal and explicit close/quit actions
+
+- User-authorized maintenance adds an accessible remove button to each recent project. Main
+  validates the opaque project ID and reuses `RecentProjectsRepository.remove`; only the
+  `app.sqlite` pointer is removed. Manual reopening uses the existing upsert to restore it.
+- Removed the Switch project menu entry. Close project and return to chooser preserves the
+  existing final-flush/session-revocation path. Quit WriteLLM validates sender authority, closes
+  any open project, requires the closed lifecycle state, and then enters the existing shutdown
+  coordinator. A failed close keeps the app running for recovery. No migration or dependency change.
+- Verification: `pnpm check:fast`; 45 tests across project IPC, application IPC, recent-project
+  persistence, and shutdown coordination; `pnpm build`; and the focused `project.lifecycle-restart`
+  Electron E2E scenario passed. Runtime: Electron 43.4.1, embedded Node 24.18.1, ABI 148, macOS
+  arm64. Host pnpm 11.17.0 matched the manifest; host Node 26.8.1 produced an engine-range warning,
+  with no toolchain or manifest changes. The scoped Impeccable detector reported no findings.
+- Real E2E evidence covers pointer removal without manifest mutation, persistence across restart,
+  manual reopening restoring the row, chooser-based project changes, stale-session rejection,
+  exit from the chooser and an active editor, and final-edit persistence after quit/restart.
+  Initial runtime verification caught a missing TooltipProvider, which was corrected; a subsequent
+  test-cleanup failure after successful quit was corrected by retaining the process handle before
+  shutdown. The final run passed without renderer errors, retries, skips, or flakes. Chooser and
+  menu screenshots were inspected. Existing E2E close locators were updated to the explicit label.
+- No package, release, signing, commit, tag, or push action was performed.
+
+
+## 2026-09-02 — Desktop-only test and documentation boundary
+
+- The user explicitly authorized removing narrow-window/mobile adaptation and verification
+  requirements, including targeted cleanup of historical ADR and Phase text. Product guidance
+  retains normal desktop Agent sidebar usability, control non-overlap, keyboard access, and
+  panel resizing. Existing UI implementations and window defaults are unchanged.
+- Removed dedicated window shrinking, breakpoint waits, mobile navigation, geometry assertions,
+  and screenshots from six Electron E2E files. Independent editing, Find/Replace, persistence,
+  preview, math, citation, accessibility, and Agent checks remain at desktop sizes. All 28 scenario
+  IDs and suite tags are preserved; the test files have 226 fewer lines than the starting worktree.
+- Verification: `pnpm check:fast`, `pnpm build`, and the six-file focused `pnpm test:e2e` run passed
+  all 28 scenarios in 1.1 minutes without failures, retries, flakes, or skips. The run enabled
+  `WRITELLM_CP73_SCREENSHOT_DIR` and exercised the retained desktop Agent panel resize and
+  screenshot branch. E2E ran outside the sandbox through the normal silent runner.
+- Runtime: Electron 43.4.1 / ABI 148, macOS arm64; host pnpm 11.17.0 matches the manifest. Host
+  Node 26.8.1 emits the existing warning against the declared Node 24.x engine range. The gates
+  passed without changing the host toolchain, dependencies, or version pins.
+- Final tracked-document and test audits found no remaining narrow-window acceptance requirement
+  or dedicated test path. Desktop policy exclusions, ordinary sidebar checks, narrow authority
+  boundaries, and performance responsiveness terminology remain intentional. `git diff --check`
+  passed.
+- No product implementation, API, schema, package/release, signing, commit, tag, or push change
+  was made by this maintenance; unrelated starting worktree changes were preserved.
+
+## 2026-09-02 — Layered verification and single-assembly packaging
+
+- Implemented the approved build/verification maintenance without changing dependencies, the lock
+  file, four native CI platforms, installer formats, tag-only triggers, or release-signing policy.
+  Plain builds prepare native modules and compile without typechecking or testing. Composite gates
+  own static checks and compile once; `check:full` and `check:package:smoke` provide explicit broader
+  and narrower coverage. Ordinary changes default to focused tests, with the selection rules in
+  `AGENTS.md` and the verify skill. Existing full/critical/packaged scenario inventories remain.
+- Native preparation probes Electron loading and validates architecture, repairing only a mismatch;
+  `rebuild:native` remains forceful. The package gate assembles one application, checks and tests it,
+  then supplies that same path to `--prepackaged` for installers. Build-only aliases retain resource
+  and architecture checks without running Vitest, E2E, or recovery inventory verification.
+- Excluded dependency source maps/declarations and better-sqlite3 compiler sources/intermediates.
+  Runtime JS, package metadata, licenses, native binaries and resources remain. Removed custom
+  ASAR/native hashes and recovery test-source hashes; installer SHA256 and small manifest digests
+  remain. Recovery verification checks the declared inventory, not test execution. Release evidence
+  derives its expected 31 cases, 29 source files and 14 categories from the actual manifest.
+- Shared sequential stage reporting records scope/selection, start, duration, status, exit code and
+  signal under ignored `.cache/verification/`, with terminal boundaries and 30-second heartbeats.
+  Shared timeout policy preserves platform differences and retries without introducing performance
+  failure thresholds. E2E reports include measured attempts; Vitest retry spans are labeled estimates.
+  A real retry/skip fixture caught and fixed the reporter's callback-order handling before delivery.
+  CI uploads timing JSON even on failure and reports elapsed build wait separately from cumulative
+  job runtime; the summary job is excluded from both measurements.
+- Focused verification passed: 32 tooling tests across eight files, two timeout/reporter integration
+  tests, and all six Trace tests. A final 10-test stage/reporter run took 1.4 seconds. Review also
+  corrected report-write failures masking original exits, output overflow misclassified as a signal,
+  and interruption between stages; focused tests cover all three. The history/SQL
+  rebuild case retains deduplication and per-request reconstruction assertions at 8 histories /
+  3 requests (6 ms observed); `benchmark:trace` passes at the original 80 / 12 scale (1.65-second
+  test, 2.4-second command; five unrelated tests excluded by its filter). Error exit, missing command,
+  signal interruption, forwarding, stage deduplication, all native target argument shapes including
+  AppX, builder exclusions, recovery inventory, and release evidence are covered. No product
+  regression scenario was removed and no historical flaky scenario was rewritten.
+- One complete `pnpm check:package` run passed on macOS arm64 in **187.9 seconds**. It includes
+  `check:fast`, inventory, 12 native/runtime smoke scenarios and all 34 packaged E2E scenarios, with
+  34 attempts, zero retries, flakes, failures or skips. Runtime coverage includes SQLite/sqlite-vec,
+  workers, PDF, Mermaid, formulas, security boundaries and lifecycle logging. The builder log has
+  exactly one application-packaging invocation and explicitly skips identity signing; the
+  no-Team-ID signature policy passed. The installer phase reuses that verified App.
+
+  | Stage | Local elapsed |
+  | --- | ---: |
+  | Static checks | 9.0 s |
+  | Native preparation + production compile | 11.4 s |
+  | Application assembly | 20.8 s |
+  | Packaged runtime smoke | 40.0 s |
+  | Packaged E2E | 84.6 s |
+  | DMG + ZIP from prepackaged App | 21.7 s |
+  | Installer hashes | 0.2 s |
+
+- Against the retained previous package, actual ASAR size changed from 495,667,940 to 256,257,975
+  bytes (-48.3%). Header file count, including unpacked files but excluding directories, changed
+  from 49,252 to 31,942 (-35.1%); total header file bytes changed from 533,408,812 to 277,958,907
+  (-47.9%). Source maps changed from 11,019 to zero and declarations from 6,255 to zero; excluded
+  SQLite compiler material is absent. DMG changed from 239,031,387 to 194,634,272 bytes (-18.6%);
+  ZIP changed from 237,198,426 to 192,544,907 bytes (-18.8%). The earlier local build observation
+  was 21.84 seconds including typechecks; the new build is 11.4 seconds with static checks reported
+  separately. These are local observations, with different baseline/current source revisions,
+  not an identical-source performance experiment or a promise of hosted speedup.
+- Evidence: `dist/macos-arm64/package-evidence.json`, the App/DMG/ZIP beside it, and
+  `.cache/verification/package-2026-09-02/` containing stage reports, E2E attempts and `comparison.json`.
+  Runtime: Electron 43.4.1, embedded Node 24.18.1, ABI 148; host pnpm 11.17.0. Host Node 26.8.1
+  retains the existing engine-range warning; the toolchain and pins were preserved. The frozen
+  offline install passed without dependency or lock changes. Windows/Linux/macOS Intel runtime
+  acceleration remains for the next normally authorized tag CI. No commit, tag, push, remote build,
+  Developer ID signing, notarization or publication was performed; starting worktree changes remain.
+- Final `pnpm check` and `git diff --check` passed. Only tool/reporting checks were repeated after
+  the review fixes; the accepted application and installer contents were unaffected.

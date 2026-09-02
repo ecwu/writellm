@@ -88,7 +88,7 @@ change resolution uses `update_review_issues` with an explicit reason.
 
 ### 6. The Workbench is a passive projection
 
-The workspace gains a responsive auxiliary Workbench with Issues and Writing Rules tabs. It can
+The workspace gains an auxiliary Workbench with Issues and Writing Rules tabs. It can
 filter, navigate, edit user-owned fixture state, and show lineage/history. It has no review button,
 model invocation, duplicated deterministic rule, or direct database authority. Renderer inputs and
 outputs are bounded shared contracts; Main authorizes the sender and active `projectSessionId`.

@@ -1,4 +1,4 @@
-# ADR 039: Agent Approval Shorthand And Responsive Composer
+# ADR 039: Agent Approval Shorthand And Desktop Composer
 
 Status: accepted for Checkpoint 48; implementation authorized; `Section` shorthand superseded by ADR 043
 Date: 2026-08-13
@@ -32,7 +32,7 @@ fully visible, and the model/effort trigger owns the elastic middle space and tr
 label when needed while keeping its complete accessible name. Composer controls must shrink
 within their own boxes and must never paint over one another.
 
-This amends ADR 038 only for approval naming, iconography, and responsive width allocation. The
+This amends ADR 038 only for approval naming, iconography, and desktop width allocation. The
 persisted `manual`, `section_auto`, and `yolo` values, Main-owned eligibility and mandatory-review
 rules, run snapshots, IPC, Agent tools, and model behavior do not change.
 
@@ -42,9 +42,6 @@ rules, run snapshots, IPC, Agent tools, and model behavior do not change.
   most frequently scanned row read like an explanation instead of a compact state summary.
 - Use `Manual`, `Section auto`, and `Auto`. This is more literal, but it discards the established
   `YOLO` vocabulary and makes the two automatic choices less immediately distinct.
-- Hide approval at narrow widths. Approval is a primary Agent decision and must remain visible;
-  the model label can truncate safely because its full value remains accessible and opens in one
-  click.
 
 ## Consequences
 

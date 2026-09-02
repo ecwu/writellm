@@ -87,14 +87,16 @@ async function moveSectionUp(page: Page, sourceTitle: string): Promise<void> {
 
 async function closeProject(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+  await page
+    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+    .click()
   await expect
     .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
     .toBe('closed')
 }
 
 test(
-  'keeps BlockNote formatting and slash menus keyboard-usable at narrow widths',
+  'keeps BlockNote formatting and slash menus keyboard-usable',
   scenario('manuscript.blocknote-054-controls', ['@packaged']),
   async ({ testRoot }) => {
     const launched = await launchApp({
@@ -103,10 +105,6 @@ test(
     })
     try {
       await createProject(launched.page, 'BlockNote controls')
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-
       const editor = sectionEditor(launched.page)
       await editor.click()
       await launched.page.keyboard.type('Toolbar')
@@ -127,9 +125,6 @@ test(
       const slashMenu = launched.page.getByRole('listbox')
       await expect(slashMenu).toBeVisible()
       await expect(slashMenu.getByRole('option', { name: /Mermaid/u })).toBeVisible()
-      const menuBox = await slashMenu.boundingBox()
-      expect(menuBox).not.toBeNull()
-      expect((menuBox?.x ?? 0) + (menuBox?.width ?? 0)).toBeLessThanOrEqual(620)
       await launched.page.keyboard.press('Enter')
       await expect(launched.page.getByRole('button', { name: 'OK', exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Add Mermaid source' }).click()
@@ -251,16 +246,6 @@ test(
       await expectActiveProject(launched.page, projectName)
       await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(4)
 
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect
-        .poll(() =>
-          launched.page
-            .getByTestId('section-editor')
-            .evaluate((element) => element.scrollWidth <= element.clientWidth)
-        )
-        .toBe(true)
-
       await launched.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
       await launched.page.getByRole('menuitem', { name: /Settings/u }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
@@ -281,7 +266,7 @@ test(
 )
 
 test(
-  'finds current manuscript text and preserves exact navigation across window sizes',
+  'finds current manuscript text and preserves exact navigation',
   scenario('manuscript.find-navigation'),
   async ({ testRoot }) => {
     const projectName = 'Find navigation'
@@ -317,21 +302,7 @@ test(
       await result.click()
       await expect(launched.page.locator('.writellm-search-match')).toContainText('needle phrase')
 
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-      await launched.page.keyboard.press('ControlOrMeta+f')
-      await expect(input).toBeVisible()
-      await expect(launched.page.getByRole('button', { name: 'Close Find' })).toBeVisible()
-      if (screenshotDirectory !== undefined) {
-        await launched.page.screenshot({
-          path: join(screenshotDirectory, 'cp29-find-narrow.png'),
-          animations: 'disabled'
-        })
-      }
-      await launched.page
-        .locator('[data-slot="sheet-overlay"]')
-        .click({ position: { x: 600, y: 400 } })
+      await launched.page.getByRole('button', { name: 'Close Find' }).click()
       await expect(input).not.toBeVisible()
       await expect(launched.page.locator('.writellm-search-match')).toHaveCount(0)
 
@@ -588,7 +559,7 @@ Evidence from \cite{garcia2025}.
 )
 
 test(
-  'keeps review fixtures passive, versioned, and usable at narrow widths',
+  'keeps review fixtures passive and versioned',
   scenario('review.passive-fixtures-workbench'),
   async ({ testRoot }) => {
     const projectName = 'Review fixtures'
@@ -618,17 +589,6 @@ test(
       await rules.getByRole('button', { name: 'Add rule', exact: true }).click()
       await expect(rules.getByText('Translate LLM consistently.', { exact: true })).toBeVisible()
       await expect(rules.getByRole('switch', { name: 'Deactivate rule' })).toBeChecked()
-
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-      await expect(rules).toBeVisible()
-      await expect
-        .poll(() => rules.evaluate((element) => element.scrollWidth <= element.clientWidth))
-        .toBe(true)
-
-      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
 
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
@@ -757,7 +717,7 @@ test(
         window.unmaximize()
         window.setContentSize(900, 800)
       })
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBe(900)
       const outlineButton = launched.page.getByRole('button', {
         name: 'Edit outline',
         exact: true
@@ -823,13 +783,6 @@ test(
       await outlinePanel.getByRole('radio', { name: 'Completed', exact: true }).click()
       await expect(outlinePanel.getByTestId('outline-save-state')).toHaveText('Saved')
 
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-      await outlinePanel.getByRole('button', { name: 'Back to outline' }).click()
-      await expect(outlinePanel.getByRole('tree', { name: 'Manuscript sections' })).toBeVisible()
-      await conclusionTreeItem.locator('button[id^="outline-tree-item-"]').click()
-      await expect(outlinePanel.getByLabel('Section objective')).toBeVisible()
-
       await expect(
         outlinePanel.getByRole('button', { name: 'Preview all', exact: true })
       ).toHaveCount(0)
@@ -838,7 +791,6 @@ test(
       await sectionEditor(launched.page).click()
       await launched.page.keyboard.press('End')
       await launched.page.keyboard.type(' Preview flush draft')
-      await launched.page.getByRole('button', { name: 'Toggle Sidebar', exact: true }).click()
       await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
       const previewWorkspace = launched.page.getByTestId('manuscript-preview-workspace')
       const previewScroll = launched.page.getByTestId('whole-manuscript-preview-scroll')
@@ -878,8 +830,6 @@ test(
         .toBe(true)
       await launched.page.keyboard.press('Escape')
       await expect(preview).toBeVisible()
-      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
       await expect(
         launched.page.getByRole('button', { name: 'Preview', exact: true })
       ).toHaveAttribute('data-active', 'true')
@@ -1129,7 +1079,7 @@ test(
         window.unmaximize()
         window.setContentSize(900, 800)
       })
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
+      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBe(900)
       await expect(title).toHaveAttribute('maxlength', '500')
       await expect(title).toHaveValue('Untitled Section')
       await title.fill('Evidence orchestration\n跨语言研究')
@@ -1141,18 +1091,9 @@ test(
       expect(desktopMetrics.scrollWidth).toBeLessThanOrEqual(desktopMetrics.clientWidth + 1)
       expect(desktopMetrics.scrollHeight - desktopMetrics.clientHeight).toBeLessThanOrEqual(8)
 
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeLessThan(768)
-      const narrowMetrics = await title.evaluate(titleMetrics)
-      expect(narrowMetrics.height).toBeGreaterThan(narrowMetrics.lineHeight * 1.5)
-      expect(narrowMetrics.scrollWidth).toBeLessThanOrEqual(narrowMetrics.clientWidth + 1)
-      expect(narrowMetrics.scrollHeight - narrowMetrics.clientHeight).toBeLessThanOrEqual(8)
-
       await title.press('Enter')
       await expect(sectionEditor(launched.page)).toBeFocused()
 
-      await browserWindow.evaluate((window) => window.setContentSize(900, 800))
-      await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(767)
       const sidebarTitle = launched.page
         .getByTestId(/^outline-section-/)
         .getByText(longTitle, { exact: true })
@@ -1698,14 +1639,6 @@ test(
       await expect
         .poll(() => renderedEditor.getByRole('img', { name: 'Flow' }).getAttribute('src'))
         .not.toBe(mermaidPreview)
-      const browserWindow = await launched.app.browserWindow(launched.page)
-      await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-      await expect
-        .poll(() =>
-          renderedEditor.evaluate((element) => element.scrollWidth <= element.clientWidth)
-        )
-        .toBe(true)
-      await browserWindow.evaluate((window) => window.setContentSize(1280, 900))
       await expect(
         launched.page.getByRole('button', { name: 'Edit outline', exact: true })
       ).toBeVisible()
@@ -1936,25 +1869,6 @@ test(
       const unavailable = launched.page.getByRole('dialog', { name: 'Source link unavailable' })
       await expect(unavailable).toContainText('No verifiable source association')
       await launched.page.keyboard.press('Escape')
-
-      await launched.page.evaluate(() => window.resizeTo(700, 670))
-      await expect
-        .poll(() => launched.page.evaluate(() => window.matchMedia('(max-width: 767px)').matches))
-        .toBe(true)
-      const mobileSidebar = launched.page.locator('[data-mobile="true"]').filter({
-        has: launched.page.locator('[aria-label="Manuscript references"]')
-      })
-      await expect(mobileSidebar).toBeVisible()
-      await expect(
-        mobileSidebar
-          .locator('[aria-label="Manuscript references"]')
-          .getByText('Alpha report', { exact: true })
-      ).toBeVisible()
-      await launched.page.keyboard.press('Escape')
-      await launched.page.evaluate(() => window.resizeTo(900, 670))
-      await expect
-        .poll(() => launched.page.evaluate(() => window.matchMedia('(min-width: 768px)').matches))
-        .toBe(true)
 
       await moveSectionUp(launched.page, 'Second')
       await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()

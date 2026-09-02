@@ -507,7 +507,9 @@ test(
       await expect(panel.getByText('conflicted', { exact: true })).toBeVisible()
 
       await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Close project', exact: true }).click()
+      await launched.page
+        .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
+        .click()
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('manual value')

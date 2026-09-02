@@ -14,6 +14,7 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { smokePollMs, pollIntervalMs } from './test-timeouts.mjs'
 
 const resourcesArgument = process.argv[2]
 if (resourcesArgument === undefined) throw new Error('Packaged Resources path is required')
@@ -1155,7 +1156,7 @@ async function searchPackaged(page, projectSessionId, query) {
   )
 }
 
-async function pollUntil(probe, timeoutMs = 180_000) {
+async function pollUntil(probe, timeoutMs = smokePollMs) {
   const deadline = Date.now() + timeoutMs
   let lastError
   while (Date.now() < deadline) {
@@ -1165,7 +1166,7 @@ async function pollUntil(probe, timeoutMs = 180_000) {
     } catch (error) {
       lastError = error
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
   }
   throw new Error(
     `Packaged smoke timed out waiting for a condition${lastError ? `: ${lastError.message}` : ''}`

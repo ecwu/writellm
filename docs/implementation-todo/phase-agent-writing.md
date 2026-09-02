@@ -99,7 +99,7 @@ mutation authority, package, release, hosted CI, commit, push, or promotion work
 
 Local evidence: the focused Agent panel suite passed 5/5; two focused Real-Electron Agent scenarios
 passed without flakes or skips, covering save-before-follow, focus preservation, scroll reset,
-narrow-window behavior, background-conversation isolation, and historical replay; `check:fast`
+background-conversation isolation, and historical replay; `check:fast`
 passed; and `check:electron` passed on its confirming run with 137 files and 733 tests, one opt-in
 benchmark skipped, plus the production build. The first full Electron run exposed one unrelated
 scheduler timing timeout; its focused retry and the complete confirming run both passed. The scoped
@@ -113,7 +113,8 @@ hosted CI, commit, push, or promotion was performed.
 - [x] Add a project-scoped, capability-bound activity snapshot and live subscription so background
   conversation status and bounded partial output remain visible while switching conversations.
 - [x] Keep the existing revision-checked proposal boundary authoritative under concurrent runs and
-  harden the Agent composer for capacity, failure, narrow-window, and draft-preservation states.
+  harden the Agent composer for capacity, failure, and draft-preservation states in the desktop
+  composer.
 - [x] Add focused Main, Worker, IPC, Renderer, conflict, and Real-Electron coverage; run the full
   local Electron, E2E, package, Impeccable, recovery, and diff verification gates.
 
@@ -174,13 +175,13 @@ release, hosted CI, commit, push, or promotion.
 
 ### Checkpoint 28.2: Agent Progress Visibility
 
-- [x] Keep context, approval policy, model, Thinking, and Writing Skill as responsive quick controls
+- [x] Keep context, approval policy, model, Thinking, and Writing Skill as compact quick controls
   in the default composer while preserving the existing snapshot lock and Details diagnostics.
 - [x] Replace generic `Working` with the current human-readable activity plus elapsed time, expose
   individual human-readable tool steps in the expandable activity row, and show completed duration.
 - [x] Require concise user-visible intent and finding updates between material tool phases without
   exposing hidden reasoning or adding a new event/persistence contract.
-- [x] Add focused policy, view-model, Renderer, keyboard, narrow-layout, and Real-Electron coverage;
+- [x] Add focused policy, view-model, Renderer, keyboard, desktop, and Real-Electron coverage;
   run the applicable local verification and Impeccable gates.
 
 Authorization: on 2026-08-12 the user explicitly requested this redesign using the supplied Codex
@@ -245,16 +246,16 @@ archive, and restore. Package, release, hosted CI, commit, push, and promotion w
 
 - [x] Replace the editable section heading's single-line input with an unlimited soft-wrapping
   shadcn textarea, preserve logical single-line title metadata, move focus into the body after an
-  Enter-triggered save, and keep sidebar and outline navigation compact. Add focused desktop and
-  narrow-window Real-Electron coverage plus the applicable local verification gates.
+  Enter-triggered save, and keep sidebar and outline navigation compact. Add focused desktop
+  Real-Electron coverage plus the applicable local verification gates.
 
 Authorization: on 2026-08-11 the user approved the decision-complete adaptive-title plan and
 explicitly requested implementation. This checkpoint is Renderer-only; manuscript persistence,
 IPC, export, Agent behavior, packaging, release, hosted CI, commit, push, and promotion remain out
 of scope.
 
-Local evidence: the focused `manuscript.section-title-wraps` Real-Electron scenario at desktop and
-narrow widths; `check:fast`; `check:electron` with 134 passing Electron-hosted test files, 704
+Local evidence: the focused `manuscript.section-title-wraps` Real-Electron scenario at the desktop
+layout; `check:fast`; `check:electron` with 134 passing Electron-hosted test files, 704
 passing tests, one opt-in benchmark skipped, and a successful production build; a clean scoped
 Impeccable detector; and scoped `git diff --check`.
 
@@ -271,8 +272,8 @@ promotion remain out of scope.
 
 Local evidence: 4/4 focused project-asset URL tests; `check:fast`; `check:electron` with 134 passing
 Electron-hosted test files, 704 passing tests, one opt-in benchmark skipped, and a successful
-production build; the focused narrow-window workspace and rich-media preview Real-Electron
-scenarios; a clean scoped Impeccable detector; and scoped `git diff --check`.
+production build; the focused workspace and rich-media preview Real-Electron scenarios; a
+clean scoped Impeccable detector; and scoped `git diff --check`.
 
 ### Maintenance: Agent partial tool-failure summary
 

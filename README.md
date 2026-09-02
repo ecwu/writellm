@@ -68,7 +68,43 @@ $ pnpm build:mac
 $ pnpm build:linux
 ```
 
-The target package gate is intentionally native-host-only because `better-sqlite3` and
+These build commands generate packages without running functional tests or typechecks. Use
+`pnpm build:unpack` for only the unpacked App. Each application is assembled once; installers
+reuse that exact application through electron-builder's `--prepackaged` option.
+
+Packaging is intentionally native-host-only because `better-sqlite3` and
 `sqlite-vec` are platform binaries. Linux x64 can be packaged inside WSL with `xvfb-run`; Windows
-NSIS/AppX must run from Windows x64. These commands write deterministic artifacts under
+NSIS/AppX must run from Windows x64. These commands write versioned artifacts under
 `dist/windows-x64`, `dist/windows-appx`, and `dist/linux-x64`.
+
+### Verification
+
+Choose the smallest scope that covers the change; see `AGENTS.md` for the change-to-test table.
+
+```bash
+pnpm check:fast
+pnpm test src/main/project/project-manager.test.ts
+pnpm check:e2e e2e/project-lifecycle.spec.ts --grep restart
+pnpm check:full
+pnpm check:package:smoke
+pnpm check:package
+pnpm benchmark:trace
+```
+
+`check:full` combines static checks, all Electron-hosted tests, one fresh build, and all source
+E2E scenarios. `check:package:smoke` builds an unpacked App and verifies native/runtime behavior.
+`check:package` additionally runs the full packaged E2E suite and creates installer artifacts.
+Composite Electron/E2E/package verification gates include static checks; plain `build` only prepares
+native modules and compiles. Avoid running every complete gate for a local change. Benchmarks are opt-in.
+
+Stage starts, completions, and 30-second progress updates appear in the terminal. JSON reports in
+`.cache/verification/` contain elapsed time, scope, outcomes, and test attempts. Timing is diagnostic;
+functional test timeouts remain separate. Recovery fixture checks verify the declared coverage
+inventory, not execution of the named tests. Final installers retain SHA256 checksums; internal
+ASAR/native inventory does not maintain separate custom hashes.
+
+Shared timeout and retry policy lives in `scripts/test-timeouts.mjs`: local E2E uses 45 seconds,
+hosted/headless E2E 90 seconds, and packaged or hosted Windows E2E 180 seconds. Hosted E2E retains
+one retry and fails on flaky results. Scenario-specific waits remain alongside their scenarios.
+Playwright attempt durations are measured; Vitest retry-event spans are explicitly labeled
+estimates because its reporter API exposes only aggregate test duration.

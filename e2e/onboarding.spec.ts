@@ -68,28 +68,8 @@ test(
           resumed.page.getByRole('heading', { name: nextHeading, exact: true })
         ).toBeVisible()
       }
-      if (screenshotDirectory !== undefined) {
-        const browserWindow = await resumed.app.browserWindow(resumed.page)
-        await browserWindow.evaluate((window) => window.setContentSize(620, 800))
-        await expect.poll(() => resumed.page.evaluate(() => window.innerWidth)).toBe(620)
-        const onboarding = resumed.page.getByTestId('onboarding-flow')
-        const dimensions = await onboarding.evaluate((element) => ({
-          clientWidth: element.clientWidth,
-          scrollWidth: element.scrollWidth
-        }))
-        expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
-        await resumed.page.screenshot({
-          path: join(screenshotDirectory, 'cp67-onboarding-project-narrow.png'),
-          animations: 'disabled'
-        })
-      }
       await resumed.page.getByLabel('Project name').fill(projectName)
       await resumed.page.getByRole('button', { name: /Choose location & create/ }).click()
-      if (screenshotDirectory !== undefined) {
-        const browserWindow = await resumed.app.browserWindow(resumed.page)
-        await browserWindow.evaluate((window) => window.setContentSize(1440, 900))
-        await expect.poll(() => resumed.page.evaluate(() => window.innerWidth)).toBe(1440)
-      }
       await expectActiveProject(resumed.page, projectName)
       await expect
         .poll(() => resumed.page.evaluate(() => window.desktop.app.getOnboardingState()))

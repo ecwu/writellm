@@ -76,7 +76,7 @@ implementation complete.
   diagnostic content from General.
 - [x] Add read-only Keyboard Shortcuts and About & Diagnostics peer surfaces using existing
   Renderer-safe application/provider/diagnostics projections.
-- [x] Add focused Renderer and Real-Electron coverage, inspect desktop and narrow layouts, and pass
+- [x] Add focused Renderer and Real-Electron coverage, inspect the desktop layout, and pass
   the authorized static, Electron, E2E, Impeccable, and diff gates.
 
 ### Local evidence
@@ -86,13 +86,13 @@ implementation complete.
   Diagnostics.
 - Focused Renderer coverage passed five tests for navigation order, General composition, the fixed
   shortcut guide, secure credential state, and unsafe-backend warnings. The focused Real-Electron
-  flow verified preference persistence, both new peers, narrow back navigation, overflow bounds,
-  focus return, and WCAG axe checks.
+  flow verified preference persistence, both new peers, close behavior, focus return, and WCAG axe
+  checks.
 - `pnpm check:fast` passed. `pnpm check:electron` passed 188 files / 1048 tests with three
   intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all
   41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
-- Desktop and 620 px narrow screenshots of Keyboard Shortcuts and About & Diagnostics were
-  inspected. The scoped Impeccable detector returned no findings, and `git diff --check` passed.
+- Desktop screenshots of Keyboard Shortcuts and About & Diagnostics were inspected. The scoped
+  Impeccable detector returned no findings, and `git diff --check` passed.
   No shared contract, IPC, persistence, migration, dependency, package/release, hosted CI, commit,
   push, signing, notarization, promotion, or publication action ran as part of checkpoint
   completion.
@@ -105,14 +105,14 @@ implementation complete.
 ### Acceptance gate
 
 - The Settings list remains one unlabeled flat level in the approved order; provider readiness
-  badges, mobile back navigation, close behavior, and focus return remain intact.
+  badges, close behavior, and focus return remain intact.
 - The shortcut guide names only commands that current keyboard handlers implement and clearly
   states their availability context; shortcuts remain read-only.
 - About shows bounded application name/version and credential-backend status. An unsafe backend
   preserves the existing warning, and diagnostics expose only opening logs and exporting the
   existing sanitized bundle.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete Real-Electron coverage,
-  desktop/narrow inspection, scoped Impeccable, and `git diff --check` pass. No package gate is
+  desktop inspection, scoped Impeccable, and `git diff --check` pass. No package gate is
   required for this Renderer-only checkpoint.
 
 ### Explicit exclusions
@@ -142,7 +142,7 @@ Decision: accepted ADR 055; implementation complete.
   leaving slash context commands and active-run inputs unchanged.
 - [x] Extend timeline/Details provenance and focused shared, Main, Renderer, and Real-Electron
   coverage without exposing Skill bodies, virtual URIs, private paths, or new authority.
-- [x] Pass static, Electron, E2E, recovery, responsive visual, Impeccable, and diff gates and record
+- [x] Pass static, Electron, E2E, recovery, desktop visual, Impeccable, and diff gates and record
   exact local evidence.
 
 ### Local evidence
@@ -159,8 +159,8 @@ Decision: accepted ADR 055; implementation complete.
   intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all 41
   fresh Real-Electron scenarios with no flaky, skipped, or failed scenario. All 25 recovery
   fixtures from 23 sources passed.
-- Desktop, narrow, and Agent Details screenshots were inspected; the scoped Impeccable detector
-  returned no findings, and `git diff --check` passed. No tag, package, release, hosted CI, commit,
+- Desktop and Agent Details screenshots were inspected; the scoped Impeccable detector returned no
+  findings, and `git diff --check` passed. No tag, package, release, hosted CI, commit,
   push, signing, notarization, promotion, or publication action ran.
 
 ### Acceptance gate
@@ -174,7 +174,7 @@ Decision: accepted ADR 055; implementation complete.
 - Retry and restart preserve pinned requested versions and user/Agent load sources through v3;
   v1/v2 history remains readable without a project migration.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh complete Real-Electron coverage,
-  recovery fixtures, desktop/narrow inspection, scoped Impeccable, and `git diff --check` pass. No
+  recovery fixtures, desktop inspection, scoped Impeccable, and `git diff --check` pass. No
   package/release gate is required.
 
 ### Explicit exclusions
@@ -222,8 +222,8 @@ complete.
 - `pnpm check:fast` passed. `pnpm check:electron` passed 186 files / 1031 tests with three
   intentional benchmark skips and completed the production build. The final `pnpm check:e2e`
   passed all 41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
-- Desktop, narrow, and Agent Details screenshots were inspected using the established shadcn and
-  Impeccable interaction criteria. `git diff --check` passed. No package/release gate, hosted CI,
+- Desktop and Agent Details screenshots were inspected using the established shadcn and Impeccable
+  interaction criteria. `git diff --check` passed. No package/release gate, hosted CI,
   commit, push, signing, notarization, promotion, or publication ran.
 
 ### Acceptance gate
@@ -235,10 +235,10 @@ complete.
   Top-level plus dependency references are exact-URI-only, whole-file, idempotent, and cannot exceed
   twelve files, 32 KiB, or the 65,536-byte Skill prompt budget.
 - The Renderer names actual Skill and relative-file loads, shows no idle Skill state, remains
-  keyboard accessible at narrow width, and receives no Skill body, virtual URI, private path,
+  keyboard accessible, and receives no Skill body, virtual URI, private path,
   credential, or broader capability.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, production build, fresh affected
-  Real-Electron coverage, bounded desktop/narrow visual inspection, scoped Impeccable, and
+  Real-Electron coverage, bounded desktop visual inspection, scoped Impeccable, and
   `git diff --check` pass. No package/release gate is required.
 
 ### Explicit exclusions
@@ -270,8 +270,8 @@ available from both Add and a leading slash.
 - [x] Give approval choices accurate names and descriptions without implying arbitrary computer,
   filesystem, shell, or network access.
 - [x] Apply ADR 039 after hands-on use: restore the compact `Manual`, `Section`, and `YOLO`
-  approval labels, remove the shield icon, and prevent approval/model/Send overlap at narrow Agent
-  panel widths.
+  approval labels, remove the shield icon, and prevent approval/model/Send overlap in the
+  configured desktop Agent panel.
 - [x] Apply ADR 040 after hands-on use: replace the idle paper-plane-plus-text Send control with a
   primary circular upward-arrow button while preserving its accessible name and existing behavior.
 - [x] Implement one shared Add/slash command catalog for context scope and Writing Skill, with
@@ -287,11 +287,12 @@ model exposes no fake effort choice. Model switching clamps through the existing
 Every approval label and description matches the current proposal policy. Add and `/` route to the
 same context and Skill actions, Escape closes the slash menu, arrow/Enter selection works through
 the shadcn Command primitive, and ordinary slash-containing prose is unaffected. Existing run,
-queue/steer/stop, review, narrow-window, session-lock, and Details behavior remains intact.
+queue/steer/stop, review, session-lock, and Details behavior remains intact.
 
 The ADR 039 refinement additionally requires the collapsed and menu approval titles to read
 `Manual`, `Section`, and `YOLO`; no approval icon is shown; descriptions remain behaviorally
-accurate; and each footer control stays within its allocated box at the reported panel width.
+accurate; and each footer control stays within its allocated box in the configured desktop Agent
+panel.
 
 The ADR 040 refinement requires the idle Send action to use an icon-only circular upward arrow,
 retain the accessible name `Send` and all disabled states, and leave running-state Queue, Steer,
@@ -340,13 +341,13 @@ promotion was performed.
 
 ### ADR 039 refinement evidence
 
-The hands-on approval shorthand and responsive-width refinement is complete. Scoped Biome passed
+The hands-on approval shorthand and desktop-width refinement is complete. Scoped Biome passed
 the two changed Agent components and affected E2E file. Two focused Renderer files passed 11
 tests, and `pnpm check:electron` passed 179 test files / 915 tests with the same three opt-in
 benchmarks skipped before completing the production build. A fresh focused Real-Electron Agent
 workflow passed with zero flaky, skipped, or failed scenarios; it asserted `Manual`, `Section`, and
 `YOLO`, one disclosure icon only, the three truthful descriptions, and non-overlapping approval,
-model, and Send bounds in the default 480px panel. Screenshot inspection confirmed the compact
+model, and Send bounds in the configured desktop panel. Screenshot inspection confirmed the compact
 default row and approval menu. The Impeccable detector returned no findings and `git diff --check`
 passed. No second App package, release, hosted CI, commit, or push was run.
 
@@ -361,7 +362,7 @@ production build. Two fresh focused Real-Electron passes completed the grounded 
 with zero flaky, skipped, or failed scenarios. Runtime assertions verified the `Send` accessible
 name and title, circular class, Lucide upward-arrow icon, empty visible label, enabled state, and
 the existing non-overlap bounds. Screenshot inspection covered both disabled and enabled button
-states in the default 480px panel. The Impeccable detector returned no findings and the final diff
+states in the configured desktop panel. The Impeccable detector returned no findings and the final diff
 check passed. Queue, Steer, retry, and Stop were unchanged; no second App package, release, hosted
 CI, commit, or push was run.
 
@@ -424,7 +425,7 @@ pre-authorized model requests become aborted.
 The running footer shows Stop for an empty draft and ArrowUp for a non-empty draft. Enter queues,
 Cmd/Ctrl+Enter steers directly, and Shift+Enter inserts a newline. Queue success clears the draft;
 failure preserves it. The pending list restores after panel or conversation switching, remains
-usable at the narrowest supported Agent width, and disappears without leaving space when empty.
+usable in the configured desktop Agent panel, and disappears without leaving space when empty.
 Stop, review pause, run failure, project close, worker termination, and relaunch clear the
 request-scoped queue. No migration, dependency, worker role, background job, package, release,
 hosted CI, push, or publication work is authorized.
@@ -443,7 +444,7 @@ hosted CI, push, or publication work is authorized.
   attempts.
 - Two full fresh E2E attempts reached 36/38 and 37/38. The only repeated failure, reproduced alone,
   is the pre-existing Writing Skill picker popover remaining open and intercepting the Agent details
-  Close click; one independent mobile-sidebar fixture failed only on the first attempt and passed on
+  Close click; one independent References fixture failed only on the first attempt and passed on
   the second. Neither path exercises pending messages or the changed runtime protocol.
 - An original-resolution Agent-panel screenshot with two queued rows showed no overlap; the list,
   Steer/Delete actions, composer controls, and circular Stop remained contained. The Impeccable
@@ -819,7 +820,7 @@ Decision: accepted ADR 047; implementation complete.
   ambiguity, unmatched citation, null-percentage, bounded projection, and read-only UI semantics.
 - [x] Add strict shared contracts, a safe current-index source snapshot, the Main-owned coverage
   service, project-session IPC, Preload projection, cancellation, and structured lifecycle logs.
-- [x] Add the independent Checks workspace, responsive source ledger, summary, progress, filters,
+- [x] Add the independent Checks workspace, source ledger, summary, progress, filters,
   search, pagination, refresh, and explicit preparing/unavailable/empty/stale states.
 - [x] Flush the active editor before navigation and refresh coverage after section mutations or
   index-generation lifecycle changes.
@@ -837,7 +838,7 @@ Decision: accepted ADR 047; implementation complete.
 - Pagination, filters, title query, snapshot-bound cursor restart, sender authorization, session
   revocation, original-error logging, and response bounds are covered.
 - Renderer coverage includes rail navigation, editor-flush failure, summary/progress, every filter,
-  load-more, refresh, keyboard access, narrow layout, and all non-ready/empty states.
+  load-more, refresh, keyboard access, and all non-ready/empty states.
 - Focused tests pass before `pnpm check:fast` and `pnpm check:electron`; a fresh build precedes
   `pnpm check:e2e`. The scoped Impeccable detector and `git diff --check` pass. Because the work
   adds no worker/native/package boundary, `check:package` remains out of scope.
@@ -1031,7 +1032,7 @@ Decision: accepted ADR 050; implementation complete.
 - [x] Derive one latest valid assistant usage snapshot paired with its originating run, and expose
   it only while that run matches the conversation's current model selection.
 - [x] Add the fixed-width accessible circular indicator, focus/hover tooltip, compact formatting,
-  estimated marker, and narrow-panel layout containment.
+  estimated marker, and desktop-panel layout containment.
 - [x] Add focused Renderer/view-model and Real-Electron coverage; pass the static, Electron, UI,
   Impeccable, and diff gates and record exact evidence.
 
@@ -1043,8 +1044,8 @@ Decision: accepted ADR 050; implementation complete.
   clamp to 0-100, the tooltip reports whole used/left percentages and compact token counts, and
   Agent Details consumes the same snapshot.
 - The indicator is keyboard-focusable with progress semantics, has no click action or warning
-  color, and appears immediately before the model trigger without overlapping Approval or Send at
-  the established narrow Agent-panel width.
+  color, and appears immediately before the model trigger without overlapping Approval or Send in
+  the configured desktop Agent panel.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, an applicable fresh-build Real-Electron
   gate, one bounded screenshot review, the scoped Impeccable detector, and `git diff --check` pass.
   No package gate is required because no native, worker, or packaged-resource boundary changes.
@@ -1067,7 +1068,7 @@ change to the existing context-compaction policy.
   benchmark files/tests, followed by a successful production build.
 - The fresh focused Real-Electron `agent.grounded-proposal-workflow` scenario passed. It verifies
   pre-response absence, 45-percent progress semantics, keyboard focus, the exact tooltip, and
-  non-overlap among Approval, ring, model, and Send at the established narrow width.
+  non-overlap among Approval, ring, model, and Send in the configured desktop panel.
 - Default and focused-tooltip screenshots were inspected. The scoped Impeccable detector returned
   no findings, the independent Impeccable finish reviewer returned `ship` with no material
   findings, and `git diff --check` passed.
@@ -1109,7 +1110,7 @@ refinement preserves ADR 025's task identity, state machine, persistence, and Re
   A terminal task remains available as `Plan complete`; a non-terminal task without a current step
   truthfully reports that the plan needs attention.
 - The Popover supports click, Enter, Space, Escape, focus restoration, session/task replacement,
-  archived read-only behavior, bounded scrolling, and the 360-640px Agent width range.
+  archived read-only behavior, bounded scrolling, and the configured desktop Agent panel.
 - Plan revision, Resume, change-set expansion, batch Reject, and exact proposal navigation retain
   their existing behavior and authority.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, a fresh focused Real-Electron run,
@@ -1129,9 +1130,9 @@ refinement preserves ADR 025's task identity, state machine, persistence, and Re
 - The Real-Electron scenario covers Enter, Space, Escape, trigger focus restoration, accessible
   dialog naming, plan editing, Resume, change-set expansion, nested Reject Dialog, batch result,
   post-close proposal focus, archive/restore, restart recovery, and historical change-set access.
-- Collapsed 480px plus open 360px, 480px, and 640px Agent-panel screenshots were inspected. The
-  capsule remains centered in its own row, the Popover stays within panel bounds, internal content
-  wraps or scrolls, and neither the message timeline nor composer is covered.
+- Collapsed and open desktop Agent-panel screenshots were inspected. The capsule remains centered
+  in its own row, the Popover stays within panel bounds, internal content wraps or scrolls, and
+  neither the message timeline nor composer is covered.
 - The scoped Impeccable detector returned no findings. The independent finish reviewer identified
   close-autofocus and dialog-naming gaps; both were fixed with regression assertions, and the
   bounded re-review returned `ready` with no unresolved risk. Final formatting and
@@ -1231,7 +1232,7 @@ sandbox, and project-session capability authority.
 - Preview is a first-class global-sidebar destination immediately after Manuscript rather than an
   action hidden inside the Outline editor.
 - The main content region becomes a calm, readable Markdown surface with deliberate hierarchy,
-  measure, and vertical rhythm in light, dark, desktop, and narrow-window states.
+  measure, and vertical rhythm in light and dark desktop states.
 - The preview remains truthful to the existing lossy Markdown export projection and explicitly
   reports formatting differences without inventing Brief or References content.
 
@@ -1252,14 +1253,14 @@ sandbox, and project-session capability authority.
   Dialog, exposes an active destination in every workspace, and a failed editor flush leaves the
   author in Manuscript.
 - The workspace uses the established rail, contextual sidebar, and `SidebarInset`; loading, error,
-  empty, retry, refresh, mobile-sheet, keyboard-focus, and return-to-Manuscript paths remain usable.
+  empty, retry, refresh, keyboard-focus, and return-to-Manuscript paths remain usable.
 - GFM headings, paragraphs, lists, quotes, code, tables, task lists, images, Mermaid, and math render
   without horizontal page overflow. Only allowed HTTPS links and session-resolved logical project
   assets become active URLs.
 - The article contains the existing Markdown projection only: no Brief title/description,
   objective, or References appendix is injected. Any conversion losses produce one concise count.
 - Focused tests, `pnpm check:fast`, `pnpm check:electron`, fresh affected Real-Electron coverage,
-  bounded light/dark and desktop/narrow screenshot inspection, scoped Impeccable, and
+  bounded light/dark desktop screenshot inspection, scoped Impeccable, and
   `git diff --check` pass. No package gate is required for this Renderer-only change.
 
 ### Local evidence (2026-08-19)
@@ -1272,12 +1273,12 @@ sandbox, and project-session capability authority.
   Outline action is absent, Preview is an independent active rail destination with no Dialog,
   an unsaved body flushes before navigation, a stale-save conflict stays in Manuscript, section
   order/body survives projection, objectives stay private, the project-asset capability resolves,
-  sanitized Mermaid, KaTeX, captions, and return-to-section context remain intact, and desktop and
-  620px layouts avoid horizontal page overflow.
+  sanitized Mermaid, KaTeX, captions, and return-to-section context remain intact in the desktop
+  layout.
 - `pnpm check:fast` passed. `pnpm check:electron` passed 185 test files / 1012 tests with three
   intentional benchmark skips and completed the production build. A fresh full
   `pnpm test:e2e` passed 41/41 scenarios with no flaky, skipped, or failed scenario.
-- Light desktop, 620px light narrow-window, and dark rich-media screenshots were inspected. The
+- Light desktop and dark rich-media screenshots were inspected. The
   scoped Impeccable detector returned no findings, final Biome passed, and `git diff --check`
   passed. Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm
   11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate.

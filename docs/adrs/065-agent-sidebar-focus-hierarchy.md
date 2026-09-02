@@ -8,9 +8,10 @@ Date: 2026-08-25
 The Writing Agent sidebar already exposes durable conversations, concurrent run attention,
 streaming answers, bounded activity, clarification, proposal review, writing-task progress, and a
 progressively disclosed composer. Continued use shows that these complete capabilities compete for
-attention inside the same 360–640 px column. Conversation status occupies a separate row, completed
-activity and duration markers interrupt answer reading, the writing-task capsule opens an overlay,
-and queued follow-ups plus prompt context can expand above the composer without a single hierarchy.
+attention inside the same configured desktop sidebar column. Conversation status occupies a
+separate row, completed activity and duration markers interrupt answer reading, and the writing-task
+capsule opens an overlay. Queued follow-ups plus prompt context can expand above the composer
+without a single hierarchy.
 
 Beautiful UI's useful precedent is its AI-native interaction rhythm: summary first, detail on
 demand, persistent state, and actions beside the state they resolve. Its visual identity and code
@@ -48,6 +49,6 @@ proposal authority, three-run concurrency, clarification continuation, queued-me
 conversation recovery remain unchanged.
 
 The sidebar gains internal presentation helpers and focused components so hierarchy can be tested
-without adding a second design system. Verification covers 360, 480, and 640 px layouts, keyboard
-and reduced-motion behavior, live status, background conversation attention, task/review states,
-and existing Agent E2E flows.
+without adding a second design system. Verification covers the configured desktop sidebar layout,
+keyboard and reduced-motion behavior, live status, background conversation attention, task/review
+states, and existing Agent E2E flows.
