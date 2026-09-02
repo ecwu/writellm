@@ -1,6 +1,6 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 072
+Status: accepted implementation baseline, amended through accepted ADR 073
 Recorded: 2026-07-31; amended through 2026-09-01
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
@@ -9,6 +9,19 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-01 Writing Skill injection and non-blocking loading amendment
+
+ADR 073 separates explicit user invocation from automatic model discovery. Main reparses leading
+`$skill-name` tokens and, before the first provider request, atomically composes the current pinned
+roots plus their complete stable dependency closure. Automatic candidates remain metadata-only and
+continue to enter through visible `read_writing_skill` calls.
+
+Incomplete automatic reads are no longer a run-preparation failure: assistant output, downstream
+tools, and final settlement remain available after a root-only read, a failed dependency read, or
+no Skill read. Explicit package failure drops the whole package, records a degraded schema-v3
+snapshot and bounded warning, and continues with the valid automatic catalog. New runs route from
+current registry state rather than reusing prior snapshots. See ADR 073.
 
 ## 2026-09-01 Token-pressure Agent compaction amendment
 
@@ -1286,8 +1299,9 @@ the Add catalog and leading-slash catalog. The slash catalog also exposes immedi
 Agent run. Writing Skills are not composer or session state and
 have no persistent selector, chip, badge, or attachment. At the start of a new-run message, `$`
 may autocomplete up to four canonical Skill names into ordinary editable prompt text. Main reparses
-that text; the Agent still discovers and loads guidance only through visible tool calls. Active-run
-Steer and Follow-up input does not reopen Skill preparation. See ADR 055.
+that text and injects a recognized explicit package before the first provider request, while the
+Agent still discovers automatic guidance only through visible tool calls. Active-run Steer and
+Follow-up input does not reopen Skill discovery. See ADRs 055 and 073.
 The collapsed model trigger uses the recognizable model display name
 plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
 Provider identity remains visible inside model browsing and diagnostics where duplicate names need
@@ -1377,20 +1391,21 @@ The UI injects selection capture time and revision; stale block selections are n
 newer body.
 
 `read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
-active run. In Auto mode, one Skill-only response may add one previously unselected top-level
-`SKILL.md`; a run may compose at most four ordered top-level Skills plus a deduplicated closure of
+active run. In Auto mode, one Skill-only response may add one previously unloaded top-level or
+dependency `SKILL.md`; a run may compose at most four ordered top-level Skills plus a deduplicated
+closure of
 at most eight dependencies. Every top-level and dependency manifest contributes exact reference
 capabilities. A run may retain at most twelve complete reference files and 32 KiB of reference
 content, keyed by Skill ID, commit, and relative path. Skill guidance is delimited below global
 policy and is never treated as manuscript data. Durable events store only IDs, pins, relative
 paths, hashes, and byte counts, never Skill bodies or private paths. See ADR 053.
 
-Writing Skill reads form a preparation barrier for downstream work. Already injected explicit
-entrypoints are not reread; Auto adds at most one new top-level entrypoint in an otherwise
-Skill-only assistant response. The model may then issue independent authorized reference reads
-together within the remaining count and byte budgets, but it waits for every selected result
-before issuing manuscript, knowledge, citation, generation, checking, or submission tools in a
-later assistant response.
+Already injected explicit entrypoints are not reread. Auto adds at most one new top-level or
+dependency entrypoint in an otherwise Skill-only assistant response, and Skill reads cannot mix
+with another tool kind in that response. The model should read advertised dependencies for the
+complete method and may issue authorized reference reads within the remaining count and byte
+budgets. Unread or failed dependencies do not suppress assistant text, block later tools, reject a
+final answer, or fail run settlement; protocol violations remain ordinary recoverable tool errors.
 
 Read-only tools may execute in parallel when their results are independent.
 
@@ -1476,14 +1491,14 @@ accepted, and no skill content is executable.
 Writing Skills are dynamic per-run Agent actions, never session or composer state. Every new run
 receives a bounded automatic metadata catalog. A leading `$skill-name` prompt prefix may additionally
 identify ordered, Main-resolved requested entrypoints, including explicit-only Skills; the text is
-not a Renderer authorization object. Ordinary-language requests and Agent-initiated choices remain
-valid. Every path resolves through `read_writing_skill`, and Skill content cannot enter the run
-before that visible tool call succeeds. Versioned run snapshots persist immutable requested pins,
-user-versus-Agent actual-load provenance, dependencies, resources, routing status, and safe errors,
-but never Skill bodies. Retry reauthorizes exact recorded versions and reproduces their loading as
-visible tool activity. Historical session selection fields, single-primary snapshots, and
-`skill_route` model requests remain readable compatibility data but do not control new runs. See
-ADRs 054 and 055.
+not a Renderer authorization object. Main atomically injects recognized roots and their complete
+current dependency closure before the first provider request. Ordinary-language requests and
+Agent-initiated choices remain valid and use visible `read_writing_skill` calls. Versioned run
+snapshots persist immutable actually injected or loaded provenance, resources, routing status, and
+safe errors, but never Skill bodies. Every new run consults the current registry; prior snapshots
+remain immutable audit evidence rather than replay authority. Historical session selection fields,
+single-primary snapshots, `skill_route` model requests, and `skill_request_unfulfilled` errors remain
+readable compatibility data but do not control new runs. See ADRs 054, 055, and 073.
 `listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
 credential surface, so historical conversation totals remain complete.
 
@@ -1491,10 +1506,11 @@ Pi `loadSourcedSkills` runs over a read-only, manifest-backed virtual `Execution
 stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any Pi or
 WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
 `formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog of at most 32 complete entries and
-16 KiB; truncation is logged as `skill_catalog_truncated`. A successful tool read places that exact
-immutable entrypoint or reference below global policy in one escaped application-owned semantic
-block for later turns in the same run. Top-level precedence follows successful load order;
-dependencies remain below every top-level Skill. Prompt order remains global policy,
+16 KiB; truncation is logged as `skill_catalog_truncated`. A successful automatic tool read places
+that exact immutable entrypoint or reference below global policy in one escaped application-owned
+semantic block for later turns in the same run. Explicit top-level precedence follows user-text
+order; automatic top-level precedence follows successful load order; stable dependencies remain
+below every top-level Skill. Prompt order remains global policy,
 companion/catalog and loaded guidance, trusted requirements, then manuscript data.
 Model-visible locations use `writellm://skills/...`, never private filesystem paths.
 

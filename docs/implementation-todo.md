@@ -1,12 +1,13 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 30 Checkpoint 81 is complete under accepted ADR 072. Phase 29 Checkpoint 80 is
+Status: Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070; Checkpoint 77 remains independently paused.
 Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-09-01
+Recorded: 2026-09-02
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -20,6 +21,15 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 trial App containing
+  the completed Checkpoint 82 explicit Writing Skill injection and non-blocking auto-loading work.
+
+- [x] Checkpoint 82: atomically inject explicit `$skill-name` roots and dependency closure before
+  the first provider call, retain progressive automatic reads, remove incomplete-preparation run
+  failures, and reroute new runs from current registry state. Completed and verified under ADR
+  073. Authoritative detail:
+  [`implementation-todo/phase-31.md`](implementation-todo/phase-31.md).
 
 - [x] Maintenance build: produce and fully verify a no-Team-ID macOS arm64 App containing the
   completed Checkpoint 80 and Checkpoint 81 Agent changes.

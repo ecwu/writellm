@@ -146,7 +146,6 @@ import {
   AgentRunCancellationError,
   AgentRunSetupError,
   AgentRunContextOverflowError,
-  AgentSkillPreparationError,
   AgentCompactionRequiredError,
   AgentRunContinuationLostError,
   classifyRunFailure,
@@ -239,6 +238,8 @@ interface ActiveRun {
   readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
+  readonly skillToolModelRequestIds: Set<string>
+  readonly nonSkillToolModelRequestIds: Set<string>
   readonly pendingMessages: PendingFollowUpMessage[]
   activeToolGroups: WritingToolGroup[]
   citationRecoveryState: 'none' | 'searched' | 'expanded'
@@ -246,6 +247,7 @@ interface ActiveRun {
   skillSnapshot: SkillRunSnapshot
   skillState: SkillRunState | null
   skillPrompt: AgentSkillPromptInput
+  skillFallbackPrompt: AgentSkillPromptInput
   skillTraceToolCallId?: string
   systemPrompt: string
   partialText: string
@@ -338,9 +340,7 @@ export interface AgentSessionServiceOptions {
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
   skillRouter?: Pick<WritingSkillRuntime, 'route'> &
-    Partial<
-      Pick<WritingSkillRuntime, 'closePreparation' | 'displayNameForUri' | 'isPrepared' | 'read'>
-    >
+    Partial<Pick<WritingSkillRuntime, 'closePreparation' | 'displayNameForUri' | 'read'>>
   tools?: AgentToolExecutor
   writingTasks?: Pick<WritingTaskService, 'activeCorrelation' | 'getView'>
   log: Pick<Logger, 'info' | 'warn' | 'error'>
@@ -971,7 +971,6 @@ export class AgentSessionService {
     maxOutputTokens?: number
     temperature?: number
     operationId?: string
-    reuseSkillSnapshot?: SkillRunSnapshot
     presentation?: AgentUserMessagePayload['presentation']
     interactionMode?: AgentInteractionMode
   }): Promise<StartedAgentRun> {
@@ -1019,7 +1018,6 @@ export class AgentSessionService {
     systemPrompt?: string
     maxOutputTokens?: number
     temperature?: number
-    reuseSkillSnapshot?: SkillRunSnapshot
     presentation?: AgentUserMessagePayload['presentation']
     interactionMode?: AgentInteractionMode
     operationId: string
@@ -1089,6 +1087,8 @@ export class AgentSessionService {
             ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             authorizedModelRequestIds: new Set(),
             pendingModelRequestIds: new Set(),
+            skillToolModelRequestIds: new Set(),
+            nonSkillToolModelRequestIds: new Set(),
             pendingMessages: [],
             activeToolGroups: [],
             citationRecoveryState: 'none',
@@ -1096,6 +1096,7 @@ export class AgentSessionService {
             skillSnapshot: pendingSkillSnapshot(),
             skillState: null,
             skillPrompt: { mode: 'auto', mandatory: '', references: [] },
+            skillFallbackPrompt: { mode: 'auto', mandatory: '', references: [] },
             systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
             partialText: '',
             reviewPause: null,
@@ -1112,7 +1113,6 @@ export class AgentSessionService {
           active.completion = this.#prepareAndRun(active, {
             credential,
             prompt: input.prompt,
-            reuseSkillSnapshot: input.reuseSkillSnapshot,
             maxOutputTokens,
             ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             markPrepared
@@ -1179,7 +1179,6 @@ export class AgentSessionService {
     input: {
       credential: string
       prompt: string
-      reuseSkillSnapshot?: SkillRunSnapshot
       maxOutputTokens: number
       temperature?: number
       markPrepared: () => void
@@ -1188,7 +1187,6 @@ export class AgentSessionService {
     if (this.options.skillRouter !== undefined && active.interactionMode !== 'ask') {
       try {
         const routed = await this.options.skillRouter.route({
-          reuseSnapshot: input.reuseSkillSnapshot,
           userPrompt: input.prompt,
           config: active.config,
           credential: input.credential,
@@ -1203,6 +1201,11 @@ export class AgentSessionService {
         })
         active.skillSnapshot = routed.snapshot
         active.skillPrompt = routed.prompt
+        active.skillFallbackPrompt = routed.fallbackPrompt ?? {
+          mode: 'auto',
+          mandatory: '',
+          references: []
+        }
         active.skillState = routed.state ?? null
       } catch (err) {
         throw new AgentRunSetupError(
@@ -1265,23 +1268,66 @@ export class AgentSessionService {
         interactionMode: active.interactionMode
       })
     } catch (err) {
-      throw new AgentRunSetupError(
-        err instanceof SkillPromptBudgetError
-          ? 'skill_prompt_budget_exceeded'
-          : 'agent_context_failed',
-        err
-      )
+      if (
+        err instanceof SkillPromptBudgetError &&
+        active.skillSnapshot.mode === 'explicit' &&
+        active.skillSnapshot.routingStatus === 'selected'
+      ) {
+        this.options.log.warn(
+          {
+            event: 'skill.selection.degraded',
+            err,
+            agentRunId: active.agentRunId,
+            code: 'skill_prompt_budget_exceeded',
+            requestedCount: active.skillSnapshot.requestedSkills.length,
+            selectedCount: active.skillSnapshot.skills.length,
+            dependencyCount: active.skillSnapshot.dependencies.length
+          },
+          'Requested Writing Skill injection was dropped because the final context exceeded budget'
+        )
+        active.skillSnapshot = {
+          schemaVersion: 3,
+          mode: 'explicit',
+          routingStatus: 'degraded',
+          requestedSkills: [],
+          skills: [],
+          dependencies: [],
+          resources: [],
+          safeError: 'skill_prompt_budget_exceeded'
+        }
+        active.skillPrompt = active.skillFallbackPrompt
+        try {
+          builtContext = this.options.contextBuilder?.build({
+            prompt: input.prompt,
+            editorContext: active.editorContext,
+            snapshotId: modelRequestId,
+            skillPrompt: active.skillPrompt,
+            interactionMode: active.interactionMode
+          })
+        } catch (fallbackError) {
+          throw new AgentRunSetupError('agent_context_failed', fallbackError)
+        }
+      } else {
+        throw new AgentRunSetupError(
+          err instanceof SkillPromptBudgetError
+            ? 'skill_prompt_budget_exceeded'
+            : 'agent_context_failed',
+          err
+        )
+      }
     }
     if (builtContext?.skillPromptDropped === true) {
-      active.skillSnapshot = {
-        schemaVersion: 3,
-        mode: 'auto',
-        routingStatus: 'degraded',
-        requestedSkills: [],
-        skills: [],
-        dependencies: [],
-        resources: [],
-        safeError: 'skill_prompt_budget_exceeded'
+      if (active.skillSnapshot.mode !== 'explicit') {
+        active.skillSnapshot = {
+          schemaVersion: 3,
+          mode: 'auto',
+          routingStatus: 'degraded',
+          requestedSkills: [],
+          skills: [],
+          dependencies: [],
+          resources: [],
+          safeError: 'skill_prompt_budget_exceeded'
+        }
       }
       active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
     } else if (builtContext !== undefined) {
@@ -2261,13 +2307,6 @@ export class AgentSessionService {
         `${active.partialText}${event.delta}`,
         AGENT_LIVE_PARTIAL_MAX_BYTES
       )
-      if (
-        active.skillState !== null &&
-        this.options.skillRouter?.isPrepared !== undefined &&
-        !this.options.skillRouter.isPrepared(active.skillState)
-      ) {
-        return
-      }
       await this.#publishDelta(active.agentSessionId, active.agentRunId, event.delta)
       return
     }
@@ -2456,14 +2495,6 @@ export class AgentSessionService {
       return
     }
     if (event.type !== 'assistant_message') return
-    if (
-      event.message.stopReason !== 'toolUse' &&
-      active.skillState !== null &&
-      this.options.skillRouter?.isPrepared !== undefined &&
-      !this.options.skillRouter.isPrepared(active.skillState)
-    ) {
-      this.#failUnfulfilledSkillRequest(active)
-    }
     await this.#appendAndPublishEvent({
       sessionId: active.agentSessionId,
       runId: active.agentRunId,
@@ -2513,32 +2544,6 @@ export class AgentSessionService {
       },
       'Authorized a consumed Agent Follow-up'
     )
-  }
-
-  #failUnfulfilledSkillRequest(active: ActiveRun): never {
-    const error = new AgentSkillPreparationError(
-      'skill_request_unfulfilled',
-      'The Agent answered before loading every requested Writing Skill'
-    )
-    active.partialText = ''
-    active.skillSnapshot = {
-      ...active.skillSnapshot,
-      routingStatus: 'failed',
-      safeError: error.code
-    }
-    this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
-    this.options.log.warn(
-      {
-        event: 'skill.selection.rejected',
-        err: error,
-        agentRunId: active.agentRunId,
-        code: error.code,
-        requestedCount: active.skillSnapshot.requestedSkills.length,
-        loadedCount: active.skillSnapshot.skills.length
-      },
-      'Agent response rejected because requested Writing Skills were not loaded'
-    )
-    throw error
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
@@ -2726,6 +2731,16 @@ export class AgentSessionService {
       )
     }
     const toolStartedAt = this.#now().getTime()
+    const skillToolRequest = request.toolName === 'read_writing_skill'
+    const mixedToolBatch = skillToolRequest
+      ? active.nonSkillToolModelRequestIds.has(request.modelRequestId)
+      : active.skillToolModelRequestIds.has(request.modelRequestId)
+    if (!mixedToolBatch) {
+      const requestIds = skillToolRequest
+        ? active.skillToolModelRequestIds
+        : active.nonSkillToolModelRequestIds
+      requestIds.add(request.modelRequestId)
+    }
     const skillDisplayName =
       request.toolName === 'read_writing_skill' &&
       active.skillState !== null &&
@@ -2756,6 +2771,13 @@ export class AgentSessionService {
         : AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
     const toolSignal = deadlineSignal === null ? signal : AbortSignal.any([signal, deadlineSignal])
     try {
+      if (mixedToolBatch) {
+        throw new AgentToolDomainError(
+          'conflict',
+          'Writing Skill reads cannot be mixed with other tools in one assistant response',
+          true
+        )
+      }
       let data: unknown
       if (request.toolName === 'ask_user') {
         data = await this.#waitForUserAnswer(active, request, toolSignal)
@@ -2839,17 +2861,6 @@ export class AgentSessionService {
       } else if (this.options.tools === undefined) {
         throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
       } else {
-        if (
-          active.skillState !== null &&
-          this.options.skillRouter?.isPrepared !== undefined &&
-          !this.options.skillRouter.isPrepared(active.skillState)
-        ) {
-          throw new AgentToolDomainError(
-            'conflict',
-            'Load the requested Writing Skills and pending dependencies before downstream tools',
-            true
-          )
-        }
         if (
           active.skillState !== null &&
           this.options.skillRouter?.closePreparation !== undefined
@@ -3180,13 +3191,6 @@ export class AgentSessionService {
           new Error('Agent run completed with authorized model requests that were not consumed')
         )
       }
-      if (
-        active.skillState !== null &&
-        this.options.skillRouter?.isPrepared !== undefined &&
-        !this.options.skillRouter.isPrepared(active.skillState)
-      ) {
-        this.#failUnfulfilledSkillRequest(active)
-      }
       if (active.skillSnapshot.routingStatus === 'available') {
         active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
         this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
@@ -3208,13 +3212,6 @@ export class AgentSessionService {
         { event: 'agent.run.failed', err, agentRunId: active.agentRunId },
         'Agent run did not complete'
       )
-      if (
-        active.skillState !== null &&
-        this.options.skillRouter?.isPrepared !== undefined &&
-        !this.options.skillRouter.isPrepared(active.skillState)
-      ) {
-        active.partialText = ''
-      }
       if (isContextOverflowError(err)) {
         const activityOccurred = this.#runHasReplayUnsafeActivity(active)
         if (!activityOccurred && !active.overflowRetryAttempted) {

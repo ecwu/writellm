@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentToolRequest } from '../../shared/contracts/agent-tools'
+import { SkillReadError } from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
 import {
   log,
@@ -13,6 +14,88 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: tools', () => {
+  it('returns a dependency read error to the model without failing the run', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const state = {
+      mode: 'auto' as const,
+      candidates: new Map(),
+      automaticCandidateUris: new Set<string>(),
+      requestedSkills: [],
+      invocationSources: new Map<string, 'user' | 'agent'>(),
+      dependencyCandidates: new Map(),
+      activeSkills: [],
+      loadingEntrypointUri: null,
+      entrypointModelRequestIds: new Set<string>(),
+      dependencies: [],
+      readResources: new Map(),
+      readingResources: new Map(),
+      preparationClosed: false
+    }
+    const service = createService(database, runtime, undefined, {
+      skillRouter: {
+        route: async () => ({
+          snapshot: {
+            schemaVersion: 3 as const,
+            mode: 'auto' as const,
+            routingStatus: 'selected' as const,
+            requestedSkills: [],
+            skills: [],
+            dependencies: [],
+            resources: [],
+            safeError: null
+          },
+          prompt: { mode: 'auto' as const, mandatory: '<skill>Root</skill>', references: [] },
+          modelRequestId: null,
+          state
+        }),
+        read: async () => {
+          throw new SkillReadError('conflict', 'The dependency could not be loaded')
+        }
+      }
+    })
+    const session = service.createSession('Recover from dependency read')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Use the available guidance.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
+    const active = runtime.active(started.agentRunId)
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc470',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'tool-failed-dependency',
+        modelRequestId: active.input.modelRequestId,
+        toolName: 'read_writing_skill',
+        args: { uri: `writellm://skills/dependency/${'a'.repeat(40)}/SKILL.md` }
+      })
+    ).resolves.toMatchObject({ ok: false, error: { code: 'conflict' } })
+    await active.emit({
+      type: 'model_call_finished',
+      modelRequestId: active.input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('dependency-recovery')
+    })
+    await active.emit({
+      type: 'assistant_message',
+      modelRequestId: active.input.modelRequestId,
+      message: assistant('Continued with the root guidance.', 'dependency-recovery')
+    })
+    active.resolve()
+    await started.completion
+
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'completed',
+      errorCode: null
+    })
+    database.close()
+  })
+
   it('rejects forged tool-group activation in Ask mode before tool execution', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -504,7 +587,6 @@ describe('AgentSessionService: tools', () => {
       candidates: new Map(),
       automaticCandidateUris: new Set<string>(),
       requestedSkills: [],
-      requiredSkills: [],
       invocationSources: new Map<string, 'user' | 'agent'>(),
       dependencyCandidates: new Map(),
       activeSkills: [],
@@ -513,8 +595,6 @@ describe('AgentSessionService: tools', () => {
       dependencies: [],
       readResources: new Map(),
       readingResources: new Map(),
-      replay: false,
-      allowedResourceKeys: null,
       preparationClosed: false
     }
     const service = createService(database, runtime, undefined, {
@@ -570,6 +650,32 @@ describe('AgentSessionService: tools', () => {
     expect(JSON.stringify(service.listEvents(session.agentSessionId))).not.toContain(
       'writellm://skills/'
     )
+    await expect(
+      active.requestTool({
+        type: 'tool_request',
+        requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc480',
+        projectSessionId: active.input.projectSessionId,
+        agentSessionId: active.input.agentSessionId,
+        agentRunId: active.input.agentRunId,
+        toolCallId: 'tool-mixed-after-skill',
+        modelRequestId: active.input.modelRequestId,
+        toolName: 'search_knowledge',
+        args: {
+          query: 'evidence',
+          knowledgeItemIds: [],
+          fileExtensions: [],
+          parseRevisionIds: [],
+          limit: 10,
+          rerank: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      error: {
+        code: 'conflict',
+        message: expect.stringContaining('cannot be mixed with other tools')
+      }
+    })
     active.resolve()
     await started.completion
     database.close()

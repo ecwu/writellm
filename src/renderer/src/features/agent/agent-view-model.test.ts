@@ -22,7 +22,8 @@ import {
   latestAgentContextSnapshot,
   mergeAgentEvents,
   protectTerminalAgentRuns,
-  projectAgentTimeline
+  projectAgentTimeline,
+  writingSkillDegradationLabel
 } from './agent-view-model'
 
 const base = {
@@ -1214,6 +1215,28 @@ describe('Agent renderer view model', () => {
       'WriteLLM stopped instead of marking an authorized but unconsumed model request complete.'
     )
     expect(agentTerminalDetail('context_overflow')).toBeNull()
+  })
+
+  it('shows a non-terminal warning only for degraded explicit Skill injection', () => {
+    const degraded = {
+      ...runRecord('completed'),
+      skillSnapshot: {
+        ...runRecord('completed').skillSnapshot,
+        mode: 'explicit' as const,
+        routingStatus: 'degraded' as const,
+        safeError: 'skill_dependency_cycle'
+      }
+    }
+    expect(writingSkillDegradationLabel(degraded)).toBe(
+      'Writing Skill injection was skipped because its dependency graph contains a cycle. The Agent continued without it.'
+    )
+    expect(
+      writingSkillDegradationLabel({
+        ...degraded,
+        skillSnapshot: { ...degraded.skillSnapshot, routingStatus: 'selected' }
+      })
+    ).toBeNull()
+    expect(writingSkillDegradationLabel(runRecord('completed'))).toBeNull()
   })
 })
 

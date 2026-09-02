@@ -780,6 +780,38 @@ export function agentTerminalLabel(code: string): string {
   }
 }
 
+export function writingSkillDegradationLabel(run: AgentRunRecord | null): string | null {
+  const snapshot = run?.skillSnapshot
+  if (
+    snapshot === undefined ||
+    snapshot.mode !== 'explicit' ||
+    snapshot.routingStatus !== 'degraded'
+  ) {
+    return null
+  }
+  const reason = (() => {
+    switch (snapshot.safeError) {
+      case 'skill_mention_ambiguous':
+        return 'the requested name is ambiguous'
+      case 'skill_mention_unavailable':
+        return 'the requested Skill is unavailable'
+      case 'skill_mention_limit':
+        return 'too many Skills were requested'
+      case 'skill_dependency_cycle':
+        return 'its dependency graph contains a cycle'
+      case 'skill_dependency_limit':
+        return 'its dependency graph exceeds the limit'
+      case 'skill_dependency_unavailable':
+        return 'a required dependency is unavailable'
+      case 'skill_prompt_budget_exceeded':
+        return 'the complete Skill bundle does not fit the context budget'
+      default:
+        return 'the Skill bundle could not be prepared'
+    }
+  })()
+  return `Writing Skill injection was skipped because ${reason}. The Agent continued without it.`
+}
+
 export function agentTerminalDetail(code: string): string | null {
   if (code === 'compaction_required') {
     return (

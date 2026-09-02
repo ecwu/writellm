@@ -165,7 +165,7 @@
       "id": "agent-interruption-review-and-capability",
       "category": "agent",
       "source": "src/main/agent/session-service.test.ts",
-      "sourceSha256": "f7e63217c1a2c33502aaef98447e3d4bb4edf3a3723a94737c90dfd4929e544d",
+      "sourceSha256": "fd3fe2459df58274709d549da0bb94caeb3c6b86fc89079e224cd4bcd42056c8",
       "tests": [
         "allows two runs plus one manual compaction and releases the slot after stop",
         "cancels and settles every active conversation when the project closes",
@@ -176,9 +176,9 @@
       "id": "agent-interruption-messages-and-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.messages.test.ts",
-      "sourceSha256": "adc302998d0378185f7ced372b608a478b5e7ccd2926d39913bee1685b324086",
+      "sourceSha256": "52d8bd1898dd5be3e6d737d3c7a42498f3302104f51b95be0173d98b854bd5a2",
       "tests": [
-        "fails closed without publishing an answer when requested Skills were not loaded",
+        "publishes and completes an answer when automatic Skill dependencies remain unread",
         "authorizes a live request retry without persisting the user prompt twice",
         "retries one provider overflow only before activity and records a fresh model request",
         "does not replay a provider overflow after assistant activity",
@@ -203,7 +203,7 @@
       "id": "agent-tool-capability-recovery",
       "category": "agent",
       "source": "src/main/agent/session-service.tools.test.ts",
-      "sourceSha256": "29c1a7d77fd33204f641e8ec914950e7b62c1fad9f817d0dc683cc7816880b2b",
+      "sourceSha256": "f7aad877450648c0d675f76156c68b4cc7f34c227ae3b5c3860945bc47626e6b",
       "tests": [
         "persists tool provenance and authorizes exactly one linked post-tool model call",
         "authorizes exactly one tool-free finalization call after a run reaches 180 events",

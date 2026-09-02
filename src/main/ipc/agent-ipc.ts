@@ -291,7 +291,6 @@ export function registerAgentIpc(options: {
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
       if (session === undefined) throw new Error('Agent session does not exist')
       let prompt: string
-      let reuseSkillFromRunId = input.reuseSkillFromRunId
       let presentation: AgentUserMessagePayload['presentation']
       let interactionMode = session.interactionMode ?? 'write'
       if (input.quickAction !== undefined) {
@@ -379,7 +378,6 @@ export function registerAgentIpc(options: {
           decision: 'approved',
           continueRequested: true
         })
-        reuseSkillFromRunId ??= proposal.agentRunId
         const sourceRun = service.requireRun(proposal.agentRunId)
         if ((sourceRun.interactionMode ?? 'write') !== 'write') {
           throw new Error('Proposal continuation requires an originating Write run')
@@ -419,7 +417,6 @@ export function registerAgentIpc(options: {
               : 'Agent conversation is waiting for review'
           )
         }
-        reuseSkillFromRunId = proposal.agentRunId
         const sourceRun = service.requireRun(proposal.agentRunId)
         if ((sourceRun.interactionMode ?? 'write') !== 'write') {
           throw new Error('Proposal revision requires an originating Write run')
@@ -460,17 +457,10 @@ export function registerAgentIpc(options: {
           'Authorized selected annotation context for Agent run'
         )
       }
-      const reuseRun =
-        reuseSkillFromRunId === undefined ? undefined : service.requireRun(reuseSkillFromRunId)
-      if (reuseRun !== undefined && reuseRun.agentSessionId !== input.agentSessionId) {
-        throw new Error('The writing skill snapshot belongs to another Agent conversation')
-      }
-      const reuseSkillSnapshot = reuseRun?.skillSnapshot
       const started = await service.startRun({
         agentSessionId: input.agentSessionId,
         prompt,
         editorContext: input.editorContext,
-        reuseSkillSnapshot,
         presentation,
         interactionMode
       })

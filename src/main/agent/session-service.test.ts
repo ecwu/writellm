@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import type { AgentSessionServiceOptions } from './session-service'
+import { SkillPromptBudgetError } from './context'
 import {
   type log,
   FakeAgentRuntime,
@@ -564,6 +565,106 @@ describe('AgentSessionService: runtime', () => {
     expect(published.map((event) => event.type)).toEqual(['user_message', 'run_interrupted'])
     expect(published[0]?.payload).toMatchObject({ delivery: 'prompt' })
     expect(() => runtime.active()).toThrow('No fake Agent run')
+    database.close()
+  })
+
+  it('drops an atomic explicit Skill bundle when the complete first context exceeds budget', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const commit = 'a'.repeat(40)
+    const fallback = '<available_skills><skill name="automatic" /></available_skills>'
+    const contextBuilder = {
+      build: vi.fn((input: { prompt: string; skillPrompt?: { mandatory: string } }) => {
+        if (input.skillPrompt?.mandatory.includes('EXPLICIT_BUNDLE')) {
+          throw new SkillPromptBudgetError()
+        }
+        return {
+          systemPrompt: `SYSTEM ${input.skillPrompt?.mandatory ?? ''}`,
+          userRequest: input.prompt,
+          writingContext: {},
+          snapshot: {},
+          includedSkillResources: [],
+          skillPromptDropped: false
+        }
+      })
+    }
+    const service = createService(database, runtime, undefined, {
+      contextBuilder: contextBuilder as never,
+      skillRouter: {
+        route: async () => ({
+          snapshot: {
+            schemaVersion: 3 as const,
+            mode: 'explicit' as const,
+            routingStatus: 'selected' as const,
+            requestedSkills: [
+              {
+                skillId: 'explicit-method',
+                displayName: 'Explicit Method',
+                name: 'explicit-method',
+                commit,
+                manifestSha256: 'b'.repeat(64)
+              }
+            ],
+            skills: [
+              {
+                skillId: 'explicit-method',
+                displayName: 'Explicit Method',
+                name: 'explicit-method',
+                commit,
+                manifestSha256: 'b'.repeat(64),
+                invocationSource: 'user' as const
+              }
+            ],
+            dependencies: [],
+            resources: [],
+            safeError: null
+          },
+          prompt: {
+            mode: 'explicit' as const,
+            mandatory: 'EXPLICIT_BUNDLE'.repeat(4_000),
+            references: []
+          },
+          fallbackPrompt: { mode: 'auto' as const, mandatory: fallback, references: [] },
+          modelRequestId: null
+        })
+      }
+    })
+    const session = service.createSession('Explicit budget fallback')
+    const started = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: '$explicit-method Revise this.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    await vi.waitFor(() => expect(runtime.active(started.agentRunId)).toBeDefined())
+
+    expect(service.requireRun(started.agentRunId).skillSnapshot).toMatchObject({
+      mode: 'explicit',
+      routingStatus: 'degraded',
+      requestedSkills: [],
+      skills: [],
+      dependencies: [],
+      safeError: 'skill_prompt_budget_exceeded'
+    })
+    expect(runtime.active(started.agentRunId).input.systemPrompt).toContain(fallback)
+    expect(runtime.active(started.agentRunId).input.systemPrompt).not.toContain('EXPLICIT_BUNDLE')
+    expect(contextBuilder.build).toHaveBeenCalledTimes(2)
+    await runtime.active(started.agentRunId).emit({
+      type: 'model_call_finished',
+      modelRequestId: runtime.active(started.agentRunId).input.modelRequestId,
+      outcome: 'succeeded',
+      metadata: metadata('explicit-budget-fallback')
+    })
+    await runtime.active(started.agentRunId).emit({
+      type: 'assistant_message',
+      modelRequestId: runtime.active(started.agentRunId).input.modelRequestId,
+      message: assistant('Continued without the explicit Skill.', 'explicit-budget-fallback')
+    })
+    runtime.active(started.agentRunId).resolve()
+    await started.completion
+    expect(service.requireRun(started.agentRunId)).toMatchObject({
+      status: 'completed',
+      errorCode: null
+    })
     database.close()
   })
 

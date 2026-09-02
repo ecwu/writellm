@@ -63,7 +63,7 @@ import { EventTimeline } from './agent-event-timeline'
 import { AgentModelEffortPicker } from './agent-model-effort-picker'
 import { AgentModelRecovery } from './agent-model-recovery'
 import { WritingTaskDialog, WritingTaskProgressDock } from './agent-writing-task'
-import { isSectionProposalOutdated } from './agent-view-model'
+import { isSectionProposalOutdated, writingSkillDegradationLabel } from './agent-view-model'
 import { AgentAttentionBeam } from './agent-motion'
 import { agentComposerKeyAction, agentComposerRunningAction } from './agent-panel-logic'
 import type { AgentPanelController } from './use-agent-panel-controller'
@@ -176,6 +176,7 @@ export function AgentPanelView({
     insertSkillMention,
     focusSkillMention
   } = controller
+  const skillDegradationWarning = writingSkillDegradationLabel(latestRun)
   return (
     <>
       <aside
@@ -302,6 +303,16 @@ export function AgentPanelView({
               <AgentErrorAlert message={error} />
             </AgentAttentionDock>
           ) : null}
+          {skillDegradationWarning === null ? null : (
+            <AgentAttentionDock label='Writing Skill warning'>
+              <Marker role='status'>
+                <MarkerIcon>
+                  <TriangleAlert />
+                </MarkerIcon>
+                <MarkerContent>{skillDegradationWarning}</MarkerContent>
+              </Marker>
+            </AgentAttentionDock>
+          )}
           {agentCapacityReached ? (
             <AgentAttentionDock label='Agent capacity reached'>
               <Marker role='status'>

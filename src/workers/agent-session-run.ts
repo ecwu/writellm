@@ -378,7 +378,7 @@ export async function runAgentSession(
       const skillCalls = calls.filter((call) => call.name === 'read_writing_skill')
       if (skillCalls.length > 0 && calls.some((call) => call.name !== 'read_writing_skill')) {
         return block(
-          'Writing Skill preparation cannot be mixed with other tools. Prepare the Skill, then continue on the next turn.',
+          'Writing Skill reads cannot be mixed with other tools. Finish the Skill read, then continue on the next turn.',
           'invalid_arguments'
         )
       }

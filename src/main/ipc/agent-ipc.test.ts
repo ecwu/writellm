@@ -208,7 +208,7 @@ describe('Agent session IPC', () => {
     )
   })
 
-  it('builds rejected proposal revisions from persisted feedback and reuses the Skill snapshot', async () => {
+  it('builds rejected proposal revisions from persisted feedback and reroutes current Skills', async () => {
     const value = harness()
     const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc906'
     value.mutations.list.mockReturnValue([
@@ -250,6 +250,7 @@ describe('Agent session IPC', () => {
     expect(value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt).not.toContain(
       'Renderer text must not replace'
     )
+    expect(value.sessions.startRun.mock.calls.at(-1)?.[0]).not.toHaveProperty('reuseSkillSnapshot')
     expect(value.sessions.recordApprovalDecision).not.toHaveBeenCalled()
   })
 

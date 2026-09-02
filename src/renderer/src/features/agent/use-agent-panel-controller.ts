@@ -263,7 +263,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     approvedProposalId?: string,
     allowWhileBusy = false,
     skipEditorFlush = false,
-    reuseSkillFromRunId?: string,
+    _reuseSkillFromRunId?: string,
     rejectedProposalId?: string,
     quickAction?: AgentQuickActionRequest,
     quickActionSelection?: AgentPanelSelection
@@ -324,7 +324,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         ...(rejectedProposalId === undefined ? {} : { rejectedProposalId }),
         includedAnnotationIds,
         scope: quickAction === undefined ? scope : 'selection',
-        ...(reuseSkillFromRunId === undefined ? {} : { reuseSkillFromRunId }),
         editorContext: editorContextForScope(
           quickAction === undefined ? scope : 'selection',
           props.activeSectionId,

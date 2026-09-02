@@ -7,7 +7,7 @@ import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test }
 const SKILL_FIXTURE_ENV = 'WRITELLM_E2E_SKILL_FIXTURE_PATH'
 
 test(
-  'selects textual Skills, discovers a complement, and preserves visible provenance',
+  'injects textual Skills, discovers a complement, and preserves visible provenance',
   scenario('agent.global-writing-skill'),
   async ({ testRoot }) => {
     const requests: unknown[] = []
@@ -35,19 +35,11 @@ test(
           const lastMessage = body.messages?.at(-1)
           if (lastMessage?.role === 'user' && requests.length === 1) {
             if (autoSkillUris.length !== 3) throw new Error('Skill URIs are missing')
-            sendToolCalls(response, [autoSkillUris[0] as string], autoToolBatch++)
+            sendToolCalls(response, autoReferenceUris, autoToolBatch++)
             return
           }
           if (lastMessage?.role === 'tool') {
             const requestText = JSON.stringify(body)
-            if (!requestText.includes('Keep sentence rhythm varied')) {
-              sendToolCalls(response, [autoSkillUris[1] as string], autoToolBatch++)
-              return
-            }
-            if (!requestText.includes('Use concrete nouns and active verbs')) {
-              sendToolCalls(response, autoReferenceUris, autoToolBatch++)
-              return
-            }
             if (!requestText.includes("Preserve the source's paragraph order")) {
               sendToolCalls(response, [autoSkillUris[2] as string], autoToolBatch++)
               return
@@ -214,7 +206,7 @@ test(
           requested: ['e2e-writing', 'e2e-humanize'],
           loaded: ['e2e-writing', 'e2e-humanize', 'e2e-discovered']
         })
-      await expect(panel.getByText('Loaded 3 Writing Skills · 5 reference files')).toBeVisible()
+      await expect(panel.getByText('Loaded e2e-discovered · 5 reference files')).toBeVisible()
       await expect(panel.getByText('A textual skill fixture draft.', { exact: true })).toBeVisible()
       await expect(panel.getByLabel('Writing Skills used for this message')).toHaveCount(0)
       await panel.getByRole('log').evaluate((element) => element.scrollTo({ top: 0 }))
@@ -296,13 +288,13 @@ test(
         ])
       })
       expect(autoTruth?.skillSnapshot.resources).toHaveLength(5)
-      expect(requests).toHaveLength(5)
+      expect(requests).toHaveLength(3)
       expect(JSON.stringify(requests[0])).toContain('$e2e-writing $e2e-humanize')
-      expect(JSON.stringify(requests[0])).toContain(autoSkillUris[0])
-      expect(JSON.stringify(requests[1])).toContain(autoSkillUris[1])
+      expect(JSON.stringify(requests[0])).toContain('global skill fixture')
+      expect(JSON.stringify(requests[0])).toContain('Keep sentence rhythm varied')
+      expect(JSON.stringify(requests[1])).toContain('Use concrete nouns and active verbs')
       expect(JSON.stringify(requests[2])).toContain('WRITELLM_SKILL_GUIDANCE')
-      expect(JSON.stringify(requests[3])).toContain('Use concrete nouns and active verbs')
-      expect(JSON.stringify(requests[4])).toContain("Preserve the source's paragraph order")
+      expect(JSON.stringify(requests[2])).toContain("Preserve the source's paragraph order")
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
       details = launched.page.getByRole('dialog', { name: 'Agent details' })

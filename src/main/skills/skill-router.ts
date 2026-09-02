@@ -29,7 +29,6 @@ export interface SkillRunState {
   readonly candidates: Map<string, WriteLlmSkill>
   readonly automaticCandidateUris: Set<string>
   readonly requestedSkills: WriteLlmSkill[]
-  readonly requiredSkills: WriteLlmSkill[]
   readonly invocationSources: Map<string, 'user' | 'agent'>
   readonly dependencyCandidates: Map<string, WriteLlmSkill>
   activeSkills: WriteLlmSkill[]
@@ -38,16 +37,21 @@ export interface SkillRunState {
   readonly entrypointModelRequestIds: Set<string>
   readonly readResources: Map<string, LoadedReference>
   readonly readingResources: Map<string, number>
-  readonly replay: boolean
-  readonly allowedResourceKeys: Set<string> | null
   preparationClosed: boolean
 }
 
 export interface SkillRouteResult {
   snapshot: SkillRunSnapshot
   prompt: AgentSkillPromptInput
+  fallbackPrompt?: AgentSkillPromptInput
   modelRequestId: null
   state?: SkillRunState
+}
+
+interface SkillMentionResolution {
+  attempted: boolean
+  requested: WriteLlmSkill[]
+  errorCode: SkillRouteError['code'] | null
 }
 
 interface SkillReferenceDescriptor {
@@ -94,23 +98,19 @@ export class WritingSkillRuntime {
   ) {}
 
   async route(input: {
-    reuseSnapshot?: SkillRunSnapshot
     userPrompt?: string
     signal: AbortSignal
     [key: string]: unknown
   }): Promise<SkillRouteResult> {
     const startedAt = Date.now()
     input.signal.throwIfAborted()
-    if (input.reuseSnapshot !== undefined) return this.#reuse(input.reuseSnapshot, input.signal)
     const loaded = [...(await this.skills.loadEnabled())].sort(
       (a, b) => a.name.localeCompare(b.name) || a.skillId.localeCompare(b.skillId)
     )
     input.signal.throwIfAborted()
-    const requested = this.#resolveMentions(input.userPrompt ?? '', loaded)
-    const requestedIds = new Set(requested.map((skill) => skill.skillId))
-    const automatic = loaded.filter(
-      (skill) => skill.disableModelInvocation !== true && !requestedIds.has(skill.skillId)
-    )
+    const resolution = this.#resolveMentions(input.userPrompt ?? '', loaded)
+    const requested = resolution.errorCode === null ? resolution.requested : []
+    const automatic = loaded.filter((skill) => skill.disableModelInvocation !== true)
     const candidates = new Map<string, WriteLlmSkill>()
     for (const skill of requested) candidates.set(skill.filePath, skill)
     const automaticCandidateUris = new Set<string>()
@@ -141,42 +141,84 @@ export class WritingSkillRuntime {
         'Writing skill catalog was truncated'
       )
     }
-    if (candidates.size === 0) return emptyResult('auto')
-    const mode = requested.length > 0 ? 'explicit' : 'auto'
+    const mode = resolution.attempted ? 'explicit' : 'auto'
     const state = createState(mode, candidates, {
       automaticCandidateUris,
       requestedSkills: requested,
-      requiredSkills: requested,
       invocationSources: new Map(requested.map((skill) => [skill.skillId, 'user'] as const))
     })
-    const mandatory = mandatoryPrompt(state)
-    assertMandatoryBudget(mandatory)
+
+    if (resolution.errorCode !== null) {
+      return degradedResult(state, resolution.errorCode, truncated, startedAt, this.log)
+    }
+
     if (requested.length > 0) {
       try {
         const requestedDependencies = await this.#dependenciesFor(requested)
         input.signal.throwIfAborted()
-        assertMandatoryBudget(mandatoryPrompt(state, requested, requestedDependencies))
+        state.activeSkills = [...requested]
+        state.dependencies = requestedDependencies
+        const prompt = promptFor(state)
+        assertMandatoryBudget(prompt.mandatory)
+        const snapshot = {
+          ...snapshotFor(state, 'selected'),
+          safeError: truncated ? 'skill_catalog_truncated' : null
+        }
+        this.log.info(
+          {
+            event: 'skill.selection.injected',
+            skillMode: mode,
+            skillIds: requested.map((skill) => skill.skillId),
+            skillVersions: requested.map((skill) => ({
+              skillId: skill.skillId,
+              commit: skill.commit
+            })),
+            dependencyVersions: requestedDependencies.map((skill) => ({
+              skillId: skill.skillId,
+              commit: skill.commit
+            })),
+            requestedCount: requested.length,
+            selectedCount: requested.length,
+            dependencyCount: requestedDependencies.length,
+            durationMs: Date.now() - startedAt
+          },
+          'Requested Writing Skill combination was injected'
+        )
+        return {
+          snapshot,
+          prompt,
+          fallbackPrompt: automaticPromptFor(state),
+          modelRequestId: null,
+          state
+        }
       } catch (err) {
+        const code = routeFailureCode(err)
         this.log.warn(
           {
             event: 'skill.selection.rejected',
             err,
+            code,
             skillMode: mode,
             skillIds: requested.map((skill) => skill.skillId),
+            skillVersions: requested.map((skill) => ({
+              skillId: skill.skillId,
+              commit: skill.commit
+            })),
             requestedCount: requested.length,
+            dependencyCount: state.dependencies.length,
             durationMs: Date.now() - startedAt
           },
           'Requested Writing Skill combination was rejected'
         )
-        if (isSkillPromptBudgetError(err)) {
-          throw new SkillRouteError(
-            'skill_prompt_budget_exceeded',
-            'The requested Writing Skill combination exceeds the system prompt budget'
-          )
-        }
-        throw err
+        state.activeSkills = []
+        state.dependencies = []
+        return degradedResult(state, code, truncated, startedAt, this.log)
       }
     }
+
+    if (candidates.size === 0) return emptyResult('auto')
+    const mandatory = mandatoryPrompt(state)
+    assertMandatoryBudget(mandatory)
     const snapshot = skillRunSnapshotSchema.parse({
       schemaVersion: 3,
       mode,
@@ -231,10 +273,6 @@ export class WritingSkillRuntime {
     return this.#readReference(state, uri, signal)
   }
 
-  isPrepared(state: SkillRunState): boolean {
-    return nextRequiredSkill(state) === null && state.dependencyCandidates.size === 0
-  }
-
   closePreparation(state: SkillRunState): void {
     state.preparationClosed = true
   }
@@ -264,14 +302,6 @@ export class WritingSkillRuntime {
   ): Promise<SkillReadResult> {
     const existing = state.activeSkills.find((skill) => skill.skillId === candidate.skillId)
     if (existing !== undefined) return readResult(state, existing, true)
-    const required = nextRequiredSkill(state)
-    if (required !== null && required.skillId !== candidate.skillId) {
-      throw new SkillReadError(
-        'conflict',
-        `Load the next requested Writing Skill before another top-level Skill: ${required.filePath}`,
-        required.filePath
-      )
-    }
     if (state.entrypointModelRequestIds.has(modelRequestId)) {
       throw new SkillReadError(
         'conflict',
@@ -288,23 +318,19 @@ export class WritingSkillRuntime {
     const startedAt = Date.now()
     try {
       const activeSkills = [...state.activeSkills, candidate]
-      const dependencyClosure = state.replay
-        ? [...state.dependencyCandidates.values()]
-        : await this.#dependenciesFor(activeSkills)
+      const dependencyClosure = await this.#dependenciesFor(activeSkills)
       signal?.throwIfAborted()
       assertMandatoryBudget(mandatoryPrompt(state, activeSkills, dependencyClosure))
       state.activeSkills = activeSkills
       if (!state.invocationSources.has(candidate.skillId)) {
         state.invocationSources.set(candidate.skillId, 'agent')
       }
-      if (!state.replay) {
-        const closureIds = new Set(dependencyClosure.map((skill) => skill.skillId))
-        state.dependencies = state.dependencies.filter((skill) => closureIds.has(skill.skillId))
-        state.dependencyCandidates.clear()
-        for (const dependency of dependencyClosure) {
-          if (!state.dependencies.some((skill) => skill.skillId === dependency.skillId)) {
-            state.dependencyCandidates.set(dependency.filePath, dependency)
-          }
+      const closureIds = new Set(dependencyClosure.map((skill) => skill.skillId))
+      state.dependencies = state.dependencies.filter((skill) => closureIds.has(skill.skillId))
+      state.dependencyCandidates.clear()
+      for (const dependency of dependencyClosure) {
+        if (!state.dependencies.some((skill) => skill.skillId === dependency.skillId)) {
+          state.dependencyCandidates.set(dependency.filePath, dependency)
         }
       }
       state.entrypointModelRequestIds.add(modelRequestId)
@@ -414,7 +440,7 @@ export class WritingSkillRuntime {
     signal?: AbortSignal
   ): Promise<SkillReadResult> {
     if (state.activeSkills.length === 0) {
-      const recoveryUri = nextRequiredSkill(state)?.filePath ?? [...state.candidates.keys()][0]
+      const recoveryUri = [...state.candidates.keys()][0]
       throw new SkillReadError(
         'unauthorized',
         recoveryUri === undefined
@@ -423,30 +449,11 @@ export class WritingSkillRuntime {
         recoveryUri
       )
     }
-    const pendingRequired = nextRequiredSkill(state)
-    if (pendingRequired !== null) {
-      throw new SkillReadError(
-        'conflict',
-        'Load every requested Writing Skill before references',
-        pendingRequired.filePath
-      )
-    }
-    const pendingDependencyUri = [...state.dependencyCandidates.keys()][0]
-    if (pendingDependencyUri !== undefined) {
-      throw new SkillReadError(
-        'conflict',
-        'Load the authorized Writing Skill dependencies before references',
-        pendingDependencyUri
-      )
-    }
     const located = locateReference(state, uri)
     if (located === null) {
       throw new SkillReadError('unauthorized', 'Writing Skill URI is not authorized')
     }
     const key = resourceKey(located.skill, located.file.path)
-    if (state.allowedResourceKeys !== null && !state.allowedResourceKeys.has(key)) {
-      throw new SkillReadError('unauthorized', 'Writing Skill URI is outside the replay snapshot')
-    }
     const alreadyRead = state.readResources.get(key)
     if (alreadyRead !== undefined) return referenceReadResult(state, alreadyRead)
     if (state.readingResources.has(key)) {
@@ -527,113 +534,17 @@ export class WritingSkillRuntime {
     }
   }
 
-  async #reuse(snapshot: SkillRunSnapshot, signal: AbortSignal): Promise<SkillRouteResult> {
-    if (snapshot.skills.length === 0 && snapshot.requestedSkills.length === 0) {
-      return emptyResult(snapshot.mode)
-    }
-    const recordedById = new Map(
-      [...snapshot.requestedSkills, ...snapshot.skills].map((recorded) => [
-        recorded.skillId,
-        recorded
-      ])
-    )
-    const loadedById = new Map<string, WriteLlmSkill>()
-    for (const recorded of recordedById.values()) {
-      const loaded = await this.skills.loadVersion(recorded.skillId, recorded.commit)
-      signal.throwIfAborted()
-      assertProvenance(loaded, recorded)
-      loadedById.set(recorded.skillId, { ...loaded, displayName: recorded.displayName })
-    }
-    const requested = snapshot.requestedSkills.map((recorded) => {
-      const loaded = loadedById.get(recorded.skillId)
-      if (loaded === undefined)
-        throw new Error('The requested Writing Skill version is unavailable')
-      return loaded
-    })
-    const topLevel = snapshot.skills.map((recorded) => {
-      const loaded = loadedById.get(recorded.skillId)
-      if (loaded === undefined) throw new Error('The recorded Writing Skill version is unavailable')
-      return loaded
-    })
-    const dependencies: WriteLlmSkill[] = []
-    for (const recorded of snapshot.dependencies) {
-      const loaded = await this.skills.loadVersion(recorded.skillId, recorded.commit)
-      signal.throwIfAborted()
-      assertProvenance(loaded, recorded)
-      dependencies.push({ ...loaded, displayName: recorded.displayName })
-    }
-    const allowedResourceKeys = new Set(
-      snapshot.resources.map(
-        (resource) => `${resource.skillId}\u0000${resource.commit}\u0000${resource.relativePath}`
-      )
-    )
-    const required = [
-      ...topLevel,
-      ...requested.filter((skill) => !topLevel.some((item) => item.skillId === skill.skillId))
-    ]
-    const state = createState(
-      snapshot.mode,
-      new Map(required.map((skill) => [skill.filePath, skill])),
-      {
-        dependencyCandidates: new Map(
-          dependencies.map((skill) => [skill.filePath, skill] as const)
-        ),
-        replay: true,
-        allowedResourceKeys,
-        requestedSkills: requested,
-        requiredSkills: required,
-        invocationSources: new Map(
-          snapshot.skills.map((recorded) => [recorded.skillId, recorded.invocationSource] as const)
-        )
-      }
-    )
-    for (const recorded of snapshot.resources) {
-      const skill = [...topLevel, ...dependencies].find(
-        (candidate) =>
-          candidate.skillId === recorded.skillId && candidate.commit === recorded.commit
-      )
-      if (skill === undefined) {
-        throw new Error('The recorded Writing Skill reference owner is not available')
-      }
-      const file = skill.files.find((candidate) => candidate.path === recorded.relativePath)
-      if (
-        file === undefined ||
-        (recorded.sha256 !== null && recorded.sha256 !== file.sha256) ||
-        (recorded.byteSize !== null && recorded.byteSize !== file.byteSize)
-      ) {
-        throw new Error('The recorded Writing Skill reference no longer matches its run snapshot')
-      }
-    }
-    const prompt = promptFor(state)
-    assertMandatoryBudget(prompt.mandatory)
-    return {
-      snapshot: skillRunSnapshotSchema.parse({
-        schemaVersion: 3,
-        mode: snapshot.mode,
-        routingStatus: 'available',
-        requestedSkills: snapshot.requestedSkills,
-        skills: [],
-        dependencies: [],
-        resources: [],
-        safeError: null
-      }),
-      prompt,
-      modelRequestId: null,
-      state
-    }
-  }
-
-  #resolveMentions(prompt: string, loaded: readonly WriteLlmSkill[]): WriteLlmSkill[] {
+  #resolveMentions(prompt: string, loaded: readonly WriteLlmSkill[]): SkillMentionResolution {
     const startedAt = Date.now()
     const names = [...new Set(parseLeadingSkillMentions(prompt).map((mention) => mention.name))]
-    if (names.length === 0) return []
+    if (names.length === 0) return { attempted: false, requested: [], errorCode: null }
     const installed = this.skills.snapshot().installed
     const requested: WriteLlmSkill[] = []
     for (const name of names) {
       const matchingInstalled = installed.filter((skill) => skill.name === name)
       const matchingLoaded = loaded.filter((skill) => skill.name === name)
       if (matchingLoaded.length > 1) {
-        this.#rejectMention(
+        return this.#rejectMention(
           'skill_mention_ambiguous',
           matchingLoaded.map((skill) => skill.skillId),
           `Writing Skill name is ambiguous: ${name}`,
@@ -642,7 +553,7 @@ export class WritingSkillRuntime {
       }
       if (matchingLoaded.length === 1) requested.push(matchingLoaded[0] as WriteLlmSkill)
       else if (matchingInstalled.length > 0) {
-        this.#rejectMention(
+        return this.#rejectMention(
           'skill_mention_unavailable',
           matchingInstalled.map((skill) => skill.skillId),
           `Writing Skill is disabled or unavailable: ${name}`,
@@ -651,7 +562,7 @@ export class WritingSkillRuntime {
       }
     }
     if (requested.length > SKILL_MAX_ACTIVE_SKILLS) {
-      this.#rejectMention(
+      return this.#rejectMention(
         'skill_mention_limit',
         requested.map((skill) => skill.skillId),
         `Up to ${SKILL_MAX_ACTIVE_SKILLS} Writing Skills may be requested`,
@@ -668,7 +579,7 @@ export class WritingSkillRuntime {
       },
       'Writing Skill mentions resolved'
     )
-    return requested
+    return { attempted: requested.length > 0, requested, errorCode: null }
   }
 
   #rejectMention(
@@ -676,11 +587,12 @@ export class WritingSkillRuntime {
     skillIds: readonly string[],
     message: string,
     startedAt: number
-  ): never {
+  ): SkillMentionResolution {
     this.log.warn(
       {
         event: 'skill.mention.rejected',
         code,
+        reason: message,
         source: 'user',
         candidateCount: skillIds.length,
         skillIds,
@@ -688,7 +600,7 @@ export class WritingSkillRuntime {
       },
       'Writing Skill mention rejected'
     )
-    throw new SkillRouteError(code, message)
+    return { attempted: true, requested: [], errorCode: code }
   }
 
   async #dependenciesFor(activeSkills: readonly WriteLlmSkill[]): Promise<WriteLlmSkill[]> {
@@ -755,11 +667,8 @@ function createState(
   options: {
     automaticCandidateUris?: Set<string>
     requestedSkills?: WriteLlmSkill[]
-    requiredSkills?: WriteLlmSkill[]
     invocationSources?: Map<string, 'user' | 'agent'>
     dependencyCandidates?: Map<string, WriteLlmSkill>
-    replay?: boolean
-    allowedResourceKeys?: Set<string> | null
   } = {}
 ): SkillRunState {
   return {
@@ -767,7 +676,6 @@ function createState(
     candidates,
     automaticCandidateUris: options.automaticCandidateUris ?? new Set(),
     requestedSkills: options.requestedSkills ?? [],
-    requiredSkills: options.requiredSkills ?? [],
     invocationSources: options.invocationSources ?? new Map(),
     dependencyCandidates: options.dependencyCandidates ?? new Map(),
     activeSkills: [],
@@ -776,8 +684,6 @@ function createState(
     entrypointModelRequestIds: new Set(),
     readResources: new Map(),
     readingResources: new Map(),
-    replay: options.replay ?? false,
-    allowedResourceKeys: options.allowedResourceKeys ?? null,
     preparationClosed: false
   }
 }
@@ -798,16 +704,11 @@ function entrypointData(state: SkillRunState, skill: WriteLlmSkill): SkillDocume
 }
 
 function referenceDescriptors(
-  state: SkillRunState,
+  _state: SkillRunState,
   skill: WriteLlmSkill
 ): SkillReferenceDescriptor[] {
   return skill.files
-    .filter(
-      (file) =>
-        file.path !== 'SKILL.md' &&
-        (state.allowedResourceKeys === null ||
-          state.allowedResourceKeys.has(resourceKey(skill, file.path)))
-    )
+    .filter((file) => file.path !== 'SKILL.md')
     .map((file) => ({
       skillId: skill.skillId,
       displayName: skill.displayName,
@@ -904,14 +805,12 @@ function mandatoryPrompt(
     .map((skill) => referenceCatalog(state, skill))
     .filter(Boolean)
     .join('\n\n')
-  const activeIds = new Set(activeSkills.map((skill) => skill.skillId))
-  const required = state.requiredSkills.filter((skill) => !activeIds.has(skill.skillId))
-  const requiredCatalog = formatRequiredSkillCatalog(required, state.replay)
+  const loadedIds = new Set([...activeSkills, ...dependencies].map((skill) => skill.skillId))
   const remaining = [...state.candidates.values()].filter(
-    (skill) => state.automaticCandidateUris.has(skill.filePath) && !activeIds.has(skill.skillId)
+    (skill) => state.automaticCandidateUris.has(skill.filePath) && !loadedIds.has(skill.skillId)
   )
   const catalog = remaining.length === 0 ? '' : formatSkillsForSystemPrompt(remaining)
-  return [invocation, catalogs, requiredCatalog, catalog].filter(Boolean).join('\n\n')
+  return [invocation, catalogs, catalog].filter(Boolean).join('\n\n')
 }
 
 function promptFor(state: SkillRunState): AgentSkillPromptInput {
@@ -978,14 +877,74 @@ function provenance(skill: WriteLlmSkill) {
   }
 }
 
-function assertProvenance(skill: WriteLlmSkill, recorded: ReturnType<typeof provenance>): void {
-  if (provenance(skill).manifestSha256 !== recorded.manifestSha256) {
-    throw new Error('The recorded Writing Skill manifest no longer matches its run snapshot')
+function resourceKey(skill: WriteLlmSkill, relativePath: string): string {
+  return `${skill.skillId}\u0000${skill.commit}\u0000${relativePath}`
+}
+
+function automaticPromptFor(state: SkillRunState): AgentSkillPromptInput {
+  const candidates = [...state.candidates.values()].filter((skill) =>
+    state.automaticCandidateUris.has(skill.filePath)
+  )
+  return {
+    mode: 'auto',
+    mandatory: candidates.length === 0 ? '' : formatSkillsForSystemPrompt(candidates),
+    references: []
   }
 }
 
-function resourceKey(skill: WriteLlmSkill, relativePath: string): string {
-  return `${skill.skillId}\u0000${skill.commit}\u0000${relativePath}`
+function degradedResult(
+  state: SkillRunState,
+  code: string,
+  catalogTruncated: boolean,
+  startedAt: number,
+  log: Pick<Logger, 'info' | 'warn' | 'error'>
+): SkillRouteResult {
+  state.activeSkills = []
+  state.dependencies = []
+  state.requestedSkills.length = 0
+  state.invocationSources.clear()
+  for (const uri of state.candidates.keys()) {
+    if (!state.automaticCandidateUris.has(uri)) state.candidates.delete(uri)
+  }
+  const prompt = automaticPromptFor(state)
+  log.info(
+    {
+      event: 'skill.selection.degraded',
+      skillMode: 'explicit',
+      code,
+      candidateCount: state.automaticCandidateUris.size,
+      catalogTruncated,
+      durationMs: Date.now() - startedAt
+    },
+    'Requested Writing Skill injection degraded without failing the Agent run'
+  )
+  return {
+    snapshot: skillRunSnapshotSchema.parse({
+      schemaVersion: 3,
+      mode: 'explicit',
+      routingStatus: 'degraded',
+      requestedSkills: [],
+      skills: [],
+      dependencies: [],
+      resources: [],
+      safeError: code
+    }),
+    prompt,
+    fallbackPrompt: prompt,
+    modelRequestId: null,
+    state
+  }
+}
+
+function routeFailureCode(error: unknown): string {
+  if (isSkillPromptBudgetError(error)) return 'skill_prompt_budget_exceeded'
+  if (error instanceof Error && error.message.includes('dependency cycle')) {
+    return 'skill_dependency_cycle'
+  }
+  if (error instanceof Error && error.message.includes('dependency limit')) {
+    return 'skill_dependency_limit'
+  }
+  return 'skill_dependency_unavailable'
 }
 
 function emptyResult(mode: 'auto' | 'explicit' | 'none'): SkillRouteResult {
@@ -1005,20 +964,4 @@ function emptyResult(mode: 'auto' | 'explicit' | 'none'): SkillRouteResult {
     modelRequestId: null,
     state
   }
-}
-
-function nextRequiredSkill(state: SkillRunState): WriteLlmSkill | null {
-  const loadedIds = new Set(state.activeSkills.map((skill) => skill.skillId))
-  return state.requiredSkills.find((skill) => !loadedIds.has(skill.skillId)) ?? null
-}
-
-function formatRequiredSkillCatalog(skills: readonly WriteLlmSkill[], replay: boolean): string {
-  if (skills.length === 0) return ''
-  const entries = skills
-    .map(
-      (skill, index) =>
-        `  <skill order="${index + 1}" name="${escapeXml(skill.name)}" displayName="${escapeXml(skill.displayName)}" location="${escapeXml(skill.filePath)}" />`
-    )
-    .join('\n')
-  return `<requested_writing_skills instructionSemantics="true" replay="${replay ? 'true' : 'false'}">\nLoad these entrypoints in order through read_writing_skill before downstream work or a final answer.\n${entries}\n</requested_writing_skills>`
 }

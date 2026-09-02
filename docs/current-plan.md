@@ -1,6 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Phase 30 Checkpoint 81 is complete under accepted ADR 072. Phase 29 Checkpoint 80 is
+Status: Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070. Checkpoint 77 remains independently paused; CP78 is
 authorized to run ahead. Immutable tag-only candidates
@@ -21,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-01
+Recorded: 2026-09-02
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -29,6 +30,20 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Checkpoint 82 is complete under accepted ADR 073. Main now distinguishes dependency-complete
+  explicit `$skill-name` injection from progressive automatic tool reads, removes the system-level
+  incomplete-preparation failure gate, and reroutes new runs from current registry state. Focused
+  CP82 coverage, `check:fast`, 1,253 Electron-hosted tests with three benchmark skips, a production
+  build, all 49 fresh Electron E2E scenarios, the scoped Impeccable detector, and diff checks
+  passed. Detailed evidence lives in
+  [`implementation-todo/phase-31.md`](implementation-todo/phase-31.md).
+
+- The completed Checkpoint 82 source has passed the complete no-Team-ID macOS arm64 package gate.
+  It verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime
+  smoke scenarios, and all 34 packaged Electron scenarios without failures, flakes, or skips. The
+  gate produced an unpacked App, DMG, and ZIP under `dist/macos-arm64`. No Developer ID signing,
+  notarization, release, commit, tag, push, promotion, or publication action was performed.
 
 - The completed Checkpoint 81 source has passed the complete no-Team-ID macOS arm64 package gate.
   It verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime

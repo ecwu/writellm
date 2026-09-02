@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { SkillReadError, SkillRouteError, WritingSkillRuntime } from './skill-router'
+import { SkillReadError, WritingSkillRuntime } from './skill-router'
 import { virtualSkillPath, type WriteLlmSkill } from './prompt'
 import type { SkillService } from './skill-service'
 
@@ -57,17 +57,14 @@ describe('Pi-native progressive Writing Skill routing', () => {
       })
     ])
     expect(selected.data.references).toHaveLength(13)
-    expect(router.isPrepared(routed.state)).toBe(false)
-    await expect(
-      router.read(
-        routed.state,
-        virtualSkillPath(primary.skillId, primary.commit, 'reference-1.md'),
-        'request-before-dependency'
-      )
-    ).rejects.toMatchObject({
-      code: 'conflict',
-      recoveryUri: dependency.filePath
-    })
+    const earlyReference = await router.read(
+      routed.state,
+      virtualSkillPath(primary.skillId, primary.commit, 'reference-1.md'),
+      'request-before-dependency'
+    )
+    expect(earlyReference.snapshot.resources).toEqual([
+      expect.objectContaining({ skillId: primary.skillId, relativePath: 'reference-1.md' })
+    ])
     await expect(router.read(routed.state, other.filePath, 'request-1')).rejects.toBeInstanceOf(
       SkillReadError
     )
@@ -76,14 +73,15 @@ describe('Pi-native progressive Writing Skill routing', () => {
       expect.objectContaining({ skillId: 'support-method' })
     ])
     expect(loadedDependency.data.content).toBe('Dependency body')
-    expect(router.isPrepared(routed.state)).toBe(true)
     const combined = await router.read(routed.state, other.filePath, 'request-3')
     expect(combined.snapshot.skills.map((entry) => entry.skillId)).toEqual([
       'primary-method',
       'other-method'
     ])
 
-    for (const file of primary.files.filter((entry) => entry.path !== 'SKILL.md').slice(0, 12)) {
+    for (const file of primary.files
+      .filter((entry) => entry.path !== 'SKILL.md' && entry.path !== 'reference-1.md')
+      .slice(0, 11)) {
       await router.read(routed.state, virtualSkillPath(primary.skillId, primary.commit, file.path))
     }
     const duplicate = await router.read(
@@ -208,12 +206,13 @@ describe('Pi-native progressive Writing Skill routing', () => {
     ])
   })
 
-  it('resolves leading user mentions, requires visible reads in text order, then permits discovery', async () => {
-    const requestedFirst = skill('nature-writing', 'Nature instructions')
+  it('injects leading user mentions with their dependency closure, then permits discovery', async () => {
+    const requestedFirst = skill('nature-writing', 'Nature instructions', 1, ['support-method'])
     requestedFirst.disableModelInvocation = true
     const requestedSecond = skill('ccf-humanization', 'Humanization instructions')
+    const dependency = skill('support-method', 'Supporting instructions')
     const discovered = skill('structure-review', 'Structure instructions')
-    const loaded = [discovered, requestedFirst, requestedSecond]
+    const loaded = [discovered, dependency, requestedFirst, requestedSecond]
     const service = serviceFor(loaded)
     const router = new WritingSkillRuntime(service, logger())
 
@@ -225,27 +224,37 @@ describe('Pi-native progressive Writing Skill routing', () => {
       schemaVersion: 3,
       mode: 'explicit',
       requestedSkills: [{ skillId: 'nature-writing' }, { skillId: 'ccf-humanization' }],
-      skills: []
+      routingStatus: 'selected',
+      skills: [
+        { skillId: 'nature-writing', invocationSource: 'user' },
+        { skillId: 'ccf-humanization', invocationSource: 'user' }
+      ],
+      dependencies: [{ skillId: 'support-method' }]
     })
-    expect(routed.prompt.mandatory).toContain(requestedFirst.filePath)
-    expect(routed.prompt.mandatory).toContain(requestedSecond.filePath)
-    expect(routed.prompt.mandatory).not.toContain('Nature instructions')
+    expect(routed.prompt.mandatory.indexOf('Nature instructions')).toBeLessThan(
+      routed.prompt.mandatory.indexOf('Humanization instructions')
+    )
+    expect(routed.prompt.mandatory.indexOf('Humanization instructions')).toBeLessThan(
+      routed.prompt.mandatory.indexOf('Supporting instructions')
+    )
+    expect(routed.fallbackPrompt?.mandatory).not.toContain('Nature instructions')
     if (routed.state === undefined) throw new Error('Missing explicit state')
 
+    const reference = await router.read(
+      routed.state,
+      virtualSkillPath(requestedFirst.skillId, requestedFirst.commit, 'reference-1.md'),
+      'explicit-reference'
+    )
+    expect(reference.snapshot.resources).toEqual([
+      expect.objectContaining({ skillId: requestedFirst.skillId, relativePath: 'reference-1.md' })
+    ])
     await expect(
-      router.read(routed.state, requestedSecond.filePath, 'out-of-order')
-    ).rejects.toMatchObject({ code: 'conflict', recoveryUri: requestedFirst.filePath })
-    const first = await router.read(routed.state, requestedFirst.filePath, 'requested-1')
-    expect(first.snapshot.skills).toEqual([
-      expect.objectContaining({ skillId: requestedFirst.skillId, invocationSource: 'user' })
-    ])
-    expect(router.isPrepared(routed.state)).toBe(false)
-    const second = await router.read(routed.state, requestedSecond.filePath, 'requested-2')
-    expect(second.snapshot.skills).toEqual([
-      expect.objectContaining({ skillId: requestedFirst.skillId, invocationSource: 'user' }),
-      expect.objectContaining({ skillId: requestedSecond.skillId, invocationSource: 'user' })
-    ])
-    expect(router.isPrepared(routed.state)).toBe(true)
+      router.read(
+        routed.state,
+        virtualSkillPath(requestedFirst.skillId, requestedFirst.commit, 'not-authorized.md'),
+        'unauthorized-reference'
+      )
+    ).rejects.toMatchObject({ code: 'unauthorized' })
 
     const complementary = await router.read(routed.state, discovered.filePath, 'agent-1')
     expect(complementary.snapshot.skills.at(-1)).toMatchObject({
@@ -266,7 +275,7 @@ describe('Pi-native progressive Writing Skill routing', () => {
     ])
   })
 
-  it('rejects ambiguous, unavailable, and over-limit mentions before preparation', async () => {
+  it('degrades ambiguous, unavailable, and over-limit explicit packages without failing', async () => {
     const ambiguousOne = skill('first-source', 'One')
     ambiguousOne.name = 'shared-name'
     const ambiguousTwo = skill('second-source', 'Two')
@@ -280,7 +289,13 @@ describe('Pi-native progressive Writing Skill routing', () => {
         userPrompt: '$shared-name revise',
         signal: new AbortController().signal
       })
-    ).rejects.toMatchObject({ code: 'skill_mention_ambiguous' })
+    ).resolves.toMatchObject({
+      snapshot: {
+        mode: 'explicit',
+        routingStatus: 'degraded',
+        safeError: 'skill_mention_ambiguous'
+      }
+    })
 
     const unavailable = skill('disabled-method', 'Disabled')
     const unavailableService = serviceFor(
@@ -293,7 +308,13 @@ describe('Pi-native progressive Writing Skill routing', () => {
         userPrompt: '$disabled-method revise',
         signal: new AbortController().signal
       })
-    ).rejects.toMatchObject({ code: 'skill_mention_unavailable' })
+    ).resolves.toMatchObject({
+      snapshot: {
+        mode: 'explicit',
+        routingStatus: 'degraded',
+        safeError: 'skill_mention_unavailable'
+      }
+    })
 
     const five = Array.from({ length: 5 }, (_, index) =>
       skill(`method-${index + 1}`, `Instructions ${index + 1}`)
@@ -304,29 +325,120 @@ describe('Pi-native progressive Writing Skill routing', () => {
         userPrompt: `${five.map((entry) => `$${entry.name}`).join(' ')} revise`,
         signal: new AbortController().signal
       })
-    ).rejects.toBeInstanceOf(SkillRouteError)
-    await expect(
-      overLimitRouter.route({
-        userPrompt: `${five.map((entry) => `$${entry.name}`).join(' ')} revise`,
-        signal: new AbortController().signal
-      })
-    ).rejects.toMatchObject({ code: 'skill_mention_limit' })
+    ).resolves.toMatchObject({
+      snapshot: { mode: 'explicit', routingStatus: 'degraded', safeError: 'skill_mention_limit' }
+    })
   })
 
-  it('atomically rejects an explicit combination whose eventual prompt exceeds the budget', async () => {
+  it('atomically degrades an explicit combination whose prompt exceeds the budget', async () => {
     const first = skill('large-first', 'a'.repeat(40_000))
     const second = skill('large-second', 'b'.repeat(40_000))
     const service = serviceFor([first, second])
     const router = new WritingSkillRuntime(service, logger())
 
-    await expect(
-      router.route({
-        userPrompt: '$large-first $large-second Revise.',
-        signal: new AbortController().signal
-      })
-    ).rejects.toThrow('system prompt budget')
+    const routed = await router.route({
+      userPrompt: '$large-first $large-second Revise.',
+      signal: new AbortController().signal
+    })
+    expect(routed.snapshot).toMatchObject({
+      mode: 'explicit',
+      routingStatus: 'degraded',
+      requestedSkills: [],
+      skills: [],
+      dependencies: [],
+      safeError: 'skill_prompt_budget_exceeded'
+    })
+    expect(routed.prompt.mandatory).not.toContain('a'.repeat(100))
+    expect(routed.prompt.mandatory).not.toContain('b'.repeat(100))
     expect(service.readResource).not.toHaveBeenCalled()
   })
+
+  it('uses stable dependency order, de-duplicates shared dependencies, and rejects no partial package', async () => {
+    const shared = skill('shared-method', 'Shared instructions')
+    const firstDependency = skill('first-dependency', 'First dependency', 0, [shared.skillId])
+    const secondDependency = skill('second-dependency', 'Second dependency')
+    const first = skill('first-root', 'First root', 0, [firstDependency.skillId, shared.skillId])
+    const second = skill('second-root', 'Second root', 0, [
+      secondDependency.skillId,
+      shared.skillId
+    ])
+    const router = new WritingSkillRuntime(
+      serviceFor([second, secondDependency, shared, firstDependency, first]),
+      logger()
+    )
+
+    const routed = await router.route({
+      userPrompt: '$first-root $second-root revise',
+      signal: new AbortController().signal
+    })
+    expect(routed.snapshot.skills.map((entry) => entry.skillId)).toEqual([
+      first.skillId,
+      second.skillId
+    ])
+    expect(routed.snapshot.dependencies.map((entry) => entry.skillId)).toEqual([
+      shared.skillId,
+      firstDependency.skillId,
+      secondDependency.skillId
+    ])
+    expect(routed.prompt.mandatory.indexOf('First root')).toBeLessThan(
+      routed.prompt.mandatory.indexOf('Second root')
+    )
+    expect(routed.prompt.mandatory.match(/Shared instructions/g)).toHaveLength(1)
+  })
+
+  it.each([
+    {
+      name: 'cycles',
+      expectedCode: 'skill_dependency_cycle',
+      createSkills: () => {
+        const root = skill('cycle-root', 'Cycle root', 0, ['cycle-dependency'])
+        const dependency = skill('cycle-dependency', 'Cycle dependency', 0, [root.skillId])
+        return { root, loaded: [root, dependency] }
+      }
+    },
+    {
+      name: 'dependency limits',
+      expectedCode: 'skill_dependency_limit',
+      createSkills: () => {
+        const dependencies = Array.from({ length: 9 }, (_, index) =>
+          skill(`dependency-${index + 1}`, `Dependency ${index + 1}`)
+        )
+        const root = skill(
+          'limited-root',
+          'Limited root',
+          0,
+          dependencies.map((entry) => entry.skillId)
+        )
+        return { root, loaded: [root, ...dependencies] }
+      }
+    },
+    {
+      name: 'unavailable dependencies',
+      expectedCode: 'skill_dependency_unavailable',
+      createSkills: () => {
+        const root = skill('missing-root', 'Missing root', 0, ['not-installed'])
+        return { root, loaded: [root] }
+      }
+    }
+  ])(
+    'degrades explicit packages with $name without injecting a partial closure',
+    async (fixture) => {
+      const { root, loaded } = fixture.createSkills()
+      const routed = await new WritingSkillRuntime(serviceFor(loaded), logger()).route({
+        userPrompt: `$${root.name} revise`,
+        signal: new AbortController().signal
+      })
+      expect(routed.snapshot).toMatchObject({
+        mode: 'explicit',
+        routingStatus: 'degraded',
+        requestedSkills: [],
+        skills: [],
+        dependencies: [],
+        safeError: fixture.expectedCode
+      })
+      expect(routed.prompt.mandatory).not.toContain(root.content)
+    }
+  )
 })
 
 function logger(): {

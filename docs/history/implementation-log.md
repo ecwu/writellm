@@ -1299,3 +1299,38 @@ maintenance without turning the active tracker back into a historical log.
   `6779135acae153e2d4528df991a51fb4477824d5e626e5230c9ec264f07d8bad`) under
   `dist/macos-arm64`. No Developer ID signing, notarization, tag, release, promotion, or
   publication action was performed.
+
+## 2026-09-01 — Checkpoint 82 explicit Writing Skill injection
+
+- Completed Phase 31 Checkpoint 82 under ADR 073. Leading `$skill-name` requests now resolve in
+  Main to one atomic first-request package containing ordered roots and a stable, deduplicated
+  dependency closure. Automatic candidates remain metadata-only and continue through visible
+  `read_writing_skill` calls. Explicit success creates no synthetic tool activity; explicit
+  ambiguity, unavailability, cycles, limits, integrity, or budget failure drops the whole package,
+  records a degraded schema-v3 snapshot, and continues with the valid automatic catalog.
+- Removed every incomplete-Skill preparation gate from assistant deltas, downstream tools, final
+  answers, and run settlement. Automatic root-only, partial-dependency, failed-read, and no-Skill
+  runs can complete normally. The one-entrypoint and no-mixed-tool protocols remain recoverable
+  tool errors. New runs route from current user text and current registry state rather than replaying
+  prior snapshots; historical `skill_request_unfulfilled` parsing and display remain readable.
+- Two focused batches passed 96 and 84 tests. `pnpm check:fast` passed; the clean Electron gate
+  passed 229 files and 1,253 tests with three benchmark skips plus the production build; and all 49
+  fresh Electron E2E scenarios passed without failures, flakes, or skips. The scoped Impeccable
+  detector and `git diff --check` passed. No package, release, commit, tag, push, signing,
+  notarization, promotion, or publication action was performed.
+
+## 2026-09-02 — Checkpoint 82 trial package
+
+- Refreshed the recovery manifest for the three intentionally changed protected Agent test sources
+  and replaced the obsolete fail-closed Skill test name with the CP82 non-blocking completion test.
+  The complete no-Team-ID macOS arm64 package gate verified 31 recovery fixtures from 29 sources,
+  53,318 ASAR entries, all 12 packaged runtime smoke scenarios, and all 34 packaged Electron
+  scenarios without failures, flakes, or skips. The default parallel packaged-E2E attempt first
+  exposed host-load window-startup timeouts; the complete gate passed with its supported
+  interactive single-worker mode without terminating the user's existing app.
+- Produced `WriteLLM-0.2026.8.49-arm64.dmg` (239,010,676 bytes,
+  `cfc8551ecbc8043e0cf2f7f4ca2550d8782df950fa6006751f78055008a0b10d`) and
+  `WriteLLM-0.2026.8.49-arm64.zip` (237,203,201 bytes,
+  `0edfbf0b7b570f892b3c4d589afb12f88b598dfb3219f393c0acebc2dbc34624`) under
+  `dist/macos-arm64`. No Developer ID signing, notarization, release, commit, tag, push, promotion,
+  or publication action was performed.

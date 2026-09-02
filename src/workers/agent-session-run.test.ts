@@ -1158,7 +1158,7 @@ describe('runAgentSession', () => {
     )
   })
 
-  it('blocks Writing Skill preparation mixed with non-Skill tools in one response', async () => {
+  it('blocks Writing Skill reads mixed with non-Skill tools in one response', async () => {
     let fetchAttempt = 0
     vi.stubGlobal(
       'fetch',

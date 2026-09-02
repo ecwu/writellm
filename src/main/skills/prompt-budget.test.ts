@@ -6,18 +6,17 @@ import { MAX_SYSTEM_PROMPT_BYTES } from '../agent/context'
 import { formatWriteLlmSkill } from './prompt'
 
 describe('writing skill prompt budget baseline', () => {
-  it('stages bounded Skill preparation before downstream tools', () => {
+  it('describes explicit injection and non-blocking automatic Skill reads', () => {
     expect(SKILL_COMPANION_NOTE).toContain(
-      'The catalogs contain metadata only; even when the user names a Skill, call read_writing_skill'
+      'Leading $skill-name requests are resolved by WriteLLM before the first model call'
     )
-    expect(SKILL_COMPANION_NOTE).toContain(
-      'A requested_writing_skills block is mandatory: load every listed entrypoint in order'
-    )
+    expect(SKILL_COMPANION_NOTE).toContain('Do not reread those injected entrypoints')
+    expect(SKILL_COMPANION_NOTE).toContain('optional automatic discovery')
     expect(SKILL_COMPANION_NOTE).toContain(
       'Load at most one new top-level or dependency entrypoint and make no other tool calls in that assistant response.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'load every listed dependency through read_writing_skill before references or downstream work.'
+      'an unread or failed dependency does not block a final answer.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
       'Read only task-relevant advertised references from loaded Skills, up to twelve complete files and 32 KiB total'
@@ -26,11 +25,10 @@ describe('writing skill prompt budget baseline', () => {
       'never mix them with non-Skill tool calls in the same assistant response.'
     )
     expect(SKILL_COMPANION_NOTE).toContain(
-      'Wait for all Skill results before planning downstream work'
-    )
-    expect(SKILL_COMPANION_NOTE).toContain(
       'Once any non-Skill tool is called, do not load another Skill in that run.'
     )
+    expect(SKILL_COMPANION_NOTE).not.toContain('requested_writing_skills')
+    expect(SKILL_COMPANION_NOTE).not.toContain('before downstream work or a final answer')
   })
 
   it('requires an explicit review when fixed prompt layers drift', () => {
@@ -57,7 +55,7 @@ describe('writing skill prompt budget baseline', () => {
     }).toEqual({
       max: 65_536,
       policy: 13_693,
-      companion: 1_899,
+      companion: 1_874,
       emptyInvocation: 197,
       wrappedEntrypoint: 292,
       fixedEnvelope: 165
