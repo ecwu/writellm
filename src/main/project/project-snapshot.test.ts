@@ -48,22 +48,6 @@ describe('project snapshots', () => {
       applicationVersion: '1.0.0-test',
       log
     })
-    const reviewIssueId = '019d0000-0000-7000-8000-000000000401'
-    database.immediate((native) =>
-      native
-        .prepare(
-          `INSERT INTO review_issues (
-             review_issue_id, fingerprint, priority, category, title, description,
-             evidence_summary, citation_ids_json, source_kind, check_id, section_id, revision_id,
-             block_id, source_agent_session_id, source_agent_run_id, status,
-             assigned_agent_session_id, version, resolved_by_proposal_id, resolution_summary,
-             created_at, updated_at, resolved_at, dismissed_at
-           ) VALUES (?, ?, 'P2', 'consistency', 'Snapshot issue', 'Persists with the project.',
-                     '', '[]', 'deterministic', 'snapshot_check', NULL, NULL, NULL, NULL, NULL,
-                     'open', NULL, 1, NULL, NULL, ?, ?, NULL, NULL)`
-        )
-        .run(reviewIssueId, 'a'.repeat(64), '2026-08-13T00:00:00.000Z', '2026-08-13T00:00:00.000Z')
-    )
     const events: string[] = []
     const snapshotRoot = join(parent, 'snapshot-output')
     const snapshot = await createProjectSnapshot({
@@ -139,12 +123,8 @@ describe('project snapshots', () => {
       log
     })
     expect(
-      restoredDatabase.immediate((native) =>
-        native
-          .prepare('SELECT title, status, version FROM review_issues WHERE review_issue_id = ?')
-          .get(reviewIssueId)
-      )
-    ).toEqual({ title: 'Snapshot issue', status: 'open', version: 1 })
+      restoredDatabase.immediate((native) => native.pragma('integrity_check', { simple: true }))
+    ).toBe('ok')
     restoredDatabase.close()
     await expect(readFile(join(restoredRoot, 'writellm.snapshot.json'))).rejects.toMatchObject({
       code: 'ENOENT'

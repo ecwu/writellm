@@ -29,7 +29,7 @@ describe('Agent interaction ModePolicy', () => {
     )
   })
 
-  it('adds planning metadata and read-only review tools without mutation authority', () => {
+  it('adds planning metadata and proposal inspection without mutation authority', () => {
     expect(names('plan').toSorted()).toEqual(
       [
         'get_writing_context',
@@ -41,15 +41,12 @@ describe('Agent interaction ModePolicy', () => {
         'read_writing_skill',
         'ask_user',
         'inspect_change',
-        'check_draft',
-        'list_review_issues',
         'get_writing_task',
         'create_writing_task',
         'update_writing_task'
       ].toSorted()
     )
     expect(names('plan')).not.toContain('activate_tool_groups')
-    expect(names('plan')).not.toContain('record_review_issues')
     expect(names('plan')).not.toContain('submit_section_change')
   })
 

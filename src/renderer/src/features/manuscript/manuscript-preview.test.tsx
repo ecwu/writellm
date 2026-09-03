@@ -138,7 +138,6 @@ A-->B
         onOpenChecks={noop}
         onOpenAssets={noop}
         onOpenReferences={noop}
-        onOpenIssues={noop}
         onOpenWritingRules={noop}
         onOpenFind={noop}
         onOpenSettings={noop}

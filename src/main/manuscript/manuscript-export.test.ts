@@ -11,7 +11,6 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import JSZip from 'jszip'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -25,7 +24,6 @@ import {
 import type { SnapshotBarrier } from '../project/project-snapshot'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
-import { AnnotationService } from './annotation-service'
 import { ManuscriptAssetService } from './asset-service'
 import { createManuscriptExport, validateStagedExport } from './manuscript-export'
 import { ManuscriptService } from './manuscript-service'
@@ -41,15 +39,6 @@ afterEach(async () => {
 describe('whole-manuscript export', () => {
   it('publishes deterministic native and Markdown packages with verified referenced assets', async () => {
     const fixture = await exportFixture()
-    const annotationMarker = 'PRIVATE ANNOTATION MUST NOT BE EXPORTED'
-    const currentSection = fixture.options.manuscript.assemble().sections[0]
-    if (currentSection === undefined) throw new Error('Missing export section')
-    new AnnotationService({ database: fixture.database, log }).create({
-      sectionId: currentSection.section.sectionId,
-      blockId: 'paragraph',
-      kind: 'todo',
-      body: annotationMarker
-    })
     const barrierEvents: string[] = []
     const barrier = recordingBarrier(barrierEvents)
     const firstDestination = join(fixture.parent, 'Native export α')
@@ -91,7 +80,6 @@ describe('whole-manuscript export', () => {
     expect(native).toContain(fixture.asset.logicalUrl)
     expect(native).not.toContain(fixture.projectRoot)
     const parsedNative = manuscriptNativeExportSchema.parse(JSON.parse(native) as unknown)
-    expect(native).not.toContain(annotationMarker)
     const exportedImage = parsedNative.manuscript.sections[0]?.revision.content.find(
       (block) => block.type === 'image'
     )
@@ -114,7 +102,6 @@ describe('whole-manuscript export', () => {
       barrier: recordingBarrier([])
     })
     const markdownText = await readFile(join(markdownDestination, 'manuscript.md'), 'utf8')
-    expect(markdownText).not.toContain(annotationMarker)
     expect(markdownText).toContain('# Untitled Section')
     expect(markdownText).toContain('Current body [1]')
     expect(markdownText).toContain(
@@ -171,10 +158,6 @@ describe('whole-manuscript export', () => {
     expect(
       (await readFile(join(firstDocxDestination, MANUSCRIPT_DOCX_CONTENT_FILE))).subarray(0, 2)
     ).toEqual(Buffer.from('PK'))
-    const docx = await JSZip.loadAsync(
-      await readFile(join(firstDocxDestination, MANUSCRIPT_DOCX_CONTENT_FILE))
-    )
-    expect(await docx.file('word/document.xml')?.async('string')).not.toContain(annotationMarker)
     expect(firstDocx.lossReport?.losses).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'mermaid_source_fallback' })])
     )
@@ -200,7 +183,6 @@ describe('whole-manuscript export', () => {
     expect(secondLatex.manifest.content.sha256).toBe(firstLatex.manifest.content.sha256)
     expect(firstLatex.manifest.publicationSourceHash).toMatch(/^[a-f0-9]{64}$/u)
     const latex = await readFile(join(firstLatexDestination, MANUSCRIPT_LATEX_CONTENT_FILE), 'utf8')
-    expect(latex).not.toContain(annotationMarker)
     expect(latex).toContain('\\documentclass[UTF8,letterpaper]{ctexart}')
     expect(latex).toContain(firstLatex.manifest.assets[0]?.relativePath)
     expect(firstLatex.lossReport?.losses).toEqual(

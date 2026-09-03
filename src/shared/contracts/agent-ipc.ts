@@ -22,7 +22,6 @@ import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from
 import { skillRunSnapshotSchema } from './skills'
 import { agentQuickActionRequestSchema } from './agent-quick-actions'
 import { writingTaskIdSchema, writingTaskStepIdSchema, writingTaskViewSchema } from './writing-task'
-import { annotationSelectionSchema } from './annotations'
 import { askUserAnswersSchema, askUserQuestionSchema } from './agent-tools'
 
 export const AGENT_EVENT_PAGE_LIMIT = 50
@@ -188,7 +187,6 @@ export const agentStartRunInputSchema = strictObject({
   resumeWritingTask: z.literal(true).optional(),
   approvedProposalId: z.uuid().optional(),
   rejectedProposalId: z.uuid().optional(),
-  includedAnnotationIds: annotationSelectionSchema,
   reuseSkillFromRunId: agentRunIdSchema.optional(),
   scope: agentStartScopeSchema,
   editorContext: agentEditorContextSchema
@@ -247,20 +245,6 @@ export const agentStartRunInputSchema = strictObject({
       code: 'custom',
       path: ['resumeWritingTask'],
       message: 'Writing-task resume cannot be a proposal continuation'
-    })
-  }
-  if (
-    input.includedAnnotationIds.length > 0 &&
-    (input.prompt === undefined ||
-      input.quickAction !== undefined ||
-      input.resumeWritingTask === true ||
-      input.approvedProposalId !== undefined ||
-      input.rejectedProposalId !== undefined)
-  ) {
-    context.addIssue({
-      code: 'custom',
-      path: ['includedAnnotationIds'],
-      message: 'Annotations can only accompany an ordinary Agent prompt'
     })
   }
   if (input.approvedProposalId !== undefined && input.rejectedProposalId !== undefined) {

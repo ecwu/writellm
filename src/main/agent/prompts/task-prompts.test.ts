@@ -45,7 +45,6 @@ describe('bounded Agent task prompts', () => {
     expect(prompt).toContain('proposed Brief update, and it is now applied')
     expect(prompt).toContain('<CURRENT_USER_REQUEST instructionSemantics="true">')
     expect(prompt).toContain('Continue only the original user request')
-    expect(prompt).not.toContain('check_draft')
     expect(prompt.match(/<\/CURRENT_USER_REQUEST>/gu)).toHaveLength(1)
   })
 

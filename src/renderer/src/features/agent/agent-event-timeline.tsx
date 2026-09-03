@@ -128,11 +128,9 @@ function TimelineItem(props: {
           <MessageHeader>
             {item.payload.presentation?.kind === 'review_feedback'
               ? 'Requested changes'
-              : item.payload.presentation?.kind === 'annotation_context'
-                ? `Prompt · ${item.payload.presentation.annotationCount} selected annotations`
-                : item.payload.presentation?.kind === 'quick_action'
-                  ? `Quick action · ${item.payload.presentation.label}`
-                  : deliveryLabel(item.payload.delivery)}
+              : item.payload.presentation?.kind === 'quick_action'
+                ? `Quick action · ${item.payload.presentation.label}`
+                : deliveryLabel(item.payload.delivery)}
           </MessageHeader>
           <Bubble variant='muted' align='end'>
             <BubbleContent className='whitespace-pre-wrap'>

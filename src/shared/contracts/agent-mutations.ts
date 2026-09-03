@@ -15,11 +15,10 @@ import {
 import { TABLE_MAX_CELL_TEXT, TABLE_MAX_COLUMNS, TABLE_MAX_ROWS } from '../manuscript-table'
 import { projectSessionIdSchema } from './projects'
 import { writingTaskIdSchema, writingTaskStepIdSchema } from './writing-task'
-import { resolvesReviewIssueSchema } from './review'
 import { modelSubmitWritingRulesChangeArgsSchema, writingRuleSchema } from './writing-rules'
 
 export const AGENT_MUTATION_SCHEMA_VERSION = 1
-export const AGENT_TOOL_CONTRACT_VERSION = 14
+export const AGENT_TOOL_CONTRACT_VERSION = 15
 export const AGENT_MUTATION_OPERATION_LIMIT = 50
 export const AGENT_MUTATION_BLOCK_LIMIT = 100
 export const AGENT_MUTATION_CITATION_LIMIT = 20
@@ -51,8 +50,6 @@ const modelBriefChangesSchema = manuscriptBriefFieldsSchema
     (changes) => Object.keys(changes).length > 0,
     'Expected at least one Brief change field, received an empty changes object. Add one changed field and retry submit_brief_change once.'
   )
-
-const resolvesReviewIssuesSchema = z.array(resolvesReviewIssueSchema).max(20).optional()
 
 export const briefUpdateSchema = strictObject({
   schemaVersion: z.literal(AGENT_MUTATION_SCHEMA_VERSION).default(AGENT_MUTATION_SCHEMA_VERSION),
@@ -216,14 +213,12 @@ const outlinePlacementSchema = z.discriminatedUnion('kind', [
 
 export const modelSubmitBriefChangeArgsSchema = strictObject({
   changes: modelBriefChangesSchema,
-  citationIds: mutationCitationIdsSchema,
-  resolvesReviewIssues: resolvesReviewIssuesSchema
+  citationIds: mutationCitationIdsSchema
 })
 
 export const modelSubmitWritingRulesChangeWithReviewArgsSchema =
   modelSubmitWritingRulesChangeArgsSchema.extend({
-    citationIds: mutationCitationIdsSchema,
-    resolvesReviewIssues: resolvesReviewIssuesSchema
+    citationIds: mutationCitationIdsSchema
   })
 
 const modelOutlineOperationSchema = z.discriminatedUnion('type', [
@@ -264,8 +259,7 @@ export const modelSubmitOutlineChangeArgsSchema = strictObject({
     .describe(
       'Copy existing sectionId values from read_outline; created references copy a preceding createSection.clientRef.'
     ),
-  citationIds: mutationCitationIdsSchema,
-  resolvesReviewIssues: resolvesReviewIssuesSchema
+  citationIds: mutationCitationIdsSchema
 })
 
 const blockPreconditionSchema = strictObject({
@@ -295,8 +289,7 @@ const generateImageCommonShape = {
   altText: z.string().trim().min(1).max(2_000),
   caption: z.string().max(2_000),
   aspectRatio: z.enum(['auto', '1:1', '16:9']),
-  imageSize: z.enum(['1K', '2K']),
-  resolvesReviewIssues: resolvesReviewIssuesSchema
+  imageSize: z.enum(['1K', '2K'])
 }
 export const generateImageArgsSchema = z.discriminatedUnion('mode', [
   strictObject({
@@ -332,8 +325,7 @@ export const normalizedGenerateImageArgsSchema = strictObject({
   caption: generateImageCommonShape.caption,
   aspectRatio: generateImageCommonShape.aspectRatio,
   imageSize: generateImageCommonShape.imageSize,
-  iteration: generateImageIterationSchema.optional(),
-  resolvesReviewIssues: resolvesReviewIssuesSchema
+  iteration: generateImageIterationSchema.optional()
 })
 const textBlockTypeSchema = z.enum([
   'paragraph',
@@ -566,8 +558,7 @@ const modelSectionOperationSchema = z.discriminatedUnion('type', [
 export const modelSubmitSectionChangeArgsSchema = strictObject({
   sectionId: sectionIdSchema,
   operations: z.array(modelSectionOperationSchema).min(1).max(AGENT_MUTATION_OPERATION_LIMIT),
-  citationIds: mutationCitationIdsSchema,
-  resolvesReviewIssues: resolvesReviewIssuesSchema
+  citationIds: mutationCitationIdsSchema
 })
 
 export const mutationCitedSourceSchema = strictObject({
@@ -798,7 +789,6 @@ export const submitChangeResultSchema = strictObject({
 const proposalProvenanceSchema = strictObject({
   modelRequestId: agentModelRequestIdSchema,
   citedSources: z.array(mutationCitedSourceSchema).max(AGENT_MUTATION_CITATION_LIMIT),
-  resolvesReviewIssues: z.array(resolvesReviewIssueSchema).max(20).optional(),
   createdSectionRefs: z.record(z.string().min(1).max(256), z.uuid()).optional(),
   createdBlockRefs: z.record(z.string().min(1).max(256), z.string().min(1).max(256)).optional()
 })

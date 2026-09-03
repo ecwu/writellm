@@ -92,8 +92,8 @@ export function previewProjectTemplateExtraction(options: {
     excluded: [
       'Manuscript bodies and citations',
       'Knowledge files and parsed artifacts',
-      'Agent history, proposals, and review issues',
-      'Annotations and generated assets',
+      'Agent history and proposals',
+      'Generated assets',
       'Version history, project identity, credentials, and private paths'
     ]
   })

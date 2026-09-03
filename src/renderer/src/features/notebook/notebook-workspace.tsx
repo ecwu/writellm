@@ -95,7 +95,6 @@ interface NotebookNavigationProps {
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
@@ -340,7 +339,6 @@ export function NotebookWorkspace(
           onOpenAssets={props.onOpenAssets}
           onOpenManuscript={props.onOpenManuscript}
           onOpenReferences={props.onOpenReferences}
-          onOpenIssues={props.onOpenIssues}
           onOpenWritingRules={props.onOpenWritingRules}
           onOpenFind={props.onOpenFind}
           onOpenSettings={props.onOpenSettings}

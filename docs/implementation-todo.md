@@ -22,6 +22,11 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance: remove Review Center, manuscript annotations, deterministic review, Review
+  Issue tools/state, and proposal reconciliation under ADR 077 while preserving Writing Rules and
+  proposal review. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal).
+
 - [x] Maintenance: add caret-local `/cite` search with three single-line Reference candidates.
   Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).

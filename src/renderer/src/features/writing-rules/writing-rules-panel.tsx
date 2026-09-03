@@ -60,7 +60,7 @@ export function WritingRulesPanel(props: {
     setBusy(true)
     try {
       props.onWorkspace(
-        await window.desktop.review.updateWritingRules({
+        await window.desktop.writingRules.update({
           projectSessionId: props.projectSessionId,
           baseBriefVersion: props.workspace.brief.version,
           operations

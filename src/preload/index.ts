@@ -6,8 +6,7 @@ import { projectsApi } from './projects-api'
 import { jobsApi } from './jobs-api'
 import { editorApi } from './editor-api'
 import { manuscriptApi } from './manuscript-api'
-import { reviewApi } from './review-api'
-import { annotationsApi } from './annotations-api'
+import { writingRulesApi } from './writing-rules-api'
 import { agentApi } from './agent-api'
 import { knowledgeApi } from './knowledge-api'
 import { notebookApi } from './notebook-api'
@@ -23,8 +22,7 @@ const desktopApi: DesktopApi = {
   jobs: jobsApi,
   editor: editorApi,
   manuscript: manuscriptApi,
-  review: reviewApi,
-  annotations: annotationsApi,
+  writingRules: writingRulesApi,
   agent: agentApi,
   knowledge: knowledgeApi,
   notebook: notebookApi,

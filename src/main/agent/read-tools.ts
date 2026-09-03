@@ -4,7 +4,6 @@ import type { AgentEditorContext } from '../../shared/contracts/agent'
 import {
   AGENT_TOOL_RESULT_BYTES,
   agentReadToolNameSchema,
-  checkDraftArgsSchema,
   getWritingContextArgsSchema,
   readOutlineArgsSchema,
   readOutlineResultSchema,
@@ -13,7 +12,6 @@ import {
   searchManuscriptArgsSchema,
   searchManuscriptResultSchema,
   type AgentReadToolName,
-  type CheckDraftResult,
   type ReadCitationsResult,
   type ReadOutlineResult,
   type ReadSectionResult,
@@ -27,11 +25,9 @@ import { findProjectionMatches } from '../../shared/manuscript-search'
 import { blockNoteBlockSchema, type BlockNoteTableContent } from '../../shared/contracts/manuscript'
 import { inspectTableContent, TableTransformError } from '../../shared/manuscript-table'
 import type { RetrievalService } from '../search/retrieval-service'
-import type { ProjectDatabase } from '../project/project-database'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
 import { AgentContextBuilder } from './context'
-import type { ReviewResourceSnapshot, WritingSnapshot } from './context'
-import { runDraftChecks } from './draft-checker'
+import type { WritingSnapshot } from './context'
 import { executeCitationRead, executeKnowledgeSearch } from './knowledge-tools'
 
 interface AgentReadToolResultMap {
@@ -41,7 +37,6 @@ interface AgentReadToolResultMap {
   search_manuscript: SearchManuscriptResult
   search_knowledge: SearchKnowledgeResult
   read_citations: ReadCitationsResult
-  check_draft: CheckDraftResult
 }
 
 export class AgentToolDomainError extends Error {
@@ -83,20 +78,13 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     private readonly options: {
       projectSessionId: string
       manuscript: ManuscriptService
-      database?: ProjectDatabase
       references: ReferenceLibraryService
       retrieval: RetrievalService | null
       isRetrievalAvailable?: () => boolean
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }
   ) {
-    const database = options.database
-    this.#context = new AgentContextBuilder(
-      options.manuscript,
-      database === undefined
-        ? undefined
-        : (revisionIds) => captureReviewResources(database, revisionIds)
-    )
+    this.#context = new AgentContextBuilder(options.manuscript)
   }
 
   contextBuilder(): AgentContextBuilder {
@@ -176,8 +164,6 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
           signal
         })
       }
-      case 'check_draft':
-        return this.#checkDraft(checkDraftArgsSchema.parse(rawArgs), snapshot, signal)
     }
   }
 
@@ -380,14 +366,6 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     })
   }
 
-  #checkDraft(
-    args: ReturnType<typeof checkDraftArgsSchema.parse>,
-    snapshot: WritingSnapshot,
-    signal: AbortSignal
-  ): CheckDraftResult {
-    return runDraftChecks(args, snapshot, signal, this.options.log)
-  }
-
   #requireRetrieval(): RetrievalService {
     if (
       this.options.retrieval === null ||
@@ -397,68 +375,6 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     }
     return this.options.retrieval
   }
-}
-
-function captureReviewResources(
-  projectDatabase: ProjectDatabase,
-  revisionIds: readonly string[]
-): ReviewResourceSnapshot {
-  return projectDatabase.immediate((database) => {
-    const knowledgeItems = database
-      .prepare(
-        `SELECT knowledge_item_id AS knowledgeItemId, display_name AS displayName, state
-           FROM knowledge_items ORDER BY knowledge_item_id`
-      )
-      .all() as ReviewResourceSnapshot['knowledgeItems']
-    const assetRows = database
-      .prepare(
-        `SELECT asset.asset_id AS assetId,
-                EXISTS (
-                  SELECT 1 FROM section_revision_assets reference
-                   WHERE reference.asset_id = asset.asset_id
-                     AND reference.section_revision_id IN (${revisionIds.map(() => '?').join(', ') || 'NULL'})
-                ) AS referencedByCurrentRevision
-           FROM manuscript_assets asset ORDER BY asset.asset_id`
-      )
-      .all(...revisionIds) as Array<{ assetId: string; referencedByCurrentRevision: number }>
-    const referenceRows = database
-      .prepare(
-        `SELECT item.reference_id AS referenceId, item.citation_key AS citationKey,
-                item.title,
-                EXISTS (
-                  SELECT 1 FROM knowledge_reference_links link
-                  JOIN active_parse_revisions active USING (knowledge_item_id)
-                  WHERE link.reference_id = item.reference_id
-                ) AS evidenceAvailable
-           FROM reference_items item ORDER BY item.reference_id`
-      )
-      .all() as Array<{
-      referenceId: string
-      citationKey: string
-      title: string
-      evidenceAvailable: number
-    }>
-    const linkStatement = database
-      .prepare(
-        `SELECT knowledge_item_id FROM knowledge_reference_links
-          WHERE reference_id = ? ORDER BY knowledge_item_id`
-      )
-      .pluck()
-    return {
-      knowledgeItems,
-      references: referenceRows.map((row) => ({
-        referenceId: row.referenceId,
-        citationKey: row.citationKey,
-        title: row.title,
-        evidenceAvailable: row.evidenceAvailable === 1,
-        knowledgeItemIds: linkStatement.all(row.referenceId) as string[]
-      })),
-      manuscriptAssets: assetRows.map((row) => ({
-        assetId: row.assetId,
-        referencedByCurrentRevision: row.referencedByCurrentRevision === 1
-      }))
-    }
-  })
 }
 
 type FlattenedBlock = ReadSectionResult['blocks'][number] & { canonical: unknown }

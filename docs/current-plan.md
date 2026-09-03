@@ -31,6 +31,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Review fixture and annotation removal is complete under ADR 077. The Review Center, manuscript
+  Annotations, deterministic `check_draft`, persistent Review Issues, proposal-to-issue
+  reconciliation, and their Renderer/Main/Worker contracts are absent from the live product.
+  Agent Protocol v15 exposes no removed tools; project migration 0043 destroys their events,
+  linkage JSON, and tables while preserving ordinary conversation and parseable proposals.
+  Writing Rules now use their own desktop namespace, while proposal approval, rejection, undo,
+  `awaiting_review`, `review_feedback`, and `inspect_change` remain. Final verification passed 36
+  focused tests, the fixture inventory, and `check:full`: 236 Vitest files / 1339 tests passed with
+  3 benchmark skips, followed by 48/48 Electron E2E scenarios with no retries or skips. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal).
+
 - User-authorized `/cite` insertion maintenance is complete: the Slash Menu opens a caret-local
   shadcn search popover with three single-line citekey/title candidates, while Main performs the
   bounded project Reference match and stable ranking. Exact insertion, cancellation, stale-scope

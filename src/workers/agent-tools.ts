@@ -117,29 +117,6 @@ export const searchManuscriptParameters = Type.Object(
 
 export const inspectChangeParameters = Type.Object({ proposalId: uuid() }, strict)
 
-const draftCheck = Type.Union([
-  Type.Literal('document_structure'),
-  Type.Literal('outline_integrity'),
-  Type.Literal('revision_lineage'),
-  Type.Literal('citation_provenance'),
-  Type.Literal('safe_links'),
-  Type.Literal('unresolved_placeholders'),
-  Type.Literal('duplicate_headings'),
-  Type.Literal('duplicate_paragraphs'),
-  Type.Literal('length_constraints')
-])
-
-export const checkDraftParameters = Type.Object(
-  {
-    scope: Type.Union([
-      Type.Object({ type: Type.Literal('manuscript') }, strict),
-      Type.Object({ type: Type.Literal('section'), sectionId: uuid() }, strict)
-    ]),
-    checks: Type.Optional(Type.Array(draftCheck, { maxItems: 9, default: [] }))
-  },
-  strict
-)
-
 export const readCitationsParameters = Type.Object(
   {
     citationIds: Type.Optional(
@@ -884,15 +861,6 @@ export class AgentToolBridge {
         executionMode: 'parallel',
         execute: (toolCallId, args, signal) =>
           this.#execute('inspect_change', toolCallId, args, signal)
-      },
-      {
-        name: 'check_draft',
-        label: 'Check draft',
-        description: 'Run deterministic structural and consistency checks against the snapshot.',
-        parameters: checkDraftParameters,
-        executionMode: 'parallel',
-        execute: (toolCallId, args, signal) =>
-          this.#execute('check_draft', toolCallId, args, signal)
       },
       {
         name: 'submit_brief_change',

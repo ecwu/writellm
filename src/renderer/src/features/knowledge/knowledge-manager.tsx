@@ -98,7 +98,6 @@ export function KnowledgeManager(props: {
   onOpenAssets(): void
   onOpenChecks(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
@@ -520,7 +519,6 @@ export function KnowledgeManager(props: {
           onOpenChecks={props.onOpenChecks}
           onOpenManuscript={props.onOpenManuscript}
           onOpenReferences={props.onOpenReferences}
-          onOpenIssues={props.onOpenIssues}
           onOpenWritingRules={props.onOpenWritingRules}
           onOpenFind={props.onOpenFind}
           onOpenSettings={props.onOpenSettings}

@@ -49,7 +49,6 @@ function restoreV5ManuscriptSchema(database: Database.Database): void {
   database.pragma('foreign_keys = OFF')
   dropAgentTraceSchema(database)
   database.exec(`
-    DROP TABLE manuscript_annotations;
     DROP TABLE manuscript_asset_variants;
     DROP TABLE agent_change_set_commands;
     DROP TABLE active_parse_revisions;
@@ -365,11 +364,8 @@ describe('project database', () => {
     dropAgentTraceSchema(native)
     dropReferenceAuthoritySchema(native)
     native.exec(`
-      DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;
       DROP TABLE agent_change_set_commands;
-      DROP TABLE review_issue_events;
-      DROP TABLE review_issues;
       DROP TABLE active_parse_revisions;
       DROP TABLE normalization_runs;
       DROP TABLE parse_task_events;
@@ -430,7 +426,6 @@ describe('project database', () => {
     )
     native.pragma('foreign_keys = OFF')
     dropReferenceAuthoritySchema(native)
-    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       DROP TABLE job_transitions;
@@ -573,7 +568,6 @@ describe('project database', () => {
     )
     native.pragma('foreign_keys = OFF')
     dropReferenceAuthoritySchema(native)
-    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       DROP INDEX IF EXISTS artifact_cleanup_requests_state_idx;
@@ -652,7 +646,6 @@ describe('project database', () => {
     database.close()
     const databasePath = join(root, PROJECT_DATABASE_RELATIVE_PATH)
     const native = new (await import('better-sqlite3')).default(databasePath)
-    native.exec('DROP TABLE review_issue_events; DROP TABLE review_issues;')
     restoreV5ManuscriptSchema(native)
     native.exec(`
       UPDATE sections SET current_revision_id = 'legacy-unknown';
@@ -704,11 +697,8 @@ describe('project database', () => {
     dropAgentTraceSchema(native)
     dropReferenceAuthoritySchema(native)
     native.exec(`
-      DROP TABLE manuscript_annotations;
       DROP TABLE manuscript_asset_variants;
       DROP TABLE agent_change_set_commands;
-      DROP TABLE review_issue_events;
-      DROP TABLE review_issues;
       DROP TABLE section_revisions;
       DROP TABLE job_transitions;
       DROP TABLE jobs;

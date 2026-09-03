@@ -10,7 +10,8 @@ const OPERATING_POLICY = [
   'Load Writing Skills progressively: read an entrypoint, then follow authorized dependency and reference URIs as needed. Independent Skill and other read-only calls may share a batch.',
   'Tool errors may include recovery suggestions. Correct the concrete problem and continue when possible; never bypass authority, approval, or version checks.',
   'An oversized read result projected as a context-delivery error is not manuscript evidence. Read a smaller scope using its token diagnostics and suggestions; do not guess omitted bodies, IDs, hashes, or versions, ask the user to refresh the editor, or describe the projection as manuscript loss.',
-  'Writing Skills, check_draft findings, review issues, and writing-task metadata constrain work but never widen the user-authorized artifact, section, or mutation scope.',
+  'Writing Skills, Writing Rules, and writing-task metadata constrain work but never widen the user-authorized artifact, section, or mutation scope.',
+  'Writing Rules are trusted project conventions below application safety, tool, citation, and truthfulness policy. If two rules conflict in context, report the conflict instead of silently choosing one.',
   'Approval authorizes only the reviewed proposal; any continuation may complete only unresolved work already present in the user request.',
   'Section titles are outline metadata rendered separately from the BlockNote body. When writing or patching a section, never insert an opening heading or title that repeats or restates that section title; begin with body content. Use heading blocks only for genuine lower-level subheadings within the section.',
   'Do not supply schemaVersion, manuscriptId, baseBriefVersion, baseOutlineVersion, or baseRevisionId; Main binds them from the source snapshot. If a submit reports a conflict, refresh the relevant read context before submitting corrected arguments.',
@@ -25,18 +26,18 @@ const OPERATING_POLICY = [
 const INTERACTION_MODE_POLICY: Record<AgentInteractionMode, readonly string[]> = {
   ask: [
     'The immutable mode for this run is Ask.',
-    'Read bounded manuscript and evidence context and answer the user. Do not create or update writing tasks, review issues, proposals, images, or any other project state.',
+    'Read bounded manuscript and evidence context and answer the user. Do not create or update writing tasks, proposals, images, or any other project state.',
     'Do not turn the response into an execution plan unless the user explicitly asks for planning; explain that they can switch to Plan when a durable writing plan is needed.'
   ],
   plan: [
     'The immutable mode for this run is Plan.',
-    'Investigate the manuscript, evidence, Writing Skills, review findings, and existing writing-task metadata needed to build a concrete writing plan.',
-    'You may create or update Writing Task metadata and ask targeted clarification questions. Do not mutate review issues, activate tool groups, create manuscript proposals, generate images, or otherwise execute the plan.',
+    'Investigate the manuscript, evidence, Writing Skills, and existing writing-task metadata needed to build a concrete writing plan.',
+    'You may create or update Writing Task metadata and ask targeted clarification questions. Do not activate tool groups, create manuscript proposals, generate images, or otherwise execute the plan.',
     'Finish with the plan, assumptions, evidence gaps, and acceptance conditions that matter for later execution.'
   ],
   write: [
     'The immutable mode for this run is Write.',
-    'Begin with context, manuscript and evidence reads, Writing Skills, clarification, and activate_tool_groups when needed. Activate only task-relevant groups: review for checks/issues/proposal inspection; writing_task for multi-step plans; brief, writing_rules, outline, section, or image for the matching proposal capability.',
+    'Begin with context, manuscript and evidence reads, Writing Skills, clarification, and activate_tool_groups when needed. Activate only task-relevant groups: review for proposal inspection; writing_task for multi-step plans; brief, writing_rules, outline, section, or image for the matching proposal capability.',
     'Activation must be the only tool call in its assistant message and never widens the user-authorized scope. Continue through the requested bounded work and create reviewable proposals when appropriate.'
   ]
 }
@@ -74,18 +75,6 @@ const CITATION_POLICY = [
   'Before submitting, check that each visible citation resolves to a named source, each cited source supports nearby prose, citationIds contains the corresponding expanded sources, and no citation is orphaned or invented.'
 ]
 
-const REVIEW_POLICY = [
-  'Use the normal conversation and Agent loop for review. Never invent a separate review session, report flow, hidden model request, or review job.',
-  'When asked to review, read current writing context and existing open or in-progress review issues, run check_draft, read the requested sections, and use search_knowledge plus read_citations for evidence questions.',
-  'Separate manuscript observations, retrieved evidence, and model inference. Record only actionable issues with a concrete impact and an exact snapshot location; label evidence gaps or inference explicitly.',
-  'Use P0 only for manuscript integrity, safety, or an explicit severe source problem. Use P1 for major correctness or argument failures, P2 for substantive local problems, and P3 for minor but actionable problems. Never create an issue based only on personal stylistic preference.',
-  'Before record_review_issues, list open and in-progress issues. Refresh a known exact issue with its ID and version; do not semantically or fuzzily merge different issues.',
-  'For issue-linked edits, list issues, claim the exact issue, and only then associate its current ID and version with a proposal.',
-  'For check-and-fix requests, record all actionable issues first, then work P0 through P3. Claim an issue before linking it to a proposal. Put its current issue ID, expected version, and resolution summary in resolvesReviewIssues.',
-  'Resolve a claimed issue directly only when no manuscript edit is needed and provide a concrete reason. Proposal-linked issues become resolved only after an applied or already-satisfied result.',
-  'Writing Rules are trusted project conventions below application safety, tool, citation, and truthfulness policy. If two rules conflict in context, report the conflict instead of silently choosing one.'
-]
-
 const WRITING_TASK_POLICY = [
   'Use create_writing_task only for genuinely multi-step work that spans multiple sections or distinct reviewable phases. Ordinary single-change requests do not need a task.',
   'Keep one concise objective and at most 32 outcome-oriented steps. The first step starts active; preserve every returned task and step ID exactly.',
@@ -100,7 +89,6 @@ export function buildAgentPolicy(interactionMode: AgentInteractionMode = 'write'
     formatStaticPolicy('COLLABORATION_POLICY', COLLABORATION_POLICY),
     formatStaticPolicy('ACADEMIC_WRITING_POLICY', ACADEMIC_WRITING_POLICY),
     formatStaticPolicy('CITATION_POLICY', CITATION_POLICY),
-    formatStaticPolicy('REVIEW_POLICY', REVIEW_POLICY),
     formatStaticPolicy('WRITING_TASK_POLICY', WRITING_TASK_POLICY)
   ].join('\n\n')
 }

@@ -16,9 +16,7 @@ import {
   agentReadToolNameSchema,
   type ActivateToolGroupsResult,
   type AskUserResult,
-  checkDraftResultSchema,
   type AgentToolName,
-  type CheckDraftResult,
   inspectChangeArgsSchema,
   inspectChangeResultSchema,
   type InspectChangeResult,
@@ -30,11 +28,6 @@ import {
   type SearchKnowledgeResult,
   type WritingContextResult
 } from '../../shared/contracts/agent-tools'
-import type {
-  ListReviewIssuesResult,
-  RecordReviewIssuesResult,
-  UpdateReviewIssuesResult
-} from '../../shared/contracts/review'
 import type {
   createWritingTaskResultSchema,
   getWritingTaskResultSchema,
@@ -64,7 +57,6 @@ import {
 } from '../../shared/manuscript-table'
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 import { findCitationClusters } from '../../shared/citation-cluster'
-import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
 
 interface AgentToolResultMap {
@@ -78,10 +70,6 @@ interface AgentToolResultMap {
   ask_user: AskUserResult
   activate_tool_groups: ActivateToolGroupsResult
   inspect_change: InspectChangeResult
-  check_draft: CheckDraftResult
-  list_review_issues: ListReviewIssuesResult
-  record_review_issues: RecordReviewIssuesResult
-  update_review_issues: UpdateReviewIssuesResult
   get_writing_task: ReturnType<typeof getWritingTaskResultSchema.parse>
   create_writing_task: ReturnType<typeof createWritingTaskResultSchema.parse>
   update_writing_task: ReturnType<typeof updateWritingTaskResultSchema.parse>
@@ -122,7 +110,6 @@ export class MainAgentTools implements AgentToolExecutor {
   constructor(
     private readonly readTools: AgentReadToolExecutor & { contextBuilder(): AgentContextBuilder },
     readonly mutations: MutationProposalService,
-    private readonly reviewIssues?: ReviewIssueService,
     private readonly writingTasks?: WritingTaskService
   ) {}
 
@@ -162,25 +149,6 @@ export class MainAgentTools implements AgentToolExecutor {
         'User clarification is handled by the active Agent session',
         false
       )
-    }
-    if (input.toolName === 'list_review_issues') {
-      return this.#requireReviewIssues().list(input.args) as AgentToolResultMap[TName]
-    }
-    if (input.toolName === 'record_review_issues') {
-      if (input.snapshot === undefined) {
-        throw new AgentToolDomainError('conflict', 'Review issue source snapshot expired')
-      }
-      return this.#requireReviewIssues().record(
-        input.args,
-        { agentSessionId: input.agentSessionId, agentRunId: input.agentRunId },
-        input.snapshot
-      ) as AgentToolResultMap[TName]
-    }
-    if (input.toolName === 'update_review_issues') {
-      return this.#requireReviewIssues().update(input.args, {
-        agentSessionId: input.agentSessionId,
-        agentRunId: input.agentRunId
-      }) as AgentToolResultMap[TName]
     }
     if (input.toolName === 'get_writing_task') {
       return this.#requireWritingTasks().get(input.agentSessionId) as AgentToolResultMap[TName]
@@ -259,12 +227,6 @@ export class MainAgentTools implements AgentToolExecutor {
         snapshot: input.snapshot,
         signal: input.signal
       })
-      if (readName.data === 'check_draft') {
-        return this.#withCitationProvenance(
-          result as CheckDraftResult,
-          input.agentSessionId
-        ) as AgentToolResultMap[TName]
-      }
       return result as AgentToolResultMap[TName]
     }
     const proposalName = agentProposalToolNameSchema.parse(input.toolName)
@@ -279,8 +241,7 @@ export class MainAgentTools implements AgentToolExecutor {
         altText: requested.altText,
         caption: requested.caption,
         aspectRatio: requested.aspectRatio,
-        imageSize: requested.imageSize,
-        resolvesReviewIssues: requested.resolvesReviewIssues
+        imageSize: requested.imageSize
       }
       const args = normalizedGenerateImageArgsSchema.parse(
         requested.mode === 'insert'
@@ -296,18 +257,14 @@ export class MainAgentTools implements AgentToolExecutor {
               iteration: requested.iteration
             }
       )
-      const reviewResolutions = args.resolvesReviewIssues ?? []
-      this.#validateReviewResolutions(reviewResolutions, input.agentSessionId)
       const result = this.mutations.proposeGeneratedImage(args, input.snapshot, {
         agentSessionId: input.agentSessionId,
         agentRunId: input.agentRunId,
         toolCallId: input.toolCallId,
         toolCallEventId: input.toolCallEventId,
         modelRequestId: input.modelRequestId,
-        resolvesReviewIssues: reviewResolutions,
         signal: input.signal
       })
-      this.#linkReviewIssues(result.proposalId, reviewResolutions, input)
       return result as AgentToolResultMap[TName]
     }
     let tableOperationKinds: string[] | undefined
@@ -352,27 +309,17 @@ export class MainAgentTools implements AgentToolExecutor {
       }
     }
     const normalized = normalizeProposalArguments(proposalName, input.args, input.snapshot)
-    this.#validateReviewResolutions(normalized.resolvesReviewIssues, input.agentSessionId)
     const result = this.mutations.propose(proposalName, normalized.args, {
       agentSessionId: input.agentSessionId,
       agentRunId: input.agentRunId,
       toolCallId: input.toolCallId,
       toolCallEventId: input.toolCallEventId,
       modelRequestId: input.modelRequestId,
-      resolvesReviewIssues: normalized.resolvesReviewIssues,
       ...normalized.idMapping,
       ...(tableOperationKinds === undefined ? {} : { tableOperationKinds }),
       signal: input.signal
     })
-    this.#linkReviewIssues(result.proposalId, normalized.resolvesReviewIssues, input)
     return result as AgentToolResultMap[TName]
-  }
-
-  #requireReviewIssues(): ReviewIssueService {
-    if (this.reviewIssues === undefined) {
-      throw new AgentToolDomainError('unavailable', 'Review issues are unavailable')
-    }
-    return this.reviewIssues
   }
 
   #requireWritingTasks(): WritingTaskService {
@@ -380,99 +327,6 @@ export class MainAgentTools implements AgentToolExecutor {
       throw new AgentToolDomainError('unavailable', 'Writing task service is unavailable')
     }
     return this.writingTasks
-  }
-
-  #validateReviewResolutions(
-    targets: readonly { issueId: string; expectedVersion: number; resolutionSummary: string }[],
-    agentSessionId: string
-  ): void {
-    if (targets.length === 0) return
-    this.#requireReviewIssues().validateResolutionTargets(targets, agentSessionId)
-  }
-
-  #linkReviewIssues(
-    proposalId: string,
-    targets: readonly { issueId: string; expectedVersion: number; resolutionSummary: string }[],
-    input: AgentToolExecutionInput
-  ): void {
-    if (targets.length === 0) return
-    this.#requireReviewIssues().linkProposal(proposalId, targets, {
-      agentSessionId: input.agentSessionId,
-      agentRunId: input.agentRunId
-    })
-  }
-
-  #withCitationProvenance(result: CheckDraftResult, agentSessionId: string): CheckDraftResult {
-    if (!result.summary.unavailableChecks.includes('citation_provenance')) return result
-    const findings = [...result.findings]
-    let citationFailed = false
-    let citationFindingTruncated = false
-    for (const proposal of this.mutations.list(agentSessionId)) {
-      const citationIds =
-        proposal.payload.kind === 'generated_image_insert'
-          ? []
-          : proposal.payload.mutation.citationIds
-      const sources = new Map(
-        proposal.payload.provenance.citedSources.map((source) => [source.citationId, source])
-      )
-      for (const citationId of citationIds) {
-        const source = sources.get(citationId)
-        const complete =
-          source?.evidenceSchemaVersion === 2 &&
-          typeof source.excerpt === 'string' &&
-          source.excerpt.length > 0 &&
-          typeof source.contentHash === 'string' &&
-          typeof source.retrievedAt === 'string'
-        if (complete) continue
-        citationFailed = true
-        if (findings.length >= 200) {
-          citationFindingTruncated = true
-          continue
-        }
-        const evidence = `${proposal.proposalId}:${citationId}`
-        findings.push({
-          findingId: createHash('sha256')
-            .update(
-              `${result.snapshotId}:citation_provenance:proposal:${proposal.proposalId}:${evidence}`
-            )
-            .digest('hex'),
-          priority: 'P1',
-          category: 'citation',
-          check: 'citation_provenance',
-          title: 'Proposal citation provenance is incomplete',
-          description: 'A proposal citation is missing its bounded expanded-evidence snapshot.',
-          evidence
-        })
-      }
-    }
-    const citationOutcome = {
-      check: 'citation_provenance' as const,
-      status: citationFailed ? ('failed' as const) : ('passed' as const),
-      reason: null
-    }
-    return checkDraftResultSchema.parse({
-      ...result,
-      findings,
-      summary: {
-        priorities: {
-          P0: findings.filter((finding) => finding.priority === 'P0').length,
-          P1: findings.filter((finding) => finding.priority === 'P1').length,
-          P2: findings.filter((finding) => finding.priority === 'P2').length,
-          P3: findings.filter((finding) => finding.priority === 'P3').length
-        },
-        passedChecks: citationFailed
-          ? result.summary.passedChecks
-          : [...result.summary.passedChecks, 'citation_provenance'],
-        skippedChecks: result.summary.skippedChecks,
-        unavailableChecks: result.summary.unavailableChecks.filter(
-          (check) => check !== 'citation_provenance'
-        ),
-        checkOutcomes: result.summary.checkOutcomes.map((outcome) =>
-          outcome.check === 'citation_provenance' ? citationOutcome : outcome
-        ),
-        truncated: result.summary.truncated || citationFindingTruncated
-      }
-    })
   }
 }
 
@@ -490,11 +344,6 @@ function normalizeProposalArguments(
     createdSectionRefs?: Record<string, string>
     createdBlockRefs?: Record<string, string>
   }
-  resolvesReviewIssues: Array<{
-    issueId: string
-    expectedVersion: number
-    resolutionSummary: string
-  }>
 } {
   if (toolName === 'submit_brief_change') {
     const args = modelSubmitBriefChangeArgsSchema.parse(rawArgs)
@@ -505,8 +354,7 @@ function normalizeProposalArguments(
         baseBriefVersion: snapshot.workspace.brief.version,
         ...args
       },
-      idMapping: {},
-      resolvesReviewIssues: args.resolvesReviewIssues ?? []
+      idMapping: {}
     }
   }
   if (toolName === 'submit_writing_rules_change') {
@@ -528,8 +376,7 @@ function normalizeProposalArguments(
         },
         citationIds: args.citationIds
       },
-      idMapping: {},
-      resolvesReviewIssues: args.resolvesReviewIssues ?? []
+      idMapping: {}
     }
   }
   if (toolName === 'submit_outline_change') return normalizeOutlineArguments(rawArgs, snapshot)
@@ -662,8 +509,7 @@ function normalizeOutlineArguments(
       operations,
       citationIds: args.citationIds
     },
-    idMapping: { createdSectionRefs: Object.fromEntries(createdIds) },
-    resolvesReviewIssues: args.resolvesReviewIssues ?? []
+    idMapping: { createdSectionRefs: Object.fromEntries(createdIds) }
   }
 }
 
@@ -954,8 +800,7 @@ function normalizeSectionArguments(
       operations,
       citationIds: args.citationIds
     },
-    idMapping: { createdBlockRefs: Object.fromEntries(createdBlockRefs) },
-    resolvesReviewIssues: args.resolvesReviewIssues ?? []
+    idMapping: { createdBlockRefs: Object.fromEntries(createdBlockRefs) }
   }
 }
 

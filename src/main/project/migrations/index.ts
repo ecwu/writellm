@@ -40,6 +40,7 @@ import { migration0039 } from './0039-agent-interaction-modes'
 import { migration0040 } from './0040-agent-request-traces'
 import { migration0041 } from './0041-reference-authority'
 import { migration0042 } from './0042-agent-request-retry'
+import { migration0043 } from './0043-remove-review-fixtures-and-annotations'
 
 export const projectMigrations = [
   migration0001,
@@ -83,5 +84,6 @@ export const projectMigrations = [
   migration0039,
   migration0040,
   migration0041,
-  migration0042
+  migration0042,
+  migration0043
 ] as const

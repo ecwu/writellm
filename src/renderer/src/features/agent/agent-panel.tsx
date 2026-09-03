@@ -1,5 +1,4 @@
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
-import type { AnnotationRecord } from '../../../../shared/contracts/annotations'
 import type { AgentPanelSelection } from './agent-panel-logic'
 import { AgentPanelView } from './agent-panel-view'
 import { useAgentPanelController } from './use-agent-panel-controller'
@@ -22,8 +21,6 @@ export interface AgentPanelProps {
   currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
   quickActionRequest?: AgentPanelQuickActionRequest | null
-  includedAnnotations: AnnotationRecord[]
-  onClearIncludedAnnotations(): void
   onQuickActionHandled?(requestId: string, started: boolean): void
   onFollowSection(sectionId: string): Promise<boolean>
   flushCurrent(): Promise<boolean>

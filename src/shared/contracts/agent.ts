@@ -144,13 +144,6 @@ export const agentUserMessagePayloadSchema = z
             selectedText: agentQuickActionSelectedTextSchema,
             displayInstruction: z.string().trim().min(1).max(4_096).nullable()
           })
-          .strict(),
-        z
-          .object({
-            kind: z.literal('annotation_context'),
-            displayContent: z.string().trim().min(1).max(262_144),
-            annotationCount: z.number().int().min(1).max(10)
-          })
           .strict()
       ])
       .optional()

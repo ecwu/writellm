@@ -57,7 +57,6 @@ interface PreviewNavigationProps {
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
@@ -112,7 +111,6 @@ export function ManuscriptPreviewWorkspace(
           onOpenChecks={props.onOpenChecks}
           onOpenAssets={props.onOpenAssets}
           onOpenReferences={props.onOpenReferences}
-          onOpenIssues={props.onOpenIssues}
           onOpenWritingRules={props.onOpenWritingRules}
           onOpenFind={props.onOpenFind}
           onOpenSettings={props.onOpenSettings}

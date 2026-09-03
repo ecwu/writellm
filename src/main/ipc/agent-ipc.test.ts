@@ -133,31 +133,6 @@ describe('Agent session IPC', () => {
     expect(prompt).toContain('<QUICK_ACTION_REQUEST instructionSemantics="true">')
   })
 
-  it('includes only explicitly selected annotations in one ordinary Agent prompt', async () => {
-    const value = harness()
-    const annotationId = '019c6a5c-8d34-7a8e-a602-3d37a52dc908'
-    await value.invoke(IPC_CHANNELS.agentStartRun, {
-      projectSessionId,
-      agentSessionId,
-      prompt: 'Help me address these notes.',
-      includedAnnotationIds: [annotationId],
-      scope: 'project',
-      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
-    })
-    expect(value.annotations.agentContext).toHaveBeenCalledWith([annotationId])
-    expect(value.sessions.startRun).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        prompt: expect.stringContaining('<selected_annotations_json>'),
-        presentation: {
-          kind: 'annotation_context',
-          displayContent: 'Help me address these notes.',
-          annotationCount: 1
-        }
-      })
-    )
-    expect(value.sessions.startRun.mock.calls.at(-1)?.[0]?.prompt).toContain('Private author TODO')
-  })
-
   it('continues an approved proposal with human-facing authoritative copy', async () => {
     const value = harness()
     const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc905'
@@ -200,7 +175,6 @@ describe('Agent session IPC', () => {
     expect(continuedPrompt).toContain(
       'Continue only the original user request that remains unresolved after this approved proposal.'
     )
-    expect(continuedPrompt).not.toContain('check_draft')
     expect(continuedPrompt).not.toContain(proposalId)
     expect(continuedPrompt).not.toContain('{')
     expect(value.sessions.startRun).toHaveBeenLastCalledWith(
@@ -628,12 +602,6 @@ function harness() {
     updateByUser: vi.fn(() => task)
   }
   const manuscript = { getSection: vi.fn(), getRevision: vi.fn() }
-  const annotations = {
-    agentContext: vi.fn((ids: string[]) => ({
-      ids,
-      content: '1. [TODO · open] Private author TODO'
-    }))
-  }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
@@ -641,8 +609,7 @@ function harness() {
         agentSessions: sessions,
         agentMutations: mutations,
         writingTasks,
-        manuscript,
-        annotations
+        manuscript
       }
     }),
     assertMutationSession: vi.fn((value: string) => {
@@ -651,8 +618,7 @@ function harness() {
         agentSessions: sessions,
         agentMutations: mutations,
         writingTasks,
-        manuscript,
-        annotations
+        manuscript
       }
     })
   }
@@ -717,7 +683,6 @@ function harness() {
     mutations,
     writingTasks,
     manuscript,
-    annotations,
     broker,
     catalog,
     order

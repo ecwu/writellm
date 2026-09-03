@@ -199,11 +199,9 @@ export function AgentQuestionnaireDock(props: {
 export function ComposerContextChips(props: {
   scopePreference: 'auto' | AgentStartScope
   skillMentions: readonly LeadingSkillMention[]
-  annotationCount: number
   disabled: boolean
   onScopeClick(): void
   onSkillClick(mention: LeadingSkillMention): void
-  onClearAnnotations(): void
 }): React.JSX.Element | null {
   const scopeLabel =
     props.scopePreference === 'selection'
@@ -213,7 +211,7 @@ export function ComposerContextChips(props: {
         : props.scopePreference === 'project'
           ? 'Whole manuscript'
           : null
-  if (scopeLabel === null && props.skillMentions.length === 0 && props.annotationCount === 0) {
+  if (scopeLabel === null && props.skillMentions.length === 0) {
     return null
   }
   return (
@@ -247,19 +245,6 @@ export function ComposerContextChips(props: {
           <span className='truncate'>${mention.name}</span>
         </Button>
       ))}
-      {props.annotationCount > 0 ? (
-        <Button
-          type='button'
-          variant='secondary'
-          size='xs'
-          className='h-6 max-w-full rounded-full px-2 text-xs'
-          aria-label={`Remove ${props.annotationCount} selected annotations`}
-          onClick={props.onClearAnnotations}
-        >
-          <span className='truncate'>{props.annotationCount} annotations</span>
-          <X />
-        </Button>
-      ) : null}
     </fieldset>
   )
 }

@@ -1797,3 +1797,39 @@ maintenance without turning the active tracker back into a historical log.
   did not run functional tests; the final-source tests and fresh-build E2E above remain applicable.
   No full package gate, installer, other-platform run, release, tag, signing identity,
   notarization, or publication was performed.
+
+## 2026-09-03 Review fixture and annotation removal
+
+- Authorization: the user approved complete removal without a compatibility surface: Review
+  Center, manuscript Annotations, deterministic draft checking, the three Review Issue tools,
+  Issue lifecycle/persistence, and proposal reconciliation are deleted. Writing Rules and the
+  existing proposal review workflow remain.
+- ADR 077 supersedes the affected ADR 024/035 decisions. Agent Harness Protocol v15 removes the
+  four model-visible tools from schemas, descriptors, dispatch, recovery, context budgeting, and
+  Worker advertisement; the application prompt no longer contains `REVIEW_POLICY`. The `review`
+  capability group remains only for `inspect_change`.
+- Renderer, preload, IPC, Main services, ProjectContext assembly, and tests no longer expose Review
+  Center or Annotation behavior. Writing Rules moved to `features/writing-rules` and the restricted
+  `desktop.writingRules.update` namespace with the existing sender, project-session, Zod, and Brief
+  version checks intact. Proposal approval, rejection, request-changes feedback, undo, and
+  awaiting-review presentation remain unchanged.
+- Forward-only project migration 0043 runs behind the existing verified migration backup. It
+  removes every lifecycle event for the four deleted tools, strips legacy issue-resolution fields
+  from retained proposal calls and proposal provenance, strips Annotation presentation from normal
+  user messages, then drops `review_issue_events`, `review_issues`, and
+  `manuscript_annotations` in foreign-key order. It finishes with foreign-key and integrity checks;
+  runtime code contains no legacy parser or compatibility branch.
+- Final-source focused verification passed 6 files / 36 tests in 1.1 seconds. The migration fixture
+  covers v42 issue/event/annotation state, every removed tool event family, issue-linked proposal
+  JSON, and Annotation presentation while proving ordinary user content and strict proposal parsing
+  survive. `pnpm check:fixtures` passed 31 recovery cases from 29 sources.
+- `pnpm check:full` passed all seven stages in 161.8 seconds: Biome, both typechecks, 236 Vitest
+  files / 1339 tests with 3 benchmark skips, native validation, one production build, and all 48
+  Electron E2E scenarios in 116.4 seconds with zero retries, flakes, failures, or skips. The new
+  `writing-rules.independent-workspace` scenario verifies the removed rail and Section action are
+  absent, Writing Rules remain editable and durable, and the existing proposal scenarios retain
+  approval, rejection, request-changes, and undo coverage. Evidence:
+  `.cache/verification/1788468711502-30035-497af23f/`.
+- No package/release gate ran because this maintenance changes no native dependency, package
+  resource, installer, signing, or release boundary. The host Node 26.8.1 versus repository Node 24
+  engine warning remains an environment limitation; all tests used the canonical Electron runtime.

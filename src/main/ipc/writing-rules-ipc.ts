@@ -3,14 +3,7 @@ import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { manuscriptWorkspaceSchema } from '../../shared/contracts/manuscript'
-import {
-  listReviewIssuesIpcInputSchema,
-  reviewIssueEventsInputSchema,
-  reviewIssueEventsResultSchema,
-  updateReviewIssueIpcInputSchema,
-  updateReviewIssueIpcResultSchema,
-  updateWritingRulesIpcInputSchema
-} from '../../shared/contracts/review-ipc'
+import { updateWritingRulesIpcInputSchema } from '../../shared/contracts/writing-rules-ipc'
 import {
   applyWritingRuleOperations,
   readWritingRules,
@@ -20,13 +13,13 @@ import {
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
 
-export interface ReviewIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
+export interface WritingRulesIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
-export function registerReviewIpc(options: {
+export function registerWritingRulesIpc(options: {
   manager: ProjectManager
   logger: Pick<Logger, 'info' | 'error'>
   developmentUrl?: string
-  ipc?: ReviewIpcMain
+  ipc?: WritingRulesIpcMain
 }): { unregister(): void } {
   const ipc = options.ipc ?? ipcMain
   const lifecycle = <T>(eventName: string, projectSessionId: string, operation: () => T): T => {
@@ -35,7 +28,7 @@ export function registerReviewIpc(options: {
       const result = operation()
       options.logger.info(
         { event: `${eventName}.completed`, projectSessionId, durationMs: Date.now() - startedAt },
-        'Review fixture IPC operation completed'
+        'Writing Rules IPC operation completed'
       )
       return result
     } catch (err) {
@@ -46,48 +39,15 @@ export function registerReviewIpc(options: {
           projectSessionId,
           durationMs: Date.now() - startedAt
         },
-        'Review fixture IPC operation failed'
+        'Writing Rules IPC operation failed'
       )
       throw err
     }
   }
-  const service = (projectSessionId: string) => {
-    const reviewIssues = options.manager.assertActiveSession(projectSessionId).reviewIssues
-    if (reviewIssues === null) throw new Error('Review issues are unavailable')
-    return reviewIssues
-  }
-
-  ipc.handle(IPC_CHANNELS.reviewListIssues, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = listReviewIssuesIpcInputSchema.parse(rawInput)
-    const { projectSessionId, ...filters } = input
-    return lifecycle('review.issues.list', projectSessionId, () =>
-      service(projectSessionId).list(filters)
-    )
-  })
-
-  ipc.handle(IPC_CHANNELS.reviewIssueEvents, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = reviewIssueEventsInputSchema.parse(rawInput)
-    return lifecycle('review.issue_events.list', input.projectSessionId, () =>
-      reviewIssueEventsResultSchema.parse(service(input.projectSessionId).events(input.issueId))
-    )
-  })
-
-  ipc.handle(IPC_CHANNELS.reviewUpdateIssue, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = updateReviewIssueIpcInputSchema.parse(rawInput)
-    return lifecycle('review.issue.update', input.projectSessionId, () =>
-      updateReviewIssueIpcResultSchema.parse(
-        service(input.projectSessionId).updateByUser(input.operation)
-      )
-    )
-  })
-
-  ipc.handle(IPC_CHANNELS.reviewUpdateWritingRules, (event, rawInput: unknown) => {
+  ipc.handle(IPC_CHANNELS.writingRulesUpdate, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = updateWritingRulesIpcInputSchema.parse(rawInput)
-    return lifecycle('review.writing_rules.update', input.projectSessionId, () => {
+    return lifecycle('writing_rules.update', input.projectSessionId, () => {
       const context = options.manager.assertMutationSession(input.projectSessionId)
       const brief = context.manuscript.getBrief()
       if (brief.version !== input.baseBriefVersion) {
@@ -117,12 +77,7 @@ export function registerReviewIpc(options: {
     })
   })
 
-  const channels = [
-    IPC_CHANNELS.reviewListIssues,
-    IPC_CHANNELS.reviewIssueEvents,
-    IPC_CHANNELS.reviewUpdateIssue,
-    IPC_CHANNELS.reviewUpdateWritingRules
-  ] as const
+  const channels = [IPC_CHANNELS.writingRulesUpdate] as const
   return {
     unregister() {
       for (const channel of channels) ipc.removeHandler(channel)

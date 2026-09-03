@@ -18,10 +18,8 @@ import type { MutationProposalService } from '../agent/mutation-service'
 import type { ManuscriptAssetService } from '../manuscript/asset-service'
 import type { ProjectVersionStore } from './project-version-store'
 import type { ProjectFilesystem } from './project-filesystem'
-import type { ReviewIssueService } from '../agent/review-issue-service'
 import type { WritingTaskService } from '../agent/writing-task-service'
 import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
-import type { AnnotationService } from '../manuscript/annotation-service'
 import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
 
@@ -51,8 +49,6 @@ export interface ProjectContext {
   readonly agentSessions: AgentSessionService | null
   readonly agentMutations: MutationProposalService | null
   readonly agentChangeSets: ChangeSetBatchService | null
-  readonly reviewIssues: ReviewIssueService | null
-  readonly annotations: AnnotationService
   readonly writingTasks: WritingTaskService | null
   readonly writeLock: ProjectWriteLock
   readonly versionHistory?: ProjectVersionStore

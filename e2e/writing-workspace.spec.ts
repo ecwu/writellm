@@ -559,10 +559,10 @@ Evidence from \cite{garcia2025}.
 )
 
 test(
-  'keeps review fixtures passive and versioned',
-  scenario('review.passive-fixtures-workbench'),
+  'keeps writing rules independent and omits removed review entry points',
+  scenario('writing-rules.independent-workspace'),
   async ({ testRoot }) => {
-    const projectName = 'Review fixtures'
+    const projectName = 'Writing rules'
     const projectRoot = join(testRoot, `${projectName}.writellm`)
     const launched = await launchApp({
       userData: join(testRoot, 'user-data'),
@@ -570,12 +570,10 @@ test(
     })
     try {
       await createProject(launched.page, projectName)
-      await launched.page.getByRole('button', { name: /Review Center/u }).click()
-      await launched.page.getByRole('tab', { name: 'Agent issues' }).click()
-      const issues = launched.page.getByTestId('review-issues-panel')
-      await expect(issues).toBeVisible()
-      await expect(issues.getByText('No matching issues', { exact: true })).toBeVisible()
-      await expect(issues.getByRole('button', { name: /AI Review|Analyze/u })).toHaveCount(0)
+      await expect(launched.page.getByRole('button', { name: /Review Center/u })).toHaveCount(0)
+      await launched.page.getByRole('button', { name: 'Section actions' }).click()
+      await expect(launched.page.getByRole('menuitem', { name: 'Add note or TODO' })).toHaveCount(0)
+      await launched.page.keyboard.press('Escape')
 
       await launched.page.getByRole('button', { name: 'Writing rules', exact: true }).click()
       const rules = launched.page.getByTestId('writing-rules-panel')
@@ -599,95 +597,6 @@ test(
           .getByTestId('writing-rules-panel')
           .getByText('Translate LLM consistently.', { exact: true })
       ).toBeVisible()
-    } finally {
-      await launched.app.close()
-    }
-  }
-)
-
-test(
-  'attaches private TODOs, resolves them, and rolls them back with project history',
-  scenario('annotations.durable-todos', ['@critical', '@packaged']),
-  async ({ testRoot }) => {
-    const projectName = 'Durable annotations'
-    const launched = await launchApp({
-      userData: join(testRoot, 'user-data'),
-      dialogPaths: [testRoot]
-    })
-    try {
-      await createProject(launched.page, projectName)
-      await saveEditorText(launched.page, 'Claim requiring a private follow-up.')
-      await sectionEditor(launched.page).click()
-      await launched.page.getByRole('button', { name: 'Section actions' }).click()
-      await launched.page.getByRole('menuitem', { name: 'Add note or TODO' }).click()
-      const create = launched.page.getByRole('dialog', { name: 'Add annotation' })
-      await create.getByLabel('Annotation text').fill('Verify the source before publication.')
-      await create.getByRole('button', { name: 'Add annotation' }).click()
-
-      const annotations = launched.page.getByTestId('annotations-panel')
-      await expect(annotations).toBeVisible()
-      await expect(
-        annotations.getByText('Verify the source before publication.', { exact: true })
-      ).toBeVisible()
-      await annotations.getByText('Verify the source before publication.', { exact: true }).click()
-      await annotations.getByRole('button', { name: 'Go to block' }).click()
-      await expect(sectionEditor(launched.page)).toBeVisible()
-      await expect(sectionEditor(launched.page)).toContainText(
-        'Claim requiring a private follow-up.'
-      )
-
-      await launched.page.getByRole('button', { name: /Review Center/u }).click()
-      await annotations.getByText('Verify the source before publication.', { exact: true }).click()
-      await annotations.getByRole('button', { name: 'Resolve', exact: true }).click()
-      await expect(
-        annotations.getByRole('button', { name: /Verify the source before publication/u })
-      ).toHaveCount(0)
-
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Create checkpoint…' }).click()
-      const checkpoint = launched.page.getByRole('dialog', { name: 'Create checkpoint' })
-      await checkpoint.getByLabel('Name').fill('Resolved annotation')
-      await checkpoint.getByRole('button', { name: 'Create checkpoint', exact: true }).click()
-      await expect(checkpoint).not.toBeVisible()
-
-      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-      await sectionEditor(launched.page).click()
-      await launched.page.getByRole('button', { name: 'Section actions' }).click()
-      await launched.page.getByRole('menuitem', { name: 'Add note or TODO' }).click()
-      const later = launched.page.getByRole('dialog', { name: 'Add annotation' })
-      await later.getByLabel('Annotation text').fill('Temporary note after checkpoint.')
-      await later.getByRole('button', { name: 'Add annotation' }).click()
-      await expect(
-        annotations.getByText('Temporary note after checkpoint.', { exact: true })
-      ).toBeVisible()
-
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
-      const history = launched.page.getByRole('dialog', { name: 'Version history' })
-      await history
-        .locator('[data-slot=item]')
-        .filter({ hasText: 'Resolved annotation' })
-        .getByRole('button', { name: 'Restore', exact: true })
-        .click()
-      const confirmation = launched.page.getByRole('alertdialog', {
-        name: 'Restore this checkpoint?'
-      })
-      await confirmation.getByRole('button', { name: 'Restore checkpoint', exact: true }).click()
-      await expect(confirmation).not.toBeVisible({ timeout: 15_000 })
-
-      await launched.page.getByRole('button', { name: /Review Center/u }).click()
-      await annotations.getByLabel('Status').click()
-      await launched.page.getByRole('option', { name: 'All status' }).click()
-      await expect(
-        annotations.getByText('Verify the source before publication.', { exact: true })
-      ).toBeVisible()
-      await expect(
-        annotations.getByText('Temporary note after checkpoint.', { exact: true })
-      ).toHaveCount(0)
-
-      await launched.page.keyboard.press('ControlOrMeta+f')
-      await launched.page.getByTestId('manuscript-find-input').fill('Verify the source')
-      await expect(launched.page.getByText('0 results', { exact: true })).toBeVisible()
     } finally {
       await launched.app.close()
     }

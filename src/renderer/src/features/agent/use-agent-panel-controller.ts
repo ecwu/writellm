@@ -292,12 +292,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         return false
       }
       const session = activeSession ?? (await createSession())
-      const includedAnnotationIds =
-        quickAction === undefined &&
-        approvedProposalId === undefined &&
-        rejectedProposalId === undefined
-          ? props.includedAnnotations.map((annotation) => annotation.annotationId)
-          : []
       const run = await window.desktop.agent.startRun({
         projectSessionId: props.projectSessionId,
         agentSessionId: session.agentSessionId,
@@ -308,7 +302,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
           : { quickAction }),
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
         ...(rejectedProposalId === undefined ? {} : { rejectedProposalId }),
-        includedAnnotationIds,
         scope: quickAction === undefined ? scope : 'selection',
         editorContext: editorContextForScope(
           quickAction === undefined ? scope : 'selection',
@@ -325,7 +318,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         )
       )
       setPrompt('')
-      if (includedAnnotationIds.length > 0) props.onClearIncludedAnnotations()
       return true
     } catch (cause) {
       const message = errorMessage(cause)
@@ -430,7 +422,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         projectSessionId: props.projectSessionId,
         agentSessionId: activeSession.agentSessionId,
         resumeWritingTask: true,
-        includedAnnotationIds: [],
         scope,
         editorContext: editorContextForScope(
           scope,

@@ -78,7 +78,6 @@ export function AssetWorkspace(props: {
   onOpenManuscript(): void
   onOpenPreview(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenKnowledge(): void
   onOpenNotebook?(): void
@@ -147,7 +146,6 @@ export function AssetWorkspace(props: {
           onOpenChecks={props.onOpenChecks}
           onOpenManuscript={props.onOpenManuscript}
           onOpenReferences={props.onOpenReferences}
-          onOpenIssues={props.onOpenIssues}
           onOpenWritingRules={props.onOpenWritingRules}
           onOpenFind={props.onOpenFind}
           onOpenSettings={props.onOpenSettings}

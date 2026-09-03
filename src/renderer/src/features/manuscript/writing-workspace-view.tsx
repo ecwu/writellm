@@ -6,7 +6,6 @@ import type {
   ExpandedCitation,
   ReadableCitationResolutionResult
 } from '../../../../shared/contracts/search'
-import type { ReviewIssueRecord } from '../../../../shared/contracts/review'
 import type { PublicationPreview } from '../../../../shared/contracts/publication'
 import {
   AlertCircle,
@@ -17,7 +16,6 @@ import {
   FileText,
   FolderOpen,
   MoreHorizontal,
-  MessageSquarePlus,
   Upload
 } from 'lucide-react'
 import { AppSidebar } from '@/components/app-sidebar'
@@ -48,9 +46,7 @@ import {
   CitationCandidatePicker,
   ExpandedCitationPreview
 } from '@/features/knowledge/citation-preview'
-import { ReviewCenterPanel } from '@/features/review/review-center-panel'
-import { WritingRulesPanel } from '@/features/review/writing-rules-panel'
-import { AnnotationCreateDialog } from '@/features/review/annotation-create-dialog'
+import { WritingRulesPanel } from '@/features/writing-rules/writing-rules-panel'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
 import { ManuscriptImportDialog } from './manuscript-import-dialog'
@@ -111,11 +107,6 @@ export function WritingWorkspaceView(input: {
     metadataDraftRef,
     selectionContext,
     setSelectionContext,
-    annotationCreateOpen,
-    setAnnotationCreateOpen,
-    includedAnnotations,
-    setIncludedAnnotations,
-    openAnnotationsQuery,
     quickActionRequest,
     setQuickActionRequest,
     findQuery,
@@ -200,7 +191,6 @@ export function WritingWorkspaceView(input: {
         referencesError={referencesQuery.isError}
         activeWorkspace={activeWorkspace}
         activeSectionId={activeSectionId}
-        reviewCount={openAnnotationsQuery.data?.total ?? 0}
         onSelectSection={(sectionId) => void selectSection(sectionId)}
         onOpenBrief={() => setBriefOpen(true)}
         onOpenOutlineEditor={() => void openOutlineEditor()}
@@ -221,10 +211,6 @@ export function WritingWorkspaceView(input: {
         onOpenReferences={() => {
           props.onAgentOpenChange(false)
           setActiveWorkspace('references')
-        }}
-        onOpenIssues={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('issues')
         }}
         onOpenWritingRules={() => {
           props.onAgentOpenChange(false)
@@ -287,35 +273,6 @@ export function WritingWorkspaceView(input: {
             replacementLoadingMore={replacementLoadingMore}
             replacementApplying={replacementApplying}
             replacementMessage={replacementMessage}
-          />
-        }
-        issuesPanel={
-          <ReviewCenterPanel
-            projectSessionId={props.projectSessionId}
-            workspace={workspace}
-            onError={props.onError}
-            onNavigateIssue={(issue: ReviewIssueRecord) => {
-              if (issue.anchor === null || issue.anchorStatus !== 'current') return
-              setActiveWorkspace('manuscript')
-              void selectSection(issue.anchor.sectionId).then((selected) => {
-                if (!selected || issue.anchor?.blockId === null) return
-                requestAnimationFrame(() =>
-                  editorRef.current?.revealBlock(issue.anchor?.blockId ?? '')
-                )
-              })
-            }}
-            onNavigateAnnotation={(annotation) => {
-              if (annotation.anchorStatus !== 'current') return
-              setActiveWorkspace('manuscript')
-              void selectSection(annotation.sectionId).then((selected) => {
-                if (!selected) return
-                requestAnimationFrame(() => editorRef.current?.revealBlock(annotation.blockId))
-              })
-            }}
-            onIncludeAnnotations={(annotations) => {
-              setIncludedAnnotations(annotations.slice(0, 10))
-              props.onAgentOpenChange(true)
-            }}
           />
         }
         writingRulesPanel={
@@ -413,16 +370,6 @@ export function WritingWorkspaceView(input: {
                               <FolderOpen /> Import LaTeX project folder
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              disabled={selectionContext?.activeBlockId == null}
-                              onSelect={() =>
-                                void flushCurrent().then(
-                                  (saved) => saved && setAnnotationCreateOpen(true)
-                                )
-                              }
-                            >
-                              <MessageSquarePlus /> Add note or TODO
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
                               onSelect={() => void exportNativeJsonForActiveSection()}
                             >
                               <Download /> Export Native JSON
@@ -513,8 +460,6 @@ export function WritingWorkspaceView(input: {
                 currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
                 quickActionRequest={quickActionRequest}
-                includedAnnotations={includedAnnotations}
-                onClearIncludedAnnotations={() => setIncludedAnnotations([])}
                 onQuickActionHandled={(requestId) => {
                   setQuickActionRequest((current) =>
                     current?.requestId === requestId ? null : current
@@ -604,20 +549,6 @@ export function WritingWorkspaceView(input: {
         }}
         onApply={applyManuscriptImport}
         onCancel={cancelManuscriptImport}
-      />
-
-      <AnnotationCreateDialog
-        open={annotationCreateOpen}
-        projectSessionId={props.projectSessionId}
-        sectionId={activeSectionId}
-        blockId={selectionContext?.activeBlockId ?? null}
-        textAnchor={selectionContext?.selectedText ?? null}
-        onOpenChange={setAnnotationCreateOpen}
-        onCreated={() => {
-          void queryClient.invalidateQueries({ queryKey: ['annotations', props.projectSessionId] })
-          setActiveWorkspace('issues')
-        }}
-        onError={props.onError}
       />
 
       <ReferenceSourceDialog

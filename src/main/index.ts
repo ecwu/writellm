@@ -27,8 +27,7 @@ import { registerKnowledgeIpc } from './ipc/knowledge-ipc'
 import { registerProviderIpc } from './ipc/provider-ipc'
 import { registerSearchIpc } from './ipc/search-ipc'
 import { registerNotebookChatIpc } from './ipc/notebook-chat-ipc'
-import { registerReviewIpc } from './ipc/review-ipc'
-import { registerAnnotationIpc } from './ipc/annotation-ipc'
+import { registerWritingRulesIpc } from './ipc/writing-rules-ipc'
 import { registerSkillIpc } from './ipc/skill-ipc'
 import { registerIpcHandlers } from './ipc/register-handlers'
 import { createLoggerSystem } from './observability/logger'
@@ -70,7 +69,6 @@ import { installSkillE2eFixture } from './skills/skill-test-seam'
 import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
 import { MainAgentTools } from './agent/tools'
-import { ReviewIssueService } from './agent/review-issue-service'
 import { WritingTaskService } from './agent/writing-task-service'
 import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
@@ -448,15 +446,10 @@ if (!hasSingleInstanceLock) {
           const agentReadTools = new MainAgentReadTools({
             projectSessionId,
             manuscript,
-            database,
             references,
             retrieval,
             isRetrievalAvailable: () => projectIndex.isRetrievalAvailable(),
             log: loggerSystem.createModuleLogger('agent', 'read-tools')
-          })
-          const reviewIssues = new ReviewIssueService({
-            database,
-            log: loggerSystem.createModuleLogger('agent', 'review-issues')
           })
           const writingTasks = new WritingTaskService({
             database,
@@ -470,19 +463,13 @@ if (!hasSingleInstanceLock) {
             editorPersistence,
             manuscriptAssets,
             modelExecution,
-            reviewIssues,
             writingTasks,
             log: loggerSystem.createModuleLogger('agent', 'mutations'),
             publishChanged: (event) => mutationEvents.publish(event),
             flushForMutation: (affectedSectionIds) =>
               flushForAgentMutation(projectSessionId, affectedSectionIds)
           })
-          const agentTools = new MainAgentTools(
-            agentReadTools,
-            agentMutations,
-            reviewIssues,
-            writingTasks
-          )
+          const agentTools = new MainAgentTools(agentReadTools, agentMutations, writingTasks)
           const agentSessions = new AgentSessionService({
             projectId,
             projectSessionId,
@@ -609,7 +596,6 @@ if (!hasSingleInstanceLock) {
             agentSessions,
             agentMutations,
             agentChangeSets,
-            reviewIssues,
             writingTasks,
             registry,
             terminateWorkers: async () => {
@@ -731,15 +717,9 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
-      const reviewIpc = registerReviewIpc({
+      const writingRulesIpc = registerWritingRulesIpc({
         manager: projectManager,
-        logger: loggerSystem.createModuleLogger('ipc', 'review'),
-        developmentUrl,
-        ipc
-      })
-      const annotationIpc = registerAnnotationIpc({
-        manager: projectManager,
-        logger: loggerSystem.createModuleLogger('ipc', 'annotations'),
+        logger: loggerSystem.createModuleLogger('ipc', 'writing-rules'),
         developmentUrl,
         ipc
       })
@@ -850,8 +830,7 @@ if (!hasSingleInstanceLock) {
           unregisterManuscriptIpc.unregister()
           agentMutationIpc.unregister()
           agentIpc.unregister()
-          reviewIpc.unregister()
-          annotationIpc.unregister()
+          writingRulesIpc.unregister()
           editorIpc.unregister()
           jobIpc.unregister()
           unregisterProjectIpc()

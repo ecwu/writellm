@@ -20,7 +20,6 @@ import {
   modelSubmitBriefChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema
 } from '../shared/contracts/agent-mutations'
-import { recordReviewIssuesArgsSchema } from '../shared/contracts/review'
 import {
   AgentReadToolBridge,
   getWritingContextParameters,
@@ -44,8 +43,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ).toBeLessThanOrEqual(AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES)
   })
 
-  it('keeps all 22 Pi-style contracts compact and one-way compatible with Main defaults', () => {
-    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(22)
+  it('keeps all 18 Pi-style contracts compact and one-way compatible with Main defaults', () => {
+    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(18)
     const sizes = Object.fromEntries(
       AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => [
         tool.name,
@@ -229,37 +228,6 @@ describe('Pi Agent tool TypeBox schemas', () => {
         message: 'received both empty'
       },
       {
-        toolName: 'record_review_issues' as const,
-        args: {
-          issues: [
-            {
-              existingIssueId: UUIDS.issue,
-              priority: 'P2',
-              category: 'consistency',
-              title: 'Inconsistent term',
-              description: 'One exact term differs.',
-              evidence: 'Deterministic comparison.',
-              sourceKind: 'deterministic'
-            }
-          ]
-        },
-        parse: () =>
-          recordReviewIssuesArgsSchema.parse({
-            issues: [
-              {
-                existingIssueId: UUIDS.issue,
-                priority: 'P2',
-                category: 'consistency',
-                title: 'Inconsistent term',
-                description: 'One exact term differs.',
-                evidence: 'Deterministic comparison.',
-                sourceKind: 'deterministic'
-              }
-            ]
-          }),
-        message: 'Expected existingIssueId and expectedVersion together'
-      },
-      {
         toolName: 'submit_section_change' as const,
         args: {
           sectionId: UUIDS.section,
@@ -342,11 +310,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'ask_user',
       'activate_tool_groups',
       'inspect_change',
-      'check_draft',
-      'list_review_issues',
       'get_writing_task',
-      'record_review_issues',
-      'update_review_issues',
       'create_writing_task',
       'update_writing_task',
       'submit_brief_change',
@@ -433,8 +397,6 @@ describe('Pi Agent tool TypeBox schemas', () => {
         'read_writing_skill',
         'ask_user',
         'inspect_change',
-        'check_draft',
-        'list_review_issues',
         'get_writing_task',
         'create_writing_task',
         'update_writing_task'
@@ -678,24 +640,7 @@ function minimalValidToolArguments(): Record<AgentToolName, Record<string, unkno
     },
     activate_tool_groups: { groups: ['section'] },
     inspect_change: { proposalId: UUIDS.proposal },
-    check_draft: { scope: { type: 'manuscript' } },
-    list_review_issues: {},
     get_writing_task: {},
-    record_review_issues: {
-      issues: [
-        {
-          priority: 'P2',
-          category: 'consistency',
-          title: 'Inconsistent term',
-          description: 'One exact term differs.',
-          evidence: 'Deterministic comparison.',
-          sourceKind: 'deterministic'
-        }
-      ]
-    },
-    update_review_issues: {
-      operations: [{ action: 'claim', issueId: UUIDS.issue, expectedVersion: 1 }]
-    },
     create_writing_task: {
       objective: 'Revise two sections',
       steps: [{ clientRef: UUIDS.client, title: 'Revise the first section' }]

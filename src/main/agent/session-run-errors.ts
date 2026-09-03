@@ -459,9 +459,6 @@ export function recoveryToolFor(
 ): AgentToolRequest['toolName'] {
   if (toolName === 'submit_section_change' || toolName === 'generate_image') return 'read_section'
   if (toolName === 'submit_outline_change') return 'read_outline'
-  if (toolName === 'record_review_issues' || toolName === 'update_review_issues') {
-    return 'list_review_issues'
-  }
   if (toolName === 'create_writing_task' || toolName === 'update_writing_task') {
     return 'get_writing_task'
   }

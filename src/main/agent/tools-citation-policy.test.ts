@@ -201,8 +201,7 @@ function baseExecution(toolName: 'submit_brief_change' | 'submit_writing_rules_c
         sections: []
       },
       sectionContents: new Map(),
-      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] },
-      reviewResources: null
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     } as never,
     signal: new AbortController().signal
   }

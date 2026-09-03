@@ -445,8 +445,7 @@ export function projectAgentPresentation(input: {
         id: event.agentEventId,
         runId: event.agentRunId,
         payload:
-          parsed.data.presentation?.kind === 'review_feedback' ||
-          parsed.data.presentation?.kind === 'annotation_context'
+          parsed.data.presentation?.kind === 'review_feedback'
             ? { ...parsed.data, content: parsed.data.presentation.displayContent }
             : parsed.data
       })
@@ -1203,9 +1202,6 @@ export function findLatestPrompt(events: AgentEventRecord[]): string | null {
     if (!parsed.success || parsed.data.delivery !== 'prompt') continue
     if (parsed.data.presentation?.kind === 'approval_continuation') continue
     if (parsed.data.presentation?.kind === 'review_feedback') {
-      return parsed.data.presentation.displayContent
-    }
-    if (parsed.data.presentation?.kind === 'annotation_context') {
       return parsed.data.presentation.displayContent
     }
     if (parsed.data.presentation?.kind === 'quick_action') {

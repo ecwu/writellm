@@ -437,11 +437,9 @@ export function AgentPanelView({
               <ComposerContextChips
                 scopePreference={scopePreference}
                 skillMentions={leadingSkillMentions}
-                annotationCount={props.includedAnnotations.length}
                 disabled={composerSettingsDisabled}
                 onScopeClick={() => setComposerAddOpen(true)}
                 onSkillClick={focusSkillMention}
-                onClearAnnotations={props.onClearIncludedAnnotations}
               />
               {activeRun !== null && pendingMessages.length > 0 ? (
                 <Collapsible

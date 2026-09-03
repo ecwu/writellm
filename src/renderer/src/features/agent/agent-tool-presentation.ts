@@ -130,24 +130,6 @@ export const AGENT_TOOL_PRESENTATIONS = {
     'Reviewing the change',
     'solving'
   ),
-  check_draft: activity('Checking the draft', 'Checked the draft', 'Checking the draft', 'solving'),
-  list_review_issues: activity(
-    'Reading review issues',
-    'Read review issues',
-    'Updating review issues'
-  ),
-  record_review_issues: activity(
-    'Recording review issues',
-    'Recorded review issues',
-    'Updating review issues',
-    'working'
-  ),
-  update_review_issues: activity(
-    'Updating review issues',
-    'Updated review issues',
-    'Updating review issues',
-    'working'
-  ),
   get_writing_task: activity(
     'Reading the writing plan',
     'Read the writing plan',

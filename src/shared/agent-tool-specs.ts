@@ -11,7 +11,6 @@ import {
 import {
   askUserArgsSchema,
   activateToolGroupsArgsSchema,
-  checkDraftArgsSchema,
   getWritingContextArgsSchema,
   inspectChangeArgsSchema,
   readCitationsArgsSchema,
@@ -22,11 +21,6 @@ import {
   searchManuscriptArgsSchema,
   type AgentToolName
 } from './contracts/agent-tools'
-import {
-  listReviewIssuesArgsSchema,
-  recordReviewIssuesArgsSchema,
-  updateReviewIssuesArgsSchema
-} from './contracts/review'
 import {
   createWritingTaskArgsSchema,
   getWritingTaskArgsSchema,
@@ -404,40 +398,11 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     executionMode: 'parallel'
   },
   {
-    name: 'check_draft',
-    label: 'Check draft',
-    description: 'Run bounded deterministic draft checks; findings do not authorize edits.',
-    parameters: parameters(checkDraftArgsSchema),
-    executionMode: 'parallel'
-  },
-  {
-    name: 'list_review_issues',
-    label: 'List review issues',
-    description: 'Read a bounded page of persistent review issues and their current versions.',
-    parameters: parameters(listReviewIssuesArgsSchema),
-    executionMode: 'parallel'
-  },
-  {
     name: 'get_writing_task',
     label: 'Get writing task',
     description: 'Read the current conversation writing task and plan version.',
     parameters: parameters(getWritingTaskArgsSchema),
     executionMode: 'parallel'
-  },
-  {
-    name: 'record_review_issues',
-    label: 'Record review issues',
-    description:
-      'Create or exactly refresh actionable review issues without editing the manuscript.',
-    parameters: parameters(recordReviewIssuesArgsSchema),
-    executionMode: 'sequential'
-  },
-  {
-    name: 'update_review_issues',
-    label: 'Update review issues',
-    description: 'Claim, release, resolve, or reopen version-bound review issues.',
-    parameters: parameters(updateReviewIssuesArgsSchema),
-    executionMode: 'sequential'
   },
   {
     name: 'create_writing_task',
@@ -512,13 +477,7 @@ export const WRITING_CORE_TOOL_NAMES = [
 ] as const satisfies readonly AgentToolName[]
 
 export const WRITING_TOOL_GROUP_TOOL_NAMES = {
-  review: [
-    'inspect_change',
-    'check_draft',
-    'list_review_issues',
-    'record_review_issues',
-    'update_review_issues'
-  ],
+  review: ['inspect_change'],
   writing_task: ['get_writing_task', 'create_writing_task', 'update_writing_task'],
   brief: ['submit_brief_change'],
   writing_rules: ['submit_writing_rules_change'],
@@ -553,8 +512,6 @@ export const AGENT_INTERACTION_MODE_TOOL_NAMES = {
     'read_writing_skill',
     'ask_user',
     'inspect_change',
-    'check_draft',
-    'list_review_issues',
     'get_writing_task',
     'create_writing_task',
     'update_writing_task'

@@ -16,7 +16,6 @@ import {
   NotebookPen,
   ListChecks,
   Images,
-  ClipboardList,
   ListTree,
   Pencil,
   Search,
@@ -50,7 +49,6 @@ export type WorkspaceKind =
   | 'assets'
   | 'references'
   | 'find'
-  | 'issues'
   | 'writing_rules'
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
@@ -61,7 +59,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   referencesError: boolean
   activeWorkspace: WorkspaceKind
   activeSectionId: string | null
-  reviewCount?: number
   onSelectSection(sectionId: string): void
   onOpenBrief(): void
   onOpenOutlineEditor(): void
@@ -71,7 +68,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenChecks(): void
   onOpenAssets(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenFind(): void
   onCloseFind(): void
@@ -79,7 +75,6 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenManuscript(): void
   onOpenSettings(): void
   findPanel: React.ReactNode
-  issuesPanel: React.ReactNode
   writingRulesPanel: React.ReactNode
 }
 
@@ -91,7 +86,6 @@ export function AppSidebar({
   referencesError,
   activeWorkspace,
   activeSectionId,
-  reviewCount,
   onSelectSection,
   onOpenBrief,
   onOpenOutlineEditor,
@@ -101,7 +95,6 @@ export function AppSidebar({
   onOpenChecks,
   onOpenAssets,
   onOpenReferences,
-  onOpenIssues,
   onOpenWritingRules,
   onOpenFind,
   onCloseFind,
@@ -109,7 +102,6 @@ export function AppSidebar({
   onOpenManuscript,
   onOpenSettings,
   findPanel,
-  issuesPanel,
   writingRulesPanel,
   ...props
 }: AppSidebarProps): React.JSX.Element {
@@ -117,7 +109,7 @@ export function AppSidebar({
   const findWasOpenOnMobileRef = useRef(false)
 
   useEffect(() => {
-    if (!['find', 'issues', 'writing_rules', 'references'].includes(activeWorkspace)) return
+    if (!['find', 'writing_rules', 'references'].includes(activeWorkspace)) return
     if (isMobile) setOpenMobile(true)
     else setOpen(true)
   }, [activeWorkspace, isMobile, setOpen, setOpenMobile])
@@ -149,11 +141,6 @@ export function AppSidebar({
             setOpen(true)
             onOpenReferences()
           }}
-          onOpenIssues={() => {
-            setOpen(true)
-            onOpenIssues()
-          }}
-          reviewCount={reviewCount}
           onOpenWritingRules={() => {
             setOpen(true)
             onOpenWritingRules()
@@ -217,8 +204,6 @@ export function AppSidebar({
           <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
             {activeWorkspace === 'find' ? (
               findPanel
-            ) : activeWorkspace === 'issues' ? (
-              issuesPanel
             ) : activeWorkspace === 'writing_rules' ? (
               writingRulesPanel
             ) : (
@@ -383,11 +368,9 @@ export function WorkspaceRail(props: {
   onOpenAssets(): void
   onOpenManuscript(): void
   onOpenReferences(): void
-  onOpenIssues(): void
   onOpenWritingRules(): void
   onOpenFind(): void
   onOpenSettings(): void
-  reviewCount?: number
 }): React.JSX.Element {
   return (
     <Sidebar
@@ -504,23 +487,6 @@ export function WorkspaceRail(props: {
                 >
                   <BookMarked />
                   <span>Writing rules</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  aria-label={`Review Center, ${props.reviewCount ?? 0} open annotations`}
-                  tooltip={{ children: 'Review Center', hidden: false }}
-                  isActive={props.activeWorkspace === 'issues'}
-                  className='px-2.5 md:px-2'
-                  onClick={props.onOpenIssues}
-                >
-                  <ClipboardList />
-                  {(props.reviewCount ?? 0) > 0 ? (
-                    <sup className='absolute top-0.5 right-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] leading-4 text-primary-foreground'>
-                      {(props.reviewCount ?? 0) > 99 ? '99+' : props.reviewCount}
-                    </sup>
-                  ) : null}
-                  <span>Review Center</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

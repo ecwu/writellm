@@ -23,16 +23,6 @@ import {
 import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
 import { blockNoteInlineContentSchema } from './manuscript'
 import {
-  listReviewIssuesArgsSchema,
-  listReviewIssuesResultSchema,
-  recordReviewIssuesArgsSchema,
-  recordReviewIssuesResultSchema,
-  reviewIssueCategorySchema,
-  reviewPrioritySchema,
-  updateReviewIssuesArgsSchema,
-  updateReviewIssuesResultSchema
-} from './review'
-import {
   createWritingTaskArgsSchema,
   createWritingTaskResultSchema,
   getWritingTaskArgsSchema,
@@ -63,7 +53,8 @@ export const toolResultMetaSchema = z
       z.literal(11),
       z.literal(12),
       z.literal(13),
-      z.literal(14)
+      z.literal(14),
+      z.literal(15)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -77,8 +68,7 @@ export const agentReadToolNameSchema = z.enum([
   'read_section',
   'search_manuscript',
   'search_knowledge',
-  'read_citations',
-  'check_draft'
+  'read_citations'
 ])
 
 export const agentToolNameSchema = z.enum([
@@ -92,10 +82,6 @@ export const agentToolNameSchema = z.enum([
   'ask_user',
   'activate_tool_groups',
   'inspect_change',
-  'check_draft',
-  'list_review_issues',
-  'record_review_issues',
-  'update_review_issues',
   'get_writing_task',
   'create_writing_task',
   'update_writing_task',
@@ -126,7 +112,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   ask_user: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -136,7 +122,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   },
   activate_tool_groups: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -146,10 +132,6 @@ export const AGENT_TOOL_DESCRIPTORS = {
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   },
   inspect_change: descriptor('parallel', 'proposal', 5_000, false),
-  check_draft: descriptor('parallel', 'manuscript', 30_000, true),
-  list_review_issues: descriptor('parallel', 'review', 5_000, false),
-  record_review_issues: fixtureMutationDescriptor(10_000),
-  update_review_issues: fixtureMutationDescriptor(10_000),
   get_writing_task: descriptor('parallel', 'task', 5_000, false),
   create_writing_task: fixtureMutationDescriptor(10_000, 'task'),
   update_writing_task: fixtureMutationDescriptor(10_000, 'task'),
@@ -158,7 +140,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -170,7 +152,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -184,7 +166,6 @@ export const AGENT_TOOL_DESCRIPTORS = {
       | 'skill'
       | 'user'
       | 'tool_profile'
-      | 'review'
       | 'task'
     deadlineMs: number
     supportsProgress: boolean
@@ -203,13 +184,12 @@ function descriptor(
     | 'proposal'
     | 'skill'
     | 'user'
-    | 'review'
     | 'task',
   deadlineMs: number,
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -221,9 +201,9 @@ function descriptor(
   }
 }
 
-function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'review' | 'task' = 'review') {
+function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'task') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 14,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -489,33 +469,6 @@ export const inspectChangeArgsSchema = strictObject({
     .describe('Copy the exact proposalId returned by a submit tool in this conversation.')
 })
 
-export const draftCheckNameSchema = z.enum([
-  'document_structure',
-  'outline_integrity',
-  'revision_lineage',
-  'citation_provenance',
-  'safe_links',
-  'unresolved_placeholders',
-  'duplicate_headings',
-  'duplicate_paragraphs',
-  'length_constraints',
-  'empty_sections',
-  'section_objectives',
-  'unresolved_citations',
-  'references_availability',
-  'unused_resources',
-  'writing_rules',
-  'figure_metadata'
-])
-
-export const checkDraftArgsSchema = strictObject({
-  scope: z.discriminatedUnion('type', [
-    strictObject({ type: z.literal('manuscript') }),
-    strictObject({ type: z.literal('section'), sectionId: z.uuid() })
-  ]),
-  checks: z.array(draftCheckNameSchema).max(16).default([])
-})
-
 const sectionSummarySchema = strictObject({
   sectionId: z.uuid(),
   parentSectionId: z.uuid().nullable(),
@@ -673,47 +626,6 @@ export const inspectChangeResultSchema = strictObject({
   conflict: z.string().max(4_096).nullable()
 })
 
-export const checkDraftResultSchema = strictObject({
-  snapshotId: z.uuid(),
-  findings: z
-    .array(
-      strictObject({
-        findingId: z.string().regex(/^[a-f0-9]{64}$/),
-        priority: reviewPrioritySchema,
-        category: reviewIssueCategorySchema,
-        check: draftCheckNameSchema,
-        sectionId: z.uuid().optional(),
-        revisionId: z.uuid().optional(),
-        blockIds: z.array(z.string().min(1).max(256)).max(100).optional(),
-        title: z.string().min(1).max(500),
-        description: z.string().min(1).max(8_192),
-        evidence: z.string().max(2_000)
-      })
-    )
-    .max(200),
-  summary: strictObject({
-    priorities: strictObject({
-      P0: z.number().int().nonnegative(),
-      P1: z.number().int().nonnegative(),
-      P2: z.number().int().nonnegative(),
-      P3: z.number().int().nonnegative()
-    }),
-    passedChecks: z.array(draftCheckNameSchema).max(16),
-    skippedChecks: z.array(draftCheckNameSchema).max(16),
-    unavailableChecks: z.array(draftCheckNameSchema).max(16),
-    checkOutcomes: z
-      .array(
-        strictObject({
-          check: draftCheckNameSchema,
-          status: z.enum(['passed', 'failed', 'skipped', 'unavailable']),
-          reason: z.string().max(1_000).nullable()
-        })
-      )
-      .max(16),
-    truncated: z.boolean()
-  })
-})
-
 const knowledgeHitSchema = strictObject({
   citationOrdinal: z.number().int().min(1).max(12).optional(),
   citationId: z.string().regex(/^citation-[a-f0-9]{40}$/),
@@ -854,26 +766,6 @@ export const agentToolRequestSchema = z
     }),
     strictObject({
       ...toolRequestBase,
-      toolName: z.literal('check_draft'),
-      args: checkDraftArgsSchema
-    }),
-    strictObject({
-      ...toolRequestBase,
-      toolName: z.literal('list_review_issues'),
-      args: listReviewIssuesArgsSchema
-    }),
-    strictObject({
-      ...toolRequestBase,
-      toolName: z.literal('record_review_issues'),
-      args: recordReviewIssuesArgsSchema
-    }),
-    strictObject({
-      ...toolRequestBase,
-      toolName: z.literal('update_review_issues'),
-      args: updateReviewIssuesArgsSchema
-    }),
-    strictObject({
-      ...toolRequestBase,
       toolName: z.literal('get_writing_task'),
       args: getWritingTaskArgsSchema
     }),
@@ -986,30 +878,6 @@ const successResponses = z.discriminatedUnion('toolName', [
     ok: z.literal(true),
     toolName: z.literal('inspect_change'),
     data: inspectChangeResultSchema
-  }),
-  strictObject({
-    ...toolResponseBase,
-    ok: z.literal(true),
-    toolName: z.literal('check_draft'),
-    data: checkDraftResultSchema
-  }),
-  strictObject({
-    ...toolResponseBase,
-    ok: z.literal(true),
-    toolName: z.literal('list_review_issues'),
-    data: listReviewIssuesResultSchema
-  }),
-  strictObject({
-    ...toolResponseBase,
-    ok: z.literal(true),
-    toolName: z.literal('record_review_issues'),
-    data: recordReviewIssuesResultSchema
-  }),
-  strictObject({
-    ...toolResponseBase,
-    ok: z.literal(true),
-    toolName: z.literal('update_review_issues'),
-    data: updateReviewIssuesResultSchema
   }),
   strictObject({
     ...toolResponseBase,
@@ -1174,7 +1042,6 @@ export type ReadSectionArgs = z.infer<typeof readSectionArgsSchema>
 export type ReadOutlineArgs = z.infer<typeof readOutlineArgsSchema>
 export type SearchManuscriptArgs = z.infer<typeof searchManuscriptArgsSchema>
 export type InspectChangeArgs = z.infer<typeof inspectChangeArgsSchema>
-export type CheckDraftArgs = z.infer<typeof checkDraftArgsSchema>
 export type SearchKnowledgeArgs = z.infer<typeof searchKnowledgeArgsSchema>
 export type ReadCitationsArgs = z.infer<typeof readCitationsArgsSchema>
 export type WritingContextResult = z.infer<typeof writingContextResultSchema>
@@ -1182,7 +1049,6 @@ export type ReadSectionResult = z.infer<typeof readSectionResultSchema>
 export type ReadOutlineResult = z.infer<typeof readOutlineResultSchema>
 export type SearchManuscriptResult = z.infer<typeof searchManuscriptResultSchema>
 export type InspectChangeResult = z.infer<typeof inspectChangeResultSchema>
-export type CheckDraftResult = z.infer<typeof checkDraftResultSchema>
 export type SearchKnowledgeResult = z.infer<typeof searchKnowledgeResultSchema>
 export type ReadCitationsResult = z.infer<typeof readCitationsResultSchema>
 export type ReadWritingSkillResult = z.infer<typeof readWritingSkillResultSchema>

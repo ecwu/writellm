@@ -7,11 +7,6 @@ export interface ProposalToolExecutionContext {
   createdSectionRefs?: Record<string, string>
   createdBlockRefs?: Record<string, string>
   tableOperationKinds?: string[]
-  resolvesReviewIssues?: Array<{
-    issueId: string
-    expectedVersion: number
-    resolutionSummary: string
-  }>
   signal: AbortSignal
 }
 

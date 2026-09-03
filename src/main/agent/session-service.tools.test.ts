@@ -124,7 +124,7 @@ describe('AgentSessionService: tools', () => {
     database.close()
   })
 
-  it('rejects forged Review Issue mutation in Plan mode before tool execution', async () => {
+  it('rejects a forged manuscript mutation in Plan mode before tool execution', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const execute = vi.fn()
@@ -145,7 +145,7 @@ describe('AgentSessionService: tools', () => {
       agentRunId: active.input.agentRunId,
       toolCallId: 'tool-forged-review-mutation',
       modelRequestId: active.input.modelRequestId,
-      toolName: 'record_review_issues',
+      toolName: 'submit_section_change',
       args: {}
     } as never)
 

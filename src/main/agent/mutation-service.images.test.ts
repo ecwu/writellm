@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { BlockNoteDocument } from '../../shared/contracts/manuscript'
-import { AnnotationService } from '../manuscript/annotation-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
 import { MutationProposalService } from './mutation-service'
 import { AgentContextBuilder } from './context'
-import { ReviewIssueService } from './review-issue-service'
 import { MainAgentTools } from './tools'
 import {
   log,
@@ -20,7 +18,6 @@ import {
   imageModelRequestId,
   seedImageModelRequest,
   png,
-  inline,
   paragraph
 } from './mutation-service.test-support'
 
@@ -463,167 +460,6 @@ describe('MutationProposalService: images', () => {
     value.database.close()
   })
 
-  it('resolves linked claimed issues, reopens them on undo, and reports version races without rolling back edits', async () => {
-    const value = await fixture()
-    const opened = value.persistence.openEditor().activeSection
-    if (opened === null) throw new Error('Missing section')
-    const base = await value.persistence.save({
-      projectSessionId,
-      sectionId: opened.section.sectionId,
-      baseRevisionId: opened.revision.sectionRevisionId,
-      baseContentHash: opened.revision.contentHash,
-      document: [paragraph('review-target', 'Before review fix')]
-    })
-    const snapshot = new AgentContextBuilder(value.manuscript).capture('review-fix-snapshot', {
-      activeSectionId: opened.section.sectionId,
-      activeBlockId: 'review-target',
-      selectedBlockIds: ['review-target']
-    })
-    const reviewIssues = new ReviewIssueService({ database: value.database, log })
-    const created = reviewIssues.record(
-      {
-        issues: [
-          {
-            priority: 'P1',
-            category: 'consistency',
-            title: 'Fix this sentence',
-            description: 'The sentence contradicts the next section.',
-            evidence: 'Before review fix',
-            citationIds: [],
-            sourceKind: 'semantic',
-            checkId: null,
-            anchor: {
-              sectionId: opened.section.sectionId,
-              revisionId: base.revision.sectionRevisionId,
-              blockId: 'review-target'
-            }
-          }
-        ]
-      },
-      { agentSessionId, agentRunId },
-      snapshot
-    ).issues[0]
-    if (created === undefined) throw new Error('Missing review issue')
-    const claimed = reviewIssues.update(
-      { operations: [{ action: 'claim', issueId: created.issueId, expectedVersion: 1 }] },
-      { agentSessionId, agentRunId }
-    ).issues[0]
-    if (claimed === undefined) throw new Error('Missing claimed review issue')
-    const service = new MutationProposalService({
-      projectId: value.manifest.projectId,
-      projectSessionId,
-      database: value.database,
-      manuscript: value.manuscript,
-      editorPersistence: value.persistence,
-      reviewIssues,
-      log
-    })
-    const target = {
-      issueId: claimed.issueId,
-      expectedVersion: claimed.version,
-      resolutionSummary: 'Reconciled the contradictory sentence.'
-    }
-    const context = { ...value.toolCall('submit_section_change'), resolvesReviewIssues: [target] }
-    const proposed = service.propose(
-      'submit_section_change',
-      {
-        schemaVersion: 1,
-        sectionId: opened.section.sectionId,
-        baseRevisionId: base.revision.sectionRevisionId,
-        operations: [
-          {
-            type: 'updateBlock',
-            blockId: 'review-target',
-            update: { content: inline('After review fix') }
-          }
-        ],
-        citationIds: []
-      },
-      context
-    )
-    expect(
-      reviewIssues.linkProposal(proposed.proposalId, [target], { agentSessionId, agentRunId })
-    ).toEqual([])
-    const applied = await service.approve({
-      projectSessionId,
-      agentSessionId,
-      proposalId: proposed.proposalId
-    })
-    expect(applied).toMatchObject({ outcome: 'applied', warnings: [] })
-    expect(reviewIssues.list({ limit: 50 }).issues[0]).toMatchObject({
-      status: 'resolved',
-      resolvedByProposalId: proposed.proposalId
-    })
-
-    const undone = await service.undo({
-      projectSessionId,
-      agentSessionId,
-      proposalId: proposed.proposalId
-    })
-    expect(undone.warnings).toEqual([])
-    const reopened = reviewIssues.list({ limit: 50 }).issues[0]
-    expect(reopened).toMatchObject({ status: 'open', resolvedByProposalId: null })
-    if (reopened === undefined) throw new Error('Missing reopened issue')
-
-    const reclaimed = reviewIssues.update(
-      {
-        operations: [
-          { action: 'claim', issueId: reopened.issueId, expectedVersion: reopened.version }
-        ]
-      },
-      { agentSessionId, agentRunId }
-    ).issues[0]
-    if (reclaimed === undefined) throw new Error('Missing reclaimed issue')
-    const current = value.manuscript.getSection(opened.section.sectionId)
-    const racedTarget = {
-      issueId: reclaimed.issueId,
-      expectedVersion: reclaimed.version,
-      resolutionSummary: 'Apply a second valid manuscript edit.'
-    }
-    const raced = service.propose(
-      'submit_section_change',
-      {
-        schemaVersion: 1,
-        sectionId: opened.section.sectionId,
-        baseRevisionId: current.currentRevisionId,
-        operations: [
-          {
-            type: 'updateBlock',
-            blockId: 'review-target',
-            update: { content: inline('Applied despite issue race') }
-          }
-        ],
-        citationIds: []
-      },
-      { ...value.toolCall('submit_section_change'), resolvesReviewIssues: [racedTarget] }
-    )
-    reviewIssues.updateByUser({
-      action: 'setPriority',
-      issueId: reclaimed.issueId,
-      expectedVersion: reclaimed.version,
-      priority: 'P0'
-    })
-    const raceApplied = await service.approve({
-      projectSessionId,
-      agentSessionId,
-      proposalId: raced.proposalId
-    })
-    expect(raceApplied).toMatchObject({ outcome: 'applied' })
-    expect(raceApplied.warnings).toEqual([
-      `Review issue ${reclaimed.issueId} changed and was not resolved.`
-    ])
-    expect(reviewIssues.list({ limit: 50 }).issues[0]).toMatchObject({
-      status: 'in_progress',
-      priority: 'P0'
-    })
-    expect(
-      value.manuscript.getRevision(
-        value.manuscript.getSection(opened.section.sectionId).currentRevisionId
-      ).content
-    ).toEqual([paragraph('review-target', 'Applied despite issue race')])
-    value.database.close()
-  })
-
   it('relocates the SPACE image by applying a target copy before removing the source without generation', async () => {
     const value = await imageRelocationFixture()
     const tools = new MainAgentTools(
@@ -703,27 +539,6 @@ describe('MutationProposalService: images', () => {
           .get()
       )
     ).toBe(0)
-    value.database.close()
-  })
-
-  it('rejects an existing image relocation with an active annotation before proposal creation', async () => {
-    const value = await imageRelocationFixture()
-    new AnnotationService({ database: value.database, log }).create({
-      kind: 'note',
-      body: 'Keep this figure anchored here.',
-      sectionId: value.sourceSection.sectionId,
-      blockId: value.imageBlock.id
-    })
-    const tools = new MainAgentTools(
-      { contextBuilder: () => value.contextBuilder, execute: vi.fn() } as never,
-      value.service
-    )
-
-    await expect(submitExistingImage(tools, value)).rejects.toMatchObject({
-      code: 'invalid_arguments',
-      message: expect.stringContaining('active section-scoped')
-    })
-    expect(value.service.list(agentSessionId)).toHaveLength(0)
     value.database.close()
   })
 

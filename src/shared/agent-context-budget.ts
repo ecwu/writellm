@@ -16,9 +16,7 @@ const PROJECTABLE_READ_TOOLS = new Set([
   'search_manuscript',
   'read_citations',
   'read_writing_skill',
-  'inspect_change',
-  'check_draft',
-  'list_review_issues'
+  'inspect_change'
 ])
 
 export function agentOutputLimit(

@@ -55,7 +55,6 @@ import {
   analyzeSectionProposalRefresh,
   type SectionProposalRefreshConflictCode
 } from './section-proposal-refresh'
-import type { ReviewIssueService } from './review-issue-service'
 import type { WritingTaskService } from './writing-task-service'
 import { simulateOutline } from './mutation-outline'
 import {
@@ -165,7 +164,6 @@ export class MutationProposalService {
       editorPersistence: EditorPersistenceService
       manuscriptAssets?: ManuscriptAssetService
       modelExecution?: ModelExecutionService
-      reviewIssues?: ReviewIssueService
       writingTasks?: WritingTaskService
       log: Pick<Logger, 'info' | 'warn' | 'error'>
       publishChanged?: (event: MutationProposalChanged) => void
@@ -374,33 +372,6 @@ export class MutationProposalService {
         'insertExistingImage requires a matching image block hash from read_section in the current Agent run'
       )
     }
-    const hasActiveAnchor = this.options.database.immediate((database) => {
-      const annotation = database
-        .prepare(
-          `SELECT 1 FROM manuscript_annotations
-           WHERE section_id = ? AND block_id = ? AND status = 'open'
-           LIMIT 1`
-        )
-        .pluck()
-        .get(sourceSectionId, blockId)
-      if (annotation === 1) return true
-      return (
-        database
-          .prepare(
-            `SELECT 1 FROM review_issues
-             WHERE section_id = ? AND block_id = ? AND status IN ('open', 'in_progress')
-             LIMIT 1`
-          )
-          .pluck()
-          .get(sourceSectionId, blockId) === 1
-      )
-    })
-    if (hasActiveAnchor) {
-      throw new AgentToolDomainError(
-        'invalid_arguments',
-        'insertExistingImage does not support images with active section-scoped annotations or review anchors'
-      )
-    }
     this.options.log.info(
       {
         event: 'agent.image_relocation.source_verified',
@@ -442,7 +413,6 @@ export class MutationProposalService {
           provenance: {
             modelRequestId: context.modelRequestId,
             citedSources,
-            resolvesReviewIssues: context.resolvesReviewIssues ?? [],
             ...(context.createdSectionRefs === undefined
               ? {}
               : { createdSectionRefs: context.createdSectionRefs }),
@@ -648,8 +618,7 @@ export class MutationProposalService {
         preview,
         provenance: {
           modelRequestId: context.modelRequestId,
-          citedSources: [],
-          resolvesReviewIssues: context.resolvesReviewIssues ?? []
+          citedSources: []
         }
       })
       const now = this.#now().toISOString()
@@ -1699,14 +1668,10 @@ export class MutationProposalService {
             proposalId,
             ...transactionResult.sectionChanged
           }
-    const reviewWarnings =
-      decision === 'apply'
-        ? this.#resolveReviewIssues(transactionResult.proposal)
-        : (this.options.reviewIssues?.reopenForUndo(transactionResult.proposal.proposalId) ?? [])
     const result = mutationProposalActionResultSchema.parse({
       proposal: transactionResult.proposal,
       sectionChanged,
-      warnings: reviewWarnings
+      warnings: []
     })
     this.options.log.info(
       {
@@ -1795,20 +1760,10 @@ export class MutationProposalService {
       },
       'Stale Agent section proposal was already satisfied'
     )
-    const warnings = this.#resolveReviewIssues(transactionResult.proposal)
     return approveMutationProposalResultSchema.parse({
       ...transactionResult,
       sectionChanged: null,
-      warnings
-    })
-  }
-
-  #resolveReviewIssues(proposal: MutationProposalRecord): string[] {
-    const targets = proposal.payload.provenance.resolvesReviewIssues ?? []
-    if (targets.length === 0 || this.options.reviewIssues === undefined) return []
-    return this.options.reviewIssues.resolveForProposal(proposal.proposalId, targets, {
-      agentSessionId: proposal.agentSessionId,
-      agentRunId: proposal.agentRunId
+      warnings: []
     })
   }
 

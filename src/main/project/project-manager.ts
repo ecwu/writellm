@@ -66,7 +66,6 @@ import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
 import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
-import type { ReviewIssueService } from '../agent/review-issue-service'
 import type { WritingTaskService } from '../agent/writing-task-service'
 import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
@@ -80,7 +79,6 @@ import { IsomorphicGitProjectVersionStore, type ProjectVersionStore } from './pr
 import { writeAtomicFile } from '../storage/atomic-file'
 import { ProjectFilesystem } from './project-filesystem'
 import type { PdfPublicationRenderer } from '../manuscript/pdf-publication'
-import { AnnotationService } from '../manuscript/annotation-service'
 import { createProjectClone } from './project-clone'
 import type {
   ProjectTemplate,
@@ -206,7 +204,6 @@ export interface ProjectManagerOptions {
     agentSessions?: AgentSessionService
     agentMutations?: MutationProposalService
     agentChangeSets?: ChangeSetBatchService
-    reviewIssues?: ReviewIssueService
     writingTasks?: WritingTaskService
     registry: ReturnType<typeof createProjectHandlerRegistry>
     terminateWorkers?: () => void | Promise<void>
@@ -1521,10 +1518,6 @@ export class ProjectManager {
         projectId: manifest.projectId,
         log: this.#logger
       })
-      const annotations = new AnnotationService({
-        database,
-        log: this.#logger
-      })
       const manuscriptAssets = new ManuscriptAssetService({
         projectRoot: canonicalRoot,
         projectId: manifest.projectId,
@@ -1618,8 +1611,6 @@ export class ProjectManager {
         agentSessions: knowledgeRuntime?.agentSessions ?? null,
         agentMutations: knowledgeRuntime?.agentMutations ?? null,
         agentChangeSets: knowledgeRuntime?.agentChangeSets ?? null,
-        reviewIssues: knowledgeRuntime?.reviewIssues ?? null,
-        annotations,
         writingTasks: knowledgeRuntime?.writingTasks ?? null,
         runtime,
         writeLock,

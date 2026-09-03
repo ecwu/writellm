@@ -375,68 +375,6 @@ export interface AgentWritingTaskTable {
   updated_at: string
 }
 
-export interface ReviewIssueTable {
-  review_issue_id: string
-  fingerprint: string
-  priority: 'P0' | 'P1' | 'P2' | 'P3'
-  category:
-    | 'integrity'
-    | 'structure'
-    | 'citation'
-    | 'evidence'
-    | 'consistency'
-    | 'terminology'
-    | 'translation'
-    | 'audience'
-    | 'style'
-    | 'objective'
-    | 'other'
-  title: string
-  description: string
-  evidence_summary: string
-  citation_ids_json: string
-  source_kind: 'deterministic' | 'semantic'
-  check_id: string | null
-  section_id: string | null
-  revision_id: string | null
-  block_id: string | null
-  source_agent_session_id: string | null
-  source_agent_run_id: string | null
-  status: 'open' | 'in_progress' | 'resolved' | 'dismissed'
-  assigned_agent_session_id: string | null
-  version: number
-  resolved_by_proposal_id: string | null
-  resolution_summary: string | null
-  created_at: string
-  updated_at: string
-  resolved_at: string | null
-  dismissed_at: string | null
-}
-
-export interface ReviewIssueEventTable {
-  review_issue_event_id: string
-  review_issue_id: string
-  event_type:
-    | 'created'
-    | 'refreshed'
-    | 'claimed'
-    | 'reassigned'
-    | 'released'
-    | 'resolved'
-    | 'reopened'
-    | 'dismissed'
-    | 'priority_changed'
-    | 'proposal_linked'
-  from_status: ReviewIssueTable['status'] | null
-  to_status: ReviewIssueTable['status']
-  actor_kind: 'agent' | 'user' | 'system'
-  actor_agent_session_id: string | null
-  actor_agent_run_id: string | null
-  proposal_id: string | null
-  summary: string | null
-  occurred_at: string
-}
-
 export interface ManuscriptAssetTable {
   asset_id: string
   sha256: string
@@ -576,22 +514,6 @@ export interface ActiveParseRevisionTable {
   updated_at: string
 }
 
-export interface AnnotationTable {
-  annotation_id: string
-  kind: 'note' | 'todo'
-  status: 'open' | 'resolved'
-  body: string
-  section_id: string
-  block_id: string
-  anchor_revision_id: string
-  text_anchor: string | null
-  text_anchor_fingerprint: string | null
-  version: number
-  created_at: string
-  updated_at: string
-  resolved_at: string | null
-}
-
 export interface ArtifactCleanupRequestTable {
   cleanup_id: string
   knowledge_item_id: string
@@ -682,9 +604,6 @@ export interface ProjectDatabaseSchema {
   agent_runs: AgentRunTable
   agent_events: AgentEventTable
   mutation_proposals: MutationProposalTable
-  review_issues: ReviewIssueTable
-  review_issue_events: ReviewIssueEventTable
-  manuscript_annotations: AnnotationTable
   agent_writing_tasks: AgentWritingTaskTable
   manuscript_assets: ManuscriptAssetTable
   section_revision_assets: SectionRevisionAssetTable

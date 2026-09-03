@@ -143,24 +143,7 @@ import type {
   ManuscriptReplacementPlanResult,
   ManuscriptReplacementUndoResult
 } from '../shared/contracts/manuscript-replacement'
-import type {
-  ListReviewIssuesIpcInput,
-  ReviewIssueEventsInput,
-  UpdateReviewIssueIpcInput,
-  UpdateWritingRulesIpcInput
-} from '../shared/contracts/review-ipc'
-import type {
-  ListReviewIssuesResult,
-  ReviewIssueEvent,
-  ReviewIssueRecord
-} from '../shared/contracts/review'
-import type {
-  AnnotationRecord,
-  CreateAnnotationInput,
-  ListAnnotationsInput,
-  ListAnnotationsResult,
-  UpdateAnnotationInput
-} from '../shared/contracts/annotations'
+import type { UpdateWritingRulesIpcInput } from '../shared/contracts/writing-rules-ipc'
 import type {
   ProviderConnectionTestResult,
   ImageProviderSelectionInput,
@@ -398,16 +381,8 @@ export interface DesktopApi {
       listener: (event: ManuscriptReplacementChangedEvent) => void
     ): Promise<() => void>
   }
-  review: {
-    listIssues(input: ListReviewIssuesIpcInput): Promise<ListReviewIssuesResult>
-    issueEvents(input: ReviewIssueEventsInput): Promise<ReviewIssueEvent[]>
-    updateIssue(input: UpdateReviewIssueIpcInput): Promise<ReviewIssueRecord>
-    updateWritingRules(input: UpdateWritingRulesIpcInput): Promise<ManuscriptWorkspace>
-  }
-  annotations: {
-    list(input: ListAnnotationsInput): Promise<ListAnnotationsResult>
-    create(input: CreateAnnotationInput): Promise<AnnotationRecord>
-    update(input: UpdateAnnotationInput): Promise<AnnotationRecord>
+  writingRules: {
+    update(input: UpdateWritingRulesIpcInput): Promise<ManuscriptWorkspace>
   }
   agent: {
     listSessions(input: {

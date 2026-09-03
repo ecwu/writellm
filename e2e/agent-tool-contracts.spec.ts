@@ -182,15 +182,6 @@ test(
           })
           return
         }
-        if (agentCall === 6) {
-          sendToolCall(response, {
-            responseId: 'cp50-check-response',
-            toolCallId: 'cp50-check-tool',
-            name: 'check_draft',
-            args: { scope: { type: 'manuscript' }, checks: ['empty_sections'] }
-          })
-          return
-        }
         sendCompletion(
           response,
           'The requested Brief and outline changes are applied. No section prose was added.'
@@ -267,12 +258,11 @@ test(
       expect(truth.workflowState).toBe('idle')
       expect(truth.preflightFailures).toEqual([])
       expect(truth.calls).toEqual([
-        { toolName: 'activate_tool_groups', contractVersion: 14 },
-        { toolName: 'submit_brief_change', contractVersion: 14 },
-        { toolName: 'activate_tool_groups', contractVersion: 14 },
-        { toolName: 'submit_outline_change', contractVersion: 14 },
-        { toolName: 'activate_tool_groups', contractVersion: 14 },
-        { toolName: 'check_draft', contractVersion: 14 }
+        { toolName: 'activate_tool_groups', contractVersion: 15 },
+        { toolName: 'submit_brief_change', contractVersion: 15 },
+        { toolName: 'activate_tool_groups', contractVersion: 15 },
+        { toolName: 'submit_outline_change', contractVersion: 15 },
+        { toolName: 'activate_tool_groups', contractVersion: 15 }
       ])
       expect(truth.calls.some((call) => call.toolName === 'submit_section_change')).toBe(false)
       expect(JSON.stringify(providerBodies)).not.toContain('cp50-e2e-secret')

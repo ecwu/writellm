@@ -36,32 +36,10 @@ export interface WritingSnapshot {
   workspace: ReturnType<ManuscriptService['getWorkspace']>
   sectionContents: ReadonlyMap<string, ReturnType<ManuscriptService['getRevision']>['content']>
   editorContext: AgentEditorContext
-  reviewResources: ReviewResourceSnapshot | null
-}
-
-export interface ReviewResourceSnapshot {
-  knowledgeItems: readonly {
-    knowledgeItemId: string
-    displayName: string
-    state: 'importing' | 'stored' | 'failed' | 'cancelled'
-  }[]
-  references?: readonly {
-    referenceId: string
-    citationKey: string
-    title: string
-    evidenceAvailable: boolean
-    knowledgeItemIds: readonly string[]
-  }[]
-  manuscriptAssets: readonly { assetId: string; referencedByCurrentRevision: boolean }[]
 }
 
 export class AgentContextBuilder {
-  constructor(
-    private readonly manuscript: ManuscriptService,
-    private readonly captureReviewResources?: (
-      currentRevisionIds: readonly string[]
-    ) => ReviewResourceSnapshot
-  ) {}
+  constructor(private readonly manuscript: ManuscriptService) {}
 
   capture(snapshotId: string, editorContext: AgentEditorContext): WritingSnapshot {
     const assembly = this.manuscript.assemble()
@@ -79,11 +57,7 @@ export class AgentContextBuilder {
       sectionContents: new Map(
         assembly.sections.map((entry) => [entry.revision.sectionRevisionId, entry.revision.content])
       ),
-      editorContext,
-      reviewResources:
-        this.captureReviewResources?.(
-          assembly.sections.map((entry) => entry.revision.sectionRevisionId)
-        ) ?? null
+      editorContext
     }
   }
 

@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 076
-Recorded: 2026-07-31; amended through 2026-09-02
+Status: accepted implementation baseline, amended through accepted ADR 077
+Recorded: 2026-07-31; amended through 2026-09-03
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,18 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-03 Review fixture and annotation removal amendment
+
+ADR 077 and Agent Harness Protocol v15 remove the Review Center, manuscript annotations,
+`check_draft`, the three Review Issue tools, Review Issue persistence/lifecycle, and proposal-to-
+issue reconciliation. Project migration 0043 discards the retired live project state and removes
+the retired protocol records needed for strict current-schema replay. Ordinary Agent conversations
+retain general manuscript/evidence reads and may provide non-persisted feedback.
+
+Writing Rules and proposal review remain independent capabilities. `inspect_change`, typed
+proposal approval/rejection/undo, `awaiting_review`, and `review_feedback` are unchanged. A future
+dedicated Review product requires a new decision, protocol, schema, and UI.
 
 ## 2026-09-02 Agent model configuration amendment
 
@@ -117,7 +129,10 @@ The following rules are now the current target. Any older section in this docume
   brief/outline mutations, Agent turns, and transient Notebook turns use request-scoped cancellation
   and concurrency limits, not `jobs` leases or restart recovery.
 - MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- Agent Harness Protocol v6 uses bounded snapshot read/inspection tools, Review Issue and Writing Task fixture tools, typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one bounded `generate_image` effect/proposal tool. ADRs 024 and 025 add no special Agent session/run, hidden model request, generic network/file/SQL authority, scheduler, or direct manuscript write.
+- Agent Harness Protocol v15 uses bounded snapshot read/inspection tools, Writing Task fixture tools,
+  typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one
+  bounded `generate_image` effect/proposal tool. It adds no special Agent session/run, hidden model
+  request, generic network/file/SQL authority, scheduler, or direct manuscript write.
 - Agent Harness Protocol v10 adds one bounded `ask_user` clarification tool under ADR 061. Main
   may keep the original active Pi tool call waiting without a deadline, expose only its exact
   project/session/run/tool capability through live activity and answer IPC, and resume that same
@@ -143,10 +158,10 @@ The following rules are now the current target. Any older section in this docume
   068.
 - Core Agent runtime persistence remains `agent_sessions`, `agent_runs`, `agent_events`,
   `mutation_proposals`, and `model_requests`. ADR 069 adds diagnostic-only trace payload, request,
-  and record tables that cannot participate in recovery or authorization. ADR 024 adds
-  project-local `review_issues` and `review_issue_events`; ADR 025 adds one `agent_writing_tasks`
-  current-state table plus exact task/step correlation on runs and proposals. These are
-  user-visible collaboration fixtures, not Agent-run recovery jobs or a second mutation authority.
+  and record tables that cannot participate in recovery or authorization. ADR 025 adds one
+  `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals.
+  Writing Tasks are user-visible collaboration fixtures, not Agent-run recovery jobs or a second
+  mutation authority.
 - The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
 - `chokidar` is not part of the fixed stack. ADR 070's explicit bibliography requirement uses only
   Node `fs.watch` for one user-selected file; it does not authorize a general watcher dependency.
@@ -213,7 +228,7 @@ The initial product has these fixed invariants:
 - A project must not be writable from two WriteLLM instances at the same time.
 - The renderer never receives raw database, filesystem, credential, or generic IPC access.
 - Markdown is an interchange and export format, not the lossless manuscript source of truth.
-- Manuscript, outline, Brief, and trusted Writing Rule writes remain typed, revision-checked mutation proposals. Bounded Review Issue status updates are collaboration metadata and cannot mutate manuscript authority. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools. Accepted ADR 013 adds application-global, Main-installed, read-only writing guidance beneath the global policy without exposing installed files to the model.
+- Manuscript, outline, Brief, and trusted Writing Rule writes remain typed, revision-checked mutation proposals. The agent never receives arbitrary filesystem, SQL, shell, or unrestricted network tools. Accepted ADR 013 adds application-global, Main-installed, read-only writing guidance beneath the global policy without exposing installed files to the model.
 
 The architecture continues to favor embedded components and explicit boundaries over local services:
 
@@ -660,10 +675,9 @@ app.sqlite                  <ProjectRoot>/.writellm/project.sqlite
   agent_provider_preferences  manuscript_assets
   agent_skills                section_revision_assets
   publication_presets         manuscript_asset_variants
-  project_templates           manuscript_annotations
-  bibliography_connectors     knowledge_items
-  schema_manifest             reference_items
-                              reference_creators
+  project_templates           knowledge_items
+  bibliography_connectors     reference_items
+  schema_manifest             reference_creators
                               reference_import_bindings
                               knowledge_reference_links
                               reference_settings
@@ -684,8 +698,6 @@ app.sqlite                  <ProjectRoot>/.writellm/project.sqlite
                               agent_writing_tasks
                               agent_change_set_commands
                               mutation_proposals
-                              review_issues
-                              review_issue_events
                               schema_manifest
 
 <ProjectRoot>/.writellm/index.sqlite
@@ -910,16 +922,10 @@ An unchanged content hash is a no-op and must not create a new revision. Revisio
 
 Because only one project is active, collaboration infrastructure such as Yjs is deferred. Manual editor changes and agent mutation application are still serialized through revision checks to prevent stale overwrites.
 
-Project-local annotations follow ADR 035. They live in one bounded `manuscript_annotations` table
-outside BlockNote content, anchor only to exact stable section/block IDs, and derive explicit
-current/orphaned state without fuzzy relocation. They are excluded from counts, search, citations,
-exports, and default model context. A user may attach at most ten selected annotations to one
-ordinary Agent prompt; this adds no separate conversation or model route.
-
 Figure identity is stable metadata; figure numbering is not. Publishing derives manuscript-order
 `Figure N` labels from current revisions and emits a shared figure node with exact
 section/revision/block target, asset ID, caption, and alt text. Reordering changes only the derived
-number. Missing caption or alt text is an additive deterministic `check_draft` finding and never a
+number. Missing caption or alt text is reported by publication preflight and never becomes a
 persistence blocker or a reason to start a separate model flow.
 
 Image iteration remains an ordinary `generate_image` Agent tool effect. Main resolves an exact
@@ -1229,9 +1235,8 @@ Persist normalized project-local records for:
 Pi runtime events stream to the renderer for responsive UI, but durable records are created before the corresponding external operation or mutation can become authoritative.
 
 Core execution persistence is limited to `agent_sessions`, `agent_runs`, `agent_events`,
-`mutation_proposals`, and `model_requests`. Bounded collaboration fixtures separately use
-`review_issues`, `review_issue_events`, and the one-current-row-per-conversation
-`agent_writing_tasks` table. `mutation_proposals` owns decision status, decision time, rejection
+`mutation_proposals`, and `model_requests`. Bounded collaboration fixtures separately use the
+one-current-row-per-conversation `agent_writing_tasks` table. `mutation_proposals` owns decision status, decision time, rejection
 reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or
 `applied_outline_version`), the optional section `undo_revision_id`, and immutable optional writing
 task/step correlation. `agent_runs` snapshots the current task/step at run creation; presentation
@@ -1360,7 +1365,7 @@ Notebook prompt composition follows the same application-owned block encoding. I
 provider-neutral, permits answers only from the supplied evidence, treats every source block as
 untrusted data that cannot redefine instructions, and requires registered `[[cite:n]]` markers.
 
-### Agent Harness Protocol v6 tools
+### Agent Harness Protocol v15 tools
 
 ```text
 # Snapshot read and inspection
@@ -1371,13 +1376,9 @@ search_manuscript
 search_knowledge
 read_citations
 inspect_change
-check_draft
 read_writing_skill
 
 # Bounded project fixture mutation
-list_review_issues
-record_review_issues
-update_review_issues
 get_writing_task
 create_writing_task
 update_writing_task
@@ -1394,9 +1395,7 @@ generate_image
 `read_outline`, `read_section`, and `search_manuscript` are bound to the source
 `modelRequestId` snapshot. `read_section` supports paginated block summaries with canonical hashes,
 a complete canonical block view, and bounded canonical JSON fragments. `inspect_change` reads only
-proposals from the current Agent session. `check_draft` performs bounded deterministic checks from
-one immutable run snapshot and reports P0-P3 findings plus explicit passed, failed, skipped, and
-unavailable outcomes; it never persists issues or modifies the draft.
+proposals from the current Agent session.
 The UI injects selection capture time and revision; stale block selections are not combined with a
 newer body.
 
@@ -1410,11 +1409,6 @@ Durable events store provenance rather than Skill bodies; private diagnostic bod
 in trace storage. See ADR 074.
 
 Read-only tools may execute in parallel when their results are independent.
-
-`list_review_issues`, `record_review_issues`, and `update_review_issues` can read or mutate only
-bounded project-local Review Issue metadata. They receive no manuscript, filesystem, SQL, network,
-credential, or generic task authority. Exact optimistic versions guard refresh, assignment, and
-status transitions. They are sequential fixture operations, not proposal/effect tools.
 
 `get_writing_task`, `create_writing_task`, and `update_writing_task` read or mutate only the current
 conversation's bounded durable plan. Main allocates task and step UUIDs, requires an exact monotonic
@@ -1736,7 +1730,7 @@ templates are strict canonical JSON files in application user data with a bounde
 metadata/hash catalog. The allowed projection is only Brief skeleton, outline metadata, Writing
 Rules without source IDs, and an optional publication-preset reference. Application creates a
 normal new project first and applies this data through existing authorities with freshly minted
-identities; bodies, knowledge, citations, assets, annotations, Agent/review/history state,
+identities; bodies, knowledge, citations, assets, Agent/history state,
 credentials, project IDs, paths, executable content, and unknown fields are structurally absent.
 
 A moved or restored project must open without absolute-path repair.

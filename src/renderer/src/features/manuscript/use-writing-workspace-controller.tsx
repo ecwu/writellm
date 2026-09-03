@@ -21,7 +21,6 @@ import type {
   ManuscriptReplacementPlanResult
 } from '../../../../shared/contracts/manuscript-replacement'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
-import type { AnnotationRecord } from '../../../../shared/contracts/annotations'
 import {
   buildReferenceIndexFromOccurrences,
   findDocumentCitationOccurrences,
@@ -156,18 +155,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const outlineMutationLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
-  const [annotationCreateOpen, setAnnotationCreateOpen] = useState(false)
-  const [includedAnnotations, setIncludedAnnotations] = useState<AnnotationRecord[]>([])
-  const openAnnotationsQuery = useQuery({
-    queryKey: ['annotations', props.projectSessionId, 'open-count'],
-    queryFn: () =>
-      window.desktop.annotations.list({
-        projectSessionId: props.projectSessionId,
-        statuses: ['open'],
-        kinds: [],
-        limit: 1
-      })
-  })
   const [quickActionRequest, setQuickActionRequest] = useState<AgentPanelQuickActionRequest | null>(
     null
   )
@@ -1484,7 +1471,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenReferences={() => setActiveWorkspace('references')}
-        onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
@@ -1504,7 +1490,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
-        onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
@@ -1525,7 +1510,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenManuscript={() => setActiveWorkspace('manuscript')}
         onOpenReferences={() => setActiveWorkspace('references')}
-        onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
@@ -1552,7 +1536,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
-        onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
@@ -1576,7 +1559,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenChecks={() => setActiveWorkspace('checks')}
         onOpenAssets={() => setActiveWorkspace('assets')}
         onOpenReferences={() => setActiveWorkspace('references')}
-        onOpenIssues={() => setActiveWorkspace('issues')}
         onOpenWritingRules={() => setActiveWorkspace('writing_rules')}
         onOpenFind={openFind}
         onOpenSettings={props.onOpenSettings}
@@ -1631,11 +1613,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     metadataDraftRef,
     selectionContext,
     setSelectionContext,
-    annotationCreateOpen,
-    setAnnotationCreateOpen,
-    includedAnnotations,
-    setIncludedAnnotations,
-    openAnnotationsQuery,
     quickActionRequest,
     setQuickActionRequest,
     findQuery,
