@@ -1747,3 +1747,53 @@ maintenance without turning the active tracker back into a historical log.
 - The tag push was intentionally limited to `v0.2026.9.2`; the release source commit is included
   in that immutable tag. This documentation synchronization is a post-release local commit and
   does not retag or alter the published release.
+
+## 2026-09-03 `/cite` Reference search maintenance
+
+- Authorization: the user approved the caret-local `/cite` implementation plan, including a
+  44rem-bounded shadcn Popover/Command surface, at most three single-line citekey/title rows, no
+  shortcut footer, and insertion of the authoritative project citekey as `[@key]`.
+- Main now exposes one read-only, sender- and project-session-authorized Reference search through
+  shared Zod contracts and the restricted preload API. It projects only citekey, title, bounded
+  authors, and year; normalizes Unicode and case; requires every query term to match across those
+  fields; ranks the complete result set before returning three stable candidates; and logs safe
+  lifecycle counts and durations without query or bibliography content.
+- The Manuscript Slash Menu opens the picker at a captured editor position, debounces requests by
+  150ms, discards stale responses, and closes when its document, section, project session, or edit
+  authority becomes invalid. Esc restores the insertion position without restoring `/cite`, while
+  outside dismissal does not steal focus. Selection inserts the real citekey and creates an
+  explicit editor-history boundary so insertion is independently undoable and redoable.
+- Renderer command guards exclude code, math, diagram source, inline code, and existing citation
+  tokens. The picker distinguishes loading, empty-library, no-match, and retryable failure states;
+  its candidates keep citekey and title on one row with bounded truncation and full tooltip/
+  accessible metadata. Existing autosave, citation presentation, preview, and export pipelines are
+  reused without a schema migration, new dependency, or Agent/evidence-policy change.
+- Final-source focused Electron-hosted coverage passed **10 files / 52 tests** in 3.0 seconds,
+  including contracts, ranking across more than three matches, key/title/author/year and Chinese
+  queries, database projection, IPC authorization/logging, trigger guards, citation rendering,
+  bibliography export, manuscript export, and Editor IPC. The final `pnpm check:e2e` invocation
+  passed all six stages in 26.1 seconds: Biome, both typechecks, native validation, one production
+  build, and the focused unified-Reference Electron scenario. That scenario passed in 3.5 seconds
+  with zero retries, flakes, or skips and verified cancellation, cross-field search, one-line
+  layout, authoritative insertion, independent undo/redo, and saving. An earlier development run
+  intentionally added the undo assertion and exposed history coalescing; the explicit boundary
+  fixed it before the final fresh-build rerun. Evidence:
+  `.cache/verification/1788455608864-18262-4adbc0a6/` and
+  `.cache/verification/1788455509303-17910-595def2c/`.
+- The final standalone `pnpm check:fast` passed all three stages in 11.0 seconds after source and
+  documentation synchronization; `git diff --check` also passed. Evidence:
+  `.cache/verification/1788455682126-18426-5a5ba808/`.
+- The macOS arm64 Electron screenshot passed the scoped visual review for placement, width,
+  hierarchy, row density, and overflow. The host Node 26.8.1 versus repository Node 24 engine
+  warning remains an environment limitation; tests used the canonical Electron runtime.
+- At the user's subsequent request, `pnpm build:unpack` produced the macOS arm64 App containing
+  this maintenance. The build-only gate passed all four stages in 31.7 seconds: production build
+  and native validation (11.7 seconds), App assembly (19.8 seconds), no-Team-ID signature policy,
+  and inventory of 33,569 ASAR entries plus the arm64 native modules. Output:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788460354480-19429-6a32d566/` and
+  `dist/macos-arm64/package-evidence.json`.
+- The user authorized committing and pushing this completed source after the App passed. The build
+  did not run functional tests; the final-source tests and fresh-build E2E above remain applicable.
+  No full package gate, installer, other-platform run, release, tag, signing identity,
+  notarization, or publication was performed.

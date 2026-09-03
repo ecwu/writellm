@@ -139,7 +139,19 @@ function harness() {
           knowledgeItemIds: [knowledgeItemId],
           updatedAt: '2026-09-01T00:00:00.000Z'
         }
-      ])
+      ]),
+      search: vi.fn(() => ({
+        items: [
+          {
+            referenceId: knowledgeItemId,
+            citationKey: 'fixture2026',
+            title: 'Fixture',
+            authors: [],
+            issuedYear: 2026
+          }
+        ],
+        hasReferences: true
+      }))
     },
     projectRoot: '/private/project.writellm',
     mineruWorkflow,
@@ -266,6 +278,52 @@ describe('knowledge IPC', () => {
         includePdf: true
       })
     ).rejects.toThrow()
+  })
+
+  it('routes a bounded, session-authorized Reference search', async () => {
+    const { invoke, context } = harness()
+
+    await expect(
+      Promise.resolve().then(() =>
+        invoke(IPC_CHANNELS.referenceSearch, { projectSessionId, query: 'fixture' })
+      )
+    ).resolves.toEqual({
+      items: [
+        {
+          referenceId: knowledgeItemId,
+          citationKey: 'fixture2026',
+          title: 'Fixture',
+          authors: [],
+          issuedYear: 2026
+        }
+      ],
+      hasReferences: true
+    })
+    expect(context.references.search).toHaveBeenCalledWith('fixture')
+
+    await expect(
+      Promise.resolve().then(() =>
+        invoke(IPC_CHANNELS.referenceSearch, {
+          projectSessionId,
+          query: 'x'.repeat(513)
+        })
+      )
+    ).rejects.toThrow()
+    expect(context.references.search).toHaveBeenCalledOnce()
+  })
+
+  it('rejects a stale Reference search after the service returns', async () => {
+    const { invoke, context, revoke } = harness()
+    context.references.search.mockImplementationOnce(() => {
+      revoke()
+      return { items: [], hasReferences: false }
+    })
+
+    await expect(
+      Promise.resolve().then(() =>
+        invoke(IPC_CHANNELS.referenceSearch, { projectSessionId, query: '' })
+      )
+    ).rejects.toThrow('References could not be searched')
   })
 
   it('starts parsing and returns bounded metadata, block, Markdown, and asset data', async () => {

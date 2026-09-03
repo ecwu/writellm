@@ -1468,6 +1468,41 @@ test(
           : window.desktop.knowledge.listReferences({ projectSessionId })
       })
       expect(references.some((reference) => reference.citationKey.startsWith('doc-'))).toBe(false)
+
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      const editor = sectionEditor(launched.page)
+      await editor.click()
+      await launched.page.keyboard.type('/cite')
+      await launched.page.keyboard.press('Enter')
+      const citationSearch = launched.page.getByRole('combobox', { name: 'Search references' })
+      await expect(citationSearch).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+      await expect(citationSearch).not.toBeVisible()
+      await launched.page.keyboard.type('Cancelled ')
+
+      await launched.page.keyboard.type('/cite')
+      await launched.page.keyboard.press('Enter')
+      await citationSearch.fill('Wu Unified')
+      const citationOptions = launched.page.getByRole('option')
+      await expect(citationOptions).toHaveCount(1)
+      const citationOption = citationOptions.first()
+      await expect(citationOption).toContainText('unified2026')
+      await expect(citationOption).toContainText('A Unified Reference Import')
+      const citationOptionDimensions = await citationOption.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight
+      }))
+      expect(citationOptionDimensions.scrollHeight).toBe(citationOptionDimensions.clientHeight)
+      await launched.page.keyboard.press('Enter')
+      await expect(citationSearch).not.toBeVisible()
+      await expect(editor).toContainText('Cancelled [@unified2026]')
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(editor).toContainText('Cancelled ')
+      await expect(editor).not.toContainText('[@unified2026]')
+      await launched.page.keyboard.press('ControlOrMeta+Shift+z')
+      await expect(editor).toContainText('Cancelled [@unified2026]')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
     } finally {
       await launched.app.close()
     }

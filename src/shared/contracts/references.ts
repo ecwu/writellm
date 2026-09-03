@@ -91,6 +91,30 @@ export const referenceListInputSchema = editorSessionInputSchema
   .strict()
 export const referenceListResultSchema = z.array(referenceItemSchema).max(10_000)
 
+export const REFERENCE_SEARCH_MAX_ITEMS = 3
+export const REFERENCE_SEARCH_MAX_AUTHORS = 20
+export const REFERENCE_SEARCH_AUTHOR_MAX_CHARS = 2048
+export const referenceSearchInputSchema = editorSessionInputSchema
+  .extend({ query: z.string().trim().max(512).default('') })
+  .strict()
+export const referenceSearchCandidateSchema = z
+  .object({
+    referenceId: z.uuid(),
+    citationKey: citationKeySchema,
+    title: z.string().min(1).max(4096),
+    authors: z
+      .array(z.string().max(REFERENCE_SEARCH_AUTHOR_MAX_CHARS))
+      .max(REFERENCE_SEARCH_MAX_AUTHORS),
+    issuedYear: z.number().int().min(-9999).max(9999).nullable()
+  })
+  .strict()
+export const referenceSearchResultSchema = z
+  .object({
+    items: z.array(referenceSearchCandidateSchema).max(REFERENCE_SEARCH_MAX_ITEMS),
+    hasReferences: z.boolean()
+  })
+  .strict()
+
 export const bibliographyConnectorSchema = z
   .object({
     connectorId: z.uuid(),
@@ -372,6 +396,8 @@ export const formattedReferenceSnapshotSchema = z
 
 export type CslItem = z.infer<typeof cslItemSchema>
 export type ReferenceItem = z.infer<typeof referenceItemSchema>
+export type ReferenceSearchCandidate = z.infer<typeof referenceSearchCandidateSchema>
+export type ReferenceSearchResult = z.infer<typeof referenceSearchResultSchema>
 export type BibliographyConnector = z.infer<typeof bibliographyConnectorSchema>
 export type BibliographySnapshot = z.infer<typeof bibliographySnapshotSchema>
 export type BibliographyImportPlan = z.infer<typeof bibliographyImportPlanSchema>

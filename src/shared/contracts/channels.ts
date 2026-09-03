@@ -174,6 +174,7 @@ export const IPC_CHANNELS = {
   knowledgeExpandCitations: 'knowledge:expand-citations',
   knowledgeResolveReadableCitation: 'knowledge:resolve-readable-citation',
   referenceList: 'reference:list',
+  referenceSearch: 'reference:search',
   referenceChooseBibliography: 'reference:choose-bibliography',
   referenceBibliographySnapshot: 'reference:bibliography-snapshot',
   referenceRefreshBibliography: 'reference:refresh-bibliography',

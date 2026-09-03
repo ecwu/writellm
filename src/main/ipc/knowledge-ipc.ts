@@ -51,6 +51,8 @@ import {
   bibliographySnapshotResultSchema,
   referenceListInputSchema,
   referenceListResultSchema,
+  referenceSearchInputSchema,
+  referenceSearchResultSchema,
   referenceSettingsInputSchema,
   referenceCustomStyleInputSchema,
   referenceSettingsSchema,
@@ -107,6 +109,39 @@ export function registerKnowledgeIpc(options: {
     return referenceListResultSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).references.list(parsed.query)
     )
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceSearch, (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = referenceSearchInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    const startedAt = Date.now()
+    try {
+      const result = referenceSearchResultSchema.parse(context.references.search(parsed.query))
+      options.manager.assertActiveSession(parsed.projectSessionId)
+      options.logger.info(
+        {
+          event: 'reference.search.completed',
+          projectSessionId: parsed.projectSessionId,
+          returnedItemCount: result.items.length,
+          hasReferences: result.hasReferences,
+          durationMs: Date.now() - startedAt
+        },
+        'Reference search completed'
+      )
+      return result
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'reference.search.failed',
+          err,
+          projectSessionId: parsed.projectSessionId,
+          durationMs: Date.now() - startedAt
+        },
+        'Reference search failed'
+      )
+      throw new Error('References could not be searched', { cause: err })
+    }
   })
 
   ipc.handle(IPC_CHANNELS.referenceBibliographySnapshot, (event, input: unknown) => {
@@ -851,6 +886,7 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.knowledgeParsedMarkdown,
       IPC_CHANNELS.knowledgeParsedAsset,
       IPC_CHANNELS.referenceList,
+      IPC_CHANNELS.referenceSearch,
       IPC_CHANNELS.referenceChooseBibliography,
       IPC_CHANNELS.referenceBibliographySnapshot,
       IPC_CHANNELS.referenceRefreshBibliography,

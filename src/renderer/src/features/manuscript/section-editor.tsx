@@ -1,4 +1,5 @@
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
+import type { ReferenceSearchCandidate } from '../../../../shared/contracts/references'
 import {
   AGENT_QUICK_ACTIONS,
   agentQuickActionSelectedTextSchema,
@@ -24,6 +25,7 @@ import { BlockNoteView } from '@blocknote/shadcn'
 import {
   AlignLeft,
   AlertCircle,
+  BookOpenText,
   Check,
   FileSearch,
   ListMinus,
@@ -67,6 +69,8 @@ import {
   toApprovedEditorDocument,
   toCanonicalDocument
 } from './editor-schema'
+import { isCitationCommandAllowed } from './citation-command'
+import { CitationSearchPopover, type CitationSearchState } from './citation-search-popover'
 import { inlineMathGuardExtension, selectionContainsStructuredSource } from './inline-math-guard'
 import { resolveProjectAssetUrl } from './project-asset-url'
 import {
@@ -126,6 +130,12 @@ type CitationDialogState =
       reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
     }
   | { phase: 'error'; request: ReadableCitationActivation }
+
+interface CitationSearchAnchor {
+  anchorRect: DOMRect
+  document: object
+  position: number
+}
 
 export const SectionEditor = forwardRef<
   SectionEditorHandle,
@@ -245,11 +255,25 @@ export const SectionEditor = forwardRef<
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
   const [citationDialog, setCitationDialog] = useState<CitationDialogState | null>(null)
+  const [citationSearchAnchor, setCitationSearchAnchor] = useState<CitationSearchAnchor | null>(
+    null
+  )
+  const [citationSearchQuery, setCitationSearchQuery] = useState('')
+  const [citationSearchState, setCitationSearchState] = useState<CitationSearchState>({
+    status: 'loading'
+  })
   const [quickActionMenuOpen, setQuickActionMenuOpen] = useState(false)
   const [customQuickActionOpen, setCustomQuickActionOpen] = useState(false)
   const [customInstruction, setCustomInstruction] = useState('')
   const [customSelection, setCustomSelection] = useState<EditorExactSelectionSnapshot | null>(null)
   const citationRequestSequenceRef = useRef(0)
+  const citationSearchSequenceRef = useRef(0)
+  const citationSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const citationSearchScopeRef = useRef({
+    editor,
+    projectSessionId: props.projectSessionId,
+    sectionId: props.revision.sectionId
+  })
   const citationTriggerRef = useRef<HTMLElement | null>(null)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -309,6 +333,132 @@ export const SectionEditor = forwardRef<
       props.onQuickActionRequest?.({ action }, selection)
     },
     [captureSelection, editor, props.onQuickActionError, props.onQuickActionRequest]
+  )
+
+  const searchReferences = useCallback(
+    (query: string, delay = 150): void => {
+      if (citationSearchTimerRef.current !== undefined) {
+        clearTimeout(citationSearchTimerRef.current)
+      }
+      const sequence = ++citationSearchSequenceRef.current
+      setCitationSearchState({ status: 'loading' })
+      citationSearchTimerRef.current = setTimeout(() => {
+        citationSearchTimerRef.current = undefined
+        void window.desktop.knowledge
+          .searchReferences({ projectSessionId: props.projectSessionId, query })
+          .then((result) => {
+            if (citationSearchSequenceRef.current !== sequence) return
+            setCitationSearchState({ status: 'ready', ...result })
+          })
+          .catch(() => {
+            if (citationSearchSequenceRef.current !== sequence) return
+            setCitationSearchState({ status: 'error' })
+          })
+      }, delay)
+    },
+    [props.projectSessionId]
+  )
+
+  const openCitationSearch = useCallback((): void => {
+    const view = editor.prosemirrorView
+    const position = view.state.selection.from
+    const coordinates = view.coordsAtPos(position)
+    setCitationSearchAnchor({
+      anchorRect: new DOMRect(coordinates.left, coordinates.bottom),
+      document: view.state.doc,
+      position
+    })
+    setCitationSearchQuery('')
+    searchReferences('', 0)
+  }, [editor, searchReferences])
+
+  const closeCitationSearch = useCallback(
+    (restoreEditorFocus: boolean): void => {
+      citationSearchSequenceRef.current += 1
+      if (citationSearchTimerRef.current !== undefined) {
+        clearTimeout(citationSearchTimerRef.current)
+        citationSearchTimerRef.current = undefined
+      }
+      const anchor = citationSearchAnchor
+      setCitationSearchAnchor(null)
+      if (
+        restoreEditorFocus &&
+        anchor !== null &&
+        anchor.document === editor.prosemirrorView.state.doc &&
+        editor.isEditable
+      ) {
+        editor._tiptapEditor.chain().focus().setTextSelection(anchor.position).run()
+      }
+    },
+    [citationSearchAnchor, editor]
+  )
+
+  const insertCitation = useCallback(
+    (candidate: ReferenceSearchCandidate): void => {
+      const anchor = citationSearchAnchor
+      setCitationSearchAnchor(null)
+      citationSearchSequenceRef.current += 1
+      if (
+        anchor === null ||
+        anchor.document !== editor.prosemirrorView.state.doc ||
+        !editor.isEditable
+      ) {
+        notifyActionError('The citation insertion position is no longer available.')
+        return
+      }
+      editor._tiptapEditor
+        .chain()
+        .focus()
+        .setTextSelection(anchor.position)
+        // Tiptap's UndoRedo extension uses ProseMirror's stable close-history transaction key.
+        // Keep the citation insertion separate from the slash-menu deletion and preceding typing.
+        .setMeta('closeHistory$', true)
+        .insertContent(`[@${candidate.citationKey}]`)
+        .run()
+    },
+    [citationSearchAnchor, editor]
+  )
+
+  useEffect(() => {
+    if (citationSearchAnchor === null) return
+    return editor.onChange(() => {
+      citationSearchSequenceRef.current += 1
+      setCitationSearchAnchor(null)
+    })
+  }, [citationSearchAnchor, editor])
+
+  useEffect(() => {
+    const previous = citationSearchScopeRef.current
+    citationSearchScopeRef.current = {
+      editor,
+      projectSessionId: props.projectSessionId,
+      sectionId: props.revision.sectionId
+    }
+    if (
+      previous.editor !== editor ||
+      previous.projectSessionId !== props.projectSessionId ||
+      previous.sectionId !== props.revision.sectionId
+    ) {
+      setCitationSearchAnchor(null)
+      citationSearchSequenceRef.current += 1
+    }
+  }, [editor, props.projectSessionId, props.revision.sectionId])
+
+  useEffect(() => {
+    if (citationSearchAnchor !== null && (readOnly || saveState === 'conflict')) {
+      setCitationSearchAnchor(null)
+      citationSearchSequenceRef.current += 1
+    }
+  }, [citationSearchAnchor, readOnly, saveState])
+
+  useEffect(
+    () => () => {
+      citationSearchSequenceRef.current += 1
+      if (citationSearchTimerRef.current !== undefined) {
+        clearTimeout(citationSearchTimerRef.current)
+      }
+    },
+    []
   )
 
   useEffect(() => {
@@ -632,6 +782,18 @@ export const SectionEditor = forwardRef<
             filterSuggestionItems(
               [
                 ...getDefaultReactSlashMenuItems(editor),
+                ...(isCitationCommandAllowed(editor, query)
+                  ? [
+                      {
+                        title: 'Cite reference',
+                        subtext: 'Search by citekey, title, or author',
+                        aliases: ['cite', 'citation', 'reference', 'bibliography'],
+                        group: 'References',
+                        icon: <BookOpenText className='size-4' />,
+                        onItemClick: openCitationSearch
+                      }
+                    ]
+                  : []),
                 ...getMathSlashMenuItems(editor),
                 {
                   title: 'Mermaid',
@@ -661,6 +823,20 @@ export const SectionEditor = forwardRef<
           )}
         />
       </BlockNoteView>
+      {citationSearchAnchor !== null && (
+        <CitationSearchPopover
+          anchorRect={citationSearchAnchor.anchorRect}
+          query={citationSearchQuery}
+          state={citationSearchState}
+          onQueryChange={(query) => {
+            setCitationSearchQuery(query)
+            searchReferences(query)
+          }}
+          onInsert={insertCitation}
+          onCancel={({ restoreEditorFocus }) => closeCitationSearch(restoreEditorFocus)}
+          onRetry={() => searchReferences(citationSearchQuery, 0)}
+        />
+      )}
       <div className='flex justify-end px-1 py-2'>
         <SaveStatus state={saveState} />
       </div>

@@ -12,6 +12,7 @@ import {
   type BibliographySnapshot,
   type CslItem,
   type ReferenceItem,
+  type ReferenceSearchResult,
   type ReferenceSettings
 } from '../../shared/contracts/references'
 import type { ProjectDatabase } from '../project/project-database'
@@ -22,6 +23,7 @@ import {
   type ParsedReferenceSource,
   type ParsedReferenceSourceItem
 } from './reference-import-parser'
+import { searchReferenceCandidates, type ReferenceSearchRecord } from './reference-search-service'
 
 type ReferenceLog = Pick<Logger, 'info' | 'warn' | 'error'>
 
@@ -131,6 +133,39 @@ export class ReferenceLibraryService {
         )
       )
     })
+  }
+
+  search(query = ''): ReferenceSearchResult {
+    const records = this.#database.immediate((database) => {
+      const rows = database
+        .prepare(
+          `SELECT item.reference_id, item.citation_key, item.title, item.issued_year,
+                  COALESCE(
+                    (
+                      SELECT json_group_array(
+                        json_object(
+                          'given', creator.given_name,
+                          'family', creator.family_name,
+                          'literal', creator.literal_name
+                        )
+                      )
+                        FROM (
+                          SELECT given_name, family_name, literal_name
+                            FROM reference_creators
+                           WHERE reference_id = item.reference_id
+                             AND role = 'author'
+                           ORDER BY ordinal
+                        ) AS creator
+                    ),
+                    '[]'
+                  ) AS authors_json
+             FROM reference_items AS item
+            ORDER BY item.reference_id`
+        )
+        .all() as ReferenceSearchRow[]
+      return rows.map(toReferenceSearchRecord)
+    })
+    return searchReferenceCandidates(records, query)
   }
 
   settings(): ReferenceSettings {
@@ -673,6 +708,39 @@ interface CreatorRow {
   given_name: string | null
   family_name: string | null
   literal_name: string | null
+}
+
+interface ReferenceSearchRow {
+  reference_id: string
+  citation_key: string
+  title: string
+  issued_year: number | null
+  authors_json: string
+}
+
+function toReferenceSearchRecord(row: ReferenceSearchRow): ReferenceSearchRecord {
+  const authors = JSON.parse(row.authors_json) as unknown
+  if (!Array.isArray(authors)) throw new Error('Reference author projection is invalid')
+  return {
+    referenceId: row.reference_id,
+    citationKey: row.citation_key,
+    title: row.title,
+    authors: authors.map((author) => {
+      if (typeof author !== 'object' || author === null) {
+        throw new Error('Reference author projection is invalid')
+      }
+      const creator = author as {
+        given?: unknown
+        family?: unknown
+        literal?: unknown
+      }
+      const given = typeof creator.given === 'string' ? creator.given : ''
+      const family = typeof creator.family === 'string' ? creator.family : ''
+      const literal = typeof creator.literal === 'string' ? creator.literal : ''
+      return literal || [given, family].filter(Boolean).join(' ')
+    }),
+    issuedYear: row.issued_year
+  }
 }
 
 function projectReference(

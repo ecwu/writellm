@@ -50,6 +50,8 @@ import {
   formattedReferenceSnapshotSchema,
   referenceListInputSchema,
   referenceListResultSchema,
+  referenceSearchInputSchema,
+  referenceSearchResultSchema,
   referenceSettingsInputSchema,
   referenceCustomStyleInputSchema,
   referenceSettingsSchema
@@ -60,6 +62,14 @@ export const knowledgeApi: DesktopApi['knowledge'] = {
   async listReferences(input) {
     return referenceListResultSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.referenceList, referenceListInputSchema.parse(input))
+    )
+  },
+  async searchReferences(input) {
+    return referenceSearchResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceSearch,
+        referenceSearchInputSchema.parse(input)
+      )
     )
   },
   async bibliographySnapshot(input) {

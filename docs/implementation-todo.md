@@ -22,6 +22,14 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance: add caret-local `/cite` search with three single-line Reference candidates.
+  Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
+
+- [x] Maintenance build: produce the macOS arm64 App containing the completed `/cite` Reference
+  search before the user-authorized source push. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
+
 - [x] Maintenance build: rebuild the macOS arm64 App from the current Pi 0.84.4 working tree.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-app-rebuild).
 

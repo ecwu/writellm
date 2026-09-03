@@ -202,6 +202,7 @@ import type {
   FormattedReferenceSnapshot,
   LegacyCitationConversionPlan,
   ReferenceItem,
+  ReferenceSearchResult,
   ReferenceSettings
 } from '../shared/contracts/references'
 
@@ -544,6 +545,10 @@ export interface DesktopApi {
   }
   knowledge: {
     listReferences(input: { projectSessionId: string; query?: string }): Promise<ReferenceItem[]>
+    searchReferences(input: {
+      projectSessionId: string
+      query?: string
+    }): Promise<ReferenceSearchResult>
     bibliographySnapshot(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
     chooseBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>
     refreshBibliography(input: { projectSessionId: string }): Promise<BibliographySnapshot | null>

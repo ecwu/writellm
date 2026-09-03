@@ -42,6 +42,7 @@ export const approvedEditorSchema = BlockNoteSchema.create({
 })
 
 export type ApprovedEditorBlock = (typeof approvedEditorSchema.BlockNoteEditor)['document'][number]
+export type ApprovedBlockNoteEditor = typeof approvedEditorSchema.BlockNoteEditor
 
 interface SerializableBlock {
   type: string

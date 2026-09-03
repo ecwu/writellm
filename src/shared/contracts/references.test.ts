@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   bibliographyConfirmImportInputSchema,
-  bibliographyPrepareImportInputSchema
+  bibliographyPrepareImportInputSchema,
+  referenceSearchCandidateSchema,
+  referenceSearchInputSchema,
+  referenceSearchResultSchema
 } from './references'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
@@ -89,6 +92,58 @@ describe('unified bibliography import contracts', () => {
             )
           }
         ]
+      }).success
+    ).toBe(false)
+  })
+})
+
+describe('Reference search contracts', () => {
+  it('accepts a bounded search request and compact candidate result', () => {
+    expect(referenceSearchInputSchema.parse({ projectSessionId, query: '  Attention  ' })).toEqual({
+      projectSessionId,
+      query: 'Attention'
+    })
+    const candidate = referenceSearchCandidateSchema.parse({
+      referenceId: connectorId,
+      citationKey: 'attention2026',
+      title: 'Attention',
+      authors: ['A. Author'],
+      issuedYear: 2026
+    })
+    expect(referenceSearchResultSchema.parse({ items: [candidate], hasReferences: true })).toEqual({
+      items: [candidate],
+      hasReferences: true
+    })
+  })
+
+  it('rejects oversized queries, author projections, and result lists', () => {
+    expect(
+      referenceSearchInputSchema.safeParse({
+        projectSessionId,
+        query: 'x'.repeat(513)
+      }).success
+    ).toBe(false)
+    const oversizedAuthors = Array.from({ length: 21 }, () => 'Author')
+    expect(
+      referenceSearchCandidateSchema.safeParse({
+        referenceId: connectorId,
+        citationKey: 'attention2026',
+        title: 'Attention',
+        authors: oversizedAuthors,
+        issuedYear: null
+      }).success
+    ).toBe(false)
+    const candidate = {
+      referenceId: connectorId,
+      citationKey: 'attention2026',
+      title: 'Attention',
+      authors: [],
+      issuedYear: null
+    }
+    expect(
+      referenceSearchResultSchema.safeParse({
+        items: [candidate, candidate, candidate, candidate],
+        hasReferences: true
       }).success
     ).toBe(false)
   })

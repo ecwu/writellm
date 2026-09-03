@@ -31,6 +31,15 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- User-authorized `/cite` insertion maintenance is complete: the Slash Menu opens a caret-local
+  shadcn search popover with three single-line citekey/title candidates, while Main performs the
+  bounded project Reference match and stable ranking. Exact insertion, cancellation, stale-scope
+  closure, independent undo/redo, saving, citation display, and existing export paths are retained.
+  Final-source verification passed 52 focused tests, a standalone `check:fast`, and a fresh-build
+  focused Electron gate with one macOS arm64 E2E scenario without retries or skips. No migration,
+  dependency, Agent policy, installer, or release changes. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
+
 - Release `0.2026.9.2` is published from the dependency-refresh commit
   `975d88b0f4e5497770ee4ea79b7320bc51a852fe` under annotated tag `v0.2026.9.2`. The local
   no-Team-ID macOS arm64 full package gate passed in 187.7 seconds across 10 stages, including
@@ -41,11 +50,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Actions-built installers and four platform evidence files; packages are unsigned and not
   notarized.
 
-- A fresh macOS arm64 App build is complete at the user's request. `pnpm build:unpack` passed
-  in 33.3 seconds, including native preparation, signature policy, and resource inventory checks.
-  `dist/macos-arm64` now contains the App and build-only evidence; the preceding installers were
-  cleared by the build command. Functional verification is reused from the Pi upgrade below.
-  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-app-rebuild).
+- A fresh macOS arm64 App containing the `/cite` Reference search is complete at the user's
+  request. `pnpm build:unpack` passed all four stages in 31.7 seconds, including native preparation,
+  production compilation, App assembly, no-Team-ID signature policy, and a 33,569-entry resource
+  inventory. `dist/macos-arm64` now contains the App and build-only evidence; functional coverage
+  is supplied by the `/cite` verification above. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
 
 - Pi runtime upgrade maintenance is complete under the approved 2026-09-03 plan. Agent/Core and
   AI are pinned to 0.84.4; existing conversations remain usable according to WriteLLM event

@@ -232,4 +232,108 @@ describe('ReferenceLibraryService', () => {
     ])
     database.close()
   })
+
+  it('searches lightweight metadata, ranks before truncating, and preserves author order', async () => {
+    const parent = await mkdtemp(join(tmpdir(), 'writellm-reference-search-'))
+    temporaryDirectories.push(parent)
+    const projectRoot = join(parent, 'project')
+    await mkdir(projectRoot)
+    const database = await initializeProjectDatabase({
+      projectRoot,
+      manifest: {
+        format: 'writellm-project',
+        formatVersion: 1,
+        projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc101',
+        createdAt: '2026-08-31T00:00:00.000Z'
+      },
+      applicationVersion: '1.0.0-test',
+      log: pino({ level: 'silent' })
+    })
+    const service = new ReferenceLibraryService({ database, log: pino({ level: 'silent' }) })
+    const references = [
+      {
+        referenceId: '11111111-1111-4111-8111-111111111111',
+        citationKey: 'exactcase2026',
+        title: 'A paper about another topic',
+        year: 2026,
+        authors: [
+          { given: 'Ada', family: 'Lovelace', literal: null },
+          { given: null, family: null, literal: '张伟' }
+        ]
+      },
+      {
+        referenceId: '22222222-2222-4222-8222-222222222222',
+        citationKey: 'topic-two',
+        title: 'A paper about topic two',
+        year: null,
+        authors: []
+      },
+      {
+        referenceId: '33333333-3333-4333-8333-333333333333',
+        citationKey: 'topic-three',
+        title: 'A paper about topic three',
+        year: 2025,
+        authors: []
+      },
+      {
+        referenceId: '44444444-4444-4444-8444-444444444444',
+        citationKey: 'topic-four',
+        title: 'A paper about topic four',
+        year: 2024,
+        authors: []
+      }
+    ]
+    database.immediate((native) => {
+      const insertReference = native.prepare(
+        `INSERT INTO reference_items (
+          reference_id, citation_key, csl_type, title, container_title, issued_year,
+          doi, isbn, url, csl_json, metadata_completeness, created_at, updated_at
+        ) VALUES (?, ?, 'article-journal', ?, NULL, ?, NULL, NULL, NULL, ?, 'partial', ?, ?)`
+      )
+      const insertCreator = native.prepare(
+        `INSERT INTO reference_creators
+          (reference_id, role, ordinal, given_name, family_name, literal_name)
+         VALUES (?, 'author', ?, ?, ?, ?)`
+      )
+      for (const reference of references) {
+        insertReference.run(
+          reference.referenceId,
+          reference.citationKey,
+          reference.title,
+          reference.year,
+          JSON.stringify({ id: reference.citationKey, title: reference.title }),
+          '2026-08-31T00:00:00.000Z',
+          '2026-08-31T00:00:00.000Z'
+        )
+        for (const [ordinal, author] of reference.authors.entries()) {
+          insertCreator.run(
+            reference.referenceId,
+            ordinal,
+            author.given,
+            author.family,
+            author.literal
+          )
+        }
+      }
+    })
+
+    expect(service.search('ada lovelace 2026')).toMatchObject({
+      hasReferences: true,
+      items: [
+        {
+          citationKey: 'exactcase2026',
+          authors: ['Ada Lovelace', '张伟'],
+          issuedYear: 2026
+        }
+      ]
+    })
+    expect(service.search('').items.map((item) => item.citationKey)).toEqual([
+      'exactcase2026',
+      'topic-four',
+      'topic-three'
+    ])
+    expect(service.search('missing').items).toEqual([])
+    expect(service.search('missing').hasReferences).toBe(true)
+    database.close()
+  })
 })
