@@ -991,8 +991,8 @@ describe('AgentSessionService: runtime', () => {
 
     database.immediate((sqlite) =>
       sqlite
-        .prepare('UPDATE agent_sessions SET pi_runtime_version = ? WHERE agent_session_id = ?')
-        .run('read-only-runtime', session.agentSessionId)
+        .prepare('UPDATE agent_sessions SET event_schema_version = ? WHERE agent_session_id = ?')
+        .run(99, session.agentSessionId)
     )
     expect(() => service.setThinkingLevel(session.agentSessionId, 'low')).toThrow('incompatible')
     database.close()

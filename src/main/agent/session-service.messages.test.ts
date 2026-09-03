@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { dirname } from 'node:path'
+import { openProjectDatabase } from '../project/project-database'
 import {
   AGENT_PENDING_MESSAGE_LIMIT,
   AGENT_PENDING_MESSAGE_MAX_BYTES
@@ -18,6 +20,76 @@ import {
 } from './session-service.test-support'
 
 describe('AgentSessionService: messages', () => {
+  it.each(['0.80.10', 'historical-pi-build'])(
+    'continues valid history recorded under %s after reopening the database',
+    async (recordedVersion) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const service = createService(database, runtime)
+      const session = service.createSession('Existing conversation')
+      const first = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Remember the first draft.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      await runtime.active().emit({
+        type: 'assistant_message',
+        modelRequestId: runtime.active().input.modelRequestId,
+        message: assistant('The first draft is ready.', 'original-response')
+      })
+      runtime.active().resolve()
+      await first.completion
+      await database.kysely
+        .updateTable('agent_sessions')
+        .set({ pi_runtime_version: recordedVersion })
+        .where('agent_session_id', '=', session.agentSessionId)
+        .execute()
+      const originalEvents = service.listEvents(session.agentSessionId)
+      const projectRoot = database.immediate((sqlite) => dirname(dirname(sqlite.name)))
+      database.close()
+      const reopened = await openProjectDatabase({
+        projectRoot,
+        manifest: {
+          format: 'writellm-project',
+          formatVersion: 1,
+          projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+          createdAt: '2026-07-21T00:00:00.000Z'
+        },
+        applicationVersion: '1.0.0-test',
+        log
+      })
+      const resumed = createService(reopened, runtime)
+      expect(resumed.listSessions()[0]).toMatchObject({ compatible: true })
+      expect(resumed.listEvents(session.agentSessionId)).toEqual(originalEvents)
+      resumed.setApprovalMode(session.agentSessionId, 'manual')
+      resumed.setThinkingLevel(session.agentSessionId, 'low')
+      const next = await resumed.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Continue the draft.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      expect(JSON.stringify(runtime.active().input.history)).toContain('The first draft is ready.')
+      runtime.active().resolve()
+      await next.completion
+      expect(
+        await reopened.kysely
+          .selectFrom('agent_sessions')
+          .select('pi_runtime_version')
+          .where('agent_session_id', '=', session.agentSessionId)
+          .executeTakeFirstOrThrow()
+      ).toEqual({ pi_runtime_version: recordedVersion })
+      resumed.archiveSession(session.agentSessionId)
+      await expect(
+        resumed.startRun({
+          agentSessionId: session.agentSessionId,
+          prompt: 'Archived conversations must stay archived.',
+          editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+        })
+      ).rejects.toThrow('archived')
+      reopened.close()
+    }
+  )
+
   it('persists concrete cause diagnostics while removing secrets, private prompts and paths', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -848,14 +920,14 @@ describe('AgentSessionService: messages', () => {
     database.close()
   })
 
-  it('keeps incompatible history readable but requires a new session for new runs', async () => {
+  it('keeps incompatible event history readable but rejects new runs', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const service = createService(database, runtime)
     const session = service.createSession('Legacy session')
     await database.kysely
       .updateTable('agent_sessions')
-      .set({ pi_runtime_version: '0.80.7' })
+      .set({ event_schema_version: 99 })
       .where('agent_session_id', '=', session.agentSessionId)
       .execute()
 

@@ -197,7 +197,7 @@ export async function runAgentSession(
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
     transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
-    prepareNextTurnWithContext: async ({ message, context, toolResults }) => {
+    shouldStopAfterTurn: ({ message }) => {
       if (message.stopReason === 'length') {
         outputLimitError = new AgentOutputLimitError(request.maxOutputTokens)
         log?.(
@@ -207,8 +207,11 @@ export async function runAgentSession(
           { maxOutputTokens: request.maxOutputTokens },
           outputLimitError
         )
-        throw outputLimitError
+        return true
       }
+      return false
+    },
+    prepareNextTurnWithContext: async ({ context, toolResults }) => {
       if (toolResults.some((result) => pausesForReview(result.details))) return undefined
       const queuedModelRequestId = modelRequestIds[0]
       if (queuedModelRequestId !== undefined) {

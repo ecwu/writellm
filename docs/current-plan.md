@@ -31,10 +31,28 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- A fresh macOS arm64 App build is complete at the user's request. `pnpm build:unpack` passed
+  in 33.3 seconds, including native preparation, signature policy, and resource inventory checks.
+  `dist/macos-arm64` now contains the App and build-only evidence; the preceding installers were
+  cleared by the build command. Functional verification is reused from the Pi upgrade below.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-app-rebuild).
+
+- Pi runtime upgrade maintenance is complete under the approved 2026-09-03 plan. Agent/Core and
+  AI are pinned to 0.84.4; existing conversations remain usable according to WriteLLM event
+  contracts, with no Pi-version allowlist or database migration. Lifecycle, stream-terminal,
+  catalog/credential cancellation, and read-only Skill adapters are updated. Final-source
+  coverage comprises 1,333 passing Electron-hosted tests with three existing benchmark skips
+  (the full run plus the affected 59-test rerun), static checks, 12 packaged smoke scenarios,
+  and all 34 packaged E2E scenarios. The single macOS arm64 package gate passed in 210.4 seconds
+  without retries or flakes. `dist/macos-arm64` now contains this upgraded working-tree build
+  under unchanged release metadata; the earlier local tag remains unchanged. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-runtime-upgrade).
+
 - Candidate `0.2026.9.1` is locally built and verified under the user's build, commit, and tag
   request. The no-Team-ID macOS arm64 package gate passed in 188.0 seconds: 12 runtime smoke
   scenarios and all 34 packaged E2E scenarios, with no failures, retries, flakes, or skips.
-  The App, DMG, and ZIP are under `dist/macos-arm64`. Version metadata and the local annotated
+  The original artifact evidence is retained in the history; `dist/macos-arm64` has since been
+  rebuilt by Pi maintenance. Version metadata and the local annotated
   tag use the repository's canonical `v0.2026.9.1` convention; remote push and publication are
   outside this request. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).
 

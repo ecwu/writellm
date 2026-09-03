@@ -12,6 +12,45 @@ const limits = {
 }
 
 describe('shared Agent provider runtime construction', () => {
+  it('disables Anthropic automatic fallback while preserving the selected model snapshot', () => {
+    const provider = config('anthropic-messages', 'anthropic', 'chosen-model')
+    const runtimeModel = {
+      id: 'chosen-model',
+      name: 'Chosen model',
+      provider: 'anthropic',
+      api: 'anthropic-messages' as const,
+      baseUrl: provider.baseUrl,
+      reasoning: true,
+      input: ['text' as const],
+      contextWindow: 200_000,
+      maxTokens: 8_192,
+      compat: {
+        forceAdaptiveThinking: true,
+        allowedFallbackModels: [
+          {
+            provider: 'anthropic',
+            model: 'other-model',
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+          }
+        ]
+      }
+    }
+    const model = buildAgentProviderModel({
+      config: provider,
+      runtimeModel,
+      modelLimits: limits,
+      maxOutputTokens: 8_192
+    })
+    expect(model).toMatchObject({
+      id: 'chosen-model',
+      compat: {
+        forceAdaptiveThinking: true,
+        allowedFallbackModels: []
+      }
+    })
+    expect(runtimeModel.compat.allowedFallbackModels).toHaveLength(1)
+  })
+
   it.each([
     ['OpenAI Codex', config('openai-codex-responses', 'openai-codex', 'gpt-5.4')],
     ['Kimi', config('openai-completions', 'kimi-coding', 'kimi-k2.5')],

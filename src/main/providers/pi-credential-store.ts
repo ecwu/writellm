@@ -1,4 +1,9 @@
-import type { Credential, CredentialInfo, CredentialStore } from '@earendil-works/pi-ai'
+import type {
+  AuthOperationOptions,
+  Credential,
+  CredentialInfo,
+  CredentialStore
+} from '@earendil-works/pi-ai'
 import type { CredentialService } from './credential-service'
 
 export class MainPiCredentialStore implements CredentialStore {
@@ -10,41 +15,56 @@ export class MainPiCredentialStore implements CredentialStore {
     private readonly providerConfigId: string | ((providerId: string) => Promise<string>) = 'agent'
   ) {}
 
-  async read(providerId: string): Promise<Credential | undefined> {
+  async read(providerId: string, options?: AuthOperationOptions): Promise<Credential | undefined> {
+    options?.signal?.throwIfAborted()
     const providerConfigId = await this.resolveProviderConfigId(providerId)
+    options?.signal?.throwIfAborted()
     const value = await this.credentials.readPersistedValue(providerConfigId)
+    options?.signal?.throwIfAborted()
     if (value === undefined) return undefined
     if (!value.startsWith('{')) return { type: 'api_key', key: value }
     return parseCredential(value)
   }
 
-  async list(): Promise<readonly CredentialInfo[]> {
+  async list(options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
+    options?.signal?.throwIfAborted()
     if (typeof this.providerConfigId === 'function') return []
-    const credential = await this.read(this.providerId)
+    const credential = await this.read(this.providerId, options)
     return credential === undefined ? [] : [{ providerId: this.providerId, type: credential.type }]
   }
 
   async modify(
     providerId: string,
-    operation: (current: Credential | undefined) => Promise<Credential | undefined>
+    operation: (current: Credential | undefined) => Promise<Credential | undefined>,
+    options?: AuthOperationOptions
   ): Promise<Credential | undefined> {
-    return this.serialize(providerId, async () => {
-      const current = await this.read(providerId)
-      const next = await operation(current)
-      if (next === undefined) return current
-      const serialized = JSON.stringify(validateCredential(next))
-      const ciphertext = this.credentials.encryptForPersistence(serialized)
-      await this.credentials.persistEncrypted(
-        await this.resolveProviderConfigId(providerId),
-        ciphertext
-      )
-      return next
-    })
+    return this.serialize(
+      providerId,
+      async () => {
+        const current = await this.read(providerId, options)
+        const next = await operation(current)
+        options?.signal?.throwIfAborted()
+        if (next === undefined) return current
+        const providerConfigId = await this.resolveProviderConfigId(providerId)
+        options?.signal?.throwIfAborted()
+        const serialized = JSON.stringify(validateCredential(next))
+        const ciphertext = this.credentials.encryptForPersistence(serialized)
+        await this.credentials.persistEncrypted(providerConfigId, ciphertext)
+        return next
+      },
+      options?.signal
+    )
   }
 
-  async delete(providerId: string): Promise<void> {
-    await this.serialize(providerId, async () =>
-      this.credentials.removeCredential(await this.resolveProviderConfigId(providerId))
+  async delete(providerId: string, options?: AuthOperationOptions): Promise<void> {
+    await this.serialize(
+      providerId,
+      async () => {
+        const providerConfigId = await this.resolveProviderConfigId(providerId)
+        options?.signal?.throwIfAborted()
+        await this.credentials.removeCredential(providerConfigId)
+      },
+      options?.signal
     )
   }
 
@@ -54,7 +74,12 @@ export class MainPiCredentialStore implements CredentialStore {
     return this.providerConfigId
   }
 
-  private async serialize<T>(providerId: string, operation: () => Promise<T>): Promise<T> {
+  private async serialize<T>(
+    providerId: string,
+    operation: () => Promise<T>,
+    signal?: AbortSignal
+  ): Promise<T> {
+    signal?.throwIfAborted()
     const previous = this.#tails.get(providerId) ?? Promise.resolve()
     let release: () => void = () => undefined
     const current = new Promise<void>((resolve) => {
@@ -62,12 +87,20 @@ export class MainPiCredentialStore implements CredentialStore {
     })
     const tail = previous.then(() => current)
     this.#tails.set(providerId, tail)
-    await previous
+    void tail.then(() => {
+      if (this.#tails.get(providerId) === tail) this.#tails.delete(providerId)
+    })
+    const abort = Promise.withResolvers<never>()
+    const onAbort = (): void => abort.reject(signal?.reason)
+    signal?.addEventListener('abort', onAbort, { once: true })
     try {
+      await Promise.race([previous, abort.promise])
+      signal?.throwIfAborted()
+      // Once active, retain the lock until the operation settles, even after cancellation.
       return await operation()
     } finally {
+      signal?.removeEventListener('abort', onAbort)
       release()
-      if (this.#tails.get(providerId) === tail) this.#tails.delete(providerId)
     }
   }
 }

@@ -461,7 +461,7 @@ export class AgentSessionService {
       (
         database
           .prepare(
-            `SELECT agent_session_id, title, pi_runtime_version, event_schema_version,
+            `SELECT agent_session_id, title, event_schema_version,
                     status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
                     thinking_level,
                     created_at, updated_at, archived_at,
@@ -491,7 +491,6 @@ export class AgentSessionService {
           .all(...values) as Array<{
           agent_session_id: string
           title: string
-          pi_runtime_version: string
           event_schema_version: number
           status: 'active' | 'archived'
           approval_mode: AgentApprovalMode
@@ -509,9 +508,7 @@ export class AgentSessionService {
           agentSessionId: row.agent_session_id,
           title: row.title,
           status: row.status,
-          compatible:
-            row.pi_runtime_version === AGENT_RUNTIME_VERSION &&
-            row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
+          compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
           interactionMode: row.interaction_mode,
           workflowState: this.#sessionIsAwaitingInput(row.agent_session_id)
@@ -3891,19 +3888,14 @@ export class AgentSessionService {
       (database) =>
         database
           .prepare(
-            `SELECT pi_runtime_version, event_schema_version, status
+            `SELECT event_schema_version, status
                FROM agent_sessions WHERE agent_session_id = ?`
           )
-          .get(agentSessionId) as
-          | { pi_runtime_version: string; event_schema_version: number; status: string }
-          | undefined
+          .get(agentSessionId) as { event_schema_version: number; status: string } | undefined
     )
     if (row === undefined) throw new Error('Agent session does not exist')
     if (row.status !== 'active') throw new Error('Agent session is archived')
-    if (
-      row.pi_runtime_version !== AGENT_RUNTIME_VERSION ||
-      row.event_schema_version !== AGENT_EVENT_SCHEMA_VERSION
-    ) {
+    if (row.event_schema_version !== AGENT_EVENT_SCHEMA_VERSION) {
       throw new Error('Agent session is incompatible with the current runtime')
     }
   }

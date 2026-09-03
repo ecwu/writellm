@@ -22,6 +22,13 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance build: rebuild the macOS arm64 App from the current Pi 0.84.4 working tree.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-app-rebuild).
+
+- [x] Maintenance: upgrade Pi Agent/Core and AI to 0.84.4, adapt lifecycle/storage interfaces,
+  and decouple conversation usability from the recorded Pi version.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-runtime-upgrade).
+
 - [x] Candidate `0.2026.9.1`: build and verify the macOS arm64 App, then commit the current
   source and create the local annotated `v0.2026.9.1` tag.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).

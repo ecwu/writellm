@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { openAppDatabase, type AppDatabase } from '../app-db/connection'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
 import { MainPiCredentialStore } from './pi-credential-store'
@@ -51,6 +51,63 @@ afterEach(async () => {
 })
 
 describe('MainPiCredentialStore', () => {
+  it('cancels queued credential changes without releasing an active modification', async () => {
+    const appDatabase = await database()
+    const store = new MainPiCredentialStore(
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    )
+    await store.modify('openai-compatible', async () => ({ type: 'api_key', key: 'original' }))
+    const entered = Promise.withResolvers<void>()
+    const finish = Promise.withResolvers<void>()
+    const activeController = new AbortController()
+    const active = store.modify(
+      'openai-compatible',
+      async () => {
+        entered.resolve()
+        await finish.promise
+        return { type: 'api_key', key: 'cancelled-active' }
+      },
+      { signal: activeController.signal }
+    )
+    const activeRejected = expect(active).rejects.toMatchObject({ name: 'AbortError' })
+    await entered.promise
+
+    const queuedController = new AbortController()
+    const queuedOperation = vi.fn(async () => ({
+      type: 'api_key' as const,
+      key: 'cancelled-queue'
+    }))
+    const queued = store.modify('openai-compatible', queuedOperation, {
+      signal: queuedController.signal
+    })
+    const queuedRejected = expect(queued).rejects.toMatchObject({ name: 'AbortError' })
+    queuedController.abort()
+    await queuedRejected
+    activeController.abort()
+    const nextOperation = vi.fn(async (current) => {
+      expect(current).toEqual({ type: 'api_key', key: 'original' })
+      return { type: 'api_key' as const, key: 'fresh' }
+    })
+    const next = store.modify('openai-compatible', nextOperation)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(queuedOperation).not.toHaveBeenCalled()
+    expect(nextOperation).not.toHaveBeenCalled()
+    finish.resolve()
+    await activeRejected
+    await next
+    expect(await store.read('openai-compatible')).toEqual({ type: 'api_key', key: 'fresh' })
+    const aborted = { signal: AbortSignal.abort() }
+    await expect(store.read('openai-compatible', aborted)).rejects.toMatchObject({
+      name: 'AbortError'
+    })
+    await expect(store.list(aborted)).rejects.toMatchObject({ name: 'AbortError' })
+    await expect(store.delete('openai-compatible', aborted)).rejects.toMatchObject({
+      name: 'AbortError'
+    })
+    expect(await store.read('openai-compatible')).toEqual({ type: 'api_key', key: 'fresh' })
+    appDatabase.close()
+  })
+
   it('implements serialized read-modify-write through encrypted app storage', async () => {
     const appDatabase = await database()
     const credentialService = new CredentialService(

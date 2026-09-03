@@ -95,6 +95,53 @@ afterEach(async () => {
 })
 
 describe('AgentProviderCatalogService', () => {
+  it('keeps a newer catalog when a cancelled refresh finishes late', async () => {
+    const { database, catalog } = await createHarness()
+    await catalog.saveCustomPreset({
+      presetId: 'custom:cancel',
+      name: 'Cancellation',
+      baseUrl: 'https://models.example.test/v1',
+      api: 'openai-responses',
+      authMode: 'api_key',
+      timeoutMs: 30_000,
+      apiKey: 'catalog-secret'
+    })
+    const response = (id: string): Response =>
+      new Response(JSON.stringify({ data: [{ id }] }), {
+        headers: { 'content-type': 'application/json' }
+      })
+    const delayed = Promise.withResolvers<Response>()
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response('original'))
+      .mockReturnValueOnce(delayed.promise)
+      .mockResolvedValueOnce(response('fresh'))
+    vi.stubGlobal('fetch', fetchMock)
+    await catalog.refreshPreset('custom:cancel', new AbortController().signal)
+    const controller = new AbortController()
+    const cancelled = catalog.refreshPreset('custom:cancel', controller.signal)
+    const rejected = expect(cancelled).rejects.toThrow('Agent model catalog refresh failed')
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    controller.abort()
+    await rejected
+    expect(
+      (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:cancel')
+    ).toMatchObject({ models: [{ id: 'original' }] })
+    await catalog.refreshPreset('custom:cancel', new AbortController().signal)
+    delayed.resolve(response('stale'))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(
+      (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:cancel')
+    ).toMatchObject({ models: [{ id: 'fresh' }], catalogStatus: 'current' })
+    const persisted = await database.kysely
+      .selectFrom('agent_model_catalogs')
+      .select('models_json')
+      .where('provider_config_id', '=', 'agent:custom:cancel')
+      .executeTakeFirstOrThrow()
+    expect(JSON.parse(persisted.models_json)).toEqual([expect.objectContaining({ id: 'fresh' })])
+    database.close()
+  })
+
   it('projects exact Pi Thinking levels from Pi metadata', async () => {
     const { database, catalog } = await createHarness()
     const snapshot = await catalog.snapshot()
@@ -137,7 +184,7 @@ describe('AgentProviderCatalogService', () => {
           controller.abort()
         }
       })
-    ).rejects.toThrow('Login cancelled')
+    ).rejects.toMatchObject({ name: 'AbortError' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(notices).toEqual([
       expect.objectContaining({

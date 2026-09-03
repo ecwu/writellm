@@ -91,6 +91,27 @@ async function pumpAttempts(
     }
 
     for await (const event of attemptStream) {
+      const terminal =
+        event.type === 'done' ? event.message : event.type === 'error' ? event.error : undefined
+      if (terminal?.stopReason === 'pending' || terminal?.stopReason === 'deferred') {
+        const error = Object.assign(
+          new Error(`Provider returned unsupported terminal stop reason: ${terminal.stopReason}`),
+          { code: 'unsupported_provider_stop_reason' }
+        )
+        const failure = options.createErrorMessage(error, options.signal?.aborted === true)
+        flushBuffered(output, buffered)
+        output.push({
+          type: 'error',
+          reason: failure.stopReason === 'aborted' ? 'aborted' : 'error',
+          error: {
+            ...terminal,
+            stopReason: failure.stopReason,
+            errorMessage: failure.errorMessage,
+            deferred: undefined
+          }
+        })
+        return
+      }
       if (event.type === 'done') {
         flushBuffered(output, buffered)
         output.push(event)

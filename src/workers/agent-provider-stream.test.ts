@@ -9,6 +9,58 @@ import { createRetryingAgentProviderStream, parseRetryAfterMs } from './agent-pr
 afterEach(() => vi.useRealTimers())
 
 describe('createRetryingAgentProviderStream', () => {
+  it('forwards pending streaming content until a real terminal response arrives', async () => {
+    const partial = message('pending', 'Streaming text')
+    const retrying = createRetryingAgentProviderStream({
+      startAttempt: () =>
+        eventStream(
+          { type: 'start', partial },
+          { type: 'text_delta', contentIndex: 0, delta: 'Streaming text', partial },
+          { type: 'done', reason: 'stop', message: message('stop', 'Streaming text') }
+        ),
+      responseStatus: () => 200,
+      retryAfterMs: () => undefined,
+      createErrorMessage: (error) => message('error', '', String(error)),
+      onRetry: () => undefined
+    })
+    const events: AssistantMessageEvent[] = []
+    for await (const event of retrying.stream) events.push(event)
+    expect(events).toContainEqual(expect.objectContaining({ type: 'text_delta', partial }))
+    expect(await retrying.stream.result()).toMatchObject({ stopReason: 'stop' })
+  })
+
+  it.each(['pending', 'deferred'] as const)(
+    'fails a terminal %s response without retrying or losing partial output',
+    async (stopReason) => {
+      const createErrorMessage = vi.fn((error: unknown) => message('error', '', String(error)))
+      const startAttempt = vi.fn(() =>
+        eventStream({
+          type: 'done',
+          reason: stopReason === 'deferred' ? 'deferred' : 'stop',
+          message: message(stopReason, 'Unfinished response')
+        })
+      )
+      const retrying = createRetryingAgentProviderStream({
+        startAttempt,
+        responseStatus: () => 200,
+        retryAfterMs: () => 0,
+        createErrorMessage,
+        onRetry: () => undefined
+      })
+      expect(await retrying.stream.result()).toMatchObject({
+        stopReason: 'error',
+        content: [{ type: 'text', text: 'Unfinished response' }],
+        errorMessage: expect.stringContaining(`unsupported terminal stop reason: ${stopReason}`)
+      })
+      expect(createErrorMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'unsupported_provider_stop_reason' }),
+        false
+      )
+      expect(startAttempt).toHaveBeenCalledTimes(1)
+      expect(retrying.state).toMatchObject({ retryCount: 0, retryableFailure: false })
+    }
+  )
+
   it('retries four transient failures and succeeds on the fifth logical attempt', async () => {
     let attempts = 0
     const retries: number[] = []

@@ -90,6 +90,7 @@ function virtualEnv(directory: string, entrypoint: string, document: string): Ex
     },
     readBinaryFile: denied,
     writeFile: denied,
+    renameFile: denied,
     appendFile: denied,
     async fileInfo(path) {
       const normalized = normalize(path)

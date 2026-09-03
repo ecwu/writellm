@@ -1621,3 +1621,72 @@ maintenance without turning the active tracker back into a historical log.
   commit and annotated tag. Other-platform builds, remote push, Developer ID signing,
   notarization, GitHub Release creation, and publication are outside this request. Host Node
   26.8.1 retains the pre-existing engine-range warning; tests run in the canonical Electron runtime.
+
+## 2026-09-03 Pi runtime upgrade
+
+- Authorization: the user approved upgrading `@earendil-works/pi-agent-core` and
+  `@earendil-works/pi-ai` to exact `0.84.4` pins, adapting confirmed interface changes, and removing
+  the Pi-version conversation gate. Conversation usability follows WriteLLM's event schema and
+  validated history; `pi_runtime_version` remains creation provenance only. No version allowlist,
+  version range, database migration, or rewriting of historical migration evidence is introduced.
+- The lockfile updates only the Pi dependency graph. The runtime constant and provider model
+  revision use the new pin, with manifest consistency coverage. The existing host nvm installed
+  Node 24.15.0 for task commands; pnpm remains 11.17.0. Shell PATH changes are task-local, the
+  default nvm alias remains `lts/*`, and the ordinary host shell still resolves Node 26.8.1.
+  Lockfile generation took 7.6 seconds and the explicit frozen install took 3 seconds. Native
+  preparation verified Electron 43.4.1 / Node 24.18.1 / ABI 148, better-sqlite3 12.11.1, and
+  sqlite-vec 0.1.9 on macOS arm64.
+- `shouldStopAfterTurn` handles output truncation before queued messages can be consumed;
+  `prepareNextTurnWithContext` handles only actual continuations. Pending content remains a live
+  stream state; unsupported pending/deferred terminal responses become explicit errors with
+  partial output preserved and no retry. Provider model construction disables Anthropic's new
+  automatic fallback while retaining the selected model and its original catalog snapshot.
+- The obsolete scoped model-store wrapper is removed. Catalog and credential stores accept
+  cancellation signals; cancelled refreshes fail explicitly, late results do not replace the
+  current catalog, and queued credential cancellation cannot release an active modification's
+  lock. The virtual Skill filesystem explicitly denies the newly required rename operation.
+  The existing low-level Agent, application tools, persistence contracts, and logging authority
+  remain in place; no external telemetry exporter is configured.
+- `pnpm test` ran all 1,336 tests in 22.1 seconds (Vitest 21.4 seconds): 1,330 passed, three
+  failed, and three existing benchmark tests were skipped, with zero automatic retries or
+  unhandled errors. The failures exposed a cancelled catalog refresh reported as success,
+  premature credential-tail cleanup, and an old xAI cancellation-message assertion. The first
+  two were fixed and the assertion now checks `AbortError`. The affected Provider and Provider
+  IPC rerun passed all 59 tests in nine files in 2.8 seconds (Vitest 2.4 seconds). Together with
+  unaffected full-run results, final-source coverage is **1,333 passing tests plus three benchmark
+  skips**. This includes real database reopen with an older or arbitrary recorded Pi version,
+  unchanged history/provenance, continued messages/settings, event-schema rejection, archived
+  write rejection, truncation, steering/follow-ups, tool continuations, and Skill loading.
+  Evidence: `.cache/verification/1788420554995-2069-b0351878/` and
+  `.cache/verification/1788420615923-3060-8280691d/`. The full runner's deliberately failing
+  subprocess fixtures also printed a sandbox `kill EPERM` diagnostic; those fixture tests passed
+  and the three suite failures above were assertion failures, not native-module failures.
+- One `pnpm check:package` invocation passed in **210.4 seconds**, including Biome and both
+  typechecks (10.5 seconds), one build/native preparation (12.3 seconds), App assembly
+  (32.2 seconds), inventory of 33,383 ASAR entries, all 12 packaged runtime smoke scenarios
+  (39.8 seconds), and all **34 packaged E2E scenarios** (93.2 seconds). E2E had zero failures,
+  retries, flakes, or skips. The 31 recovery fixtures and no-Team-ID macOS signature policy also
+  passed; installers were made from that same tested App in 22.0 seconds. Evidence:
+  `.cache/verification/1788420662138-3420-a9d88d2f/` and
+  `dist/macos-arm64/package-evidence.json`.
+- The upgraded working-tree artifacts replace the preceding local build under unchanged
+  `0.2026.9.1` release metadata: `dist/macos-arm64/mac-arm64/WriteLLM.app`,
+  `WriteLLM-0.2026.9.1-arm64.dmg`, and `WriteLLM-0.2026.9.1-arm64.zip`. Package evidence correctly
+  records dirty-source provenance. The existing local tag remains on its original source.
+  No commit, tag, push, release, Developer ID signing, notarization, or publication was performed.
+  Other platforms and live paid-provider experiments were outside this maintenance's acceptance
+  scope. Final documentation and diff checks passed after synchronization.
+
+## 2026-09-03 Pi App rebuild
+
+- At the user's request, `pnpm build:unpack` rebuilt the current Pi 0.84.4 working tree with
+  task-local Node 24.15.0 and pnpm 11.17.0. The macOS arm64 build passed all four build stages
+  in 33.3 seconds without retries: production build/native preparation (11.8 seconds), App
+  assembly (21.3 seconds), no-Team-ID signature policy, and inventory of 33,383 ASAR entries.
+- Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`, with unchanged `0.2026.9.1` release
+  metadata and dirty-source provenance. The build command refreshed its output directory and
+  removed the preceding DMG/ZIP files. Evidence: `dist/macos-arm64/package-evidence.json` and
+  `.cache/verification/1788421662296-10029-d3a0b461/`.
+- This build-only invocation ran no functional tests; the Pi upgrade's final-source unit,
+  packaged smoke, and E2E results above remain applicable. Other platforms were not built.
+  No commit, tag, push, or publication was performed.

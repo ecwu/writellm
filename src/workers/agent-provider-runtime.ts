@@ -25,10 +25,15 @@ export function buildAgentProviderModel(input: {
   maxOutputTokens: number
 }): Model<Api> {
   const { config, runtimeModel } = input
+  const api = runtimeModel?.api ?? config.api ?? 'openai-completions'
+  const compat =
+    api === 'anthropic-messages'
+      ? { ...runtimeModel?.compat, allowedFallbackModels: [] }
+      : runtimeModel?.compat
   return {
     id: runtimeModel?.id ?? config.model,
     name: runtimeModel?.name ?? config.model,
-    api: runtimeModel?.api ?? config.api ?? ('openai-completions' as const),
+    api,
     provider: runtimeModel?.provider ?? config.providerId,
     baseUrl: runtimeModel?.baseUrl ?? config.baseUrl,
     reasoning: runtimeModel?.reasoning ?? false,
@@ -39,8 +44,8 @@ export function buildAgentProviderModel(input: {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: runtimeModel?.contextWindow ?? input.modelLimits?.contextWindowTokens ?? 131_072,
     maxTokens: runtimeModel?.maxTokens ?? input.maxOutputTokens,
-    ...(runtimeModel?.compat !== undefined
-      ? { compat: runtimeModel.compat }
+    ...(compat !== undefined
+      ? { compat }
       : config.api === undefined || config.api === 'openai-completions'
         ? { compat: { supportsUsageInStreaming: true, maxTokensField: 'max_tokens' as const } }
         : {})

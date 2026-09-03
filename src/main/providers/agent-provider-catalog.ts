@@ -13,8 +13,9 @@ import {
   type Model,
   type Models,
   type ModelsStore,
-  type Provider,
-  type ProviderModelsStore
+  type ModelsStoreEntry,
+  type ModelsStoreOperationOptions,
+  type Provider
 } from '@earendil-works/pi-ai'
 import type { Logger } from 'pino'
 import { z } from 'zod'
@@ -37,6 +38,7 @@ import {
   type AgentProviderPresetSummary
 } from '../../shared/contracts/providers'
 import {
+  AGENT_RUNTIME_VERSION,
   agentRuntimeModelSchema,
   type AgentModelLimits,
   type AgentRuntimeModel
@@ -129,7 +131,7 @@ export function agentProviderConfigFromResolved(
     modelName: resolved.model.name,
     api: resolved.model.api,
     baseUrl: resolved.auth.auth.baseUrl ?? resolved.model.baseUrl,
-    modelRevision: `pi-0.80.10:${resolved.model.api}`.slice(0, 256),
+    modelRevision: `pi-${AGENT_RUNTIME_VERSION}:${resolved.model.api}`.slice(0, 256),
     contextWindowTokens: resolved.model.contextWindow,
     timeoutMs: resolved.timeoutMs,
     batchLimit: 1,
@@ -364,6 +366,7 @@ export class AgentProviderCatalogService {
   }
 
   async refreshPreset(presetId: string, signal: AbortSignal): Promise<AgentProviderCatalog> {
+    signal.throwIfAborted()
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
     const providerId = await this.#runtimeProviderId(parsed)
@@ -378,6 +381,7 @@ export class AgentProviderCatalogService {
     const attemptedAt = this.now().toISOString()
     try {
       const result = await isolated.refresh({ allowNetwork: true, force: true, signal })
+      signal.throwIfAborted()
       const error = result.errors.get(providerId)
       if (error !== undefined) throw error
       await this.#modelsStore.recordAttempt(providerId, attemptedAt, null)
@@ -386,11 +390,11 @@ export class AgentProviderCatalogService {
         'Refreshed Agent model catalog'
       )
     } catch (err) {
-      await this.#modelsStore.recordAttempt(providerId, attemptedAt, safeRefreshErrorCode(err))
       this.log.error(
         { event: 'agent.model_catalog.refresh_failed', err, presetId: parsed, providerId },
         'Failed to refresh Agent model catalog'
       )
+      await this.#modelsStore.recordAttempt(providerId, attemptedAt, safeRefreshErrorCode(err))
       throw new Error('Agent model catalog refresh failed', { cause: err })
     }
     return this.snapshot()
@@ -1140,14 +1144,17 @@ class DatabaseModelsStore implements ModelsStore {
     private readonly now: () => Date
   ) {}
 
-  async read(providerId: string) {
+  async read(providerId: string, options?: ModelsStoreOperationOptions) {
+    options?.signal?.throwIfAborted()
     const providerConfigId = await this.#providerConfigId(providerId)
+    options?.signal?.throwIfAborted()
     if (providerConfigId === null) return undefined
     const row = await this.database.kysely
       .selectFrom('agent_model_catalogs')
       .select(['models_json', 'checked_at'])
       .where('provider_config_id', '=', providerConfigId)
       .executeTakeFirst()
+    options?.signal?.throwIfAborted()
     if (row === undefined) return undefined
     try {
       const models = cachedModelsSchema.parse(JSON.parse(row.models_json)) as Model<Api>[]
@@ -1164,8 +1171,10 @@ class DatabaseModelsStore implements ModelsStore {
     }
   }
 
-  async write(providerId: string, entry: { models: readonly Model<Api>[]; checkedAt?: number }) {
+  async write(providerId: string, entry: ModelsStoreEntry, options?: ModelsStoreOperationOptions) {
+    options?.signal?.throwIfAborted()
     const providerConfigId = await this.#providerConfigId(providerId)
+    options?.signal?.throwIfAborted()
     if (providerConfigId === null) throw new Error('Agent provider record is missing')
     const models = cachedModelsSchema.parse(entry.models)
     const modelsJson = JSON.stringify(models)
@@ -1197,21 +1206,15 @@ class DatabaseModelsStore implements ModelsStore {
       .execute()
   }
 
-  async delete(providerId: string): Promise<void> {
+  async delete(providerId: string, options?: ModelsStoreOperationOptions): Promise<void> {
+    options?.signal?.throwIfAborted()
     const providerConfigId = await this.#providerConfigId(providerId)
+    options?.signal?.throwIfAborted()
     if (providerConfigId === null) return
     await this.database.kysely
       .deleteFrom('agent_model_catalogs')
       .where('provider_config_id', '=', providerConfigId)
       .execute()
-  }
-
-  scoped(providerId: string): ProviderModelsStore {
-    return {
-      read: () => this.read(providerId),
-      write: (entry) => this.write(providerId, entry),
-      delete: () => this.delete(providerId)
-    }
   }
 
   async status(providerId: string): Promise<{
