@@ -34,6 +34,11 @@ Status markers:
   the deferred major/0.x migration boundaries.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh).
 
+- [x] Candidate `0.2026.9.2`: pass the local package gate, create and push annotated tag
+  `v0.2026.9.2`, wait for the four-platform tag Actions build, and publish the Actions-built
+  installers and evidence as the GitHub Release.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-release-0202692).
+
 - [x] Candidate `0.2026.9.1`: build and verify the macOS arm64 App, then commit the current
   source and create the local annotated `v0.2026.9.1` tag.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).

@@ -1720,3 +1720,30 @@ maintenance without turning the active tracker back into a historical log.
   repository Node 24 engine warning remains an environment limitation. `git diff --check` passed.
 - No database migration, product API, release, commit, tag, push, signing, notarization,
   promotion, or publication action was performed.
+
+## 2026-09-03 Release 0.2026.9.2
+
+- Authorization: the user requested a build, the `9.2` tag, and publication of the
+  GitHub Actions-built release as `0.2026.9.2`.
+- Release source is commit `975d88b0f4e5497770ee4ea79b7320bc51a852fe`, whose release metadata
+  resolves to package version `0.2026.9`, release version `0.2026.9.2`, build number `2`, and
+  macOS build version `2026.9.2`. The annotated tag `v0.2026.9.2` was created and pushed.
+- Local `pnpm check:package` passed in 187.7 seconds across 10 stages for macOS arm64. It
+  covered static checks, 31 recovery fixtures, production build, native/resource inventory,
+  12 packaged runtime smoke scenarios, all 34 packaged E2E scenarios, and DMG/ZIP installer
+  creation with artifact checksums. The local package gate had no failures, retries, flakes, or
+  skips.
+- GitHub Actions run
+  [33761788245](https://github.com/ecwu/writellm/actions/runs/33761788245) passed the shared
+  static/fixture gate and all four native build jobs: macOS arm64 (5m26s), Windows x64 (5m26s),
+  Linux x64 (5m12s), and macOS x64 (8m05s). The run produced seven installers and one evidence
+  file per platform; the evidence records the source revision and package SHA-256 values.
+- GitHub Release
+  [`WriteLLM 0.2026.9.2`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.2) was
+  published with the Actions-built macOS arm64 DMG/ZIP, macOS x64 DMG/ZIP, Windows x64 NSIS
+  installer, Linux x64 AppImage/DEB, and four renamed platform evidence JSON files. The
+  packages are explicitly unsigned and not notarized. The enabled tag workflow is a build/upload
+  workflow; the local macOS arm64 package gate supplies the full packaged runtime and E2E result.
+- The tag push was intentionally limited to `v0.2026.9.2`; the release source commit is included
+  in that immutable tag. This documentation synchronization is a post-release local commit and
+  does not retag or alter the published release.

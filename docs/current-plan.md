@@ -31,6 +31,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release `0.2026.9.2` is published from the dependency-refresh commit
+  `975d88b0f4e5497770ee4ea79b7320bc51a852fe` under annotated tag `v0.2026.9.2`. The local
+  no-Team-ID macOS arm64 full package gate passed in 187.7 seconds across 10 stages, including
+  12 packaged runtime smoke scenarios and all 34 packaged E2E scenarios. The tag Actions run
+  [33761788245](https://github.com/ecwu/writellm/actions/runs/33761788245) passed the shared
+  static/fixture gate and all four native platform build/upload jobs. The published
+  [GitHub Release](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.2) contains the seven
+  Actions-built installers and four platform evidence files; packages are unsigned and not
+  notarized.
+
 - A fresh macOS arm64 App build is complete at the user's request. `pnpm build:unpack` passed
   in 33.3 seconds, including native preparation, signature policy, and resource inventory checks.
   `dist/macos-arm64` now contains the App and build-only evidence; the preceding installers were
@@ -57,13 +67,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   remain unchanged. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh).
 
-- Candidate `0.2026.9.1` is locally built and verified under the user's build, commit, and tag
+- Earlier candidate `0.2026.9.1` was locally built and verified under the user's build, commit, and tag
   request. The no-Team-ID macOS arm64 package gate passed in 188.0 seconds: 12 runtime smoke
   scenarios and all 34 packaged E2E scenarios, with no failures, retries, flakes, or skips.
   The original artifact evidence is retained in the history; `dist/macos-arm64` has since been
   rebuilt by Pi maintenance. Version metadata and the local annotated
-  tag use the repository's canonical `v0.2026.9.1` convention; remote push and publication are
-  outside this request. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).
+  tag use the repository's canonical `v0.2026.9.1` convention. It is superseded for publication
+  by the `0.2026.9.2` release above. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-local-build-0202691).
 
 - Agent model configuration maintenance is complete under ADR 076: new runs use current catalog
   limits/reasoning, truncated output is reported as incomplete, and model selectors refresh after
