@@ -31,6 +31,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Candidate `0.2026.9.3` is built and pushed from release commit
+  `f53feb462b2140460ecf9fadc9ee6cf8b92046aa` under annotated tag `v0.2026.9.3`. The clean-source
+  macOS arm64 unpacked App gate passed all four build-only stages in 29.9 seconds, including native
+  preparation, production compilation, App assembly, no-Team-ID signature policy, and a 33,569-entry
+  resource inventory. The tag does not by itself claim installer, signed-release, notarization, or
+  GitHub Release publication. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-candidate-0202693-build-and-tag).
+
 - Review fixture and annotation removal is complete under ADR 077. The Review Center, manuscript
   Annotations, deterministic `check_draft`, persistent Review Issues, proposal-to-issue
   reconciliation, and their Renderer/Main/Worker contracts are absent from the live product.

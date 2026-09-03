@@ -22,6 +22,10 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Candidate `0.2026.9.3`: build the macOS arm64 App from clean release metadata, create the
+  annotated `v0.2026.9.3` tag, and push `main` plus the tag to GitHub. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-candidate-0202693-build-and-tag).
+
 - [x] Maintenance: remove Review Center, manuscript annotations, deterministic review, Review
   Issue tools/state, and proposal reconciliation under ADR 077 while preserving Writing Rules and
   proposal review. Evidence:

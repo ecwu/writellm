@@ -1833,3 +1833,27 @@ maintenance without turning the active tracker back into a historical log.
 - No package/release gate ran because this maintenance changes no native dependency, package
   resource, installer, signing, or release boundary. The host Node 26.8.1 versus repository Node 24
   engine warning remains an environment limitation; all tests used the canonical Electron runtime.
+
+## 2026-09-03 Candidate 0.2026.9.3 build and tag
+
+- Authorization: after the Review fixture and annotation removal, the user requested an App build
+  and, on success, a new `9.3` tag pushed to GitHub. The repository's existing version convention
+  resolved this to release version `0.2026.9.3` and annotated tag `v0.2026.9.3`.
+- Release metadata was advanced from `0.2026.9.2` to `0.2026.9.3`. Release commit
+  `f53feb462b2140460ecf9fadc9ee6cf8b92046aa` resolves to package version `0.2026.9`, build number
+  `3`, and macOS build version `2026.9.3`.
+- The final clean-source `pnpm build:unpack` passed all four macOS arm64 build-only stages in 29.9
+  seconds: production build/native validation in 10.8 seconds, App assembly in 18.9 seconds,
+  no-Team-ID ad-hoc/linker signature-policy verification, and inventory of 33,569 ASAR entries plus
+  arm64 `better-sqlite3` and `sqlite-vec`. Output:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788469791340-33015-9c1d03e9/` and
+  `dist/macos-arm64/package-evidence.json`.
+- One earlier sandboxed package attempt reached production compilation but could not resolve
+  `github.com` while electron-builder fetched its runtime. It was interrupted and the exact gate
+  was rerun once in the authorized host environment; the final host run passed with a clean source
+  revision.
+- `main` advanced through the Review removal commit and release metadata commit, and both `main`
+  and annotated tag `v0.2026.9.3` were pushed to `github.com:ecwu/writellm.git`. This candidate does
+  not claim installer creation, a complete package/release gate, signing identity, notarization,
+  GitHub Actions completion, or GitHub Release publication.
