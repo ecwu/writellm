@@ -219,7 +219,9 @@ describe('runAuxiliaryModelRequest', () => {
       expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions')
       expect(sdkRequest.headers.get('x-goog-api-key')).toBe('gemini-secret')
       expect(sdkRequest.headers.get('content-type')).toContain('application/json')
-      expect(sdkRequest.headers.get('x-goog-api-client')).toContain('google-genai-sdk/2.18.0')
+      expect(sdkRequest.headers.get('x-goog-api-client')).toMatch(
+        /^google-genai-sdk\/\d+\.\d+\.\d+(?:\s|$)/
+      )
       expect(JSON.parse(await sdkRequest.clone().text())).toEqual({
         model: 'gemini-3.1-flash-image',
         input: imageRequest.input.prompt,

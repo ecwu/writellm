@@ -6,20 +6,46 @@ allowBuilds:
   esbuild: true
   protobufjs: false
 overrides:
-  "fast-uri@>=3.0.0 <3.1.5": "3.1.5"
+  "fast-uri@>=3.0.0 <3.1.7": "3.1.7"
+  "@tiptap/core": "3.31.2"
+  "@tiptap/extension-bold": "3.31.2"
+  "@tiptap/extension-bubble-menu": "3.31.2"
+  "@tiptap/extension-code": "3.31.2"
+  "@tiptap/extension-floating-menu": "3.31.2"
+  "@tiptap/extension-italic": "3.31.2"
+  "@tiptap/extension-strike": "3.31.2"
+  "@tiptap/extension-text": "3.31.2"
+  "@tiptap/extension-underline": "3.31.2"
+  "@tiptap/extensions": "3.31.2"
+  "@tiptap/pm": "3.31.2"
+  "@tiptap/react": "3.31.2"
+  browserslist: "4.28.8"
+  "@xmldom/xmldom": "0.8.15"
   "brace-expansion@<1.1.18": "1.1.18"
   "brace-expansion@>=2.0.0 <2.1.4": "2.1.4"
   "brace-expansion@>=5.0.0 <5.0.9": "5.0.9"
   "undici@>=6.0.0 <6.28.0": "6.28.0"
   "tar@>=7.0.0 <7.5.21": "7.5.21"
 minimumReleaseAgeExclude:
-  - fast-uri@3.1.4 || 3.1.5
+  - fast-uri@3.1.4 || 3.1.5 || 3.1.6 || 3.1.7
   - brace-expansion@1.1.17 || 1.1.18 || 2.1.3 || 2.1.4 || 5.0.8 || 5.0.9
   - postcss@8.5.23
   - undici@6.28.0
   - js-yaml@4.3.1
   - nanoid@3.3.18
   - tar@7.5.21
+  - '@tiptap/core@3.31.2'
+  - '@tiptap/extension-bold@3.31.2'
+  - '@tiptap/extension-bubble-menu@3.31.2'
+  - '@tiptap/extension-code@3.31.2'
+  - '@tiptap/extension-floating-menu@3.31.2'
+  - '@tiptap/extension-italic@3.31.2'
+  - '@tiptap/extension-strike@3.31.2'
+  - '@tiptap/extension-text@3.31.2'
+  - '@tiptap/extension-underline@3.31.2'
+  - '@tiptap/extensions@3.31.2'
+  - '@tiptap/pm@3.31.2'
+  - '@tiptap/react@3.31.2'
 patchedDependencies:
   '@blocknote/react@0.54.0': patches/@blocknote__react@0.54.0.patch
   playwright-core@1.62.1: patches/playwright-core@1.62.1.patch

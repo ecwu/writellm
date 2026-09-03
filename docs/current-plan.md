@@ -48,6 +48,15 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   under unchanged release metadata; the earlier local tag remains unchanged. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pi-runtime-upgrade).
 
+- Dependency security and maintenance refresh is complete under the approved 2026-09-03 plan.
+  Direct provider, Renderer, formatting, data, PDF, Mermaid, TypeBox, and test patch/minor lines
+  are updated; the vulnerable `@tiptap/*`, `browserslist`, `@xmldom/xmldom`, and `fast-uri`
+  resolutions are now `3.31.2`, `4.28.8`, `0.8.15`, and `3.1.7` within parent-declared ranges.
+  Complete dependency audit, `check:fast`, targeted TypeBox coverage, affected publication
+  coverage, and `check:electron` passed. Deferred toolchain, Electron, native, and 0.x migrations
+  remain unchanged. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh).
+
 - Candidate `0.2026.9.1` is locally built and verified under the user's build, commit, and tag
   request. The no-Team-ID macOS arm64 package gate passed in 188.0 seconds: 12 runtime smoke
   scenarios and all 34 packaged E2E scenarios, with no failures, retries, flakes, or skips.

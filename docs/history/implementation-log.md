@@ -1690,3 +1690,33 @@ maintenance without turning the active tracker back into a historical log.
 - This build-only invocation ran no functional tests; the Pi upgrade's final-source unit,
   packaged smoke, and E2E results above remain applicable. Other platforms were not built.
   No commit, tag, push, or publication was performed.
+
+## 2026-09-03 Dependency security and maintenance refresh
+
+- Authorization: the user approved the dependency security and maintenance plan. The approved
+  scope updated direct provider, Renderer, formatting, data, PDF, Mermaid, TypeBox, and test
+  patch/minor lines, refreshed vulnerable transitive packages only within parent-declared ranges,
+  and left the deferred Vite 8, Vitest 4, TypeScript 7, Electron 44, better-sqlite3 13, Kysely
+  0.29, KaTeX 0.18, thinking-orbs 0.3, and GitHub Action major migrations unchanged.
+- Direct updates include `@ai-sdk/cohere` 4.0.37, `@ai-sdk/openai-compatible` 3.0.43,
+  `@google/genai` 2.20.0, `@shadcn/react` 0.3.1, `@tanstack/react-query` 5.102.8,
+  `ai` 7.0.90, `fast-xml-parser` 5.11.1, `isomorphic-git` 1.41.9, `lucide-react` 1.39.0,
+  `mermaid` 11.17.2, `openai` 7.9.0, `pdfjs-dist` 6.3.289, `prosemirror-view` 1.42.3,
+  `typebox` 1.3.25, `zod` 4.5.4, Biome 2.5.11, `@types/react-dom` 19.2.5, and `mammoth`
+  1.12.2. The Biome schema URL was synchronized with the upgraded CLI.
+- The workspace security overrides now resolve the complete Tiptap family to 3.31.2,
+  `browserslist` to 4.28.8, `@xmldom/xmldom` to 0.8.15, and `fast-uri` to 3.1.7. The frozen
+  install passed and the native preparation/load check retained Electron 43.4.1 / ABI 148,
+  better-sqlite3 12.11.1, and sqlite-vec 0.1.9 on macOS arm64.
+- The Gemini request-header test now validates the SDK version format instead of pinning the
+  previous 2.18.0 string, so an approved SDK patch/minor update does not create a false failure.
+  The affected publication tests passed 6 files / 22 tests; the TypeBox-dependent Agent tests
+  passed 4 files / 56 tests.
+- `pnpm audit --json` reports zero advisories across 1,193 resolved dependencies. Final
+  `pnpm check:fast` passed all three stages. `pnpm check:electron` passed all six stages in
+  43.6 seconds, including 237 test files / 1,333 passing tests / three existing benchmark skips,
+  native preparation/load validation, and production compilation. The canonical Electron runner
+  emitted the known non-fatal macOS `task_name_for_pid` diagnostic; the host Node 26.8.1 versus
+  repository Node 24 engine warning remains an environment limitation. `git diff --check` passed.
+- No database migration, product API, release, commit, tag, push, signing, notarization,
+  promotion, or publication action was performed.
