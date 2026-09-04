@@ -22,6 +22,10 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Maintenance: consolidate pnpm commands and document focused verification without
+  redundant test/build stages. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pnpm-command-consolidation).
+
 - [x] Maintenance: simplify redundant validation in editor saves, Agent reads and records,
   Worker defaults, and Electron theme resolution. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-redundant-defense-cleanup).

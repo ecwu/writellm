@@ -47,8 +47,8 @@ WriteLLM development environment is ready for Linux x64.
 For WSL without a GUI, run Electron/E2E commands through:
   xvfb-run --auto-servernum pnpm test:e2e
 Linux package:
-  xvfb-run --auto-servernum pnpm build:linux
+  xvfb-run --auto-servernum pnpm package --target=linux-x64
 Windows NSIS and Windows AppX must be packaged on a native Windows x64 host:
-  pnpm build:windows
-  pnpm build:windows-app
+  pnpm package --target=windows-x64
+  pnpm package --target=windows-appx
 EOF

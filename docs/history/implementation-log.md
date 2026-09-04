@@ -2054,3 +2054,53 @@ Reports: `.cache/verification/1788554823512-99323-bff4d0fb` (initial focused tes
 `.cache/verification/1788554860534-99709-e010e88c` (static checks),
 `.cache/verification/1788554873773-99808-7ee9ca79` (build), and
 `.cache/verification/1788554894468-238-69cc5cc0` (Electron scenarios).
+
+
+## 2026-09-04 pnpm command consolidation
+
+The user authorized cleaning up overlapping pnpm commands and clarified that conventional,
+well-defined responsibilities take priority over imposing layers on every category. Testing
+must support selecting the affected scope without routinely repeating complete acceptance.
+
+- Reduced package scripts from 51 to 30. Kept conventional development, formatting, lint,
+  typecheck, and test entry points. Removed the composite `check:electron` mode that implicitly
+  built after Vitest; local verification now composes `check:fast` once with focused `test` calls.
+  `test` remains standard: no filters runs all Vitest, while files, directories, and `-t` select
+  a smaller scope. The canonical Electron runner and runtime ABI are unchanged.
+- Replaced platform, CI, and `build:*` packaging aliases with `package --target=<target>` and
+  `package:unpack --target=<target>`. Both default to the native host. Preserved the existing
+  package inventory, signing policy, no-publish behavior, and installer reuse. CI's target matrix
+  now invokes the same parameterized command; the disabled release workflow remains disabled.
+- Replaced optional-mode aliases with `--visible`, `--suite=critical`, `--force`, `--unsafe`, and
+  `--write`. Named the index benchmarks explicitly. The internal packaged smoke runner remains
+  available, while public acceptance uses `check:package:smoke`.
+- Synchronized README command catalog, migration table, agent rules, verification skill, and
+  bootstrap examples. Completed historical/ADR examples retain their original command names.
+  No dependency versions, lockfile, product code, architecture, or native packaging implementation
+  changed; no automatic affected-test inference or result cache was added.
+
+Verification and limits:
+
+- Used the existing host Node 24.15.0 at `.nvm/versions/node/v24.15.0/bin/node` with the pinned
+  pnpm 11.17.0, avoiding the default shell's Node 26.8.1. Frozen installation reported already up
+  to date and exited successfully; an optional pnpm update-metadata fetch warned about network
+  access. Electron-hosted tests used Electron 43.4.1 / ABI 148.
+- `pnpm test scripts/verification-commands.test.ts scripts/tag-ci-workflow.test.ts
+  scripts/verification-run.test.ts scripts/test-reporting.test.ts` passed 4 files / 26 tests in
+  2.1s wrapper time (1.30s Vitest). There were no outer-suite retries or skips. Reporting fixtures
+  deliberately exercise one retry and one skip; failure-propagation fixtures deliberately emit
+  process/error diagnostics. The first static attempt found one test-file formatting issue;
+  formatting it required no behavioral change or test rerun.
+- `pnpm check:fast` then passed Biome and both typechecks in 10.4s. `git diff --check` and shell
+  syntax validation of `scripts/bootstrap-dev.sh` passed. Final documentation-only edits receive
+  a separate Biome check without repeating typechecks or tests.
+- Invoked both public package entry points through pnpm with `--plan` for all five native targets:
+  10/10 plans passed in 3.63s. Assertions cover target forwarding, build-only mode, one compilation,
+  absence of functional/static test stages, and unpacked versus installer output formats.
+  Plans perform no build and do not assert cross-platform runtime compatibility.
+- Verification is local macOS arm64 command/planning coverage. Full product suites, actual
+  application builds, installers, hosted Actions, and Windows PowerShell execution were not
+  needed for command alias and documentation changes. No commit, push, or release action occurred.
+
+Reports: `.cache/verification/1788555751530-7487-6d3a7039` (focused tests) and
+`.cache/verification/1788555764894-7726-341970c8` (static checks).

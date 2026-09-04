@@ -8,7 +8,10 @@ scope before running it and report counts, elapsed time, retries, and platform l
 Local logic uses `check:fast` plus focused `pnpm test <files> [-t <name>]`; interaction changes add
 only the affected real Electron scenarios. Do not run every complete gate for a small feature.
 
-- `pnpm check:electron [filters]`: static checks, Electron tests, one production build.
+- `pnpm test [files or directory] [-t name]`: only selected Electron-hosted tests; no filters
+  means the complete Vitest suite. Reuse static checks that still cover the final source.
+- `pnpm test:e2e [file or --grep filters]`: selected E2E against an existing matching build;
+  no filters means all source E2E. Add `--visible` only for requested interactive debugging.
 - `pnpm check:e2e [file or --grep filters]`: static checks, one fresh build, selected E2E.
 - `pnpm check:full`: static checks, complete Electron tests, one build, complete source E2E.
 - `pnpm check:package:smoke`: static checks, unpacked App, inventory, existing runtime smoke.
@@ -18,7 +21,9 @@ only the affected real Electron scenarios. Do not run every complete gate for a 
 - `pnpm check:release`: explicit signed distribution acceptance only, preserving the release
   script's macOS signing and notarization requirements. Never use for routine development.
 
-`build` and `build:*` create artifacts without functional tests or typechecks. A successful build
+`build` compiles; `package` creates an App and installers; `package:unpack` creates only the App.
+Package commands accept `--target=<target>` and share the same entry point locally and in CI.
+These commands run no functional tests or typechecks. A successful build
 is not test evidence. `critical` is a coverage subset, not a default small-change gate. Avoid
 chaining overlapping composite gates; reuse final-source results and rerun only affected checks.
 Stage and test-attempt reports are under `.cache/verification/`; timings do not create new

@@ -30,18 +30,50 @@ describe('verification and packaging selection', () => {
     expect(() => checkCommands('build', ['--grep=x'])).toThrow()
   })
 
-  it('keeps every ordinary package alias test-free and explicit gates verified', () => {
+  it('keeps ordinary packaging test-free and explicit gates verified', () => {
     const scripts = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8')
     ).scripts
     for (const [name, command] of Object.entries(scripts)) {
-      if (name.startsWith('build:') || name.startsWith('package:')) {
+      if (name === 'package' || name.startsWith('package:')) {
         expect(String(command), name).toContain('--build-only')
       }
     }
     expect(scripts['check:package']).not.toContain('--build-only')
     expect(scripts['check:package:smoke']).toContain('--smoke-only')
   })
+
+  it('keeps static and focused E2E gates scoped without introducing Vitest or repeated builds', () => {
+    const staticNames = ['format-lint', 'typecheck-main', 'typecheck-renderer']
+    expect(checkCommands('fast').map((command) => command.name)).toEqual(staticNames)
+    const filters = ['e2e/project-lifecycle.spec.ts', '--grep', 'restart']
+    const commands = checkCommands('e2e', filters)
+    expect(commands.map((command) => command.name)).toEqual([
+      ...staticNames,
+      'native-prepare',
+      'production-compile',
+      'electron-e2e'
+    ])
+    expect(commands.at(-1).args.slice(1)).toEqual(filters)
+    expect(() => checkCommands('electron')).toThrow('Unknown verification mode')
+  })
+
+  it.each(Object.keys(PACKAGE_TARGETS))(
+    'forwards the generic package command target for %s',
+    (id) => {
+      const scripts = JSON.parse(
+        readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+      ).scripts
+      for (const name of ['package', 'package:unpack']) {
+        const args = scripts[name].split(' ').slice(2)
+        expect(packageOptions([...args, `--target=${id}`])).toMatchObject({
+          target: { id },
+          buildOnly: true,
+          unpackedOnly: name === 'package:unpack'
+        })
+      }
+    }
+  )
 
   it.each(Object.keys(PACKAGE_TARGETS))('reuses the correct prepackaged path for %s', (id) => {
     const options = packageOptions([`--target=${id}`, '--build-only'])

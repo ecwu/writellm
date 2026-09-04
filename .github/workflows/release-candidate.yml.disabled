@@ -66,10 +66,10 @@ jobs:
           fi
           case "${RELEASE_TARGETS}" in
             macos)
-              matrix='{"include":[{"target":"macos-arm64","runner":"macos-15","signing":"macos","command":"package:macos-arm64"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos","command":"package:macos-x64"}]}'
+              matrix='{"include":[{"target":"macos-arm64","runner":"macos-15","signing":"macos"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos"}]}'
               ;;
             all)
-              matrix='{"include":[{"target":"windows-x64","runner":"windows-2022","signing":"windows","command":"package:windows-x64"},{"target":"macos-arm64","runner":"macos-15","signing":"macos","command":"package:macos-arm64"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos","command":"package:macos-x64"},{"target":"linux-x64","runner":"ubuntu-24.04","signing":"none","command":"package:linux-x64"}]}'
+              matrix='{"include":[{"target":"windows-x64","runner":"windows-2022","signing":"windows"},{"target":"macos-arm64","runner":"macos-15","signing":"macos"},{"target":"macos-x64","runner":"macos-15-intel","signing":"macos"},{"target":"linux-x64","runner":"ubuntu-24.04","signing":"none"}]}'
               ;;
             *)
               echo "Unknown release target set ${RELEASE_TARGETS}" >&2
@@ -162,8 +162,10 @@ jobs:
         run: pnpm check:fixtures
       - name: Verify static boundary
         run: pnpm check:fast
-      - name: Canonical Electron tests and build
-        run: pnpm check:electron
+      - name: Canonical Electron tests
+        run: pnpm test
+      - name: Production build for source E2E
+        run: pnpm build
       - name: Complete silent Electron E2E
         if: ${{ matrix.target != 'linux-x64' }}
         run: pnpm test:e2e
@@ -175,13 +177,13 @@ jobs:
             pnpm test:e2e
       - name: Native-host package, inventory, and packaged smoke
         if: ${{ inputs.mode == 'dry-run' && matrix.target != 'linux-x64' }}
-        run: pnpm run ${{ matrix.command }}
+        run: pnpm package --target=${{ matrix.target }}
       - name: Linux native-host package, inventory, and packaged smoke
         if: ${{ inputs.mode == 'dry-run' && matrix.target == 'linux-x64' }}
         shell: bash
         run: |
           bash scripts/run-with-linux-secret-service.sh \
-            pnpm run package:linux-x64
+            pnpm package --target=linux-x64
       - name: Signed production package, inventory, and packaged smoke
         if: ${{ inputs.mode == 'production' && matrix.target != 'linux-x64' }}
         env:

@@ -52,8 +52,6 @@ export function checkCommands(mode, args = []) {
       return buildCommands
     case 'fast':
       return staticCommands
-    case 'electron':
-      return [...staticCommands, script('electron-tests', 'run-tests.mjs', args), ...buildCommands]
     case 'e2e':
       return [...staticCommands, ...buildCommands, script('electron-e2e', 'run-e2e.mjs', args)]
     case 'full':

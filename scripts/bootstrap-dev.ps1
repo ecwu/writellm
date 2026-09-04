@@ -42,5 +42,5 @@ pnpm run prepare:native
 Write-Host ''
 Write-Host 'Windows development environment is ready.'
 Write-Host 'Build the native Windows packages with:'
-Write-Host '  pnpm build:windows'
-Write-Host '  pnpm build:windows-app'
+Write-Host '  pnpm package --target=windows-x64'
+Write-Host '  pnpm package --target=windows-appx'

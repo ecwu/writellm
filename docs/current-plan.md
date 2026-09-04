@@ -31,6 +31,13 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- pnpm command consolidation is complete: 51 scripts are reduced to 30 distinct entry points,
+  native targets use one parameterized package command in development and CI, and local tests
+  remain filterable without implicit builds. Static checks, 26 focused command/CI/reporting tests,
+  and ten package CLI plans passed. The README and agent guidance describe scope selection and
+  migration from removed aliases. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pnpm-command-consolidation).
+
 - Redundant-defense cleanup is complete across the five user-approved areas: editor content
   preparation, Agent section reads, Worker protocol defaults, run-record Skill snapshots, and
   Electron theme resolution. Production code is reduced by 29 lines while retaining authority,

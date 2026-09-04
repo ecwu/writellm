@@ -16,7 +16,7 @@ describe('tag CI workflow', () => {
     ])
     expect(
       config.jobs.platform.steps.find((step) => step.name === 'Native platform build').run
-    ).toBe('pnpm run $' + '{{ matrix.command }}')
+    ).toBe('pnpm package --target=$' + '{{ matrix.target }}')
     const upload = config.jobs.platform.steps.find(
       (step) => step.name === 'Upload verification timings'
     )

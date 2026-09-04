@@ -81,13 +81,13 @@ Biome is the repository's single formatter and style checker. Run commands from 
 
 - `pnpm check`: verify formatting and lint rules without changing files. Run this before considering a change complete.
 - `pnpm check:write`: apply formatting and safe lint fixes.
-- `pnpm check:unsafe`: apply formatting plus safe and unsafe lint fixes. Review the resulting diff carefully.
+- `pnpm check:write --unsafe`: apply formatting plus safe and unsafe lint fixes. Review the resulting diff carefully.
 - `pnpm format`: format supported files.
 - `pnpm format:check`: verify formatting only.
 - `pnpm lint`: run lint rules only.
-- `pnpm lint:write`: apply safe lint fixes only.
+- `pnpm lint --write`: apply safe lint fixes only.
 
-Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
+Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:write --unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
 
 ## Verification Gates
 
@@ -105,7 +105,10 @@ platform limits. Reuse results that still cover the final source; rerun only aff
 | Comprehensive release acceptance | Explicit complete acceptance with one build per invocation |
 
 - `pnpm check:fast`: Biome and Node/Renderer typechecks.
-- `pnpm check:electron [test filters]`: static checks, Electron-hosted tests, and one build.
+- `pnpm test [files or directory] [-t name]`: Electron-hosted tests only; no filters means all
+  Vitest tests. Prefer explicit filters for local changes. Reuse prior static checks when valid.
+- `pnpm test:e2e [file or --grep filters]`: selected E2E against an existing matching build;
+  no filters means all source E2E. Does not build or repeat static checks.
 - `pnpm check:e2e [file or --grep filters]`: static checks, one fresh build, and silent E2E.
 - `pnpm check:full`: static checks, complete Vitest, one build, and complete source E2E.
 - `pnpm check:package:smoke`: static checks, one unpacked App, inventory, and packaged runtime smoke.
@@ -115,12 +118,16 @@ platform limits. Reuse results that still cover the final source; rerun only aff
 - `pnpm check:release`: explicit signed distribution validation, including existing macOS
   notarization requirements. Never run it for routine development.
 
-`pnpm build` prepares native modules and compiles without typechecking or testing. `build:*` and
-`package:*` generate checked package contents and artifacts without functional tests. A successful
+`pnpm build` prepares native modules and compiles without typechecking or testing. `pnpm package`
+creates an App and installers; `pnpm package:unpack` creates only the App. Both accept
+`--target=<target>` (default: current host), check the package inventory, and run no functional tests.
+CI uses the same package command. A successful
 build is not test evidence. `critical` is a coverage subset, not the default for small changes.
-Do not chain `check:electron`, `check:e2e`, and `check:package` reflexively: select a composite gate
+Do not chain `check:fast`, `check:e2e`, and `check:package` reflexively: select a composite gate
 or focused tests and avoid repeated builds. Reports live under `.cache/verification/`; timing
 statistics are diagnostic, separate from test hard timeouts. Benchmarks remain explicit.
+The command catalog and removed-alias migration table are in `README.md`. Do not resurrect
+historical aliases from completed Phase files, ADRs, or audit evidence.
 
 The repository's exact `packageManager` version must match the locally
 installed pnpm used by agents. pnpm 11 tries to download and switch to the
@@ -230,7 +237,7 @@ check still fails after that command, force the repository's
 Electron-targeted rebuild and rerun the ABI check:
 
 ```sh
-pnpm run rebuild:native
+pnpm prepare:native --force
 ```
 
 Do not rebuild `better-sqlite3` for system Node merely to make direct Vitest
@@ -252,7 +259,7 @@ pnpm test:e2e
 ```
 
 The default E2E wrapper is silent and should remain the normal agent path.
-Use `pnpm test:e2e:visible` only for explicitly requested interactive
+Use `pnpm test:e2e --visible` only for explicitly requested interactive
 debugging.
 
 In the Codex macOS sandbox, Electron Playwright requires authority to launch
