@@ -42,7 +42,11 @@ import type {
   SectionTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
-import { decodeStoredSectionContent, prepareSectionContent } from './content'
+import {
+  decodeStoredSectionContent,
+  prepareSectionContent,
+  prepareValidatedSectionContent
+} from './content'
 import { recordRevisionAssetReferences } from './asset-service'
 import { ManuscriptRepository } from './manuscript-repository'
 
@@ -653,7 +657,7 @@ export class ManuscriptService {
         parsed.agentToolCallId !== null ||
         parsed.agentProposalId !== null
       if (hasAnyLineage) throw new TypeError('Editor revisions cannot include agent lineage')
-      const prepared = prepareSectionContent(parsed.content, parsed.sectionId)
+      const prepared = prepareValidatedSectionContent(parsed.content, parsed.sectionId)
       const row = this.#database.immediate((database) => {
         const manuscript = this.#primary(database)
         const section = this.#repository.section(parsed.sectionId, database)

@@ -179,10 +179,7 @@ export function WritingWorkspaceView(input: {
   } = controller
   if (alternateWorkspace !== null) return alternateWorkspace
   return (
-    <SidebarProvider
-      className='min-h-0 flex-1'
-      style={{ '--sidebar-width': '360px' } as React.CSSProperties}
-    >
+    <SidebarProvider className='min-h-0 flex-1' defaultSidebarWidth={360}>
       <AppSidebar
         projectName={props.projectName}
         workspace={workspace}

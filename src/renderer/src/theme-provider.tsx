@@ -28,9 +28,6 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function systemTheme(): ResolvedTheme {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return 'light'
-  }
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 }
 
@@ -84,11 +81,6 @@ export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.
   useEffect(() => {
     if (preference !== 'system') {
       setResolvedTheme(preference)
-      return
-    }
-
-    if (typeof window.matchMedia !== 'function') {
-      setResolvedTheme('light')
       return
     }
 

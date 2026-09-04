@@ -214,6 +214,69 @@ describe('Agent context and Main read tools', () => {
     database.close()
   })
 
+  it('preserves nested block structure, rich content, and canonical content in section reads', async () => {
+    const { database, manuscript } = await createManuscript()
+    try {
+      const section = manuscript.listSections()[0]
+      if (section === undefined) throw new Error('Missing root section')
+      const current = manuscript.getRevision(section.currentRevisionId)
+      const parent = {
+        ...block('parent', 'plain'),
+        children: [
+          {
+            ...block('child', 'styled'),
+            content: [
+              { type: 'text' as const, text: 'styled', styles: { bold: true } },
+              { type: 'math' as const, content: 'x^2' }
+            ]
+          }
+        ]
+      }
+      manuscript.appendRevision({
+        sectionId: section.sectionId,
+        baseRevisionId: current.sectionRevisionId,
+        baseContentHash: current.contentHash,
+        content: [parent],
+        source: 'manual'
+      })
+      const tools = createTools(manuscript)
+      const read = (args: Record<string, unknown>) =>
+        tools.execute({
+          toolName: 'read_section',
+          args: { sectionId: section.sectionId, ...args },
+          editorContext: emptyEditorContext(),
+          signal: new AbortController().signal
+        })
+      const summary = await read({})
+      expect(summary.blocks).toMatchObject([
+        {
+          blockId: 'parent',
+          parentBlockId: null,
+          depth: 0,
+          ordinal: 0,
+          childBlockIds: ['child'],
+          hasRichContent: false,
+          text: 'plain'
+        },
+        {
+          blockId: 'child',
+          parentBlockId: 'parent',
+          depth: 1,
+          ordinal: 1,
+          childBlockIds: [],
+          hasRichContent: true
+        }
+      ])
+      const canonical = await read({ view: 'canonical', blockId: 'parent' })
+      expect(canonical.canonicalBlock).toEqual(parent)
+      await expect(read({ view: 'table', blockId: 'parent' })).rejects.toMatchObject({
+        code: 'invalid_arguments'
+      })
+    } finally {
+      database.close()
+    }
+  })
+
   it('reads table anchors by logical row with a complete block hash', async () => {
     const { database, manuscript } = await createManuscript()
     const section = manuscript.listSections()[0]

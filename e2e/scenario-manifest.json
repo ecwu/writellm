@@ -31,6 +31,7 @@
     { "id": "manuscript.find-navigation", "tiers": [] },
     { "id": "manuscript.native-inline-math", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.safe-replacement", "tiers": ["critical", "packaged"] },
+    { "id": "manuscript.sidebar-resizes", "tiers": [] },
     { "id": "manuscript.staged-markdown-import", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.staged-latex-import", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.staged-latex-project-import", "tiers": ["critical", "packaged"] },

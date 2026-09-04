@@ -1,6 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AgentRunStart, AgentRuntimeEvent } from '../shared/contracts/agent'
+import {
+  agentRunStartSchema,
+  type AgentRunStart,
+  type AgentRuntimeEvent
+} from '../shared/contracts/agent'
 import {
   AgentCurrentTurnTooLargeError,
   boundAgentContextByTokens
@@ -11,7 +15,7 @@ import {
   type AgentSessionRunControl
 } from './agent-session-run'
 
-const request: AgentRunStart = {
+const request = agentRunStartSchema.parse({
   operation: 'run_start',
   requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc411',
   projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc412',
@@ -59,7 +63,7 @@ const request: AgentRunStart = {
   prompt: 'Write a line.',
   thinkingLevel: 'off',
   maxOutputTokens: 100
-}
+})
 
 const reasoningRequest: AgentRunStart = {
   ...request,

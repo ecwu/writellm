@@ -1965,3 +1965,92 @@ maintenance without turning the active tracker back into a historical log.
   `.cache/verification/1788526886064-79233-08ba06f5/` and
   `dist/macos-arm64/package-evidence.json`. No installer, functional package gate, commit, tag,
   push, signing identity, notarization, promotion, or publication action was performed.
+
+## 2026-09-04 Project sidebar resizing
+
+- Added one shared shadcn Sidebar resize boundary to the expanded desktop project shell. Writing,
+  Preview, Knowledge, Notebook, Checks, and Images retain their established default widths while
+  using the same 240–480 px limits; the 3 rem workspace icon rail remains fixed and the existing
+  collapse trigger and shortcut are unchanged.
+- The boundary supports pointer capture, 16 px keyboard steps, Home/End minimum and maximum
+  movement, and double-click reset. It exposes vertical separator semantics plus current, minimum,
+  and maximum values to assistive technology, and disappears with the contextual column when the
+  Sidebar is collapsed.
+- Focused shared-component coverage passed 1 file / 5 tests. `pnpm check:fast` passed formatting,
+  lint, and both typechecks. A final production build passed native validation and compilation in
+  10.4 seconds, followed by the focused real-Electron resize scenario in one 3.5-second attempt
+  without retries, flakes, failures, or skips. Two earlier development runs exposed and then
+  localized the zero-height semantic separator before the final-source pass; neither is counted as
+  final evidence. Evidence: `.cache/verification/1788542318417-39954-8ef4fd7b/`,
+  `.cache/verification/1788542547501-42068-d85f4960/`,
+  `.cache/verification/1788542473516-41397-a1416a55/`, and
+  `.cache/verification/1788542491663-41673-d383490c/`.
+- The scoped Impeccable detector and `git diff --check` passed. No IPC, persistence, migration,
+  dependency, packaging-source, or release change was made. The host Node 26.8.1 versus repository
+  Node 24 engine warning remains an environment limitation; tests used the canonical Electron
+  runtime.
+- At the user's follow-up request, `pnpm build:unpack` produced a replacement macOS arm64 App from
+  the current dirty worktree. All four build-only stages passed in 31.8 seconds: Electron ABI and
+  native architecture preparation, production compilation, unpacked App assembly with the
+  no-Team-ID signature policy, and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3`
+  and `sqlite-vec`. Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788547078098-47013-06b853dc/` and
+  `dist/macos-arm64/package-evidence.json`. No installer, functional package gate, commit, tag,
+  push, signing identity, notarization, promotion, or publication action was performed.
+
+
+## 2026-09-04 Redundant-defense cleanup
+
+The user authorized simplifying all five areas identified in the preceding code review while
+preserving behavior. No architecture decision, dependency, migration, IPC contract, release, or
+packaging change was required.
+
+Design and implementation:
+
+- Editor saves compare the current revision ID immediately before the synchronous append with
+  the returned revision ID to report saved versus unchanged. They no longer separately parse,
+  normalize, hash, and count the candidate or decode the prior revision to determine disposition.
+  The append input schema validates the document; `prepareValidatedSectionContent` then performs
+  normalization, canonicalization, hashing, and counting once. Unknown callers and materialized
+  files still enter through `prepareSectionContent`, which validates input first. Normalization
+  output validation, transactional hash no-op/CAS, source/lineage authorization, asset references,
+  materialization, repair, and retention remain intact. The read and append have no intervening
+  await; lost-response retries continue to report unchanged even with an old base revision.
+- Worker runs use the object credential and defaults already produced by `agentRunStartSchema`.
+  Optional runtime-model and runtime-budget fallbacks remain. The Worker fixture now passes
+  through the same schema before calling the runtime.
+- Agent section flattening preserves the validated document/block types instead of erasing them
+  to unknown and silently skipping malformed objects. Parent/child IDs, order, hashes, text,
+  rich-content flags, and canonical blocks retain their semantics. Table type, grid, pagination,
+  snapshot, and result-size checks remain.
+- Agent run records parse stored Skill snapshot JSON through the enclosing run-record schema,
+  removing the nested duplicate parse while preserving historical snapshot schemas.
+- Theme resolution directly uses Electron's matchMedia. Subscription cleanup, system preference
+  updates, persisted settings, and asynchronous unmount guards remain.
+
+Verification and limits:
+
+- Host pnpm is the declared 11.17.0. Host Node is v26.8.1, outside the manifest's Node 24 range;
+  the existing toolchain was preserved. Canonical tests use Electron 43.4.1 / ABI 148, and the
+  build's native-load check passed for better-sqlite3 12.11.1 and sqlite-vec 0.1.9.
+- Focused tests covered six files / 102 tests: editor persistence, manuscript service, content,
+  Agent read tools, Agent session service, and Worker session runtime. The first run took 5.8s
+  and passed 100 tests; two newly added assertions used the wrong result field/database accessor.
+  After correcting those test-only mistakes, the two affected files passed 26/26 tests in 5.1s.
+  The other four passing files still cover final source. New cases verify nested rich/canonical
+  block reads and rejection of malformed documents without publishing a revision/materialization.
+- Final-source `pnpm check:fast` passed all three stages in 10.4s. `pnpm build` passed in 11.5s.
+- Against that single build, silent `pnpm test:e2e` selected native inline mathematics and Agent
+  table authoring/publication. Both passed in 8.8s (9.1s wrapper), with two attempts, zero retries,
+  flakes, failures, or skips. Coverage includes saving/reopening, theme changes, Agent table
+  reads/mutations, export, and conflict rejection. Execution was outside the sandbox for Electron
+  child-process and loopback access.
+- Runtime verification is macOS arm64 only; native packaging and other platforms were outside
+  this behavior-preserving cleanup. Seven production files have a net reduction of 29 lines.
+  Existing unrelated working-tree changes were preserved.
+
+Reports: `.cache/verification/1788554823512-99323-bff4d0fb` (initial focused tests),
+`.cache/verification/1788554848028-99577-0119007b` (affected test rerun),
+`.cache/verification/1788554860534-99709-e010e88c` (static checks),
+`.cache/verification/1788554873773-99808-7ee9ca79` (build), and
+`.cache/verification/1788554894468-238-69cc5cc0` (Electron scenarios).

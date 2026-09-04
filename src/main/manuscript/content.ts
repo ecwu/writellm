@@ -210,10 +210,16 @@ export function countSectionText(text: string): { wordCount: number; characterCo
 }
 
 export function prepareSectionContent(
-  content: unknown[],
+  content: unknown,
   sectionId?: string
 ): PreparedSectionContent {
-  const parsedContent = blockNoteDocumentSchema.parse(content)
+  return prepareValidatedSectionContent(blockNoteDocumentSchema.parse(content), sectionId)
+}
+
+export function prepareValidatedSectionContent(
+  parsedContent: BlockNoteDocument,
+  sectionId?: string
+): PreparedSectionContent {
   const preparedContent =
     sectionId === undefined
       ? normalizePlainBlockContent(parsedContent)

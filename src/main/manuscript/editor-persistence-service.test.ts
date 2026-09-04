@@ -98,6 +98,33 @@ describe('EditorPersistenceService', () => {
     database.close()
   })
 
+  it('rejects malformed content before publishing a revision or materialization', async () => {
+    const { database, persistence, manuscript } = await fixture()
+    try {
+      const opened = persistence.openEditor().activeSection
+      if (opened === null) throw new Error('Missing section')
+      await expect(
+        persistence.save({
+          projectSessionId: 'session',
+          sectionId: opened.section.sectionId,
+          baseRevisionId: opened.revision.sectionRevisionId,
+          baseContentHash: opened.revision.contentHash,
+          document: [{ ...paragraph('invalid', 'content'), children: null }] as never
+        })
+      ).rejects.toThrow()
+      expect(manuscript.getSection(opened.section.sectionId).currentRevisionId).toBe(
+        opened.revision.sectionRevisionId
+      )
+      expect(
+        database.immediate((native) =>
+          native.prepare('SELECT COUNT(*) AS count FROM section_materializations').get()
+        )
+      ).toEqual({ count: 0 })
+    } finally {
+      database.close()
+    }
+  })
+
   it('rejects a stale different save and preserves the current revision', async () => {
     const { database, persistence } = await fixture()
     const opened = persistence.openEditor().activeSection

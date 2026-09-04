@@ -128,7 +128,12 @@ export function AppSidebar({
   }, [activeWorkspace, isMobile, onCloseFind, openMobile])
 
   return (
-    <Sidebar collapsible='icon' className='top-10 bottom-0 h-auto overflow-hidden' {...props}>
+    <Sidebar
+      collapsible='icon'
+      resizable
+      className='top-10 bottom-0 h-auto overflow-hidden'
+      {...props}
+    >
       <div className='flex min-h-0 flex-1'>
         <WorkspaceRail
           activeWorkspace={activeWorkspace}

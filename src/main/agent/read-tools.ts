@@ -22,7 +22,11 @@ import {
 import { extractSectionAgentText } from '../manuscript/content'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
 import { findProjectionMatches } from '../../shared/manuscript-search'
-import { blockNoteBlockSchema, type BlockNoteTableContent } from '../../shared/contracts/manuscript'
+import type {
+  BlockNoteBlockValue,
+  BlockNoteDocument,
+  BlockNoteTableContent
+} from '../../shared/contracts/manuscript'
 import { inspectTableContent, TableTransformError } from '../../shared/manuscript-table'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
@@ -254,13 +258,13 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
     const canonicalJson = selected === undefined ? undefined : JSON.stringify(selected.canonical)
     let table: ReadSectionResult['table'] = null
     if (args.view === 'table' && selected !== undefined) {
-      const block = blockNoteBlockSchema.safeParse(selected.canonical)
-      if (!block.success || block.data.type !== 'table') {
+      const block = selected.canonical
+      if (block.type !== 'table') {
         throw new AgentToolDomainError('invalid_arguments', 'Table view requires a table block')
       }
       let grid: ReturnType<typeof inspectTableContent>
       try {
-        grid = inspectTableContent(block.data.content as BlockNoteTableContent)
+        grid = inspectTableContent(block.content as BlockNoteTableContent)
       } catch (error) {
         if (error instanceof TableTransformError) {
           throw new AgentToolDomainError('invalid_arguments', `${error.code}: ${error.message}`)
@@ -272,7 +276,7 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
       }
       const rowEnd = Math.min(grid.rowCount, args.rowOffset + args.rowLimit)
       table = {
-        blockId: block.data.id,
+        blockId: block.id,
         blockHash: selected.blockHash,
         rowCount: grid.rowCount,
         columnCount: grid.columnCount,
@@ -377,15 +381,16 @@ export class MainAgentReadTools implements AgentReadToolExecutor {
   }
 }
 
-type FlattenedBlock = ReadSectionResult['blocks'][number] & { canonical: unknown }
+type FlattenedBlock = ReadSectionResult['blocks'][number] & { canonical: BlockNoteBlockValue }
 
-function flattenBlocks(content: readonly unknown[]): FlattenedBlock[] {
+function flattenBlocks(content: BlockNoteDocument): FlattenedBlock[] {
   const result: FlattenedBlock[] = []
-  const visit = (blocks: readonly unknown[], parentBlockId: string | null, depth: number): void => {
-    for (const value of blocks) {
-      if (value === null || typeof value !== 'object') continue
-      const block = value as { id?: unknown; type?: unknown; children?: unknown }
-      if (typeof block.id !== 'string' || typeof block.type !== 'string') continue
+  const visit = (
+    blocks: readonly BlockNoteBlockValue[],
+    parentBlockId: string | null,
+    depth: number
+  ): void => {
+    for (const block of blocks) {
       const fullText = extractSectionAgentText([{ ...block, children: [] }])
       result.push({
         blockId: block.id,
@@ -395,21 +400,12 @@ function flattenBlocks(content: readonly unknown[]): FlattenedBlock[] {
         ordinal: result.length,
         text: fullText.slice(0, 8_192),
         textTruncated: fullText.length > 8_192,
-        blockHash: createHash('sha256').update(JSON.stringify(value)).digest('hex'),
-        childBlockIds: Array.isArray(block.children)
-          ? block.children.flatMap((child) =>
-              child !== null &&
-              typeof child === 'object' &&
-              'id' in child &&
-              typeof child.id === 'string'
-                ? [child.id]
-                : []
-            )
-          : [],
-        hasRichContent: hasRichContent(value),
-        canonical: value
+        blockHash: createHash('sha256').update(JSON.stringify(block)).digest('hex'),
+        childBlockIds: block.children.map((child) => child.id),
+        hasRichContent: hasRichContent(block),
+        canonical: block
       })
-      if (Array.isArray(block.children)) visit(block.children, block.id, depth + 1)
+      visit(block.children, block.id, depth + 1)
     }
   }
   visit(content, null, 0)
@@ -420,21 +416,9 @@ function withoutCanonical({ canonical: _canonical, ...block }: FlattenedBlock) {
   return block
 }
 
-function hasRichContent(value: unknown): boolean {
-  if (value === null || typeof value !== 'object') return false
-  const block = value as { type?: unknown; content?: unknown }
+function hasRichContent(block: BlockNoteBlockValue): boolean {
   if (block.type === 'table' || !Array.isArray(block.content)) return true
-  return block.content.some(
-    (item) =>
-      item === null ||
-      typeof item !== 'object' ||
-      !('type' in item) ||
-      item.type !== 'text' ||
-      ('styles' in item &&
-        item.styles !== null &&
-        typeof item.styles === 'object' &&
-        Object.keys(item.styles).length > 0)
-  )
+  return block.content.some((item) => item.type !== 'text' || Object.keys(item.styles).length > 0)
 }
 
 const cursorSchema = {

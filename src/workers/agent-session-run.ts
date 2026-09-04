@@ -73,19 +73,8 @@ export async function runAgentSession(
   ) => void
 ): Promise<AgentSessionRunResult> {
   if (request.config.role !== 'agent') throw new Error('Agent utility requires an agent provider')
-  const runtimeCredential =
-    typeof request.credential === 'string' ? { apiKey: request.credential } : request.credential
-
-  const modelLimits = request.modelLimits ?? {
-    contextWindowTokens: 131_072,
-    inputLimitTokens: null,
-    outputLimitTokens: null,
-    source: 'legacy_fallback' as const,
-    catalogModelKey: null,
-    resolvedAt: null
-  }
-  const toolProfile = request.toolProfile ?? 'writing'
-  const interactionMode = request.interactionMode ?? 'write'
+  const runtimeCredential = request.credential
+  const { modelLimits, toolProfile, interactionMode } = request
   const [{ Agent: AgentClass }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
     loadAgentStreamSimple(request.runtimeModel?.api ?? request.config.api ?? 'openai-completions')
@@ -101,7 +90,7 @@ export async function runAgentSession(
     request.activeToolGroups,
     interactionMode
   )
-  let activeToolGroups = request.activeToolGroups ?? []
+  let activeToolGroups = request.activeToolGroups
   let currentRuntimeMessageBudgetTokens =
     request.runtimeMessageBudgetTokens ??
     agentRuntimeMessageBudget({
@@ -190,7 +179,7 @@ export async function runAgentSession(
     initialState: {
       systemPrompt: request.systemPrompt,
       model,
-      thinkingLevel: request.thinkingLevel ?? 'off',
+      thinkingLevel: request.thinkingLevel,
       tools: toolBridge.tools(request.activeToolGroups),
       messages: request.history.map(toPiMessage)
     },

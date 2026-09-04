@@ -897,7 +897,7 @@ export class AgentSessionService {
           thinkingLevel: row.thinking_level,
           modelLimits: JSON.parse(row.model_limits_json),
           editorContext: JSON.parse(row.editor_context_json),
-          skillSnapshot: skillRunSnapshotSchema.parse(JSON.parse(row.skill_snapshot_json)),
+          skillSnapshot: JSON.parse(row.skill_snapshot_json),
           skillRouteUsage:
             row.skill_route_model_request_id === null
               ? null

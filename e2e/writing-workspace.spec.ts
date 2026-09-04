@@ -96,6 +96,53 @@ async function closeProject(page: Page): Promise<void> {
 }
 
 test(
+  'resizes the project sidebar with pointer and keyboard controls',
+  scenario('manuscript.sidebar-resizes'),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Resizable project sidebar')
+      const handle = launched.page.getByRole('separator', { name: 'Resize sidebar' })
+      const sidebarGap = launched.page.locator('[data-slot="sidebar-gap"]')
+
+      await expect(handle).toBeVisible()
+      await expect(handle).toHaveAttribute('aria-valuenow', '360')
+
+      await handle.focus()
+      await handle.press('ArrowRight')
+      await expect(handle).toHaveAttribute('aria-valuenow', '376')
+      await expect
+        .poll(() => sidebarGap.evaluate((element) => element.getBoundingClientRect().width))
+        .toBe(376)
+
+      const bounds = await handle.boundingBox()
+      if (bounds === null) throw new Error('Sidebar resize handle has no bounds')
+      await launched.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+      await launched.page.mouse.down()
+      await launched.page.mouse.move(bounds.x + bounds.width / 2 + 80, bounds.y + bounds.height / 2)
+      await launched.page.mouse.up()
+      await expect(handle).toHaveAttribute('aria-valuenow', '456')
+
+      await handle.press('End')
+      await expect(handle).toHaveAttribute('aria-valuenow', '480')
+      await handle.press('ArrowRight')
+      await expect(handle).toHaveAttribute('aria-valuenow', '480')
+
+      await handle.dblclick()
+      await expect(handle).toHaveAttribute('aria-valuenow', '360')
+      await expect
+        .poll(() => sidebarGap.evaluate((element) => element.getBoundingClientRect().width))
+        .toBe(360)
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
   'keeps BlockNote formatting and slash menus keyboard-usable',
   scenario('manuscript.blocknote-054-controls', ['@packaged']),
   async ({ testRoot }) => {

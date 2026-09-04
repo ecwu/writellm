@@ -21,6 +21,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 const SIDEBAR_WIDTH = '16rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
+const SIDEBAR_MIN_WIDTH = 240
+const SIDEBAR_MAX_WIDTH = 480
+const SIDEBAR_KEYBOARD_RESIZE_STEP = 16
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b'
 
 type SidebarContextProps = {
@@ -31,6 +34,10 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  sidebarWrapperRef: React.RefObject<HTMLDivElement | null>
+  defaultSidebarWidth: number
+  minSidebarWidth: number
+  maxSidebarWidth: number
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -48,6 +55,9 @@ function SidebarProvider({
   defaultOpen = true,
   open: openProp,
   onOpenChange: setOpenProp,
+  defaultSidebarWidth = Number.parseFloat(SIDEBAR_WIDTH) * 16,
+  minSidebarWidth = SIDEBAR_MIN_WIDTH,
+  maxSidebarWidth = SIDEBAR_MAX_WIDTH,
   className,
   style,
   children,
@@ -56,9 +66,13 @@ function SidebarProvider({
   defaultOpen?: boolean
   open?: boolean
   onOpenChange?: (open: boolean) => void
+  defaultSidebarWidth?: number
+  minSidebarWidth?: number
+  maxSidebarWidth?: number
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+  const sidebarWrapperRef = React.useRef<HTMLDivElement>(null)
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
@@ -106,19 +120,34 @@ function SidebarProvider({
       isMobile,
       openMobile,
       setOpenMobile,
-      toggleSidebar
+      toggleSidebar,
+      sidebarWrapperRef,
+      defaultSidebarWidth,
+      minSidebarWidth,
+      maxSidebarWidth
     }),
-    [state, open, setOpen, isMobile, openMobile, toggleSidebar]
+    [
+      state,
+      open,
+      setOpen,
+      isMobile,
+      openMobile,
+      toggleSidebar,
+      defaultSidebarWidth,
+      minSidebarWidth,
+      maxSidebarWidth
+    ]
   )
 
   return (
     <SidebarContext.Provider value={contextValue}>
       <TooltipProvider delayDuration={0}>
         <div
+          ref={sidebarWrapperRef}
           data-slot='sidebar-wrapper'
           style={
             {
-              '--sidebar-width': SIDEBAR_WIDTH,
+              '--sidebar-width': `${defaultSidebarWidth}px`,
               '--sidebar-width-icon': SIDEBAR_WIDTH_ICON,
               ...style
             } as React.CSSProperties
@@ -140,6 +169,7 @@ function Sidebar({
   side = 'left',
   variant = 'sidebar',
   collapsible = 'offcanvas',
+  resizable = false,
   className,
   children,
   ...props
@@ -147,6 +177,7 @@ function Sidebar({
   side?: 'left' | 'right'
   variant?: 'sidebar' | 'floating' | 'inset'
   collapsible?: 'offcanvas' | 'icon' | 'none'
+  resizable?: boolean
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
@@ -233,8 +264,102 @@ function Sidebar({
         >
           {children}
         </div>
+        {resizable ? <SidebarResizeHandle side={side} /> : null}
       </div>
     </div>
+  )
+}
+
+function clampSidebarWidth(width: number, minWidth: number, maxWidth: number): number {
+  return Math.min(maxWidth, Math.max(minWidth, Math.round(width)))
+}
+
+function SidebarResizeHandle({
+  side = 'left',
+  className,
+  ...props
+}: React.ComponentProps<'hr'> & { side?: 'left' | 'right' }) {
+  const { sidebarWrapperRef, defaultSidebarWidth, minSidebarWidth, maxSidebarWidth } = useSidebar()
+  const [width, setWidth] = React.useState(defaultSidebarWidth)
+  const dragStateRef = React.useRef<{
+    pointerId: number
+    startX: number
+    startWidth: number
+  } | null>(null)
+
+  const applyWidth = React.useCallback(
+    (nextWidth: number) => {
+      const clampedWidth = clampSidebarWidth(nextWidth, minSidebarWidth, maxSidebarWidth)
+      sidebarWrapperRef.current?.style.setProperty('--sidebar-width', `${clampedWidth}px`)
+      setWidth(clampedWidth)
+    },
+    [maxSidebarWidth, minSidebarWidth, sidebarWrapperRef]
+  )
+
+  const finishResize = React.useCallback((element?: HTMLHRElement) => {
+    const dragState = dragStateRef.current
+    if (dragState === null) return
+    if (element?.hasPointerCapture(dragState.pointerId)) {
+      element.releasePointerCapture(dragState.pointerId)
+    }
+    dragStateRef.current = null
+  }, [])
+
+  return (
+    <hr
+      aria-label='Resize sidebar'
+      aria-orientation='vertical'
+      aria-valuemin={minSidebarWidth}
+      aria-valuemax={maxSidebarWidth}
+      aria-valuenow={width}
+      tabIndex={0}
+      title='Drag to resize sidebar · Double-click to reset'
+      data-sidebar='resize-handle'
+      data-slot='sidebar-resize-handle'
+      className={cn(
+        'absolute inset-y-0 z-20 block h-full w-3 touch-none cursor-col-resize select-none border-0 outline-hidden after:absolute after:inset-y-0 after:w-px hover:after:bg-sidebar-border focus-visible:after:bg-sidebar-ring group-data-[side=left]:right-0 group-data-[side=left]:after:right-0 group-data-[side=right]:left-0 group-data-[side=right]:after:left-0 group-data-[collapsible=icon]:hidden',
+        className
+      )}
+      onDoubleClick={() => applyWidth(defaultSidebarWidth)}
+      onKeyDown={(event) => {
+        const direction = side === 'left' ? 1 : -1
+        if (event.key === 'Home') {
+          event.preventDefault()
+          applyWidth(minSidebarWidth)
+        } else if (event.key === 'End') {
+          event.preventDefault()
+          applyWidth(maxSidebarWidth)
+        } else if (event.key === 'ArrowLeft') {
+          event.preventDefault()
+          applyWidth(width - SIDEBAR_KEYBOARD_RESIZE_STEP * direction)
+        } else if (event.key === 'ArrowRight') {
+          event.preventDefault()
+          applyWidth(width + SIDEBAR_KEYBOARD_RESIZE_STEP * direction)
+        }
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        dragStateRef.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startWidth: width
+        }
+        event.currentTarget.setPointerCapture(event.pointerId)
+      }}
+      onPointerMove={(event) => {
+        const dragState = dragStateRef.current
+        if (dragState === null || dragState.pointerId !== event.pointerId) return
+        const direction = side === 'left' ? 1 : -1
+        applyWidth(dragState.startWidth + (event.clientX - dragState.startX) * direction)
+      }}
+      onPointerUp={(event) => finishResize(event.currentTarget)}
+      onPointerCancel={(event) => finishResize(event.currentTarget)}
+      onLostPointerCapture={() => {
+        dragStateRef.current = null
+      }}
+      {...props}
+    />
   )
 }
 
@@ -681,6 +806,7 @@ export {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarRail,
+  SidebarResizeHandle,
   SidebarSeparator,
   SidebarTrigger,
   useSidebar

@@ -96,10 +96,11 @@ export function ManuscriptPreviewWorkspace(
     <SidebarProvider
       data-testid='manuscript-preview-workspace'
       className='min-h-0 flex-1'
-      style={{ '--sidebar-width': '280px' } as React.CSSProperties}
+      defaultSidebarWidth={280}
     >
       <Sidebar
         collapsible='icon'
+        resizable
         className='top-10 bottom-0 h-auto overflow-hidden *:data-[sidebar=sidebar]:flex-row'
       >
         <WorkspaceRail

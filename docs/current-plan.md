@@ -31,6 +31,22 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Redundant-defense cleanup is complete across the five user-approved areas: editor content
+  preparation, Agent section reads, Worker protocol defaults, run-record Skill snapshots, and
+  Electron theme resolution. Production code is reduced by 29 lines while retaining authority,
+  validation, concurrency, and recovery boundaries. Final-source verification covers 102 focused
+  tests, static checks, one production build, and two real Electron scenarios without E2E retries.
+  Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-redundant-defense-cleanup).
+
+- Project sidebar resizing maintenance is complete. Every expanded desktop project workspace now
+  exposes the same bounded pointer and keyboard resize handle while retaining the fixed icon rail,
+  collapse shortcut, and each workspace's established default width. Focused component coverage,
+  static checks, a final production build, and the real Electron resize scenario passed. A
+  replacement macOS arm64 App then passed the four-stage build-only package gate in 31.8 seconds.
+  Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-project-sidebar-resizing).
+
 - Reference/PDF import review distillation is complete. Ambiguous multi-page attachment choices
   appear first, while single-PDF and citation-only defaults render as compact continuous rows with
   progressive per-item settings. The dialog now grows with the desktop viewport up to 72rem,

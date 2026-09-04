@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
-  blockNoteDocumentSchema,
   SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_MATERIALIZATION_ENVELOPE_SCHEMA_VERSION,
   SECTION_MATERIALIZATION_FORMAT_VERSION,
@@ -106,17 +105,14 @@ export class EditorPersistenceService {
         `Revision source class '${requestedClass}' is not allowed on the '${source}' save channel`
       )
     }
-    const document = blockNoteDocumentSchema.parse(input.document)
-    const documentHash = prepareSectionContent(document, input.sectionId).contentHash
-    const wasAlreadyCurrent =
-      this.loadSection(input.sectionId).revision.contentHash === documentHash
+    const previousRevisionId = this.#manuscript.getSection(input.sectionId).currentRevisionId
     let revision: SectionRevision
     try {
       revision = this.#manuscript.appendRevision({
         sectionId: input.sectionId,
         baseRevisionId: input.baseRevisionId,
         baseContentHash: input.baseContentHash,
-        content: document,
+        content: input.document,
         source,
         sourceClass: input.revisionSource ?? (source === 'import' ? 'import' : 'manual_autosave')
       })
@@ -133,7 +129,7 @@ export class EditorPersistenceService {
       throw err
     }
 
-    const unchanged = wasAlreadyCurrent
+    const unchanged = revision.sectionRevisionId === previousRevisionId
     try {
       await this.#faults.afterDatabaseCommit?.()
       await this.materialize(revision)
@@ -319,8 +315,8 @@ export class EditorPersistenceService {
         envelope.sectionId === revision.sectionId &&
         envelope.sectionRevisionId === revision.sectionRevisionId &&
         envelope.contentHash === revision.contentHash &&
-        prepareSectionContent(blockNoteDocumentSchema.parse(envelope.document), revision.sectionId)
-          .contentHash === revision.contentHash
+        prepareSectionContent(envelope.document, revision.sectionId).contentHash ===
+          revision.contentHash
       )
     } catch {
       return false

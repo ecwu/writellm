@@ -13,6 +13,7 @@ import {
   QuestionnaireTitle
 } from './questionnaire'
 import { Spinner } from './spinner'
+import { Sidebar, SidebarProvider } from './sidebar'
 import { ToggleGroup, ToggleGroupItem } from './toggle-group'
 
 describe('shadcn renderer compositions', () => {
@@ -57,6 +58,24 @@ describe('shadcn renderer compositions', () => {
     expect(html).toContain('role="status"')
     expect(html).toContain('aria-label="Loading"')
     expect(html).toContain('Full value')
+  })
+
+  it('renders an accessible bounded resize handle for a resizable desktop sidebar', () => {
+    const html = renderToStaticMarkup(
+      <SidebarProvider defaultSidebarWidth={320} minSidebarWidth={240} maxSidebarWidth={480}>
+        <Sidebar collapsible='icon' resizable>
+          Sidebar content
+        </Sidebar>
+      </SidebarProvider>
+    )
+
+    expect(html).toContain('--sidebar-width:320px')
+    expect(html).toContain('<hr')
+    expect(html).toContain('aria-label="Resize sidebar"')
+    expect(html).toContain('aria-orientation="vertical"')
+    expect(html).toContain('aria-valuemin="240"')
+    expect(html).toContain('aria-valuemax="480"')
+    expect(html).toContain('aria-valuenow="320"')
   })
 
   it('keeps Questionnaire navigation and native radio semantics accessible', () => {

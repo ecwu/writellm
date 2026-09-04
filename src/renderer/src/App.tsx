@@ -36,15 +36,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle
-} from '@/components/ui/card'
-import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -55,14 +46,7 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
-import {
-  Item,
-  ItemContent,
-  ItemDescription,
-  ItemGroup,
-  ItemMedia,
-  ItemTitle
-} from '@/components/ui/item'
+import { Item, ItemGroup, ItemMedia } from '@/components/ui/item'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { Spinner } from '@/components/ui/spinner'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -600,13 +584,13 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isBusy, openProject, projectSelectionDisabled])
 
-  const formatRecentProjectDate = (lastOpenedAt: string): string => {
+  const formatRecentProjectTimestamp = (lastOpenedAt: string): string => {
     const date = new Date(lastOpenedAt)
-    if (Number.isNaN(date.getTime())) return 'Recently opened'
-    return `Opened ${new Intl.DateTimeFormat(undefined, {
+    if (Number.isNaN(date.getTime())) return 'Recently'
+    return new Intl.DateTimeFormat(undefined, {
       dateStyle: 'medium',
       timeStyle: 'short'
-    }).format(date)}`
+    }).format(date)
   }
 
   return (
@@ -700,185 +684,124 @@ function App(): React.JSX.Element {
               onError={notifyActionError}
             />
           ) : (
-            <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
-              <div className='m-auto flex w-full max-w-2xl flex-col gap-4'>
-                <Card>
-                  <CardHeader>
-                    <CardTitle>
-                      <h1>{initialLoading ? 'Loading project' : 'Open a workspace'}</h1>
-                    </CardTitle>
-                    <CardDescription>
+            <main className='flex min-h-0 flex-1 overflow-auto p-6 lg:p-10' aria-busy={isBusy}>
+              <div className='m-auto flex w-full max-w-6xl flex-col gap-6'>
+                <header className='flex items-start justify-between gap-8'>
+                  <div className='flex max-w-2xl flex-col gap-2'>
+                    <h1 className='text-2xl font-semibold tracking-tight'>
+                      {initialLoading ? 'Loading project' : 'Open a workspace'}
+                    </h1>
+                    <p className='text-sm leading-relaxed text-muted-foreground'>
                       {initialLoading
                         ? 'Checking the current project state.'
-                        : 'Create a self-contained WriteLLM project or open an existing project folder.'}
-                    </CardDescription>
-                    <CardAction>
-                      {initialLoading ? (
-                        <Spinner className='text-muted-foreground' />
-                      ) : (
-                        <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
-                      )}
-                    </CardAction>
-                  </CardHeader>
-                  {!initialLoading && (
-                    <>
-                      <CardContent>
-                        {snapshot.state === 'recovery-required' && (
-                          <Alert variant='destructive' role='status'>
-                            <AlertCircle />
-                            <AlertTitle>Recovery required</AlertTitle>
-                            <AlertDescription>
-                              {recoveryIsLockContended
-                                ? 'Another WriteLLM process still holds this project lock. Close that process and retry. If it ended unexpectedly, wait one minute, then recover the stale lock.'
-                                : 'Choose a recovery action below. WriteLLM keeps the project closed until the selected transition is verified.'}
-                            </AlertDescription>
-                            <div className='col-start-2 grid min-w-0 gap-2 border-t pt-4 sm:grid-cols-2'>
-                              {showOpenRecovery && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(window.desktop.projects.retryOpen)
-                                  }
-                                >
-                                  <RefreshCcw /> Retry open
-                                </Button>
-                              )}
-                              {recoveryIsLockContended && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(window.desktop.projects.recoverStaleLock)
-                                  }
-                                >
-                                  <RotateCcw /> Recover stale lock
-                                </Button>
-                              )}
-                              {showCloseRecovery && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(window.desktop.projects.retryClose)
-                                  }
-                                >
-                                  <RotateCcw /> Retry close
-                                </Button>
-                              )}
-                              {showCreateRecovery && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(
-                                      window.desktop.projects.discardIncompleteCreate
-                                    )
-                                  }
-                                >
-                                  <Trash2 /> Discard incomplete create
-                                </Button>
-                              )}
-                              {showOpenRecovery && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(window.desktop.projects.locateMoved)
-                                  }
-                                >
-                                  <MapPin /> Locate moved project
-                                </Button>
-                              )}
-                              <Button
-                                variant='outline'
-                                disabled={isBusy}
-                                onClick={() => void exportRecoveryDiagnostics()}
-                              >
-                                <Download /> Export diagnostics
-                              </Button>
-                              {showOpenRecovery && (
-                                <Button
-                                  variant='outline'
-                                  disabled={isBusy}
-                                  onClick={() =>
-                                    void runRecovery(window.desktop.projects.returnToClosed)
-                                  }
-                                >
-                                  <XCircle /> Return to closed
-                                </Button>
-                              )}
-                            </div>
-                          </Alert>
-                        )}
-                      </CardContent>
-                      {recentProjects.length > 0 && (
-                        <CardContent className='border-t pt-4'>
-                          <div className='mb-3 flex flex-col gap-1'>
-                            <h2 className='font-medium'>Recent projects</h2>
-                            <p className='text-sm text-muted-foreground'>
-                              Open one of your five most recently opened projects.
-                            </p>
-                          </div>
-                          <TooltipProvider>
-                            <ItemGroup className='gap-2'>
-                              {recentProjects.map((recentProject) => (
-                                <Item
-                                  key={recentProject.projectId}
-                                  size='sm'
-                                  className='flex-nowrap gap-1 p-0'
-                                >
-                                  <Button
-                                    className='h-auto min-w-0 flex-1 shrink justify-start gap-3 px-3 py-3 text-left'
-                                    variant='ghost'
-                                    disabled={isBusy || projectSelectionDisabled}
-                                    aria-label={`Open ${recentProject.displayName}`}
-                                    onClick={() => void openRecentProject(recentProject.projectId)}
-                                  >
-                                    <ItemMedia variant='icon'>
-                                      <FolderOpen />
-                                    </ItemMedia>
-                                    <ItemContent className='min-w-0'>
-                                      <ItemTitle className='block w-full truncate'>
-                                        {recentProject.displayName}
-                                      </ItemTitle>
-                                      <ItemDescription className='block truncate text-left'>
-                                        <span title={recentProject.projectPath}>
-                                          {recentProject.projectPath}
-                                        </span>
-                                        <span className='block'>
-                                          {formatRecentProjectDate(recentProject.lastOpenedAt)}
-                                        </span>
-                                      </ItemDescription>
-                                    </ItemContent>
-                                  </Button>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant='ghost'
-                                        size='icon-sm'
-                                        disabled={isBusy || projectSelectionDisabled}
-                                        aria-label={`Remove ${recentProject.displayName} from recent projects`}
-                                        onClick={() =>
-                                          void removeRecentProject(recentProject.projectId)
-                                        }
-                                      >
-                                        <X />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      Remove from list. Project files stay on disk.
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </Item>
-                              ))}
-                            </ItemGroup>
-                          </TooltipProvider>
-                        </CardContent>
-                      )}
-                      <CardFooter className='flex-col gap-2 border-t sm:flex-row'>
+                        : 'Create a self-contained WriteLLM project or continue from a recent workspace.'}
+                    </p>
+                  </div>
+                  {initialLoading ? (
+                    <Spinner className='mt-1 text-muted-foreground' />
+                  ) : (
+                    <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
+                  )}
+                </header>
+
+                {snapshot.state === 'recovery-required' && !initialLoading ? (
+                  <Alert variant='destructive' role='status'>
+                    <AlertCircle />
+                    <AlertTitle>Recovery required</AlertTitle>
+                    <AlertDescription>
+                      {recoveryIsLockContended
+                        ? 'Another WriteLLM process still holds this project lock. Close that process and retry. If it ended unexpectedly, wait one minute, then recover the stale lock.'
+                        : 'Choose a recovery action below. WriteLLM keeps the project closed until the selected transition is verified.'}
+                    </AlertDescription>
+                    <div className='col-start-2 grid min-w-0 grid-cols-2 gap-2 border-t pt-4'>
+                      {showOpenRecovery && (
                         <Button
-                          className='w-full sm:w-auto'
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
+                        >
+                          <RefreshCcw /> Retry open
+                        </Button>
+                      )}
+                      {recoveryIsLockContended && (
+                        <Button
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() => void runRecovery(window.desktop.projects.recoverStaleLock)}
+                        >
+                          <RotateCcw /> Recover stale lock
+                        </Button>
+                      )}
+                      {showCloseRecovery && (
+                        <Button
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() => void runRecovery(window.desktop.projects.retryClose)}
+                        >
+                          <RotateCcw /> Retry close
+                        </Button>
+                      )}
+                      {showCreateRecovery && (
+                        <Button
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() =>
+                            void runRecovery(window.desktop.projects.discardIncompleteCreate)
+                          }
+                        >
+                          <Trash2 /> Discard incomplete create
+                        </Button>
+                      )}
+                      {showOpenRecovery && (
+                        <Button
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() => void runRecovery(window.desktop.projects.locateMoved)}
+                        >
+                          <MapPin /> Locate moved project
+                        </Button>
+                      )}
+                      <Button
+                        variant='outline'
+                        disabled={isBusy}
+                        onClick={() => void exportRecoveryDiagnostics()}
+                      >
+                        <Download /> Export diagnostics
+                      </Button>
+                      {showOpenRecovery && (
+                        <Button
+                          variant='outline'
+                          disabled={isBusy}
+                          onClick={() => void runRecovery(window.desktop.projects.returnToClosed)}
+                        >
+                          <XCircle /> Return to closed
+                        </Button>
+                      )}
+                    </div>
+                  </Alert>
+                ) : null}
+
+                {initialLoading ? (
+                  <div className='grid min-h-80 place-items-center rounded-xl border bg-card'>
+                    <div className='flex items-center gap-3 text-sm text-muted-foreground'>
+                      <Spinner /> Checking your workspace…
+                    </div>
+                  </div>
+                ) : (
+                  <section
+                    className='grid min-h-[30rem] grid-cols-[17rem_minmax(0,1fr)] overflow-hidden rounded-xl border bg-card'
+                    aria-label='Workspace launcher'
+                  >
+                    <aside className='flex flex-col border-r bg-muted/30 p-6'>
+                      <div className='mb-6 flex flex-col gap-1'>
+                        <h2 className='font-semibold'>Start</h2>
+                        <p className='text-sm leading-relaxed text-muted-foreground'>
+                          Begin a new manuscript or open a project from disk.
+                        </p>
+                      </div>
+                      <div className='flex flex-col gap-2'>
+                        <Button
+                          className='h-auto justify-start py-3'
                           disabled={isBusy || projectSelectionDisabled}
                           onClick={() => {
                             setProjectNameError(null)
@@ -893,7 +816,7 @@ function App(): React.JSX.Element {
                           {activeAction === 'create' ? 'Creating…' : 'Create project'}
                         </Button>
                         <Button
-                          className='w-full sm:w-auto'
+                          className='h-auto justify-start py-3'
                           variant='outline'
                           disabled={isBusy || projectSelectionDisabled}
                           onClick={() => void openProject()}
@@ -901,20 +824,113 @@ function App(): React.JSX.Element {
                           <FolderOpen />
                           Open project
                         </Button>
-                        <Button
-                          className='w-full sm:ml-auto sm:w-auto'
-                          variant='ghost'
-                          onClick={() => {
-                            setSettingsSection('general')
-                            setSettingsOpen(true)
-                          }}
-                        >
-                          <Settings2 /> Settings
-                        </Button>
-                      </CardFooter>
-                    </>
-                  )}
-                </Card>
+                      </div>
+                      <Button
+                        className='mt-auto justify-start'
+                        variant='ghost'
+                        onClick={() => {
+                          setSettingsSection('general')
+                          setSettingsOpen(true)
+                        }}
+                      >
+                        <Settings2 /> Settings
+                      </Button>
+                    </aside>
+
+                    <div className='min-w-0 p-6'>
+                      <div className='mb-5 flex items-end justify-between gap-6'>
+                        <div className='flex flex-col gap-1'>
+                          <h2 className='font-semibold'>Recent projects</h2>
+                          <p className='text-sm text-muted-foreground'>
+                            Continue from one of your most recently opened workspaces.
+                          </p>
+                        </div>
+                        {recentProjects.length > 0 ? (
+                          <span className='shrink-0 text-xs tabular-nums text-muted-foreground'>
+                            {recentProjects.length} recent
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {recentProjects.length > 0 ? (
+                        <TooltipProvider>
+                          <div className='grid grid-cols-[minmax(11rem,1fr)_minmax(0,1.25fr)_auto] gap-4 border-b px-3 pb-2 pr-12 text-xs font-medium text-muted-foreground'>
+                            <span>Project</span>
+                            <span>Location</span>
+                            <span>Last opened</span>
+                          </div>
+                          <ItemGroup className='divide-y'>
+                            {recentProjects.map((recentProject) => (
+                              <Item
+                                key={recentProject.projectId}
+                                size='sm'
+                                className='flex-nowrap gap-1 rounded-none p-0'
+                              >
+                                <Button
+                                  className='grid h-auto min-w-0 flex-1 grid-cols-[minmax(11rem,1fr)_minmax(0,1.25fr)_auto] justify-normal gap-4 whitespace-normal px-3 py-3 text-left'
+                                  variant='ghost'
+                                  disabled={isBusy || projectSelectionDisabled}
+                                  aria-label={`Open ${recentProject.displayName}`}
+                                  onClick={() => void openRecentProject(recentProject.projectId)}
+                                >
+                                  <span className='flex min-w-0 items-center gap-3'>
+                                    <ItemMedia variant='icon'>
+                                      <FolderOpen />
+                                    </ItemMedia>
+                                    <span className='truncate font-medium'>
+                                      {recentProject.displayName}
+                                    </span>
+                                  </span>
+                                  <span
+                                    className='truncate text-sm text-muted-foreground'
+                                    title={recentProject.projectPath}
+                                  >
+                                    {recentProject.projectPath}
+                                  </span>
+                                  <span className='shrink-0 text-xs tabular-nums text-muted-foreground'>
+                                    {formatRecentProjectTimestamp(recentProject.lastOpenedAt)}
+                                  </span>
+                                </Button>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      variant='ghost'
+                                      size='icon-sm'
+                                      disabled={isBusy || projectSelectionDisabled}
+                                      aria-label={`Remove ${recentProject.displayName} from recent projects`}
+                                      onClick={() =>
+                                        void removeRecentProject(recentProject.projectId)
+                                      }
+                                    >
+                                      <X />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    Remove from list. Project files stay on disk.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </Item>
+                            ))}
+                          </ItemGroup>
+                        </TooltipProvider>
+                      ) : (
+                        <div className='grid min-h-72 place-items-center border-y'>
+                          <div className='flex max-w-sm flex-col items-center gap-3 text-center'>
+                            <ItemMedia variant='icon' className='size-10'>
+                              <FolderOpen />
+                            </ItemMedia>
+                            <div className='flex flex-col gap-1'>
+                              <p className='text-sm font-medium'>No recent projects</p>
+                              <p className='text-sm leading-relaxed text-muted-foreground'>
+                                Projects you create or open will appear here for quick access.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                )}
               </div>
             </main>
           )}

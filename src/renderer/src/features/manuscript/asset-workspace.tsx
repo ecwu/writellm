@@ -131,10 +131,11 @@ export function AssetWorkspace(props: {
     <SidebarProvider
       data-testid='asset-workspace'
       className='min-h-0 flex-1'
-      style={{ '--sidebar-width': '320px' } as React.CSSProperties}
+      defaultSidebarWidth={320}
     >
       <Sidebar
         collapsible='icon'
+        resizable
         className='top-10 bottom-0 h-auto overflow-hidden *:data-[sidebar=sidebar]:flex-row'
       >
         <WorkspaceRail
