@@ -91,4 +91,17 @@ describe('Reference source parser', () => {
       '/tmp/other.pdf'
     ])
   })
+
+  it('retains every BibTeX attachment beyond the former 100-item cutoff', () => {
+    const entries = Array.from(
+      { length: 125 },
+      (_, index) => `Paper ${index}:attachments/paper-${index}.pdf:application/pdf`
+    ).join(';')
+    const parsed = parseReferenceSource(
+      `@article{large,title={Large attachment set},file={${entries}}}`,
+      'bibtex'
+    )
+    expect(parsed.items[0]?.attachmentPaths).toHaveLength(125)
+    expect(parsed.items[0]?.attachmentPaths.at(-1)).toBe('attachments/paper-124.pdf')
+  })
 })

@@ -1857,3 +1857,111 @@ maintenance without turning the active tracker back into a historical log.
   and annotated tag `v0.2026.9.3` were pushed to `github.com:ecwu/writellm.git`. This candidate does
   not claim installer creation, a complete package/release gate, signing identity, notarization,
   GitHub Actions completion, or GitHub Release publication.
+
+## 2026-09-03 PDF Reference import limit maintenance
+
+- Removed the PDF-only 50-Reference prepare and confirmation restrictions from the shared
+  contracts, Main connector service, and Renderer preflight. PDF and metadata-only review now use
+  the same existing bounded 500-candidate request capability, and result projection accepts all
+  outcomes from that request.
+- Raised the private/public PDF preview capacity from 100 to 500 attachments so a 500-Reference
+  batch with one PDF per Reference does not silently lose later attachments. Existing per-Reference
+  attachment, file-size, candidate, expiring-preview, one-use, sender, and project-session bounds
+  remain unchanged; no filesystem, database, RAG, worker, or dependency boundary changed.
+- Focused shared-contract and connector verification passed 2 files / 10 tests in 1.7 seconds.
+  Final-source `pnpm check:fast` passed all three stages in 10.4 seconds after one earlier
+  format-only retry. The host
+  Node 26.8.1 versus repository Node 24 engine warning remains an environment limitation; tests
+  used the canonical Electron runtime. No build, package, release, commit, tag, push, signing, or
+  publication action was performed.
+- At the user's subsequent request, `pnpm build:unpack` produced a fresh macOS arm64 App from the
+  dirty working tree. The host-environment rerun passed all four build-only stages in 32.1 seconds:
+  production build/native validation in 12.1 seconds, App assembly in 19.9 seconds, no-Team-ID
+  signature policy, and inventory of 33,569 ASAR entries plus the arm64 native modules. The first
+  sandboxed attempt compiled successfully but could not resolve `github.com` while electron-builder
+  fetched its runtime and was interrupted; it supplied no successful build evidence. Output:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788471207203-35691-84f9770d/` and
+  `dist/macos-arm64/package-evidence.json`. No functional test, installer, release, commit, tag,
+  push, signing identity, notarization, promotion, or publication action was performed.
+
+## 2026-09-03 Silent count-limit removal
+
+- Authorization: the user approved removing three user-visible silent count limits while retaining
+  byte/capacity, authorization, expiry, and bounded internal concurrency/page controls. No database,
+  project-format, Reference-identity, Knowledge-storage, Agent-protocol, dependency, or ADR change
+  was required.
+- Knowledge file selection and its shared IPC contract no longer truncate or reject the 51st path.
+  Dropped paths are bounded by a 4 MiB serialized payload; Main sequentially preflights the 250 MiB
+  per-file and 1 GiB whole-batch capacity before creating any records. Every accepted file receives
+  a normal cancellable record, while a FIFO four-slot importer ensures queued and running work is
+  cancelled when the project closes.
+- BibTeX parsing no longer drops attachments after 100, and Reference preparation no longer imposes
+  per-item or global attachment counts. The initial preview exposes up to 20 valid PDFs per
+  Reference and an opaque continuation cursor. The new session-authorized IPC returns 20-item,
+  256 KiB pages; private cursors bind project session, preview, candidate, and raw offset, coalesce
+  concurrent repeat reads, and fail closed when expired, consumed, tampered with, or used across a
+  project/session. Better BibTeX responses are bounded to 4 MiB. Renderer pagination deduplicates
+  appended IDs without changing primary/supplement selections. Confirmation revalidates ownership
+  and file identity before writes and rejects selected PDFs above 1 GiB atomically; downstream
+  supplement, outcome, and Reference-link projections no longer have fixed attachment counts.
+- Readable-citation preview no longer inspects only the first 20 occurrences. It resolves manuscript
+  order in groups of four, chooses the earliest available result in each group, prevents replaced
+  requests from starting later groups, and reports unavailable reasons in index, history-limit,
+  source-missing, then unlinked priority.
+- Final-source focused verification passed **7 files / 39 tests** in 2.7 seconds. Coverage includes
+  51-file intake, 4 MiB path payloads, whole-batch capacity rollback, four-slot cancellation, 125
+  BibTeX attachments, 505 paged attachments, repeat/tampered/expired/cross-project/cross-session
+  cursors, oversized Better BibTeX responses, more than 49 supplements, 1 GiB confirmation
+  rollback, and occurrence 21+ ordering/concurrency/replacement behavior. `pnpm check:fast` passed
+  all three stages in 10.3 seconds. Evidence:
+  `.cache/verification/1788473575175-38914-3d33e96b/` and
+  `.cache/verification/1788473564619-38878-c73b9b40/`.
+- The fresh-build focused Electron gate passed all six stages in 25.8 seconds. Both scenarios passed
+  once in 4.3 seconds with no retries, flakes, failures, or skips: one imported all 51 selected
+  Knowledge files, and one loaded the 21st Reference attachment and imported it as a supplement.
+  Evidence: `.cache/verification/1788473590563-38985-83c47ffa/`.
+- `pnpm build:unpack` then replaced the macOS arm64 App. Its build-only gate passed all four stages
+  in 30.2 seconds: production build/native validation, App assembly, no-Team-ID signature policy,
+  and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3` and `sqlite-vec`. Output:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788473633200-39237-da407605/` and
+  `dist/macos-arm64/package-evidence.json`. No installer, full package/release gate, commit, tag,
+  push, signing identity, notarization, promotion, or publication action was performed. The host
+  Node 26.8.1 versus repository Node 24 engine warning remains an environment limitation; tests
+  used the canonical Electron runtime.
+
+## 2026-09-04 Reference import review distillation
+
+- Reworked the Reference/PDF confirmation step into two continuous, non-Card sections. Items with
+  multiple or not-yet-fully-loaded PDF choices appear first under `Needs attention`; single-PDF,
+  unavailable-PDF, and metadata-only defaults appear under `Ready to import` with the exact
+  Reference action and selected filename summarized inline.
+- Replaced always-visible Reference and single-PDF selectors with per-item progressive disclosure.
+  Ambiguous PDF controls, supplementary selection, attachment paging, explicit existing-Reference
+  completion/relinking, citation-only fallback, and the complete confirmation payload remain
+  available without changing Main, Preload, IPC, database, or shared contracts.
+- Expanded the dialog to `min(94vw, 72rem)`, retained a viewport-bounded scrolling body and fixed
+  footer, and used an auto-fitting summary grid with truncation and accessible control labels so
+  long metadata and filenames cannot introduce horizontal scrolling.
+- Focused Renderer grouping coverage passed 1 file / 3 tests in 1.5 seconds. `pnpm check:fast`
+  passed formatting/lint and both typechecks in 10.1 seconds. Final-source `pnpm check:e2e` passed
+  all six stages in 23.1 seconds, including static checks, one fresh production build, and one
+  focused Electron scenario in one attempt without retries. The scenario covers the compact
+  unique-PDF row, progressive settings, ambiguous attachment paging, clearing supplements when
+  switching to citation-only, restoring a primary PDF, importing a supplement, and both resulting
+  References.
+- Final 1024×800 and 1728×1000 Electron screenshots confirmed adaptive width, continuous section
+  hierarchy, isolated vertical scrolling, fixed footer actions, and no Card presentation. The
+  scoped Impeccable detector returned no findings, targeted Biome checks and `git diff --check`
+  passed, and no package, migration, dependency, commit, tag, push, signing, notarization, or
+  publication action was performed. The host Node 26.8.1 versus repository Node 24 engine warning
+  remains an environment limitation; tests used the canonical Electron runtime.
+- At the user's follow-up request, `pnpm build:unpack` produced a replacement macOS arm64 App from
+  the current dirty worktree. All four build-only stages passed in 32.5 seconds: Electron ABI and
+  native architecture preparation, production compilation, unpacked App assembly with the
+  no-Team-ID signature policy, and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3`
+  and `sqlite-vec`. Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
+  `.cache/verification/1788526886064-79233-08ba06f5/` and
+  `dist/macos-arm64/package-evidence.json`. No installer, functional package gate, commit, tag,
+  push, signing identity, notarization, promotion, or publication action was performed.

@@ -1306,13 +1306,60 @@ test(
 )
 
 test(
-  'imports one Zotero Reference with its primary PDF through a unified review',
+  'imports every file in a Knowledge batch larger than 50',
+  scenario('knowledge.batch-over-50'),
+  async ({ testRoot }) => {
+    const sources = await Promise.all(
+      Array.from({ length: 51 }, async (_, index) => {
+        const path = join(testRoot, `batch source ${index}.pdf`)
+        await writeFile(path, `%PDF-1.7\nBatch source ${index}`)
+        return path
+      })
+    )
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot],
+      knowledgeDialogPaths: sources
+    })
+    try {
+      await createProject(launched.page, 'Knowledge batch over 50')
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await launched.page.getByTestId('knowledge-upload-button').click()
+      await expect
+        .poll(
+          () =>
+            launched.page.evaluate(async () => {
+              const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+                ?.projectSessionId
+              if (projectSessionId === undefined) return 0
+              return (await window.desktop.knowledge.list({ projectSessionId })).filter(
+                (item) => item.state === 'stored'
+              ).length
+            }),
+          { timeout: 30_000 }
+        )
+        .toBe(51)
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'separates ambiguous and ready Zotero References in the unified review',
   scenario('knowledge.unified-reference-import'),
   async ({ testRoot }) => {
     const bibliographyDirectory = join(testRoot, 'zotero-export')
     await mkdir(bibliographyDirectory)
-    const pdfPath = join(bibliographyDirectory, 'paper.pdf')
-    await writeFile(pdfPath, '%PDF-1.7\nUnified bibliography attachment')
+    const pdfPaths = await Promise.all(
+      Array.from({ length: 21 }, async (_, index) => {
+        const path = join(bibliographyDirectory, `paper-${index}.pdf`)
+        await writeFile(path, `%PDF-1.7\nUnified bibliography attachment ${index}`)
+        return path
+      })
+    )
+    const compactPdfPath = join(bibliographyDirectory, 'compact.pdf')
+    await writeFile(compactPdfPath, '%PDF-1.7\nCompact bibliography attachment')
     const bibliographyPath = join(bibliographyDirectory, 'library.bib')
     await writeFile(
       bibliographyPath,
@@ -1321,7 +1368,15 @@ test(
   author = {Wu, Zhenghao},
   year = {2026},
   journal = {WriteLLM Studies},
-  file = {Paper:paper.pdf:application/pdf}
+  file = {${pdfPaths.map((_, index) => `Paper ${index}:paper-${index}.pdf:application/pdf`).join(';')}}
+}
+
+@article{compact2026,
+  title = {A Compact Default Import},
+  author = {Doe, Jane},
+  year = {2026},
+  journal = {WriteLLM Studies},
+  file = {Compact PDF:compact.pdf:application/pdf}
 }`
     )
     const projectName = 'Unified reference import'
@@ -1347,8 +1402,44 @@ test(
       await expect(
         launched.page.getByRole('dialog', { name: 'Review references and PDFs' })
       ).toBeVisible()
-      await expect(launched.page.getByText('PDF ready', { exact: true })).toBeVisible()
-      await launched.page.getByRole('button', { name: 'Import 1 references' }).click()
+      const attentionSection = launched.page.getByTestId('reference-import-needs-attention')
+      const readySection = launched.page.getByTestId('reference-import-ready')
+      await expect(attentionSection.getByText('Needs attention', { exact: true })).toBeVisible()
+      await expect(
+        attentionSection.getByText('A Unified Reference Import', { exact: true })
+      ).toBeVisible()
+      await expect(readySection.getByText('Ready to import', { exact: true })).toBeVisible()
+      await expect(
+        readySection.getByText('A Compact Default Import', { exact: true })
+      ).toBeVisible()
+      await expect(readySection.getByText('New Reference', { exact: true })).toBeVisible()
+      await expect(readySection.getByText(/compact\.pdf ·/u)).toBeVisible()
+      await expect(
+        readySection.getByLabel(/Primary PDF for A Compact Default Import/u)
+      ).toHaveCount(0)
+      await readySection.getByRole('button', { name: /Change import settings/u }).click()
+      await expect(
+        readySection.getByLabel('Primary PDF for A Compact Default Import')
+      ).toBeVisible()
+      await readySection.getByRole('button', { name: /Hide import settings/u }).click()
+      await expect(readySection.getByLabel('Primary PDF for A Compact Default Import')).toHaveCount(
+        0
+      )
+      await attentionSection.getByRole('button', { name: 'Load more attachments' }).click()
+      const lastSupplement = launched.page.getByRole('checkbox', { name: /paper-20\.pdf/u })
+      await expect(lastSupplement).toBeVisible()
+      await lastSupplement.check()
+      const ambiguousPrimary = attentionSection.getByLabel(
+        'Primary PDF for A Unified Reference Import'
+      )
+      await ambiguousPrimary.click()
+      await launched.page.getByRole('option', { name: 'Citation only — no PDF' }).click()
+      await expect(lastSupplement).toBeDisabled()
+      await expect(lastSupplement).not.toBeChecked()
+      await ambiguousPrimary.click()
+      await launched.page.getByRole('option', { name: /paper-0\.pdf/u }).click()
+      await lastSupplement.check()
+      await launched.page.getByRole('button', { name: 'Import 2 references' }).click()
       await expect(launched.page.getByRole('dialog', { name: 'References imported' })).toBeVisible({
         timeout: 20_000
       })
@@ -1364,9 +1455,14 @@ test(
         )
         .toMatchObject([
           {
+            citationKey: 'compact2026',
+            title: 'A Compact Default Import',
+            knowledgeItemIds: [expect.any(String)]
+          },
+          {
             citationKey: 'unified2026',
             title: 'A Unified Reference Import',
-            knowledgeItemIds: [expect.any(String)]
+            knowledgeItemIds: [expect.any(String), expect.any(String)]
           }
         ])
       const references = await launched.page.evaluate(async () => {

@@ -108,11 +108,16 @@ function harness() {
           alreadyImportedReferenceId: null,
           attachmentCount: 0,
           pdfStatus: 'not_requested' as const,
-          attachments: []
+          attachments: [],
+          nextAttachmentCursor: null
         }
       ],
       eligibleTargets: [],
       expiresAt: '2026-08-31T01:00:00.000Z'
+    })),
+    importAttachmentsPage: vi.fn(async () => ({
+      attachments: [],
+      nextAttachmentCursor: null
     })),
     confirmImport: vi.fn(async () => ({
       references: [],
@@ -235,7 +240,7 @@ function harness() {
 }
 
 describe('knowledge IPC', () => {
-  it('routes bounded unified Reference prepare and confirm requests', async () => {
+  it('routes unified Reference prepare, attachment paging, and confirm requests', async () => {
     const { invoke, bibliographyConnectors } = harness()
     await expect(
       invoke(IPC_CHANNELS.referencePrepareImport, {
@@ -245,8 +250,29 @@ describe('knowledge IPC', () => {
         includePdf: false
       })
     ).resolves.toMatchObject({ includePdf: false })
+    expect(bibliographyConnectors.prepareImport).toHaveBeenLastCalledWith(
+      expect.objectContaining({ candidateIds: expect.any(Set) })
+    )
+
+    const cursor = '77777777-7777-4777-8777-777777777777'
+    await expect(
+      invoke(IPC_CHANNELS.referenceImportAttachmentsPage, {
+        projectSessionId,
+        previewId: '88888888-8888-4888-8888-888888888888',
+        candidateId: 'a'.repeat(64),
+        cursor
+      })
+    ).resolves.toEqual({ attachments: [], nextAttachmentCursor: null })
+    expect(bibliographyConnectors.importAttachmentsPage).toHaveBeenCalledWith({
+      projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      projectSessionId,
+      previewId: '88888888-8888-4888-8888-888888888888',
+      candidateId: 'a'.repeat(64),
+      cursor
+    })
     expect(bibliographyConnectors.prepareImport).toHaveBeenCalledWith({
       projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      projectSessionId,
       connectorId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       candidateIds: new Set(['a'.repeat(64)]),
       includePdf: false
@@ -277,7 +303,7 @@ describe('knowledge IPC', () => {
         ),
         includePdf: true
       })
-    ).rejects.toThrow()
+    ).resolves.toMatchObject({ includePdf: false })
   })
 
   it('routes a bounded, session-authorized Reference search', async () => {

@@ -5,6 +5,10 @@ export const CITATION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u
 export const REFERENCE_CSL_MAX_BYTES = 1024 * 1024
 export const BIBLIOGRAPHY_SOURCE_MAX_BYTES = 20 * 1024 * 1024
 export const BIBLIOGRAPHY_SOURCE_MAX_ITEMS = 10_000
+export const BIBLIOGRAPHY_IMPORT_MAX_ITEMS = 500
+export const BIBLIOGRAPHY_ATTACHMENT_PAGE_SIZE = 20
+export const BIBLIOGRAPHY_ATTACHMENT_PAGE_MAX_BYTES = 256 * 1024
+export const BIBLIOGRAPHY_CONFIRM_MAX_BYTES = 4 * 1024 * 1024
 
 export const citationKeySchema = z.string().regex(CITATION_KEY_PATTERN)
 export const referenceSourceFormatSchema = z.enum(['better-csl-json', 'bibtex'])
@@ -80,7 +84,7 @@ export const referenceItemSchema = z
     metadataCompleteness: z.enum(['complete', 'partial', 'incomplete']),
     syncStatus: referenceSyncStatusSchema,
     evidenceAvailable: z.boolean(),
-    knowledgeItemIds: z.array(z.uuid()).max(100),
+    knowledgeItemIds: z.array(z.uuid()),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime()
   })
@@ -150,7 +154,7 @@ export const bibliographyImportCandidateSchema = z
     containerTitle: z.string().max(2048).nullable(),
     issuedYear: z.number().int().min(-9999).max(9999).nullable(),
     alreadyImportedReferenceId: z.uuid().nullable(),
-    attachmentCount: z.number().int().nonnegative().max(100)
+    attachmentCount: z.number().int().nonnegative()
   })
   .strict()
 
@@ -173,21 +177,10 @@ export const bibliographyPrepareImportInputSchema = editorSessionInputSchema
     candidateIds: z
       .array(z.string().regex(/^[a-f0-9]{64}$/u))
       .min(1)
-      .max(500),
+      .max(BIBLIOGRAPHY_IMPORT_MAX_ITEMS),
     includePdf: z.boolean().default(true)
   })
   .strict()
-  .superRefine((value, context) => {
-    if (value.includePdf && value.candidateIds.length > 50) {
-      context.addIssue({
-        code: 'too_big',
-        maximum: 50,
-        origin: 'array',
-        path: ['candidateIds'],
-        message: 'PDF import review is limited to 50 references'
-      })
-    }
-  })
 
 export const bibliographyImportAttachmentSchema = z
   .object({
@@ -208,14 +201,15 @@ export const bibliographyImportTargetSchema = z
     citationKey: citationKeySchema,
     title: z.string().min(1).max(4096),
     kind: z.enum(['complete_incomplete', 'relink']),
-    knowledgeItemIds: z.array(z.uuid()).max(100)
+    knowledgeItemIds: z.array(z.uuid())
   })
   .strict()
 
 export const bibliographyImportPlanItemSchema = bibliographyImportCandidateSchema
   .extend({
     pdfStatus: z.enum(['available', 'unavailable', 'not_requested']),
-    attachments: z.array(bibliographyImportAttachmentSchema).max(20)
+    attachments: z.array(bibliographyImportAttachmentSchema).max(BIBLIOGRAPHY_ATTACHMENT_PAGE_SIZE),
+    nextAttachmentCursor: z.uuid().nullable()
   })
   .strict()
 
@@ -223,18 +217,38 @@ export const bibliographyImportPlanSchema = z
   .object({
     previewId: z.uuid(),
     includePdf: z.boolean(),
-    items: z.array(bibliographyImportPlanItemSchema).min(1).max(500),
+    items: z.array(bibliographyImportPlanItemSchema).min(1).max(BIBLIOGRAPHY_IMPORT_MAX_ITEMS),
     eligibleTargets: z.array(bibliographyImportTargetSchema).max(10_000),
     expiresAt: z.iso.datetime()
   })
   .strict()
+
+export const bibliographyImportAttachmentsPageInputSchema = editorSessionInputSchema
+  .extend({
+    previewId: z.uuid(),
+    candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
+    cursor: z.uuid()
+  })
+  .strict()
+export const bibliographyImportAttachmentsPageSchema = z
+  .object({
+    attachments: z.array(bibliographyImportAttachmentSchema).max(BIBLIOGRAPHY_ATTACHMENT_PAGE_SIZE),
+    nextAttachmentCursor: z.uuid().nullable()
+  })
+  .strict()
+  .refine(
+    (value) =>
+      new TextEncoder().encode(JSON.stringify(value)).byteLength <=
+      BIBLIOGRAPHY_ATTACHMENT_PAGE_MAX_BYTES,
+    { message: 'Attachment page exceeds the 256 KiB response limit' }
+  )
 
 export const bibliographyConfirmImportSelectionSchema = z
   .object({
     candidateId: z.string().regex(/^[a-f0-9]{64}$/u),
     targetReferenceId: z.uuid().nullable(),
     primaryAttachmentId: z.uuid().nullable(),
-    supplementAttachmentIds: z.array(z.uuid()).max(49)
+    supplementAttachmentIds: z.array(z.uuid())
   })
   .strict()
   .refine(
@@ -251,13 +265,23 @@ export const bibliographyConfirmImportSelectionSchema = z
 export const bibliographyConfirmImportInputSchema = editorSessionInputSchema
   .extend({
     previewId: z.uuid(),
-    selections: z.array(bibliographyConfirmImportSelectionSchema).min(1).max(50)
+    selections: z
+      .array(bibliographyConfirmImportSelectionSchema)
+      .min(1)
+      .max(BIBLIOGRAPHY_IMPORT_MAX_ITEMS)
   })
   .strict()
   .superRefine((value, context) => {
+    if (
+      new TextEncoder().encode(JSON.stringify(value)).byteLength > BIBLIOGRAPHY_CONFIRM_MAX_BYTES
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Import confirmation exceeds the 4 MiB IPC payload limit'
+      })
+    }
     const candidateIds = new Set<string>()
     const targetIds = new Set<string>()
-    let attachmentCount = 0
     for (const [index, selection] of value.selections.entries()) {
       if (candidateIds.has(selection.candidateId)) {
         context.addIssue({
@@ -277,15 +301,6 @@ export const bibliographyConfirmImportInputSchema = editorSessionInputSchema
         }
         targetIds.add(selection.targetReferenceId)
       }
-      attachmentCount +=
-        selection.supplementAttachmentIds.length + (selection.primaryAttachmentId === null ? 0 : 1)
-    }
-    if (attachmentCount > 50) {
-      context.addIssue({
-        code: 'custom',
-        path: ['selections'],
-        message: 'At most 50 PDF attachments may be imported at once'
-      })
     }
   })
 
@@ -303,14 +318,14 @@ export const bibliographyImportOutcomeSchema = z
         'import_failed'
       ])
       .nullable(),
-    importedKnowledgeItemIds: z.array(z.uuid()).max(50)
+    importedKnowledgeItemIds: z.array(z.uuid())
   })
   .strict()
 
 export const bibliographyConfirmImportResultSchema = z
   .object({
     references: referenceListResultSchema,
-    outcomes: z.array(bibliographyImportOutcomeSchema).min(1).max(50)
+    outcomes: z.array(bibliographyImportOutcomeSchema).min(1).max(BIBLIOGRAPHY_IMPORT_MAX_ITEMS)
   })
   .strict()
 
@@ -401,6 +416,9 @@ export type ReferenceSearchResult = z.infer<typeof referenceSearchResultSchema>
 export type BibliographyConnector = z.infer<typeof bibliographyConnectorSchema>
 export type BibliographySnapshot = z.infer<typeof bibliographySnapshotSchema>
 export type BibliographyImportPlan = z.infer<typeof bibliographyImportPlanSchema>
+export type BibliographyImportAttachmentsPage = z.infer<
+  typeof bibliographyImportAttachmentsPageSchema
+>
 export type BibliographyImportTarget = z.infer<typeof bibliographyImportTargetSchema>
 export type BibliographyConfirmImportSelection = z.infer<
   typeof bibliographyConfirmImportSelectionSchema

@@ -173,6 +173,7 @@ export const IPC_CHANNELS = {
   referenceBibliographySnapshot: 'reference:bibliography-snapshot',
   referenceRefreshBibliography: 'reference:refresh-bibliography',
   referencePrepareImport: 'reference:prepare-import',
+  referenceImportAttachmentsPage: 'reference:import-attachments-page',
   referenceConfirmImport: 'reference:confirm-import',
   referenceExportBibliography: 'reference:export-bibliography',
   referencePlanLegacyConversion: 'reference:plan-legacy-conversion',

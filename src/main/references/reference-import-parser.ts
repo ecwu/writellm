@@ -184,7 +184,6 @@ function splitAttachmentField(value: string): string[] {
       return possiblePath.replaceAll('\\;', ';').trim()
     })
     .filter(Boolean)
-    .slice(0, 100)
 }
 
 function readBibValue(source: string, offset: number): string | null {

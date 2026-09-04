@@ -44,7 +44,37 @@ import type { ManuscriptFindScope } from './manuscript-find-panel'
 import type { EditorExactSelectionSnapshot, SectionEditorHandle, SaveState } from './section-editor'
 import type { WritingWorkspaceProps } from './writing-workspace'
 
-const REFERENCE_PREVIEW_OCCURRENCE_LIMIT = 20
+const REFERENCE_PREVIEW_CONCURRENCY = 4
+
+export async function resolveReadableCitationOccurrences(
+  occurrences: ManuscriptReferenceEntry['occurrences'],
+  resolveOccurrence: (
+    occurrence: ManuscriptReferenceEntry['occurrences'][number]
+  ) => Promise<ReadableCitationResolutionResult>,
+  isCurrent: () => boolean
+): Promise<ReadableCitationResolutionResult | null> {
+  const unavailableReasons = new Set<
+    Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
+  >()
+  for (let offset = 0; offset < occurrences.length; offset += REFERENCE_PREVIEW_CONCURRENCY) {
+    if (!isCurrent()) return null
+    const batch = occurrences.slice(offset, offset + REFERENCE_PREVIEW_CONCURRENCY)
+    const results = await Promise.all(batch.map(resolveOccurrence))
+    if (!isCurrent()) return null
+    const available = results.find(
+      (result) => result.status === 'resolved' || result.status === 'ambiguous'
+    )
+    if (available !== undefined) return available
+    for (const result of results) {
+      if (result.status === 'unavailable') unavailableReasons.add(result.reason)
+    }
+  }
+  const reason =
+    (['index_unavailable', 'resolution_limit', 'source_missing', 'unlinked'] as const).find(
+      (candidate) => unavailableReasons.has(candidate)
+    ) ?? 'unlinked'
+  return { status: 'unavailable', reason }
+}
 
 type ReferenceDialogState =
   | { phase: 'loading'; entry: ManuscriptReferenceEntry }
@@ -225,32 +255,26 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       const sequence = ++referenceRequestSequenceRef.current
       setReferenceDialog({ phase: 'loading', entry })
       void (async () => {
-        let unavailableReason: Extract<
-          ReadableCitationResolutionResult,
-          { status: 'unavailable' }
-        >['reason'] = 'unlinked'
-        const occurrences = entry.occurrences.slice(0, REFERENCE_PREVIEW_OCCURRENCE_LIMIT)
-        for (const occurrence of occurrences) {
-          const result = await window.desktop.knowledge.resolveReadableCitation({
-            projectSessionId: props.projectSessionId,
-            sectionRevisionId: occurrence.sectionRevisionId,
-            blockId: occurrence.blockId,
-            title: occurrence.title,
-            ...(occurrence.pageIndex === undefined ? {} : { pageIndex: occurrence.pageIndex })
-          })
-          if (referenceRequestSequenceRef.current !== sequence) return
-          if (result.status === 'resolved') {
-            setReferenceDialog({ phase: 'resolved', entry, citation: result.citation })
-            return
-          }
-          if (result.status === 'ambiguous') {
-            setReferenceDialog({ phase: 'ambiguous', entry, citations: result.citations })
-            return
-          }
-          unavailableReason = result.reason
+        const result = await resolveReadableCitationOccurrences(
+          entry.occurrences,
+          (occurrence) =>
+            window.desktop.knowledge.resolveReadableCitation({
+              projectSessionId: props.projectSessionId,
+              sectionRevisionId: occurrence.sectionRevisionId,
+              blockId: occurrence.blockId,
+              title: occurrence.title,
+              ...(occurrence.pageIndex === undefined ? {} : { pageIndex: occurrence.pageIndex })
+            }),
+          () => referenceRequestSequenceRef.current === sequence
+        )
+        if (result === null) return
+        if (result.status === 'resolved') {
+          setReferenceDialog({ phase: 'resolved', entry, citation: result.citation })
+        } else if (result.status === 'ambiguous') {
+          setReferenceDialog({ phase: 'ambiguous', entry, citations: result.citations })
+        } else {
+          setReferenceDialog({ phase: 'unavailable', entry, reason: result.reason })
         }
-        if (entry.occurrences.length > occurrences.length) unavailableReason = 'resolution_limit'
-        setReferenceDialog({ phase: 'unavailable', entry, reason: unavailableReason })
       })().catch(() => {
         if (referenceRequestSequenceRef.current === sequence) {
           setReferenceDialog({ phase: 'error', entry })

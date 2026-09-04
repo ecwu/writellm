@@ -15,6 +15,7 @@ import {
   Circle,
   File,
   FileCheck2,
+  FileText,
   FileUp,
   FolderOpen,
   Library,
@@ -33,6 +34,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -171,6 +173,9 @@ export function KnowledgeManager(props: {
   const [importSelections, setImportSelections] = useState<
     Map<string, BibliographyConfirmImportSelection>
   >(new Map())
+  const [loadingAttachmentCandidates, setLoadingAttachmentCandidates] = useState<Set<string>>(
+    new Set()
+  )
   const [importOutcomes, setImportOutcomes] = useState<BibliographyImportOutcome[] | null>(null)
   const [conversionPlan, setConversionPlan] = useState<LegacyCitationConversionPlan | null>(null)
   const [busy, setBusy] = useState(false)
@@ -270,12 +275,6 @@ export function KnowledgeManager(props: {
     candidateIds: Set<string> = selectedCandidateIds
   ): Promise<void> => {
     if (importSnapshot === null || candidateIds.size === 0) return
-    if (importPdf && candidateIds.size > 50) {
-      props.onError(
-        'PDF review supports up to 50 references at once. Select fewer or turn off PDF import.'
-      )
-      return
-    }
     setBusy(true)
     try {
       const plan = await window.desktop.knowledge.prepareReferenceImport({
@@ -335,6 +334,48 @@ export function KnowledgeManager(props: {
       )
     } finally {
       setBusy(false)
+    }
+  }
+  const loadMoreReferenceAttachments = async (
+    candidateId: string,
+    cursor: string
+  ): Promise<void> => {
+    if (importPlan === null || loadingAttachmentCandidates.has(candidateId)) return
+    setLoadingAttachmentCandidates((current) => new Set(current).add(candidateId))
+    try {
+      const page = await window.desktop.knowledge.referenceImportAttachmentsPage({
+        projectSessionId: props.projectSessionId,
+        previewId: importPlan.previewId,
+        candidateId,
+        cursor
+      })
+      setImportPlan((current) =>
+        current === null
+          ? null
+          : {
+              ...current,
+              items: current.items.map((item) => {
+                if (item.candidateId !== candidateId) return item
+                const known = new Set(item.attachments.map((attachment) => attachment.attachmentId))
+                return {
+                  ...item,
+                  attachments: [
+                    ...item.attachments,
+                    ...page.attachments.filter((attachment) => !known.has(attachment.attachmentId))
+                  ],
+                  nextAttachmentCursor: page.nextAttachmentCursor
+                }
+              })
+            }
+      )
+    } catch {
+      props.onError('More PDF attachments could not be loaded. Review the import again.')
+    } finally {
+      setLoadingAttachmentCandidates((current) => {
+        const next = new Set(current)
+        next.delete(candidateId)
+        return next
+      })
     }
   }
   const closeReferenceImport = (): void => {
@@ -722,6 +763,7 @@ export function KnowledgeManager(props: {
         selectedIds={selectedCandidateIds}
         selections={importSelections}
         busy={busy}
+        loadingAttachmentCandidates={loadingAttachmentCandidates}
         importPdf={importPdf}
         onImportPdfChange={setImportPdf}
         onSelectedIdsChange={setSelectedCandidateIds}
@@ -733,6 +775,9 @@ export function KnowledgeManager(props: {
         onClose={closeReferenceImport}
         onReview={() => void prepareReferenceImport()}
         onConfirm={() => void confirmReferenceImport()}
+        onLoadMoreAttachments={(candidateId, cursor) =>
+          void loadMoreReferenceAttachments(candidateId, cursor)
+        }
         onReviewAgain={reviewFailedReferences}
       />
       <LegacyConversionDialog
@@ -1071,6 +1116,241 @@ function MetadataField(props: { label: string; value: string }): React.JSX.Eleme
   )
 }
 
+type BibliographyImportPlanItem = BibliographyImportPlan['items'][number]
+
+export function referenceImportNeedsAttention(item: BibliographyImportPlanItem): boolean {
+  return item.attachments.length > 1 || item.nextAttachmentCursor !== null
+}
+
+function ReferenceImportReviewItem(props: {
+  item: BibliographyImportPlanItem
+  eligibleTargets: BibliographyImportPlan['eligibleTargets']
+  selection: BibliographyConfirmImportSelection
+  needsAttention: boolean
+  expanded: boolean
+  loadingAttachments: boolean
+  onExpandedChange(expanded: boolean): void
+  onSelectionChange(selection: BibliographyConfirmImportSelection): void
+  onLoadMoreAttachments(cursor: string): void
+}): React.JSX.Element {
+  const selectedTarget = props.eligibleTargets.find(
+    (target) => target.referenceId === props.selection.targetReferenceId
+  )
+  const selectedAttachment = props.item.attachments.find(
+    (attachment) => attachment.attachmentId === props.selection.primaryAttachmentId
+  )
+  const metadata = [props.item.authors.join(', '), props.item.containerTitle, props.item.issuedYear]
+    .filter((value) => value !== null && value !== '')
+    .join(' · ')
+  const identitySummary =
+    selectedTarget === undefined
+      ? 'New Reference'
+      : `${selectedTarget.kind === 'relink' ? 'Reconnect' : 'Use project Reference'} · @${selectedTarget.citationKey}`
+  const attachmentSummary =
+    selectedAttachment !== undefined
+      ? `${selectedAttachment.fileName} · ${formatBytes(selectedAttachment.byteSize)}`
+      : selectedTarget !== undefined && selectedTarget.knowledgeItemIds.length > 0
+        ? 'Keep existing project PDF'
+        : props.item.pdfStatus === 'not_requested'
+          ? 'Citation only · PDF import not requested'
+          : props.item.pdfStatus === 'unavailable'
+            ? 'Citation only · No PDF found'
+            : 'Citation only · No PDF selected'
+  const hasConfigurableOptions = props.needsAttention
+    ? props.eligibleTargets.length > 0
+    : props.item.attachments.length > 0 || props.eligibleTargets.length > 0
+
+  const changeTarget = (value: string): void => {
+    const target = props.eligibleTargets.find((candidate) => candidate.referenceId === value)
+    props.onSelectionChange({
+      ...props.selection,
+      targetReferenceId: value === 'new' ? null : value,
+      primaryAttachmentId:
+        target !== undefined && target.knowledgeItemIds.length > 0
+          ? null
+          : props.selection.primaryAttachmentId,
+      supplementAttachmentIds:
+        target !== undefined && target.knowledgeItemIds.length > 0
+          ? []
+          : props.selection.supplementAttachmentIds
+    })
+  }
+  const changePrimaryAttachment = (value: string): void => {
+    const primaryAttachmentId = value === 'none' ? null : value
+    props.onSelectionChange({
+      ...props.selection,
+      primaryAttachmentId,
+      supplementAttachmentIds:
+        primaryAttachmentId === null
+          ? []
+          : props.selection.supplementAttachmentIds.filter(
+              (attachmentId) => attachmentId !== primaryAttachmentId
+            )
+    })
+  }
+  const attachmentSettings = (
+    <div className='grid gap-3 pt-3'>
+      <div className='grid gap-1.5 text-xs font-medium'>
+        <span>Primary PDF</span>
+        <Select
+          value={props.selection.primaryAttachmentId ?? 'none'}
+          onValueChange={changePrimaryAttachment}
+        >
+          <SelectTrigger
+            size='sm'
+            className='w-full min-w-0'
+            aria-label={`Primary PDF for ${props.item.title}`}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value='none'>
+              {selectedTarget !== undefined && selectedTarget.knowledgeItemIds.length > 0
+                ? 'Keep existing project PDF'
+                : 'Citation only — no PDF'}
+            </SelectItem>
+            {props.item.attachments.map((attachment) => (
+              <SelectItem key={attachment.attachmentId} value={attachment.attachmentId}>
+                {attachment.fileName} · {formatBytes(attachment.byteSize)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      {props.item.attachments.some(
+        (attachment) => attachment.attachmentId !== props.selection.primaryAttachmentId
+      ) ? (
+        <div className='grid gap-2'>
+          <p className='text-xs font-medium'>Supplementary files</p>
+          {props.item.attachments
+            .filter((attachment) => attachment.attachmentId !== props.selection.primaryAttachmentId)
+            .map((attachment) => (
+              <label
+                key={attachment.attachmentId}
+                htmlFor={`supplement-${attachment.attachmentId}`}
+                className='flex min-w-0 items-center gap-2 text-xs text-muted-foreground'
+              >
+                <Checkbox
+                  id={`supplement-${attachment.attachmentId}`}
+                  checked={props.selection.supplementAttachmentIds.includes(
+                    attachment.attachmentId
+                  )}
+                  disabled={props.selection.primaryAttachmentId === null}
+                  onCheckedChange={(checked) =>
+                    props.onSelectionChange({
+                      ...props.selection,
+                      supplementAttachmentIds:
+                        checked === true
+                          ? [...props.selection.supplementAttachmentIds, attachment.attachmentId]
+                          : props.selection.supplementAttachmentIds.filter(
+                              (id) => id !== attachment.attachmentId
+                            )
+                    })
+                  }
+                />
+                <span className='min-w-0 flex-1 truncate'>{attachment.fileName}</span>
+                <span className='shrink-0 tabular-nums'>{formatBytes(attachment.byteSize)}</span>
+              </label>
+            ))}
+        </div>
+      ) : null}
+      {props.item.nextAttachmentCursor !== null ? (
+        <Button
+          type='button'
+          variant='outline'
+          size='sm'
+          className='w-fit'
+          disabled={props.loadingAttachments}
+          onClick={() => props.onLoadMoreAttachments(props.item.nextAttachmentCursor as string)}
+        >
+          {props.loadingAttachments ? 'Loading attachments…' : 'Load more attachments'}
+        </Button>
+      ) : null}
+    </div>
+  )
+
+  return (
+    <Collapsible open={props.expanded} onOpenChange={props.onExpandedChange}>
+      <div className={props.needsAttention ? 'px-3 py-4' : 'px-3 py-3'}>
+        <div className='flex min-w-0 items-start justify-between gap-3'>
+          <div className='min-w-0 flex-1'>
+            <p className='text-sm font-medium'>{props.item.title}</p>
+            {metadata.length > 0 ? (
+              <p className='mt-1 truncate text-xs text-muted-foreground' title={metadata}>
+                {metadata}
+              </p>
+            ) : null}
+            <p className='mt-1 text-xs text-muted-foreground'>@{props.item.proposedCitationKey}</p>
+          </div>
+          {hasConfigurableOptions ? (
+            <CollapsibleTrigger asChild>
+              <Button
+                type='button'
+                variant='ghost'
+                size='sm'
+                className='shrink-0'
+                aria-label={`${props.expanded ? 'Hide' : 'Change'} import settings for ${props.item.title}`}
+              >
+                {props.expanded ? 'Hide' : 'Change'}
+              </Button>
+            </CollapsibleTrigger>
+          ) : null}
+        </div>
+        <div className='mt-2 grid gap-x-6 gap-y-2 [grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr))]'>
+          <div className='min-w-0'>
+            <p className='text-xs font-medium text-muted-foreground'>Reference</p>
+            <p className='mt-0.5 truncate text-xs' title={identitySummary}>
+              {identitySummary}
+            </p>
+          </div>
+          <div className='min-w-0'>
+            <p className='text-xs font-medium text-muted-foreground'>PDF</p>
+            <p
+              className='mt-0.5 flex min-w-0 items-center gap-1.5 text-xs'
+              title={attachmentSummary}
+            >
+              <FileText className='size-3.5 shrink-0 text-muted-foreground' />
+              <span className='truncate'>{attachmentSummary}</span>
+            </p>
+          </div>
+        </div>
+        <CollapsibleContent>
+          <div className='mt-3 border-t pt-3'>
+            {props.eligibleTargets.length > 0 ? (
+              <div className='grid gap-1.5 text-xs font-medium'>
+                <span>Reference identity</span>
+                <Select
+                  value={props.selection.targetReferenceId ?? 'new'}
+                  onValueChange={changeTarget}
+                >
+                  <SelectTrigger
+                    size='sm'
+                    className='w-full min-w-0'
+                    aria-label={`Reference identity for ${props.item.title}`}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='new'>Create a new Reference</SelectItem>
+                    {props.eligibleTargets.map((target) => (
+                      <SelectItem key={target.referenceId} value={target.referenceId}>
+                        {target.kind === 'relink' ? 'Reconnect' : 'Use project PDF'}: {target.title}{' '}
+                        · @{target.citationKey}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+            {!props.needsAttention ? attachmentSettings : null}
+          </div>
+        </CollapsibleContent>
+        {props.needsAttention ? attachmentSettings : null}
+      </div>
+    </Collapsible>
+  )
+}
+
 function ReferenceImportDialog(props: {
   snapshot: BibliographySnapshot | null
   plan: BibliographyImportPlan | null
@@ -1078,6 +1358,7 @@ function ReferenceImportDialog(props: {
   selectedIds: Set<string>
   selections: Map<string, BibliographyConfirmImportSelection>
   busy: boolean
+  loadingAttachmentCandidates: Set<string>
   importPdf: boolean
   onImportPdfChange(value: boolean): void
   onSelectedIdsChange(ids: Set<string>): void
@@ -1086,8 +1367,13 @@ function ReferenceImportDialog(props: {
   onClose(): void
   onReview(): void
   onConfirm(): void
+  onLoadMoreAttachments(candidateId: string, cursor: string): void
   onReviewAgain(): void
 }): React.JSX.Element {
+  const [expandedState, setExpandedState] = useState<{
+    previewId: string | null
+    candidateIds: Set<string>
+  }>({ previewId: null, candidateIds: new Set() })
   const available =
     props.snapshot?.candidates.filter(
       (candidate) => candidate.alreadyImportedReferenceId === null
@@ -1111,9 +1397,58 @@ function ReferenceImportDialog(props: {
   const hasRetryableOutcomes =
     props.outcomes?.some((outcome) => outcome.state === 'failed' || outcome.state === 'partial') ??
     false
+  const reviewGroups = useMemo(() => {
+    if (props.plan === null) return { attention: [], ready: [] }
+    return props.plan.items.reduce<{
+      attention: BibliographyImportPlanItem[]
+      ready: BibliographyImportPlanItem[]
+    }>(
+      (groups, item) => {
+        groups[referenceImportNeedsAttention(item) ? 'attention' : 'ready'].push(item)
+        return groups
+      },
+      { attention: [], ready: [] }
+    )
+  }, [props.plan])
+  const currentPreviewId = props.plan?.previewId ?? null
+  const expandedCandidateIds =
+    expandedState.previewId === currentPreviewId ? expandedState.candidateIds : new Set<string>()
+  const setItemExpanded = (candidateId: string, expanded: boolean): void => {
+    setExpandedState((current) => {
+      const next = new Set(
+        current.previewId === currentPreviewId ? current.candidateIds : new Set<string>()
+      )
+      if (expanded) next.add(candidateId)
+      else next.delete(candidateId)
+      return { previewId: currentPreviewId, candidateIds: next }
+    })
+  }
+  const renderReviewItem = (
+    item: BibliographyImportPlanItem,
+    needsAttention: boolean
+  ): React.JSX.Element | null => {
+    const selection = props.selections.get(item.candidateId)
+    if (selection === undefined || props.plan === null) return null
+    return (
+      <ReferenceImportReviewItem
+        key={item.candidateId}
+        item={item}
+        eligibleTargets={props.plan.eligibleTargets}
+        selection={selection}
+        needsAttention={needsAttention}
+        expanded={expandedCandidateIds.has(item.candidateId)}
+        loadingAttachments={props.loadingAttachmentCandidates.has(item.candidateId)}
+        onExpandedChange={(expanded) => setItemExpanded(item.candidateId, expanded)}
+        onSelectionChange={(nextSelection) =>
+          updateSelection(item.candidateId, () => nextSelection)
+        }
+        onLoadMoreAttachments={(cursor) => props.onLoadMoreAttachments(item.candidateId, cursor)}
+      />
+    )
+  }
   return (
     <Dialog open={props.snapshot !== null} onOpenChange={(open) => !open && props.onClose()}>
-      <DialogContent className='max-h-[85dvh] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-3xl'>
+      <DialogContent className='max-h-[85dvh] min-h-0 w-[min(94vw,72rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-none'>
         <DialogHeader>
           <DialogTitle>
             {props.outcomes !== null
@@ -1128,216 +1463,110 @@ function ReferenceImportDialog(props: {
             {props.outcomes !== null
               ? 'Each result belongs to one project Reference. PDF processing continues in Knowledge.'
               : props.plan !== null
-                ? 'Confirm citation details, the primary PDF, and any supplementary files before importing.'
+                ? 'Review exceptions first, then confirm the references and files ready to import.'
                 : `Choose references from ${props.snapshot?.connector.sourceName ?? 'the selected Zotero export'}. PDF lookup starts only when you review this selection.`}
           </DialogDescription>
         </DialogHeader>
-        <div className='min-h-0 overscroll-contain overflow-y-auto border-y py-2'>
-          {props.outcomes !== null && props.plan !== null
-            ? props.outcomes.map((outcome) => {
-                const item = props.plan?.items.find(
-                  (candidate) => candidate.candidateId === outcome.candidateId
-                )
-                return (
-                  <div key={outcome.candidateId} className='flex items-start gap-3 px-3 py-4'>
-                    {outcome.state === 'complete' || outcome.state === 'citation_only' ? (
-                      <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-success' />
-                    ) : (
-                      <AlertCircle className='mt-0.5 size-4 shrink-0 text-destructive' />
-                    )}
-                    <div className='min-w-0 flex-1'>
-                      <div className='flex flex-wrap items-center gap-2'>
-                        <p className='text-sm font-medium'>{item?.title ?? 'Reference'}</p>
-                        <Badge variant='outline'>{importOutcomeLabel(outcome)}</Badge>
-                      </div>
-                      <p className='mt-1 text-xs text-muted-foreground'>
-                        {importOutcomeDescription(outcome)}
-                      </p>
+        <div className='min-h-0 overscroll-contain overflow-x-hidden overflow-y-auto border-y'>
+          {props.outcomes !== null && props.plan !== null ? (
+            props.outcomes.map((outcome) => {
+              const item = props.plan?.items.find(
+                (candidate) => candidate.candidateId === outcome.candidateId
+              )
+              return (
+                <div key={outcome.candidateId} className='flex items-start gap-3 px-3 py-4'>
+                  {outcome.state === 'complete' || outcome.state === 'citation_only' ? (
+                    <CheckCircle2 className='mt-0.5 size-4 shrink-0 text-success' />
+                  ) : (
+                    <AlertCircle className='mt-0.5 size-4 shrink-0 text-destructive' />
+                  )}
+                  <div className='min-w-0 flex-1'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <p className='text-sm font-medium'>{item?.title ?? 'Reference'}</p>
+                      <Badge variant='outline'>{importOutcomeLabel(outcome)}</Badge>
                     </div>
+                    <p className='mt-1 text-xs text-muted-foreground'>
+                      {importOutcomeDescription(outcome)}
+                    </p>
                   </div>
-                )
-              })
-            : props.plan !== null
-              ? props.plan.items.map((item) => {
-                  const selection = props.selections.get(item.candidateId)
-                  if (selection === undefined) return null
-                  const selectedTarget = props.plan?.eligibleTargets.find(
-                    (target) => target.referenceId === selection.targetReferenceId
-                  )
-                  return (
-                    <div key={item.candidateId} className='px-3 py-4 not-last:border-b'>
-                      <div className='flex flex-wrap items-start justify-between gap-2'>
-                        <div className='min-w-0 flex-1'>
-                          <p className='text-sm font-medium'>{item.title}</p>
-                          <p className='mt-1 text-xs text-muted-foreground'>
-                            {[item.authors.join(', '), item.containerTitle, item.issuedYear]
-                              .filter((value) => value !== null && value !== '')
-                              .join(' · ')}
-                          </p>
-                          <p className='mt-1 text-xs text-muted-foreground'>
-                            @{item.proposedCitationKey}
-                          </p>
-                        </div>
-                        <Badge variant={item.pdfStatus === 'available' ? 'secondary' : 'outline'}>
-                          {item.pdfStatus === 'available'
-                            ? 'PDF ready'
-                            : item.pdfStatus === 'not_requested'
-                              ? 'Citation only'
-                              : 'PDF unavailable'}
-                        </Badge>
-                      </div>
-                      <div className='mt-4 grid gap-3 sm:grid-cols-2'>
-                        <div className='grid gap-1.5 text-xs font-medium'>
-                          <span>Reference identity</span>
-                          <Select
-                            value={selection.targetReferenceId ?? 'new'}
-                            onValueChange={(value) => {
-                              const target = props.plan?.eligibleTargets.find(
-                                (candidate) => candidate.referenceId === value
-                              )
-                              updateSelection(item.candidateId, (current) => ({
-                                ...current,
-                                targetReferenceId: value === 'new' ? null : value,
-                                primaryAttachmentId:
-                                  target !== undefined && target.knowledgeItemIds.length > 0
-                                    ? null
-                                    : current.primaryAttachmentId,
-                                supplementAttachmentIds:
-                                  target !== undefined && target.knowledgeItemIds.length > 0
-                                    ? []
-                                    : current.supplementAttachmentIds
-                              }))
-                            }}
-                          >
-                            <SelectTrigger size='sm'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='new'>Create a new Reference</SelectItem>
-                              {props.plan?.eligibleTargets.map((target) => (
-                                <SelectItem key={target.referenceId} value={target.referenceId}>
-                                  {target.kind === 'relink' ? 'Reconnect' : 'Use project PDF'}:{' '}
-                                  {target.title} · @{target.citationKey}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className='grid gap-1.5 text-xs font-medium'>
-                          <span>Primary PDF</span>
-                          <Select
-                            value={selection.primaryAttachmentId ?? 'none'}
-                            onValueChange={(value) =>
-                              updateSelection(item.candidateId, (current) => ({
-                                ...current,
-                                primaryAttachmentId: value === 'none' ? null : value,
-                                supplementAttachmentIds: current.supplementAttachmentIds.filter(
-                                  (attachmentId) => attachmentId !== value
-                                )
-                              }))
-                            }
-                          >
-                            <SelectTrigger size='sm'>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value='none'>
-                                {selectedTarget !== undefined &&
-                                selectedTarget.knowledgeItemIds.length > 0
-                                  ? 'Keep existing project PDF'
-                                  : 'Citation only — no PDF'}
-                              </SelectItem>
-                              {item.attachments.map((attachment) => (
-                                <SelectItem
-                                  key={attachment.attachmentId}
-                                  value={attachment.attachmentId}
-                                >
-                                  {attachment.fileName} · {formatBytes(attachment.byteSize)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      {item.attachments.some(
-                        (attachment) => attachment.attachmentId !== selection.primaryAttachmentId
-                      ) ? (
-                        <div className='mt-3 grid gap-2'>
-                          <p className='text-xs font-medium'>Supplementary files</p>
-                          {item.attachments
-                            .filter(
-                              (attachment) =>
-                                attachment.attachmentId !== selection.primaryAttachmentId
-                            )
-                            .map((attachment) => (
-                              <label
-                                key={attachment.attachmentId}
-                                htmlFor={`supplement-${attachment.attachmentId}`}
-                                className='flex items-center gap-2 text-xs text-muted-foreground'
-                              >
-                                <Checkbox
-                                  id={`supplement-${attachment.attachmentId}`}
-                                  checked={selection.supplementAttachmentIds.includes(
-                                    attachment.attachmentId
-                                  )}
-                                  disabled={selection.primaryAttachmentId === null}
-                                  onCheckedChange={(checked) =>
-                                    updateSelection(item.candidateId, (current) => ({
-                                      ...current,
-                                      supplementAttachmentIds:
-                                        checked === true
-                                          ? [
-                                              ...current.supplementAttachmentIds,
-                                              attachment.attachmentId
-                                            ]
-                                          : current.supplementAttachmentIds.filter(
-                                              (id) => id !== attachment.attachmentId
-                                            )
-                                    }))
-                                  }
-                                />
-                                <span className='min-w-0 flex-1 truncate'>
-                                  {attachment.fileName}
-                                </span>
-                                <span className='tabular-nums'>
-                                  {formatBytes(attachment.byteSize)}
-                                </span>
-                              </label>
-                            ))}
-                        </div>
-                      ) : null}
+                </div>
+              )
+            })
+          ) : props.plan !== null ? (
+            <div className='py-2'>
+              {reviewGroups.attention.length > 0 ? (
+                <section
+                  aria-labelledby='reference-import-attention-heading'
+                  data-testid='reference-import-needs-attention'
+                >
+                  <div className='px-3 pt-2 pb-3'>
+                    <div className='flex items-center gap-2'>
+                      <h3 id='reference-import-attention-heading' className='text-sm font-semibold'>
+                        Needs attention
+                      </h3>
+                      <Badge variant='secondary'>{reviewGroups.attention.length}</Badge>
                     </div>
-                  )
-                })
-              : available.map((candidate) => (
-                  <label
-                    key={candidate.candidateId}
-                    htmlFor={`reference-candidate-${candidate.candidateId}`}
-                    className='flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-muted/50'
-                  >
-                    <Checkbox
-                      id={`reference-candidate-${candidate.candidateId}`}
-                      className='mt-0.5'
-                      checked={props.selectedIds.has(candidate.candidateId)}
-                      onCheckedChange={() => toggle(candidate.candidateId)}
-                    />
-                    <span className='min-w-0 flex-1'>
-                      <span className='block text-sm font-medium'>{candidate.title}</span>
-                      <span className='mt-0.5 block text-xs text-muted-foreground'>
-                        {[
-                          candidate.authors.join(', '),
-                          candidate.containerTitle,
-                          candidate.issuedYear
-                        ]
-                          .filter((value) => value !== null && value !== '')
-                          .join(' · ')}
-                      </span>
-                      <span className='mt-1 block text-xs text-muted-foreground'>
-                        @{candidate.proposedCitationKey}
-                      </span>
-                    </span>
-                  </label>
-                ))}
+                    <p className='mt-1 text-xs text-muted-foreground'>
+                      Multiple PDF files were found. The first is selected by default.
+                    </p>
+                  </div>
+                  <div className='divide-y'>
+                    {reviewGroups.attention.map((item) => renderReviewItem(item, true))}
+                  </div>
+                </section>
+              ) : null}
+              {reviewGroups.attention.length > 0 && reviewGroups.ready.length > 0 ? (
+                <Separator className='my-3' />
+              ) : null}
+              {reviewGroups.ready.length > 0 ? (
+                <section
+                  aria-labelledby='reference-import-ready-heading'
+                  data-testid='reference-import-ready'
+                >
+                  <div className='px-3 pt-2 pb-3'>
+                    <div className='flex items-center gap-2'>
+                      <h3 id='reference-import-ready-heading' className='text-sm font-semibold'>
+                        Ready to import
+                      </h3>
+                      <Badge variant='outline'>{reviewGroups.ready.length}</Badge>
+                    </div>
+                    <p className='mt-1 text-xs text-muted-foreground'>
+                      Defaults are ready. Expand an item only when you need to change them.
+                    </p>
+                  </div>
+                  <div className='divide-y'>
+                    {reviewGroups.ready.map((item) => renderReviewItem(item, false))}
+                  </div>
+                </section>
+              ) : null}
+            </div>
+          ) : (
+            available.map((candidate) => (
+              <label
+                key={candidate.candidateId}
+                htmlFor={`reference-candidate-${candidate.candidateId}`}
+                className='flex cursor-pointer items-start gap-3 px-3 py-3 hover:bg-muted/50'
+              >
+                <Checkbox
+                  id={`reference-candidate-${candidate.candidateId}`}
+                  className='mt-0.5'
+                  checked={props.selectedIds.has(candidate.candidateId)}
+                  onCheckedChange={() => toggle(candidate.candidateId)}
+                />
+                <span className='min-w-0 flex-1'>
+                  <span className='block text-sm font-medium'>{candidate.title}</span>
+                  <span className='mt-0.5 block text-xs text-muted-foreground'>
+                    {[candidate.authors.join(', '), candidate.containerTitle, candidate.issuedYear]
+                      .filter((value) => value !== null && value !== '')
+                      .join(' · ')}
+                  </span>
+                  <span className='mt-1 block text-xs text-muted-foreground'>
+                    @{candidate.proposedCitationKey}
+                  </span>
+                </span>
+              </label>
+            ))
+          )}
           {props.plan === null && props.outcomes === null && available.length === 0 ? (
             <p className='px-3 py-8 text-center text-sm text-muted-foreground'>
               No new references are available in this export.

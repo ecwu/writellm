@@ -7,7 +7,7 @@ complete under ADR 070; Checkpoint 77 remains independently paused.
 Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-09-03
+Recorded: 2026-09-04
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -21,6 +21,28 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Maintenance: distill the Reference/PDF import review into exception-first and compact
+  ready-to-import sections, with progressive settings disclosure and a wider adaptive dialog.
+  Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-reference-import-review-distillation).
+
+- [x] Maintenance build: produce the macOS arm64 App containing the distilled Reference/PDF import
+  review. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-reference-import-review-distillation).
+
+- [x] Maintenance: remove silent count limits from Knowledge batch import, Reference attachment
+  review, and readable-citation occurrence resolution while retaining byte/capacity and bounded
+  concurrency/page controls. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-silent-count-limit-removal).
+
+- [x] Maintenance: remove the PDF-specific 50-Reference review/confirmation limit while retaining
+  the existing bounded 500-candidate import capability. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pdf-reference-import-limit-maintenance).
+
+- [x] Maintenance build: produce the macOS arm64 App containing the PDF Reference import-limit
+  maintenance. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-pdf-reference-import-limit-maintenance).
 
 - [x] Candidate `0.2026.9.3`: build the macOS arm64 App from clean release metadata, create the
   annotated `v0.2026.9.3` tag, and push `main` plus the tag to GitHub. Evidence:

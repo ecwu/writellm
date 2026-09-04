@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-03
+Recorded: 2026-09-04
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,27 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Reference/PDF import review distillation is complete. Ambiguous multi-page attachment choices
+  appear first, while single-PDF and citation-only defaults render as compact continuous rows with
+  progressive per-item settings. The dialog now grows with the desktop viewport up to 72rem,
+  keeps its footer fixed, and uses sections and separators rather than Cards. Focused Renderer
+  coverage passed 3 tests; final-source static checks, one production build, the focused Electron
+  import scenario, two-width screenshot review, and the scoped Impeccable detector passed. A
+  replacement macOS arm64 App was then built and inventoried successfully in 32.5 seconds.
+  Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-reference-import-review-distillation).
+
+- Silent count-limit maintenance is complete across Knowledge batches, Reference attachments, and
+  readable-citation occurrence resolution. Knowledge accepts every selected path within its 4 MiB
+  IPC, 250 MiB file, and 1 GiB batch boundaries and runs four cancellable imports at once.
+  Reference review pages every valid attachment in groups of 20 without a global attachment cap,
+  binds opaque cursors to the project session and preview, and atomically enforces a 1 GiB selected
+  PDF boundary. Citation previews scan every occurrence in ordered four-request groups. Focused
+  verification passed 7 files / 39 tests; the fresh-build Electron gate passed both the 51-file
+  Knowledge and attachment-load-more scenarios without retries. A replacement macOS arm64 App was
+  built and inventoried successfully in 30.2 seconds. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-silent-count-limit-removal).
 
 - Candidate `0.2026.9.3` is built and pushed from release commit
   `f53feb462b2140460ecf9fadc9ee6cf8b92046aa` under annotated tag `v0.2026.9.3`. The clean-source

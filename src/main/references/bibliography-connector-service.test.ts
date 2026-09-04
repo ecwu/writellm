@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import pino from 'pino'
@@ -10,6 +10,7 @@ import { initializeProjectDatabase } from '../project/project-database'
 import { ReferenceLibraryService } from './reference-library-service'
 import {
   BibliographyConnectorService,
+  betterBibtexAttachmentPaths,
   inspectSelectedSource,
   readStableSource,
   shouldRefreshBibliographyWatch
@@ -24,6 +25,18 @@ afterEach(async () => {
 })
 
 describe('bibliography connector source boundary', () => {
+  it('rejects Better BibTeX JSON-RPC responses larger than 4 MiB', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = vi.fn(
+      async () => new Response('x', { headers: { 'content-length': String(4 * 1024 * 1024 + 1) } })
+    ) as typeof fetch
+    try {
+      await expect(betterBibtexAttachmentPaths('large')).rejects.toThrow('4 MiB')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   it('accepts only bounded regular JSON/BibTeX files and reads stable content', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'writellm-bibliography-'))
     const source = join(directory, 'library.json')
@@ -75,6 +88,7 @@ describe('bibliography connector source boundary', () => {
     const projectRoot = join(parent, 'project')
     await mkdir(projectRoot)
     const projectId = '66666666-6666-4666-8666-666666666666'
+    const projectSessionId = '55555555-5555-4555-8555-555555555555'
     const log = pino({ level: 'silent' })
     const appDatabase = await openAppDatabase({
       path: join(parent, 'app.sqlite'),
@@ -102,8 +116,13 @@ describe('bibliography connector source boundary', () => {
         if (context.ensureIncompleteReference) library.ensureIncompleteForKnowledge(item)
       }
     })
-    const pdfPath = join(parent, 'paper.pdf')
-    await writeFile(pdfPath, '%PDF-1.7\nunified reference')
+    const pdfPaths = await Promise.all(
+      Array.from({ length: 505 }, async (_, index) => {
+        const path = join(parent, `paper-${index}.pdf`)
+        await writeFile(path, `%PDF-1.7\nunified reference ${index}`)
+        return path
+      })
+    )
     const sourcePath = join(parent, 'library.json')
     await writeFile(
       sourcePath,
@@ -118,7 +137,7 @@ describe('bibliography connector source boundary', () => {
         }
       ])
     )
-    const resolveAttachmentPaths = vi.fn(async () => [pdfPath])
+    const resolveAttachmentPaths = vi.fn(async () => pdfPaths)
     const service = new BibliographyConnectorService({
       repository: new BibliographyConnectorRepository(appDatabase),
       log,
@@ -134,6 +153,7 @@ describe('bibliography connector source boundary', () => {
     expect(resolveAttachmentPaths).not.toHaveBeenCalled()
     const stalePlan = await service.prepareImport({
       projectId,
+      projectSessionId,
       connectorId: snapshot.connector.connectorId,
       candidateIds: new Set([candidateId ?? '']),
       includePdf: false
@@ -169,14 +189,118 @@ describe('bibliography connector source boundary', () => {
     ).rejects.toThrow('snapshot changed')
     candidateId = refreshed.candidates[0]?.candidateId
 
-    const plan = await service.prepareImport({
+    const capacityPlan = await service.prepareImport({
       projectId,
+      projectSessionId,
       connectorId: snapshot.connector.connectorId,
       candidateIds: new Set([candidateId ?? '']),
       includePdf: true
     })
-    expect(resolveAttachmentPaths).toHaveBeenCalledOnce()
+    for (const path of pdfPaths.slice(0, 6)) await truncate(path, 190 * 1024 * 1024)
+    await expect(
+      service.confirmImport({
+        projectId,
+        previewId: capacityPlan.previewId,
+        selections: [
+          {
+            candidateId: candidateId ?? '',
+            targetReferenceId: null,
+            primaryAttachmentId: capacityPlan.items[0]?.attachments[0]?.attachmentId ?? null,
+            supplementAttachmentIds:
+              capacityPlan.items[0]?.attachments.slice(1, 6).map((item) => item.attachmentId) ?? []
+          }
+        ]
+      })
+    ).rejects.toThrow('1 GiB')
+    expect(library.list()).toHaveLength(0)
+    for (const [index, path] of pdfPaths.slice(0, 6).entries()) {
+      await writeFile(path, `%PDF-1.7\nunified reference ${index}`)
+    }
+
+    const plan = await service.prepareImport({
+      projectId,
+      projectSessionId,
+      connectorId: snapshot.connector.connectorId,
+      candidateIds: new Set([candidateId ?? '']),
+      includePdf: true
+    })
+    expect(resolveAttachmentPaths).toHaveBeenCalledTimes(2)
     expect(plan.items[0]).toMatchObject({ pdfStatus: 'available' })
+    expect(plan.items[0]?.attachments).toHaveLength(20)
+    expect(plan.items[0]?.nextAttachmentCursor).not.toBeNull()
+    const firstCursor = plan.items[0]?.nextAttachmentCursor ?? ''
+    const nextPage = await service.importAttachmentsPage({
+      projectId,
+      projectSessionId,
+      previewId: plan.previewId,
+      candidateId: candidateId ?? '',
+      cursor: firstCursor
+    })
+    expect(nextPage.attachments).toHaveLength(20)
+    await expect(
+      service.importAttachmentsPage({
+        projectId,
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: firstCursor
+      })
+    ).resolves.toEqual(nextPage)
+    const attachmentIds = new Set([
+      ...(plan.items[0]?.attachments.map((attachment) => attachment.attachmentId) ?? []),
+      ...nextPage.attachments.map((attachment) => attachment.attachmentId)
+    ])
+    let nextCursor = nextPage.nextAttachmentCursor
+    while (nextCursor !== null) {
+      const page = await service.importAttachmentsPage({
+        projectId,
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: nextCursor
+      })
+      for (const attachment of page.attachments) attachmentIds.add(attachment.attachmentId)
+      nextCursor = page.nextAttachmentCursor
+    }
+    expect(attachmentIds).toHaveLength(505)
+    const dateNow = vi.spyOn(Date, 'now').mockReturnValue(new Date(plan.expiresAt).getTime() + 1)
+    await expect(
+      service.importAttachmentsPage({
+        projectId,
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: firstCursor
+      })
+    ).rejects.toThrow('unavailable, expired, or invalid')
+    dateNow.mockRestore()
+    await expect(
+      service.importAttachmentsPage({
+        projectId: '77777777-7777-4777-8777-777777777777',
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: firstCursor
+      })
+    ).rejects.toThrow('unavailable, expired, or invalid')
+    await expect(
+      service.importAttachmentsPage({
+        projectId,
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: '88888888-8888-4888-8888-888888888888'
+      })
+    ).rejects.toThrow('unavailable, expired, or invalid')
+    await expect(
+      service.importAttachmentsPage({
+        projectId,
+        projectSessionId: '44444444-4444-4444-8444-444444444444',
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: firstCursor
+      })
+    ).rejects.toThrow('unavailable, expired, or invalid')
     const result = await service.confirmImport({
       projectId,
       previewId: plan.previewId,
@@ -190,6 +314,15 @@ describe('bibliography connector source boundary', () => {
       ]
     })
     expect(result.outcomes).toMatchObject([{ state: 'complete', errorCode: null }])
+    await expect(
+      service.importAttachmentsPage({
+        projectId,
+        projectSessionId,
+        previewId: plan.previewId,
+        candidateId: candidateId ?? '',
+        cursor: firstCursor
+      })
+    ).rejects.toThrow('unavailable, expired, or invalid')
     expect(library.list()).toMatchObject([
       {
         citationKey: 'paper2026',

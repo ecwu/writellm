@@ -701,7 +701,7 @@ function App(): React.JSX.Element {
             />
           ) : (
             <main className='flex min-h-0 flex-1 overflow-auto p-4 md:p-8' aria-busy={isBusy}>
-              <div className='m-auto flex w-full max-w-xl flex-col gap-4'>
+              <div className='m-auto flex w-full max-w-2xl flex-col gap-4'>
                 <Card>
                   <CardHeader>
                     <CardTitle>

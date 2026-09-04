@@ -16,6 +16,8 @@ export const SUPPORTED_KNOWLEDGE_EXTENSIONS = [
   'bmp'
 ] as const
 
+export const KNOWLEDGE_IMPORT_PATHS_MAX_BYTES = 4 * 1024 * 1024
+
 export const knowledgeItemStateSchema = z.enum(['importing', 'stored', 'failed', 'cancelled'])
 export const knowledgeItemSchema = z
   .object({
@@ -135,8 +137,20 @@ export const knowledgeCitationCoveragePageResultSchema = z.discriminatedUnion('s
   knowledgeCitationCoverageReadySchema
 ])
 export const knowledgeImportPathsInputSchema = editorSessionInputSchema
-  .extend({ paths: z.array(z.string().min(1).max(32_768)).min(1).max(50) })
+  .extend({ paths: z.array(z.string().min(1).max(32_768)).min(1) })
   .strict()
+  .superRefine((value, context) => {
+    if (
+      new TextEncoder().encode(JSON.stringify(value.paths)).byteLength >
+      KNOWLEDGE_IMPORT_PATHS_MAX_BYTES
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['paths'],
+        message: 'Selected file paths exceed the 4 MiB IPC payload limit'
+      })
+    }
+  })
 export const knowledgeItemActionInputSchema = editorSessionInputSchema
   .extend({ knowledgeItemId: z.string().uuid() })
   .strict()

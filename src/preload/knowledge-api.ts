@@ -36,6 +36,8 @@ import {
   bibliographyChooseInputSchema,
   bibliographyPrepareImportInputSchema,
   bibliographyImportPlanSchema,
+  bibliographyImportAttachmentsPageInputSchema,
+  bibliographyImportAttachmentsPageSchema,
   bibliographyConfirmImportInputSchema,
   bibliographyConfirmImportResultSchema,
   bibliographyExportInputSchema,
@@ -101,6 +103,14 @@ export const knowledgeApi: DesktopApi['knowledge'] = {
       await ipcRenderer.invoke(
         IPC_CHANNELS.referencePrepareImport,
         bibliographyPrepareImportInputSchema.parse(input)
+      )
+    )
+  },
+  async referenceImportAttachmentsPage(input) {
+    return bibliographyImportAttachmentsPageSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.referenceImportAttachmentsPage,
+        bibliographyImportAttachmentsPageInputSchema.parse(input)
       )
     )
   },

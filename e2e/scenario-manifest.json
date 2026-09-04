@@ -19,6 +19,7 @@
     { "id": "app.provider-settings-persist-without-secret", "tiers": [] },
     { "id": "knowledge.import-lifecycle", "tiers": ["packaged"] },
     { "id": "knowledge.original-survives-reopen", "tiers": [] },
+    { "id": "knowledge.batch-over-50", "tiers": [] },
     { "id": "knowledge.unified-reference-import", "tiers": [] },
     { "id": "knowledge.parse-preview-search", "tiers": ["critical", "packaged"] },
     { "id": "knowledge.citation-coverage", "tiers": [] },

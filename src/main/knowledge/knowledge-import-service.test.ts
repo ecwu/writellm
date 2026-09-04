@@ -1,4 +1,14 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  truncate,
+  unlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino, { type Logger } from 'pino'
@@ -45,6 +55,67 @@ afterEach(async () => {
 })
 
 describe('KnowledgeImportService', () => {
+  it('accepts and completes batches larger than 50 files', async () => {
+    const { root, database, service } = await fixture()
+    const paths = await Promise.all(
+      Array.from({ length: 51 }, async (_, index) => {
+        const path = join(root, `source-${index}.pdf`)
+        await writeFile(path, `%PDF-1.7\nsource ${index}`)
+        return path
+      })
+    )
+    const result = await service.importPaths(paths)
+    expect(result).toHaveLength(51)
+    expect(result.every((item) => item.state === 'stored')).toBe(true)
+    database.close()
+  })
+
+  it('rejects an over-capacity batch before creating import records', async () => {
+    const { root, database, service } = await fixture()
+    const paths: string[] = []
+    for (let index = 0; index < 5; index += 1) {
+      const path = join(root, `sparse-${index}.pdf`)
+      await writeFile(path, '%PDF-1.7\n')
+      await truncate(path, 220 * 1024 * 1024)
+      paths.push(path)
+    }
+    await expect(service.startImportPaths(paths)).rejects.toMatchObject({
+      code: 'batch_too_large'
+    })
+    expect(service.list()).toHaveLength(0)
+    database.close()
+  })
+
+  it('runs at most four imports and cancels queued records when the project closes', async () => {
+    let active = 0
+    let maximumActive = 0
+    const releases: Array<() => void> = []
+    const { root, database, service } = await fixture({
+      beforeTempOpen: async () => {
+        active += 1
+        maximumActive = Math.max(maximumActive, active)
+        await new Promise<void>((resolve) => releases.push(resolve))
+        active -= 1
+      }
+    })
+    const paths = await Promise.all(
+      Array.from({ length: 8 }, async (_, index) => {
+        const path = join(root, `queued-${index}.pdf`)
+        await writeFile(path, `%PDF-1.7\nqueued ${index}`)
+        return path
+      })
+    )
+    const started = await service.startImportPaths(paths)
+    expect(started).toHaveLength(8)
+    await vi.waitFor(() => expect(active).toBe(4), { timeout: 2_000 })
+    const closing = service.cancelAll()
+    for (const release of releases) release()
+    await closing
+    expect(maximumActive).toBe(4)
+    expect(service.list().every((item) => item.state === 'cancelled')).toBe(true)
+    database.close()
+  })
+
   it('publishes a Unicode original by content hash and deduplicates repeated bytes', async () => {
     const { root, projectRoot, database, service } = await fixture()
     const source = join(root, '研究 notes.pdf')

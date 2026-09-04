@@ -4,11 +4,14 @@ import { lstat, open, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, resolve } from 'node:path'
 import type { Logger } from 'pino'
 import {
+  BIBLIOGRAPHY_ATTACHMENT_PAGE_SIZE,
   BIBLIOGRAPHY_SOURCE_MAX_BYTES,
+  bibliographyImportAttachmentsPageSchema,
   bibliographyImportPlanSchema,
   type BibliographyConnector,
   type BibliographyConfirmImportSelection,
   type BibliographyImportOutcome,
+  type BibliographyImportAttachmentsPage,
   type BibliographyImportPlan,
   type BibliographySnapshot
 } from '../../shared/contracts/references'
@@ -21,6 +24,7 @@ import { parseReferenceSource, type ParsedReferenceSource } from './reference-im
 import type { ReferenceLibraryService } from './reference-library-service'
 
 type ConnectorLog = Pick<Logger, 'info' | 'warn' | 'error'>
+const MAX_SELECTED_ATTACHMENT_BYTES = 1024 * 1024 * 1024
 
 interface ActiveSnapshot {
   readonly parsed: ParsedReferenceSource
@@ -29,15 +33,28 @@ interface ActiveSnapshot {
 
 interface PrivateImportPlan {
   readonly projectId: string
+  readonly projectSessionId: string
   readonly connectorId: string
   readonly candidateIds: ReadonlySet<string>
   readonly sourceFingerprint: string
   readonly expiresAt: number
-  readonly attachments: ReadonlyMap<
+  readonly attachments: Map<
     string,
-    { candidateId: string; upstreamKey: string; path: string }
+    { candidateId: string; upstreamKey: string; path: string; byteSize: number }
   >
-  readonly public: BibliographyImportPlan
+  readonly attachmentSources: Map<
+    string,
+    { upstreamKey: string; baseDirectory: string; rawPaths: readonly string[] }
+  >
+  readonly attachmentCursors: Map<
+    string,
+    {
+      candidateId: string
+      offset: number
+      page?: BibliographyImportAttachmentsPage
+      pagePromise?: Promise<BibliographyImportAttachmentsPage>
+    }
+  >
 }
 
 export class BibliographyConnectorService {
@@ -144,6 +161,7 @@ export class BibliographyConnectorService {
 
   async prepareImport(options: {
     projectId: string
+    projectSessionId: string
     connectorId: string
     candidateIds: ReadonlySet<string>
     includePdf: boolean
@@ -159,9 +177,6 @@ export class BibliographyConnectorService {
     ) {
       throw new Error('Bibliography snapshot is unavailable or stale')
     }
-    if (options.includePdf && options.candidateIds.size > 50) {
-      throw new Error('PDF import review is limited to 50 References')
-    }
     const selected = active.parsed.items.filter((item) =>
       options.candidateIds.has(item.fingerprint)
     )
@@ -169,10 +184,18 @@ export class BibliographyConnectorService {
       throw new Error('One or more bibliography candidates are stale')
     }
     const previewId = randomUUID()
-    const attachments = new Map<
-      string,
-      { candidateId: string; upstreamKey: string; path: string }
-    >()
+    const expiresAt = Date.now() + 10 * 60_000
+    const privatePreview: PrivateImportPlan = {
+      projectId: options.projectId,
+      projectSessionId: options.projectSessionId,
+      connectorId: options.connectorId,
+      candidateIds: options.candidateIds,
+      sourceFingerprint: active.parsed.sourceFingerprint,
+      expiresAt,
+      attachments: new Map(),
+      attachmentSources: new Map(),
+      attachmentCursors: new Map()
+    }
     const candidates = new Map(
       active.snapshot.candidates.map((candidate) => [candidate.candidateId, candidate])
     )
@@ -199,38 +222,13 @@ export class BibliographyConnectorService {
           rawPaths = []
         }
       }
-      const publicAttachments: BibliographyImportPlan['items'][number]['attachments'] = []
-      for (const rawPath of rawPaths.slice(0, 20)) {
-        if (attachments.size >= 100) break
-        try {
-          const candidatePath = isAbsolute(rawPath)
-            ? rawPath
-            : resolve(dirname(connector.sourcePath), rawPath)
-          const inspected = await inspectPdfAttachment(candidatePath)
-          const attachmentId = randomUUID()
-          attachments.set(attachmentId, {
-            candidateId: item.fingerprint,
-            upstreamKey: item.upstreamKey,
-            path: inspected.path
-          })
-          publicAttachments.push({
-            attachmentId,
-            candidateId: item.fingerprint,
-            fileName: basename(inspected.path),
-            byteSize: inspected.byteSize
-          })
-        } catch (err) {
-          this.#log.warn(
-            {
-              event: 'reference.attachment_candidate.rejected',
-              err,
-              connectorId: options.connectorId,
-              candidateId: item.fingerprint
-            },
-            'Untrusted bibliography attachment candidate was rejected'
-          )
-        }
-      }
+      privatePreview.attachmentSources.set(item.fingerprint, {
+        upstreamKey: item.upstreamKey,
+        baseDirectory: dirname(connector.sourcePath),
+        rawPaths
+      })
+      const firstPage = await this.#readAttachmentPage(privatePreview, item.fingerprint, 0)
+      const publicAttachments = firstPage.attachments
       items.push({
         ...candidate,
         pdfStatus: options.includePdf
@@ -238,10 +236,10 @@ export class BibliographyConnectorService {
             ? 'available'
             : 'unavailable'
           : 'not_requested',
-        attachments: publicAttachments
+        attachments: publicAttachments,
+        nextAttachmentCursor: firstPage.nextAttachmentCursor
       })
     }
-    const expiresAt = Date.now() + 10 * 60_000
     const publicPreview = bibliographyImportPlanSchema.parse({
       previewId,
       includePdf: options.includePdf,
@@ -249,16 +247,34 @@ export class BibliographyConnectorService {
       eligibleTargets: library.eligibleImportTargets(),
       expiresAt: new Date(expiresAt).toISOString()
     })
-    this.#importPlans.set(previewId, {
-      projectId: options.projectId,
-      connectorId: options.connectorId,
-      candidateIds: options.candidateIds,
-      sourceFingerprint: active.parsed.sourceFingerprint,
-      expiresAt,
-      attachments,
-      public: publicPreview
-    })
+    this.#importPlans.set(previewId, privatePreview)
     return publicPreview
+  }
+
+  async importAttachmentsPage(options: {
+    projectId: string
+    projectSessionId: string
+    previewId: string
+    candidateId: string
+    cursor: string
+  }): Promise<BibliographyImportAttachmentsPage> {
+    const preview = this.#importPlans.get(options.previewId)
+    const cursor = preview?.attachmentCursors.get(options.cursor)
+    if (
+      preview === undefined ||
+      preview.projectId !== options.projectId ||
+      preview.projectSessionId !== options.projectSessionId ||
+      preview.expiresAt < Date.now() ||
+      !preview.candidateIds.has(options.candidateId) ||
+      cursor === undefined ||
+      cursor.candidateId !== options.candidateId
+    ) {
+      throw new Error('Attachment page cursor is unavailable, expired, or invalid')
+    }
+    if (cursor.page !== undefined) return cursor.page
+    cursor.pagePromise ??= this.#readAttachmentPage(preview, options.candidateId, cursor.offset)
+    cursor.page = await cursor.pagePromise
+    return cursor.page
   }
 
   async confirmImport(options: {
@@ -301,6 +317,7 @@ export class BibliographyConnectorService {
       library.eligibleImportTargets().map((target) => target.referenceId)
     )
     const selectedAttachmentIds = new Set<string>()
+    let selectedAttachmentBytes = 0
     for (const selection of options.selections) {
       if (!preview.candidateIds.has(selection.candidateId)) {
         throw new Error('Confirmed Reference is not part of this import plan')
@@ -325,6 +342,11 @@ export class BibliographyConnectorService {
           throw new Error('Attachment selection is stale or belongs to another Reference')
         }
         selectedAttachmentIds.add(attachmentId)
+        const inspected = await inspectPdfAttachment(attachment.path)
+        selectedAttachmentBytes += inspected.byteSize
+        if (selectedAttachmentBytes > MAX_SELECTED_ATTACHMENT_BYTES) {
+          throw new Error('Selected PDF attachments exceed the 1 GiB import capacity')
+        }
       }
     }
 
@@ -497,6 +519,61 @@ export class BibliographyConnectorService {
     return { references: library.list(), outcomes }
   }
 
+  async #readAttachmentPage(
+    preview: PrivateImportPlan,
+    candidateId: string,
+    startOffset: number
+  ): Promise<BibliographyImportAttachmentsPage> {
+    const source = preview.attachmentSources.get(candidateId)
+    if (source === undefined) throw new Error('Attachment source is unavailable')
+    const attachments: BibliographyImportAttachmentsPage['attachments'] = []
+    let offset = startOffset
+    while (
+      offset < source.rawPaths.length &&
+      attachments.length < BIBLIOGRAPHY_ATTACHMENT_PAGE_SIZE
+    ) {
+      const rawPath = source.rawPaths[offset]
+      offset += 1
+      if (rawPath === undefined || rawPath.length === 0 || rawPath.length > 32_768) continue
+      try {
+        const candidatePath = isAbsolute(rawPath) ? rawPath : resolve(source.baseDirectory, rawPath)
+        const inspected = await inspectPdfAttachment(candidatePath)
+        const attachmentId = randomUUID()
+        preview.attachments.set(attachmentId, {
+          candidateId,
+          upstreamKey: source.upstreamKey,
+          path: inspected.path,
+          byteSize: inspected.byteSize
+        })
+        attachments.push({
+          attachmentId,
+          candidateId,
+          fileName: basename(inspected.path),
+          byteSize: inspected.byteSize
+        })
+      } catch (err) {
+        this.#log.warn(
+          {
+            event: 'reference.attachment_candidate.rejected',
+            err,
+            connectorId: preview.connectorId,
+            candidateId
+          },
+          'Untrusted bibliography attachment candidate was rejected'
+        )
+      }
+    }
+    let nextAttachmentCursor: string | null = null
+    if (offset < source.rawPaths.length) {
+      nextAttachmentCursor = randomUUID()
+      preview.attachmentCursors.set(nextAttachmentCursor, { candidateId, offset })
+    }
+    return bibliographyImportAttachmentsPageSchema.parse({
+      attachments,
+      nextAttachmentCursor
+    })
+  }
+
   close(): void {
     for (const watcher of this.#watchers.values()) watcher.close()
     for (const timer of this.#debounceTimers.values()) clearTimeout(timer)
@@ -559,7 +636,7 @@ function failedOutcome(
   }
 }
 
-async function betterBibtexAttachmentPaths(citationKey: string): Promise<string[]> {
+export async function betterBibtexAttachmentPaths(citationKey: string): Promise<string[]> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 5_000)
   try {
@@ -575,19 +652,52 @@ async function betterBibtexAttachmentPaths(citationKey: string): Promise<string[
       signal: controller.signal
     })
     if (!response.ok) throw new Error(`Better BibTeX RPC returned ${response.status}`)
-    const payload = (await response.json()) as { result?: unknown; error?: unknown }
+    const payload = JSON.parse(await readBoundedResponseText(response, 4 * 1024 * 1024)) as {
+      result?: unknown
+      error?: unknown
+    }
     if (payload.error !== undefined) throw new Error('Better BibTeX RPC returned an error')
     if (!Array.isArray(payload.result)) return []
     return payload.result.flatMap((value) => {
-      if (typeof value === 'string') return [value]
+      if (typeof value === 'string') {
+        return value.length > 0 && value.length <= 32_768 ? [value] : []
+      }
       if (value === null || typeof value !== 'object') return []
       const record = value as Record<string, unknown>
       const path = record.path ?? record.localPath
-      return typeof path === 'string' ? [path] : []
+      return typeof path === 'string' && path.length > 0 && path.length <= 32_768 ? [path] : []
     })
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
+  const declaredLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    throw new Error('Better BibTeX RPC response exceeds the 4 MiB limit')
+  }
+  if (response.body === null) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel()
+      throw new Error('Better BibTeX RPC response exceeds the 4 MiB limit')
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(bytes)
 }
 
 async function inspectPdfAttachment(path: string): Promise<{ path: string; byteSize: number }> {

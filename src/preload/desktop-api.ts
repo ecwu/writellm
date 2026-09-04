@@ -179,6 +179,7 @@ import type {
 } from '../shared/contracts/notebook'
 import type {
   BibliographyConfirmImportSelection,
+  BibliographyImportAttachmentsPage,
   BibliographyImportPlan,
   BibliographyImportOutcome,
   BibliographySnapshot,
@@ -533,6 +534,12 @@ export interface DesktopApi {
       candidateIds: string[]
       includePdf: boolean
     }): Promise<BibliographyImportPlan>
+    referenceImportAttachmentsPage(input: {
+      projectSessionId: string
+      previewId: string
+      candidateId: string
+      cursor: string
+    }): Promise<BibliographyImportAttachmentsPage>
     confirmReferenceImport(input: {
       projectSessionId: string
       previewId: string

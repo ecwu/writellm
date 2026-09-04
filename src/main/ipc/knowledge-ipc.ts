@@ -39,6 +39,8 @@ import {
   bibliographyChooseInputSchema,
   bibliographyPrepareImportInputSchema,
   bibliographyImportPlanSchema,
+  bibliographyImportAttachmentsPageInputSchema,
+  bibliographyImportAttachmentsPageSchema,
   bibliographyConfirmImportInputSchema,
   bibliographyConfirmImportResultSchema,
   bibliographyExportInputSchema,
@@ -197,6 +199,7 @@ export function registerKnowledgeIpc(options: {
       return bibliographyImportPlanSchema.parse(
         await options.bibliographyConnectors.prepareImport({
           projectId: context.manifest.projectId,
+          projectSessionId: parsed.projectSessionId,
           connectorId: parsed.connectorId,
           candidateIds: new Set(parsed.candidateIds),
           includePdf: parsed.includePdf
@@ -216,6 +219,24 @@ export function registerKnowledgeIpc(options: {
       )
       throw new Error('REFERENCE_IMPORT_PREPARE_FAILED', { cause: err })
     }
+  })
+
+  ipc.handle(IPC_CHANNELS.referenceImportAttachmentsPage, async (event, input: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const parsed = bibliographyImportAttachmentsPageInputSchema.parse(input)
+    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+    if (options.bibliographyConnectors === undefined) {
+      throw new Error('Bibliography connectors are unavailable')
+    }
+    return bibliographyImportAttachmentsPageSchema.parse(
+      await options.bibliographyConnectors.importAttachmentsPage({
+        projectId: context.manifest.projectId,
+        projectSessionId: parsed.projectSessionId,
+        previewId: parsed.previewId,
+        candidateId: parsed.candidateId,
+        cursor: parsed.cursor
+      })
+    )
   })
 
   ipc.handle(IPC_CHANNELS.referenceConfirmImport, async (event, input: unknown) => {
@@ -891,6 +912,7 @@ export function registerKnowledgeIpc(options: {
       IPC_CHANNELS.referenceBibliographySnapshot,
       IPC_CHANNELS.referenceRefreshBibliography,
       IPC_CHANNELS.referencePrepareImport,
+      IPC_CHANNELS.referenceImportAttachmentsPage,
       IPC_CHANNELS.referenceConfirmImport,
       IPC_CHANNELS.referenceExportBibliography,
       IPC_CHANNELS.referencePlanLegacyConversion,
@@ -930,7 +952,7 @@ async function chooseFiles(owner: BrowserWindow | null): Promise<string[]> {
   const result = owner
     ? await dialog.showOpenDialog(owner, options)
     : await dialog.showOpenDialog(options)
-  return result.canceled ? [] : result.filePaths.slice(0, 50)
+  return result.canceled ? [] : result.filePaths
 }
 
 async function chooseBibliography(owner: BrowserWindow | null): Promise<string | null> {

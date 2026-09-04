@@ -14,7 +14,7 @@ const candidateIds = (count: number): string[] =>
   Array.from({ length: count }, (_, index) => index.toString(16).padStart(64, '0'))
 
 describe('unified bibliography import contracts', () => {
-  it('retains the 500 metadata-only boundary and limits PDF review to 50 references', () => {
+  it('uses the same 500-candidate boundary for metadata-only and PDF review', () => {
     expect(
       bibliographyPrepareImportInputSchema.safeParse({
         projectSessionId,
@@ -35,7 +35,7 @@ describe('unified bibliography import contracts', () => {
       bibliographyPrepareImportInputSchema.safeParse({
         projectSessionId,
         connectorId,
-        candidateIds: candidateIds(50),
+        candidateIds: candidateIds(500),
         includePdf: true
       }).success
     ).toBe(true)
@@ -43,13 +43,13 @@ describe('unified bibliography import contracts', () => {
       bibliographyPrepareImportInputSchema.safeParse({
         projectSessionId,
         connectorId,
-        candidateIds: candidateIds(51),
+        candidateIds: candidateIds(501),
         includePdf: true
       }).success
     ).toBe(false)
   })
 
-  it('rejects duplicate targets, duplicate candidates, supplements without a primary, and over 50 PDFs', () => {
+  it('rejects duplicate targets, duplicate candidates, and supplements without a primary', () => {
     const candidateId = candidateIds(1)[0]
     const targetReferenceId = '44444444-4444-4444-8444-444444444444'
     const primaryAttachmentId = '55555555-5555-4555-8555-555555555555'
@@ -79,21 +79,46 @@ describe('unified bibliography import contracts', () => {
         ]
       }).success
     ).toBe(false)
+  })
+
+  it('confirms up to 500 references regardless of PDF selection', () => {
+    const selections = candidateIds(500).map((candidateId, index) => ({
+      candidateId,
+      targetReferenceId: null,
+      primaryAttachmentId: `aaaaaaaa-aaaa-4aaa-8aaa-${index.toString().padStart(12, '0')}`,
+      supplementAttachmentIds: []
+    }))
+    expect(
+      bibliographyConfirmImportInputSchema.safeParse({ projectSessionId, previewId, selections })
+        .success
+    ).toBe(true)
+    expect(
+      bibliographyConfirmImportInputSchema.safeParse({
+        projectSessionId,
+        previewId,
+        selections: [...selections, { ...selections[0], candidateId: 'f'.repeat(64) }]
+      }).success
+    ).toBe(false)
+  })
+
+  it('allows more than 49 supplemental attachments within the byte-bounded confirmation', () => {
     expect(
       bibliographyConfirmImportInputSchema.safeParse({
         projectSessionId,
         previewId,
         selections: [
           {
-            ...selection,
+            candidateId: candidateIds(1)[0],
+            targetReferenceId: null,
+            primaryAttachmentId: '55555555-5555-4555-8555-555555555555',
             supplementAttachmentIds: Array.from(
-              { length: 50 },
+              { length: 75 },
               (_, index) => `aaaaaaaa-aaaa-4aaa-8aaa-${index.toString().padStart(12, '0')}`
             )
           }
         ]
       }).success
-    ).toBe(false)
+    ).toBe(true)
   })
 })
 

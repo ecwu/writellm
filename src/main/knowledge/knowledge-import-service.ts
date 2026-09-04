@@ -17,6 +17,7 @@ import { PROJECT_TEMP_DIRECTORY } from '../project/project-paths'
 
 const MAX_FILE_BYTES = 250 * 1024 * 1024
 const MAX_BATCH_BYTES = 1024 * 1024 * 1024
+const MAX_CONCURRENT_IMPORTS = 4
 
 export class KnowledgeImportError extends Error {
   constructor(
@@ -42,6 +43,13 @@ export class KnowledgeImportService {
   readonly #onDeleted?: (knowledgeItemId: string) => void | Promise<void>
   readonly #controllers = new Map<string, AbortController>()
   readonly #operations = new Map<string, Promise<KnowledgeItem>>()
+  readonly #importSlotWaiters: Array<{
+    signal: AbortSignal
+    resolve: (release: () => void) => void
+    reject: (error: KnowledgeImportError) => void
+    onAbort: () => void
+  }> = []
+  #activeImportCount = 0
   #queue: Promise<void> = Promise.resolve()
   #publicationQueue: Promise<void> = Promise.resolve()
   #acceptingImports = true
@@ -151,12 +159,19 @@ export class KnowledgeImportService {
     paths: readonly string[],
     options: { ensureIncompleteReference?: boolean } = {}
   ): Promise<KnowledgeItem[]> {
-    if (paths.length === 0 || paths.length > 50) {
-      throw new KnowledgeImportError('batch_count_invalid', 'Choose between 1 and 50 files')
+    if (paths.length === 0) {
+      throw new KnowledgeImportError('batch_count_invalid', 'Choose at least one file')
     }
-    const sizes = await Promise.all(paths.map(async (path) => (await lstat(path)).size))
-    if (sizes.reduce((total, size) => total + size, 0) > MAX_BATCH_BYTES) {
-      throw new KnowledgeImportError('batch_too_large', 'The selected batch is too large')
+    let batchBytes = 0
+    for (const path of paths) {
+      const metadata = await lstat(path)
+      if (metadata.size <= 0 || metadata.size > MAX_FILE_BYTES) {
+        throw new KnowledgeImportError('file_size_invalid', 'Source file size is unsupported')
+      }
+      batchBytes += metadata.size
+      if (batchBytes > MAX_BATCH_BYTES) {
+        throw new KnowledgeImportError('batch_too_large', 'The selected batch is too large')
+      }
     }
     for (const [index, path] of paths.entries()) {
       try {
@@ -362,7 +377,9 @@ export class KnowledgeImportService {
     const startedAt = Date.now()
     const tempRelativePath = `${PROJECT_TEMP_DIRECTORY}/imports/${input.importId}.partial`
     let uncommittedDestination: string | undefined
+    let releaseImportSlot: (() => void) | undefined
     try {
+      releaseImportSlot = await this.#acquireImportSlot(input.signal)
       const before = await lstat(input.sourcePath)
       if (!before.isFile() || before.isSymbolicLink()) {
         throw new KnowledgeImportError('source_not_regular', 'Source must be a regular file')
@@ -573,6 +590,45 @@ export class KnowledgeImportService {
         'Knowledge original import failed'
       )
       throw new KnowledgeImportError(code, 'Knowledge import failed', { cause: err })
+    } finally {
+      releaseImportSlot?.()
+    }
+  }
+
+  #acquireImportSlot(signal: AbortSignal): Promise<() => void> {
+    if (signal.aborted) {
+      return Promise.reject(new KnowledgeImportError('cancelled', 'Import cancelled'))
+    }
+    if (this.#activeImportCount < MAX_CONCURRENT_IMPORTS) {
+      this.#activeImportCount += 1
+      return Promise.resolve(() => this.#releaseImportSlot())
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = {
+        signal,
+        resolve,
+        reject,
+        onAbort: () => {
+          const index = this.#importSlotWaiters.indexOf(waiter)
+          if (index >= 0) this.#importSlotWaiters.splice(index, 1)
+          reject(new KnowledgeImportError('cancelled', 'Import cancelled'))
+        }
+      }
+      this.#importSlotWaiters.push(waiter)
+      signal.addEventListener('abort', waiter.onAbort, { once: true })
+    })
+  }
+
+  #releaseImportSlot(): void {
+    this.#activeImportCount -= 1
+    while (this.#importSlotWaiters.length > 0) {
+      const waiter = this.#importSlotWaiters.shift()
+      if (waiter === undefined) return
+      waiter.signal.removeEventListener('abort', waiter.onAbort)
+      if (waiter.signal.aborted) continue
+      this.#activeImportCount += 1
+      waiter.resolve(() => this.#releaseImportSlot())
+      return
     }
   }
 
