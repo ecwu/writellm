@@ -13,6 +13,10 @@ import {
   activateToolGroupsArgsSchema,
   getWritingContextArgsSchema,
   inspectChangeArgsSchema,
+  listCommentsArgsSchema,
+  readCommentArgsSchema,
+  replyCommentArgsSchema,
+  resolveCommentArgsSchema,
   readCitationsArgsSchema,
   readOutlineArgsSchema,
   readSectionArgsSchema,
@@ -398,6 +402,36 @@ export const AGENT_MODEL_VISIBLE_TOOL_SPECS = [
     executionMode: 'parallel'
   },
   {
+    name: 'list_comments',
+    label: 'List comments',
+    description: 'List manuscript comment threads by status, section, and search text.',
+    parameters: parameters(listCommentsArgsSchema),
+    executionMode: 'parallel'
+  },
+  {
+    name: 'read_comment',
+    label: 'Read comment',
+    description:
+      'Read the current comment thread, anchored manuscript excerpt, and version used for later verification.',
+    parameters: parameters(readCommentArgsSchema),
+    executionMode: 'parallel'
+  },
+  {
+    name: 'reply_comment',
+    label: 'Reply to comment',
+    description: 'Add an Agent reply to an open manuscript comment thread.',
+    parameters: parameters(replyCommentArgsSchema),
+    executionMode: 'sequential'
+  },
+  {
+    name: 'resolve_comment',
+    label: 'Resolve comment',
+    description:
+      'Resolve a comment only after rereading its current thread and applied manuscript revision, with explicit verification evidence.',
+    parameters: parameters(resolveCommentArgsSchema),
+    executionMode: 'sequential'
+  },
+  {
     name: 'get_writing_task',
     label: 'Get writing task',
     description: 'Read the current conversation writing task and plan version.',
@@ -471,13 +505,15 @@ export const WRITING_CORE_TOOL_NAMES = [
   'search_manuscript',
   'search_knowledge',
   'read_citations',
+  'list_comments',
+  'read_comment',
   'read_writing_skill',
   'ask_user',
   'activate_tool_groups'
 ] as const satisfies readonly AgentToolName[]
 
 export const WRITING_TOOL_GROUP_TOOL_NAMES = {
-  review: ['inspect_change'],
+  review: ['inspect_change', 'reply_comment', 'resolve_comment'],
   writing_task: ['get_writing_task', 'create_writing_task', 'update_writing_task'],
   brief: ['submit_brief_change'],
   writing_rules: ['submit_writing_rules_change'],
@@ -500,7 +536,9 @@ export const AGENT_INTERACTION_MODE_TOOL_NAMES = {
     'read_section',
     'search_manuscript',
     'search_knowledge',
-    'read_citations'
+    'read_citations',
+    'list_comments',
+    'read_comment'
   ],
   plan: [
     'get_writing_context',
@@ -509,6 +547,8 @@ export const AGENT_INTERACTION_MODE_TOOL_NAMES = {
     'search_manuscript',
     'search_knowledge',
     'read_citations',
+    'list_comments',
+    'read_comment',
     'read_writing_skill',
     'ask_user',
     'inspect_change',

@@ -96,6 +96,57 @@ async function closeProject(page: Page): Promise<void> {
 }
 
 test(
+  'creates, locates, follows up, and resolves a manuscript comment',
+  scenario('manuscript.comment-thread', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Comment thread')
+      const editor = sectionEditor(launched.page)
+      await editor.click()
+      await launched.page.keyboard.type('Alpha review sentence')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      await editor
+        .locator('.bn-inline-content', { hasText: 'Alpha review sentence' })
+        .evaluate((element) => {
+          const text = element.firstChild
+          if (!(text instanceof Text)) throw new Error('Paragraph text node is unavailable')
+          const range = document.createRange()
+          range.setStart(text, text.data.length - 'sentence'.length)
+          range.setEnd(text, text.data.length)
+          const selection = window.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          ;(element as HTMLElement).focus()
+          document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+        })
+      const addComment = launched.page.getByRole('button', { name: 'Add comment', exact: true })
+      await expect(addComment).toBeVisible()
+      await addComment.dispatchEvent('click')
+
+      const draft = launched.page.getByPlaceholder('Add a comment…')
+      await expect(draft).toBeVisible()
+      await draft.fill('Needs clarity.')
+      await launched.page.getByRole('button', { name: 'Comment', exact: true }).click()
+      await expect(launched.page.getByText('Needs clarity.', { exact: true })).toBeVisible()
+      await launched.page.getByText('Needs clarity.', { exact: true }).click()
+      await expect(launched.page.locator('.writellm-comment-anchor-selected')).toBeVisible()
+      await launched.page.getByPlaceholder('Follow up…').fill('Author follow up.')
+      await launched.page.getByRole('button', { name: 'Reply', exact: true }).click()
+      await expect(launched.page.getByText('Author follow up.', { exact: true })).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Resolve', exact: true }).click()
+      await expect(launched.page.getByText('resolved', { exact: true })).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
   'resizes the project sidebar with pointer and keyboard controls',
   scenario('manuscript.sidebar-resizes'),
   async ({ testRoot }) => {

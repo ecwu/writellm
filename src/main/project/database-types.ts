@@ -604,6 +604,10 @@ export interface ProjectDatabaseSchema {
   agent_runs: AgentRunTable
   agent_events: AgentEventTable
   mutation_proposals: MutationProposalTable
+  manuscript_comment_threads: ManuscriptCommentThreadTable
+  manuscript_comment_messages: ManuscriptCommentMessageTable
+  manuscript_comment_events: ManuscriptCommentEventTable
+  manuscript_comment_reads: ManuscriptCommentReadTable
   agent_writing_tasks: AgentWritingTaskTable
   manuscript_assets: ManuscriptAssetTable
   section_revision_assets: SectionRevisionAssetTable
@@ -617,5 +621,69 @@ export interface ProjectDatabaseSchema {
   job_transitions: JobTransitionTable
   schema_manifest: SchemaManifestTable
   schema_migrations: SchemaMigrationTable
+}
+
+export interface ManuscriptCommentThreadTable {
+  thread_id: string
+  section_id: string
+  status: 'open' | 'resolved'
+  version: number
+  anchor_status: 'attached' | 'orphaned'
+  quote: string
+  anchor_json: string
+  created_revision_id: string
+  current_revision_id: string
+  resolved_by: 'author' | 'agent' | null
+  resolution_note: string | null
+  resolved_revision_id: string | null
+  resolved_at: string | null
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ManuscriptCommentMessageTable {
+  message_id: string
+  thread_id: string
+  author: 'author' | 'agent'
+  body: string
+  agent_session_id: string | null
+  agent_run_id: string | null
+  operation_id: string | null
+  deleted_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ManuscriptCommentEventTable {
+  event_id: string
+  thread_id: string
+  type:
+    | 'created'
+    | 'replied'
+    | 'edited'
+    | 'deleted'
+    | 'resolved'
+    | 'reopened'
+    | 'delegated'
+    | 'verified'
+    | 'anchor_rebased'
+    | 'anchor_orphaned'
+  actor: 'author' | 'agent' | 'system'
+  agent_session_id: string | null
+  agent_run_id: string | null
+  proposal_id: string | null
+  section_revision_id: string | null
+  payload_json: string
+  created_at: string
+}
+
+export interface ManuscriptCommentReadTable {
+  agent_run_id: string
+  thread_id: string
+  thread_version: number
+  section_revision_id: string
+  section_read_revision_id: string | null
+  read_at: string
 }
 import type { Generated } from 'kysely'

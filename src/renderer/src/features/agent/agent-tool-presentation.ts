@@ -130,6 +130,15 @@ export const AGENT_TOOL_PRESENTATIONS = {
     'Reviewing the change',
     'solving'
   ),
+  list_comments: activity('Reading comments', 'Read comments', 'Reviewing comments'),
+  read_comment: activity('Reading a comment', 'Read a comment', 'Reviewing comments'),
+  reply_comment: activity('Replying to a comment', 'Replied to a comment', 'Handling comments'),
+  resolve_comment: activity(
+    'Verifying a comment',
+    'Resolved a comment',
+    'Handling comments',
+    'solving'
+  ),
   get_writing_task: activity(
     'Reading the writing plan',
     'Read the writing plan',

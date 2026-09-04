@@ -19,6 +19,10 @@ import {
   type AgentToolName,
   inspectChangeArgsSchema,
   inspectChangeResultSchema,
+  listCommentsArgsSchema,
+  readCommentArgsSchema,
+  replyCommentArgsSchema,
+  resolveCommentArgsSchema,
   type InspectChangeResult,
   type ReadCitationsResult,
   type ReadOutlineResult,
@@ -28,6 +32,7 @@ import {
   type SearchKnowledgeResult,
   type WritingContextResult
 } from '../../shared/contracts/agent-tools'
+import type { CommentThread, ListCommentsResult } from '../../shared/contracts/manuscript-comments'
 import type {
   createWritingTaskResultSchema,
   getWritingTaskResultSchema,
@@ -58,6 +63,7 @@ import {
 import { findOpaqueCitationMarker, usesReadableSourceFallback } from './prompts/agent-policy'
 import { findCitationClusters } from '../../shared/citation-cluster'
 import type { WritingTaskService } from './writing-task-service'
+import type { ManuscriptCommentService } from '../manuscript/comment-service'
 
 interface AgentToolResultMap {
   get_writing_context: WritingContextResult
@@ -70,6 +76,10 @@ interface AgentToolResultMap {
   ask_user: AskUserResult
   activate_tool_groups: ActivateToolGroupsResult
   inspect_change: InspectChangeResult
+  list_comments: ListCommentsResult
+  read_comment: CommentThread
+  reply_comment: CommentThread
+  resolve_comment: CommentThread
   get_writing_task: ReturnType<typeof getWritingTaskResultSchema.parse>
   create_writing_task: ReturnType<typeof createWritingTaskResultSchema.parse>
   update_writing_task: ReturnType<typeof updateWritingTaskResultSchema.parse>
@@ -110,7 +120,8 @@ export class MainAgentTools implements AgentToolExecutor {
   constructor(
     private readonly readTools: AgentReadToolExecutor & { contextBuilder(): AgentContextBuilder },
     readonly mutations: MutationProposalService,
-    private readonly writingTasks?: WritingTaskService
+    private readonly writingTasks?: WritingTaskService,
+    private readonly comments?: ManuscriptCommentService
   ) {}
 
   contextBuilder(): AgentContextBuilder {
@@ -218,6 +229,38 @@ export class MainAgentTools implements AgentToolExecutor {
         conflict: proposal.status === 'conflicted' ? proposal.rejectedReason : null
       }) as AgentToolResultMap[TName]
     }
+    if (input.toolName === 'list_comments') {
+      return this.#requireComments().listForAgent(
+        listCommentsArgsSchema.parse(input.args)
+      ) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'read_comment') {
+      const args = readCommentArgsSchema.parse(input.args)
+      return this.#requireComments().readForAgent(
+        args.threadId,
+        input.agentRunId
+      ) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'reply_comment') {
+      const args = replyCommentArgsSchema.parse(input.args)
+      return this.#requireComments().replyForAgent(args, {
+        sessionId: input.agentSessionId,
+        runId: input.agentRunId
+      }) as AgentToolResultMap[TName]
+    }
+    if (input.toolName === 'resolve_comment') {
+      const args = resolveCommentArgsSchema.parse(input.args)
+      return this.#requireComments().resolveForAgent(
+        {
+          threadId: args.threadId,
+          expectedVersion: args.expectedVersion,
+          resolutionNote: args.verificationNote,
+          operationId: args.operationId,
+          proposalId: args.proposalId
+        },
+        { sessionId: input.agentSessionId, runId: input.agentRunId }
+      ) as AgentToolResultMap[TName]
+    }
     const readName = agentReadToolNameSchema.safeParse(input.toolName)
     if (readName.success) {
       const result = await this.readTools.execute({
@@ -227,6 +270,14 @@ export class MainAgentTools implements AgentToolExecutor {
         snapshot: input.snapshot,
         signal: input.signal
       })
+      if (readName.data === 'read_section' && this.comments !== undefined) {
+        const section = result as ReadSectionResult
+        this.comments.recordSectionRead(
+          input.agentRunId,
+          section.section.sectionId,
+          section.revisionId
+        )
+      }
       return result as AgentToolResultMap[TName]
     }
     const proposalName = agentProposalToolNameSchema.parse(input.toolName)
@@ -320,6 +371,13 @@ export class MainAgentTools implements AgentToolExecutor {
       signal: input.signal
     })
     return result as AgentToolResultMap[TName]
+  }
+
+  #requireComments(): ManuscriptCommentService {
+    if (this.comments === undefined) {
+      throw new AgentToolDomainError('unavailable', 'Manuscript comments are unavailable')
+    }
+    return this.comments
   }
 
   #requireWritingTasks(): WritingTaskService {

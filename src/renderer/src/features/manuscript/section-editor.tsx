@@ -8,6 +8,10 @@ import {
 } from '../../../../shared/contracts/agent-quick-actions'
 import type { ManuscriptSearchTargetContract } from '../../../../shared/contracts/manuscript-search'
 import type {
+  CommentAnchorSegment,
+  CommentThreadSummary
+} from '../../../../shared/contracts/manuscript-comments'
+import type {
   ExpandedCitation,
   ReadableCitationResolutionResult
 } from '../../../../shared/contracts/search'
@@ -40,6 +44,12 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger
+} from '@/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -82,6 +92,11 @@ import {
   manuscriptSearchHighlightExtension,
   refreshSearchHighlight
 } from './search-highlight-extension'
+import {
+  captureCommentSegments,
+  commentHighlightExtension,
+  refreshCommentHighlights
+} from './comment-highlight-extension'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
@@ -95,6 +110,8 @@ export interface EditorExactSelectionSnapshot extends EditorSelectionContext {
   selectedText: string
   capturedAt: number
   capturedRevisionId: string
+  capturedContentHash: string
+  commentSegments: CommentAnchorSegment[]
 }
 
 export interface SectionEditorHandle {
@@ -113,6 +130,7 @@ export interface SectionEditorHandle {
   revealSearchTarget(target: ManuscriptSearchTargetContract): boolean
   revealBlock(blockId: string): boolean
   clearSearchTarget(): void
+  revealComment(threadId: string): boolean
   captureSelection(): EditorExactSelectionSnapshot | null
 }
 
@@ -154,6 +172,10 @@ export const SectionEditor = forwardRef<
     ): void
     onQuickActionError?(message: string): void
     onSearchTargetInvalidated?(): void
+    comments?: readonly CommentThreadSummary[]
+    selectedCommentThreadId?: string | null
+    onAddComment?(selection: EditorExactSelectionSnapshot): void
+    onActivateComments?(threadIds: readonly string[]): void
   }
 >(function SectionEditor(props, ref): React.JSX.Element {
   const { resolvedTheme, citationDisplayMode } = useTheme()
@@ -173,6 +195,14 @@ export const SectionEditor = forwardRef<
     formattedByRaw: formattedCitations
   })
   const searchTargetRef = useRef<ManuscriptSearchTargetContract | null>(null)
+  const commentPresentationRef = useRef({
+    comments: props.comments ?? [],
+    selectedThreadId: props.selectedCommentThreadId ?? null
+  })
+  commentPresentationRef.current = {
+    comments: props.comments ?? [],
+    selectedThreadId: props.selectedCommentThreadId ?? null
+  }
   const searchInvalidatedRef = useRef(() => props.onSearchTargetInvalidated?.())
   searchInvalidatedRef.current = () => props.onSearchTargetInvalidated?.()
   citationPresentationRef.current = {
@@ -221,6 +251,18 @@ export const SectionEditor = forwardRef<
             searchTargetRef.current = null
             searchInvalidatedRef.current()
           }
+        }),
+        commentHighlightExtension({
+          getAnchors: () =>
+            commentPresentationRef.current.comments
+              .filter((thread) => thread.anchor.status === 'attached')
+              .map((thread) => ({
+                threadId: thread.threadId,
+                resolved: thread.status === 'resolved',
+                segments: thread.anchor.segments
+              })),
+          getSelectedThreadId: () => commentPresentationRef.current.selectedThreadId,
+          onActivate: (threadIds) => props.onActivateComments?.(threadIds)
         })
       ],
       uploadFile: async (file) => {
@@ -295,7 +337,13 @@ export const SectionEditor = forwardRef<
         selectedBlockIds,
         selectedText: parsedText.data,
         capturedAt: Date.now(),
-        capturedRevisionId: baseRef.current.sectionRevisionId
+        capturedRevisionId: baseRef.current.sectionRevisionId,
+        capturedContentHash: baseRef.current.contentHash,
+        commentSegments: captureCommentSegments(
+          editor.prosemirrorView.state.doc,
+          editor.prosemirrorView.state.selection.from,
+          editor.prosemirrorView.state.selection.to
+        )
       }
       lastExactSelectionRef.current = snapshot
       return snapshot
@@ -303,6 +351,51 @@ export const SectionEditor = forwardRef<
     lastExactSelectionRef.current = null
     return null
   }, [editor])
+
+  const requestAddComment = useCallback((): void => {
+    const proseMirrorSelection = editor.prosemirrorView.state.selection
+    if (
+      selectionContainsStructuredSource(
+        editor.prosemirrorView.state.doc,
+        proseMirrorSelection.from,
+        proseMirrorSelection.to
+      ) ||
+      selectionContainsTable(
+        editor.prosemirrorView.state.doc,
+        proseMirrorSelection.from,
+        proseMirrorSelection.to
+      )
+    ) {
+      props.onQuickActionError?.(
+        'Comments currently support prose, lists, and links. Select text outside tables, formulas, or diagrams.'
+      )
+      return
+    }
+    const selection = captureSelection()
+    if (selection === null || selection.commentSegments.length === 0) {
+      props.onQuickActionError?.('Select manuscript text before adding a comment.')
+      return
+    }
+    props.onAddComment?.(selection)
+  }, [captureSelection, editor, props.onAddComment, props.onQuickActionError])
+
+  useEffect(() => {
+    void props.comments
+    void props.selectedCommentThreadId
+    refreshCommentHighlights(editor.prosemirrorView)
+  }, [editor, props.comments, props.selectedCommentThreadId])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!(event.metaKey || event.ctrlKey) || !event.altKey || event.key.toLowerCase() !== 'm')
+        return
+      if (!editor.prosemirrorView.hasFocus()) return
+      event.preventDefault()
+      requestAddComment()
+    }
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
+  }, [editor, requestAddComment])
 
   const requestQuickAction = useCallback(
     (action: AgentQuickActionId): void => {
@@ -736,93 +829,113 @@ export const SectionEditor = forwardRef<
       searchTargetRef.current = null
       refreshSearchHighlight(editor.prosemirrorView)
     },
+    revealComment(threadId) {
+      const anchor = editor.prosemirrorView.dom.querySelector<HTMLElement>(
+        `[data-comment-thread-id="${CSS.escape(threadId)}"]`
+      )
+      anchor?.scrollIntoView({
+        block: 'center',
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      })
+      return anchor !== null
+    },
     captureSelection
   }))
 
   return (
     <div className='min-h-80'>
-      <BlockNoteView
-        data-testid='section-editor'
-        editor={editor}
-        theme={resolvedTheme}
-        slashMenu={false}
-        formattingToolbar={false}
-        editable={!readOnly && saveState !== 'conflict'}
-        onChange={() => {
-          lastExactSelectionRef.current = null
-          props.onCitationDocumentChange?.(toCanonicalDocument(editor.document))
-          if (replacingImportedDocumentRef.current) {
-            replacingImportedDocumentRef.current = false
-            return
-          }
-          dirtyRef.current = true
-          if (saveBlockedRef.current) return
-          setSaveState('clean')
-          if (timerRef.current !== undefined) clearTimeout(timerRef.current)
-          timerRef.current = setTimeout(() => void save().catch(() => undefined), 1_500)
-        }}
-        onSelectionChange={() => {
-          const cursor = editor.getTextCursorPosition()
-          const selection = editor.getSelection()
-          if (selection === undefined || editor.getSelectedText().trim().length === 0) {
-            lastExactSelectionRef.current = null
-          }
-          props.onSelectionContextChange?.({
-            activeBlockId: cursor.block.id,
-            selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id],
-            selectedText:
-              selection === undefined ? null : (captureSelection()?.selectedText ?? null)
-          })
-        }}
-        className='writing-editor min-h-[32rem] py-6'
-      >
-        <SuggestionMenuController
-          triggerCharacter='/'
-          getItems={async (query) =>
-            filterSuggestionItems(
-              [
-                ...getDefaultReactSlashMenuItems(editor),
-                ...(isCitationCommandAllowed(editor, query)
-                  ? [
-                      {
-                        title: 'Cite reference',
-                        subtext: 'Search by citekey, title, or author',
-                        aliases: ['cite', 'citation', 'reference', 'bibliography'],
-                        group: 'References',
-                        icon: <BookOpenText className='size-4' />,
-                        onItemClick: openCitationSearch
-                      }
-                    ]
-                  : []),
-                ...getMathSlashMenuItems(editor),
-                {
-                  title: 'Mermaid',
-                  subtext: 'Insert an editable Mermaid diagram',
-                  aliases: ['diagram', 'figure', 'flowchart'],
-                  group: 'Rich media',
-                  icon: <Workflow className='size-4' />,
-                  onItemClick: () =>
-                    insertOrUpdateBlockForSlashMenu(editor, {
-                      type: 'diagram',
-                      props: { engine: 'mermaid', caption: '', altText: '' },
-                      content: ''
-                    })
-                }
-              ],
-              query
-            )
-          }
-        />
-        <FormattingToolbarController
-          formattingToolbar={() => (
-            <QuickActionFormattingToolbar
-              open={quickActionMenuOpen}
-              onOpenChange={setQuickActionMenuOpen}
-              onAction={requestQuickAction}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <BlockNoteView
+            data-testid='section-editor'
+            editor={editor}
+            theme={resolvedTheme}
+            slashMenu={false}
+            formattingToolbar={false}
+            editable={!readOnly && saveState !== 'conflict'}
+            onChange={() => {
+              lastExactSelectionRef.current = null
+              props.onCitationDocumentChange?.(toCanonicalDocument(editor.document))
+              if (replacingImportedDocumentRef.current) {
+                replacingImportedDocumentRef.current = false
+                return
+              }
+              dirtyRef.current = true
+              if (saveBlockedRef.current) return
+              setSaveState('clean')
+              if (timerRef.current !== undefined) clearTimeout(timerRef.current)
+              timerRef.current = setTimeout(() => void save().catch(() => undefined), 1_500)
+            }}
+            onSelectionChange={() => {
+              const cursor = editor.getTextCursorPosition()
+              const selection = editor.getSelection()
+              if (selection === undefined || editor.getSelectedText().trim().length === 0) {
+                lastExactSelectionRef.current = null
+              }
+              props.onSelectionContextChange?.({
+                activeBlockId: cursor.block.id,
+                selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id],
+                selectedText:
+                  selection === undefined ? null : (captureSelection()?.selectedText ?? null)
+              })
+            }}
+            className='writing-editor min-h-[32rem] py-6'
+          >
+            <SuggestionMenuController
+              triggerCharacter='/'
+              getItems={async (query) =>
+                filterSuggestionItems(
+                  [
+                    ...getDefaultReactSlashMenuItems(editor),
+                    ...(isCitationCommandAllowed(editor, query)
+                      ? [
+                          {
+                            title: 'Cite reference',
+                            subtext: 'Search by citekey, title, or author',
+                            aliases: ['cite', 'citation', 'reference', 'bibliography'],
+                            group: 'References',
+                            icon: <BookOpenText className='size-4' />,
+                            onItemClick: openCitationSearch
+                          }
+                        ]
+                      : []),
+                    ...getMathSlashMenuItems(editor),
+                    {
+                      title: 'Mermaid',
+                      subtext: 'Insert an editable Mermaid diagram',
+                      aliases: ['diagram', 'figure', 'flowchart'],
+                      group: 'Rich media',
+                      icon: <Workflow className='size-4' />,
+                      onItemClick: () =>
+                        insertOrUpdateBlockForSlashMenu(editor, {
+                          type: 'diagram',
+                          props: { engine: 'mermaid', caption: '', altText: '' },
+                          content: ''
+                        })
+                    }
+                  ],
+                  query
+                )
+              }
             />
-          )}
-        />
-      </BlockNoteView>
+            <FormattingToolbarController
+              formattingToolbar={() => (
+                <QuickActionFormattingToolbar
+                  open={quickActionMenuOpen}
+                  onOpenChange={setQuickActionMenuOpen}
+                  onAction={requestQuickAction}
+                  onAddComment={requestAddComment}
+                />
+              )}
+            />
+          </BlockNoteView>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={requestAddComment}>
+            <MessageSquareText /> Add comment
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
       {citationSearchAnchor !== null && (
         <CitationSearchPopover
           anchorRect={citationSearchAnchor.anchorRect}
@@ -993,10 +1106,14 @@ function QuickActionFormattingToolbar(props: {
   open: boolean
   onOpenChange(open: boolean): void
   onAction(action: AgentQuickActionId): void
+  onAddComment(): void
 }): React.JSX.Element {
   return (
     <FormattingToolbar>
       {getFormattingToolbarItems()}
+      <Button variant='ghost' aria-label='Add comment' onClick={props.onAddComment}>
+        <MessageSquareText data-icon='inline-start' /> Comment
+      </Button>
       <DropdownMenu open={props.open} onOpenChange={props.onOpenChange}>
         <DropdownMenuTrigger asChild>
           <Button
@@ -1164,6 +1281,26 @@ function fileToBase64(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function selectionContainsTable(
+  document: {
+    nodesBetween(
+      from: number,
+      to: number,
+      callback: (node: { type: { name: string } }) => boolean
+    ): void
+  },
+  from: number,
+  to: number
+): boolean {
+  let found = false
+  document.nodesBetween(from, to, (node) => {
+    if (!['table', 'tableRow', 'tableCell', 'tableHeader'].includes(node.type.name)) return !found
+    found = true
+    return false
+  })
+  return found
 }
 
 function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {

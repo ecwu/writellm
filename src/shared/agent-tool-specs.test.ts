@@ -20,7 +20,9 @@ describe('Agent interaction ModePolicy', () => {
         'read_section',
         'search_manuscript',
         'search_knowledge',
-        'read_citations'
+        'read_citations',
+        'list_comments',
+        'read_comment'
       ].toSorted()
     )
     expect(names('ask', ['section', 'image', 'review'])).toEqual(names('ask'))
@@ -38,6 +40,8 @@ describe('Agent interaction ModePolicy', () => {
         'search_manuscript',
         'search_knowledge',
         'read_citations',
+        'list_comments',
+        'read_comment',
         'read_writing_skill',
         'ask_user',
         'inspect_change',

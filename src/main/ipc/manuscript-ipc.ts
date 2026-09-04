@@ -44,6 +44,21 @@ import { PublicationService } from '../manuscript/publication-service'
 import { authorizeSender } from './authorize-sender'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
+import { ManuscriptCommentService } from '../manuscript/comment-service'
+import {
+  changeCommentStatusInputSchema,
+  commentThreadSchema,
+  createCommentInputSchema,
+  delegateCommentsInputSchema,
+  delegateCommentsResultSchema,
+  deleteCommentInputSchema,
+  editCommentInputSchema,
+  listCommentsInputSchema,
+  listCommentsResultSchema,
+  readCommentInputSchema,
+  reanchorCommentInputSchema,
+  replyCommentInputSchema
+} from '../../shared/contracts/manuscript-comments'
 
 export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -62,6 +77,7 @@ export function registerManuscriptIpc(options: {
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
   const replacementServices = new Map<string, ManuscriptReplacementService>()
+  const commentServices = new Map<string, ManuscriptCommentService>()
   const publicationService = new PublicationService(options.logger, options.citationFormatting)
   const replacementSubscribers = new Map<string, Map<string, WebContents>>()
   const replacementService = (projectSessionId: string): ManuscriptReplacementService => {
@@ -74,6 +90,20 @@ export function registerManuscriptIpc(options: {
         log: options.logger
       })
       replacementServices.set(projectSessionId, service)
+    }
+    return service
+  }
+  const commentService = (projectSessionId: string): ManuscriptCommentService => {
+    const context = options.manager.assertActiveSession(projectSessionId)
+    let service = commentServices.get(projectSessionId)
+    if (service === undefined) {
+      service = new ManuscriptCommentService({
+        database: context.database,
+        manuscript: context.manuscript,
+        projectSessionId,
+        log: options.logger
+      })
+      commentServices.set(projectSessionId, service)
     }
     return service
   }
@@ -484,6 +514,68 @@ export function registerManuscriptIpc(options: {
     }
   })
 
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsList, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = listCommentsInputSchema.parse(rawInput)
+    return listCommentsResultSchema.parse(commentService(input.projectSessionId).list(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsRead, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = readCommentInputSchema.parse(rawInput)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).read(input.threadId))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsCreate, async (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = createCommentInputSchema.parse(rawInput)
+    await options.flushForMutation?.(input.projectSessionId, [input.sectionId])
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).create(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsReply, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = replyCommentInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).reply(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsEdit, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = editCommentInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).edit(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsResolve, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = changeCommentStatusInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).resolve(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsReopen, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = changeCommentStatusInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).reopen(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsDelete, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = deleteCommentInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    commentService(input.projectSessionId).delete(input)
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsReanchor, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = reanchorCommentInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return commentThreadSchema.parse(commentService(input.projectSessionId).reanchor(input))
+  })
+  ipc.handle(IPC_CHANNELS.manuscriptCommentsDelegate, (event, rawInput: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = delegateCommentsInputSchema.parse(rawInput)
+    options.manager.assertMutationSession(input.projectSessionId)
+    return delegateCommentsResultSchema.parse(
+      commentService(input.projectSessionId).delegate(input)
+    )
+  })
+
   const channels = [
     IPC_CHANNELS.manuscriptGetWorkspace,
     IPC_CHANNELS.manuscriptGetReferences,
@@ -502,17 +594,29 @@ export function registerManuscriptIpc(options: {
     IPC_CHANNELS.manuscriptReplacementApply,
     IPC_CHANNELS.manuscriptReplacementUndo,
     IPC_CHANNELS.manuscriptReplacementSubscribe,
-    IPC_CHANNELS.manuscriptReplacementUnsubscribe
+    IPC_CHANNELS.manuscriptReplacementUnsubscribe,
+    IPC_CHANNELS.manuscriptCommentsList,
+    IPC_CHANNELS.manuscriptCommentsRead,
+    IPC_CHANNELS.manuscriptCommentsCreate,
+    IPC_CHANNELS.manuscriptCommentsReply,
+    IPC_CHANNELS.manuscriptCommentsEdit,
+    IPC_CHANNELS.manuscriptCommentsResolve,
+    IPC_CHANNELS.manuscriptCommentsReopen,
+    IPC_CHANNELS.manuscriptCommentsDelete,
+    IPC_CHANNELS.manuscriptCommentsReanchor,
+    IPC_CHANNELS.manuscriptCommentsDelegate
   ] as const
   return {
     revokeSession(projectSessionId) {
       replacementServices.get(projectSessionId)?.revoke()
       replacementServices.delete(projectSessionId)
+      commentServices.delete(projectSessionId)
       replacementSubscribers.delete(projectSessionId)
     },
     unregister() {
       for (const service of replacementServices.values()) service.revoke()
       replacementServices.clear()
+      commentServices.clear()
       replacementSubscribers.clear()
       for (const channel of channels) ipc.removeHandler(channel)
     }

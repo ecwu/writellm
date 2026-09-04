@@ -70,6 +70,7 @@ import { MainAgentReadTools } from './agent/read-tools'
 import { MutationProposalService } from './agent/mutation-service'
 import { MainAgentTools } from './agent/tools'
 import { WritingTaskService } from './agent/writing-task-service'
+import { ManuscriptCommentService } from './manuscript/comment-service'
 import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
 import { MutationEventBroker } from './agent/mutation-event-broker'
@@ -469,7 +470,18 @@ if (!hasSingleInstanceLock) {
             flushForMutation: (affectedSectionIds) =>
               flushForAgentMutation(projectSessionId, affectedSectionIds)
           })
-          const agentTools = new MainAgentTools(agentReadTools, agentMutations, writingTasks)
+          const manuscriptComments = new ManuscriptCommentService({
+            database,
+            manuscript,
+            projectSessionId,
+            log: loggerSystem.createModuleLogger('manuscript', 'comments')
+          })
+          const agentTools = new MainAgentTools(
+            agentReadTools,
+            agentMutations,
+            writingTasks,
+            manuscriptComments
+          )
           const agentSessions = new AgentSessionService({
             projectId,
             projectSessionId,

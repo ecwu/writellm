@@ -31,6 +31,32 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Checkpoint 84 is complete under ADR 078. Writer now has persistent text-range comment threads,
+  author discussion and lifecycle controls, safe block-relative anchors, Comments navigation, and
+  explicit single/batch Agent delegation. Agent tool contract v16 enforces a fresh thread read and
+  full current-section read before resolution, preserves existing proposal approval, and reopens a
+  linked resolution when its proposal is undone. Static checks, 53 focused tests, a final
+  real-Electron comment flow, and the six-stage macOS arm64 package smoke passed. Evidence:
+  [`implementation-todo/phase-33.md`](implementation-todo/phase-33.md).
+
+- The user-requested macOS arm64 App rebuild with Pi 0.85.0 is complete at
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`. `package:unpack` passed all four build-only stages
+  in 32.3 seconds without retries. Existing Pi functional coverage remains applicable. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-app-build).
+
+- Pi AI and Agent Core dependency maintenance is complete at exact version 0.85.0, including
+  runtime metadata and the new explicit context argument for the read-only Skill loader.
+  Verification covers 189 distinct focused tests, static checks, and all 12 packaged runtime
+  smoke scenarios. The macOS arm64 App now contains this update; the package smoke gate passed
+  in 81.9 seconds. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-dependency-update).
+
+- A current macOS arm64 App is available for manual feature trials at
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`, built with `pnpm package:unpack` after command
+  consolidation. All four build-only stages passed in 31.2 seconds, including native preparation,
+  package inventory, and no-Team-ID signature policy. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-manual-feature-trial-app).
+
 - pnpm command consolidation is complete: 51 scripts are reduced to 30 distinct entry points,
   native targets use one parameterized package command in development and CI, and local tests
   remain filterable without implicit builds. Static checks, 26 focused command/CI/reporting tests,
@@ -120,8 +146,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   is supplied by the `/cite` verification above. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
 
-- Pi runtime upgrade maintenance is complete under the approved 2026-09-03 plan. Agent/Core and
-  AI are pinned to 0.84.4; existing conversations remain usable according to WriteLLM event
+- The earlier Pi runtime upgrade completed under the approved 2026-09-03 plan at Agent/Core and
+  AI 0.84.4, superseded by the 0.85.0 maintenance above; existing conversations remain usable according to WriteLLM event
   contracts, with no Pi-version allowlist or database migration. Lifecycle, stream-terminal,
   catalog/credential cancellation, and read-only Skill adapters are updated. Final-source
   coverage comprises 1,333 passing Electron-hosted tests with three existing benchmark skips

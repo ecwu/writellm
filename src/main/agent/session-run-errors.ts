@@ -17,6 +17,7 @@ import {
 } from '../../shared/contracts/agent-mutations'
 import { SkillReadError } from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
+import { CommentDomainError } from '../manuscript/comment-service'
 
 export type AgentRunTermination =
   | {
@@ -254,6 +255,18 @@ export function safeToolError(
       retryable: err.retryable
     }
   }
+  if (err instanceof CommentDomainError) {
+    return {
+      code:
+        err.code === 'not_found'
+          ? 'not_found'
+          : err.code === 'invalid_anchor'
+            ? 'invalid_arguments'
+            : 'conflict',
+      message: safeAgentDiagnosticMessage(err).slice(0, 1_000),
+      retryable: false
+    }
+  }
   if (err instanceof SkillReadError) {
     return {
       code: err.code,
@@ -464,6 +477,7 @@ export function recoveryToolFor(
   }
   if (toolName === 'read_writing_skill') return 'read_writing_skill'
   if (toolName === 'read_citations') return 'search_knowledge'
+  if (toolName === 'resolve_comment') return 'read_comment'
   return toolName
 }
 

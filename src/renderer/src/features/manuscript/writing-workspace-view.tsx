@@ -7,6 +7,8 @@ import type {
   ReadableCitationResolutionResult
 } from '../../../../shared/contracts/search'
 import type { PublicationPreview } from '../../../../shared/contracts/publication'
+import type { CommentThreadSummary } from '../../../../shared/contracts/manuscript-comments'
+import { useState } from 'react'
 import {
   AlertCircle,
   CheckCircle2,
@@ -51,7 +53,8 @@ import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
 import { ManuscriptImportDialog } from './manuscript-import-dialog'
 import { ManuscriptFindPanel } from './manuscript-find-panel'
-import { SectionEditor, type SaveState } from './section-editor'
+import { SectionEditor, type EditorExactSelectionSnapshot, type SaveState } from './section-editor'
+import { CommentsPanel, type PendingCommentSelection } from './comments-panel'
 import type { WritingWorkspaceProps } from './writing-workspace'
 import type { WritingWorkspaceController } from './use-writing-workspace-controller'
 
@@ -60,6 +63,14 @@ export function WritingWorkspaceView(input: {
   controller: WritingWorkspaceController
 }): React.JSX.Element {
   const { props, controller } = input
+  const [commentThreads, setCommentThreads] = useState<CommentThreadSummary[]>([])
+  const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<string | null>(null)
+  const [commentDraftSelection, setCommentDraftSelection] =
+    useState<PendingCommentSelection | null>(null)
+  const [commentPromptRequest, setCommentPromptRequest] = useState<{
+    requestId: string
+    prompt: string
+  } | null>(null)
   const {
     alternateWorkspace,
     queryClient,
@@ -214,6 +225,7 @@ export function WritingWorkspaceView(input: {
           setActiveWorkspace('writing_rules')
         }}
         onOpenFind={openFind}
+        onOpenComments={() => setActiveWorkspace('comments')}
         onCloseFind={closeFind}
         onOpenReference={openReference}
         onOpenManuscript={() => {
@@ -277,6 +289,51 @@ export function WritingWorkspaceView(input: {
             projectSessionId={props.projectSessionId}
             workspace={workspace}
             onWorkspace={(next) => queryClient.setQueryData(workspaceKey, next)}
+            onError={props.onError}
+          />
+        }
+        commentsPanel={
+          <CommentsPanel
+            projectSessionId={props.projectSessionId}
+            activeSectionId={activeSectionId}
+            revisionKey={JSON.stringify(currentRevisionIds)}
+            draftSelection={commentDraftSelection}
+            selectedThreadId={selectedCommentThreadId}
+            onDraftConsumed={() => setCommentDraftSelection(null)}
+            onThreads={setCommentThreads}
+            onSelect={(thread) => {
+              if (thread === null) {
+                setSelectedCommentThreadId(null)
+                return
+              }
+              setSelectedCommentThreadId(thread.threadId)
+              void selectSection(thread.sectionId).then((selected) => {
+                if (!selected) return
+                requestAnimationFrame(() => editorRef.current?.revealComment(thread.threadId))
+              })
+            }}
+            onDelegatePrompt={(prompt) => {
+              setCommentPromptRequest({ requestId: crypto.randomUUID(), prompt })
+              props.onAgentOpenChange(true)
+            }}
+            onReanchor={async (thread) => {
+              if (thread.sectionId !== activeSectionId)
+                throw new Error('Open the comment section before linking a selection')
+              const saved = await flushCurrent()
+              if (!saved) throw new Error('Manuscript selection could not be saved')
+              const selection = editorRef.current?.captureSelection()
+              if (selection === null || selection === undefined)
+                throw new Error('Select manuscript text before linking the comment')
+              await window.desktop.manuscript.reanchorComment({
+                projectSessionId: props.projectSessionId,
+                threadId: thread.threadId,
+                expectedVersion: thread.version,
+                revisionId: selection.capturedRevisionId,
+                contentHash: selection.capturedContentHash,
+                quote: selection.selectedText,
+                segments: selection.commentSegments
+              })
+            }}
             onError={props.onError}
           />
         }
@@ -413,6 +470,35 @@ export function WritingWorkspaceView(input: {
                     }}
                     onQuickActionError={props.onError}
                     onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
+                    comments={commentThreads.filter(
+                      (thread) => thread.sectionId === activeSummary.section.sectionId
+                    )}
+                    selectedCommentThreadId={selectedCommentThreadId}
+                    onActivateComments={(threadIds) => {
+                      setSelectedCommentThreadId(threadIds[0] ?? null)
+                      setActiveWorkspace('comments')
+                    }}
+                    onAddComment={(selection: EditorExactSelectionSnapshot) => {
+                      void flushCurrent().then((saved) => {
+                        if (!saved) return
+                        const current = editorRef.current?.captureSelection()
+                        if (
+                          current === null ||
+                          current === undefined ||
+                          current.selectedText !== selection.selectedText
+                        ) {
+                          props.onError(
+                            'The selected text changed while saving. Select it again and retry.'
+                          )
+                          return
+                        }
+                        setCommentDraftSelection({
+                          sectionId: activeSummary.section.sectionId,
+                          ...current
+                        })
+                        setActiveWorkspace('comments')
+                      })
+                    }}
                   />
                 </section>
               ) : (
@@ -457,6 +543,12 @@ export function WritingWorkspaceView(input: {
                 currentRevisionIds={currentRevisionIds}
                 selection={selectionContext}
                 quickActionRequest={quickActionRequest}
+                promptRequest={commentPromptRequest}
+                onPromptHandled={(requestId) => {
+                  setCommentPromptRequest((current) =>
+                    current?.requestId === requestId ? null : current
+                  )
+                }}
                 onQuickActionHandled={(requestId) => {
                   setQuickActionRequest((current) =>
                     current?.requestId === requestId ? null : current

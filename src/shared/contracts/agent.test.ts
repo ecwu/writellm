@@ -34,7 +34,7 @@ const ids = {
 
 describe('Agent contracts', () => {
   it('pins the application-owned runtime and event schema versions', () => {
-    expect(AGENT_RUNTIME_VERSION).toBe('0.84.4')
+    expect(AGENT_RUNTIME_VERSION).toBe('0.85.0')
     expect(packageJson.dependencies['@earendil-works/pi-agent-core']).toBe(AGENT_RUNTIME_VERSION)
     expect(packageJson.dependencies['@earendil-works/pi-ai']).toBe(AGENT_RUNTIME_VERSION)
     expect(AGENT_EVENT_SCHEMA_VERSION).toBe(4)

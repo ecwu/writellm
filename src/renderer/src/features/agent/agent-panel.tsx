@@ -11,6 +11,11 @@ export interface AgentPanelQuickActionRequest {
   selection: AgentPanelSelection
 }
 
+export interface AgentPanelPromptRequest {
+  requestId: string
+  prompt: string
+}
+
 export interface AgentPanelProps {
   open: boolean
   onOpenChange(open: boolean): void
@@ -21,6 +26,8 @@ export interface AgentPanelProps {
   currentRevisionIds: Readonly<Record<string, string>>
   selection: AgentPanelSelection | null
   quickActionRequest?: AgentPanelQuickActionRequest | null
+  promptRequest?: AgentPanelPromptRequest | null
+  onPromptHandled?(requestId: string, started: boolean): void
   onQuickActionHandled?(requestId: string, started: boolean): void
   onFollowSection(sectionId: string): Promise<boolean>
   flushCurrent(): Promise<boolean>

@@ -46,6 +46,10 @@ minimumReleaseAgeExclude:
   - '@tiptap/extensions@3.31.2'
   - '@tiptap/pm@3.31.2'
   - '@tiptap/react@3.31.2'
+  - '@earendil-works/chord@0.85.0'
+  - '@earendil-works/pi-agent-core@0.85.0'
+  - '@earendil-works/pi-ai@0.85.0'
+  - '@earendil-works/pi-telemetry@0.85.0'
 patchedDependencies:
   '@blocknote/react@0.54.0': patches/@blocknote__react@0.54.0.patch
   playwright-core@1.62.1: patches/playwright-core@1.62.1.patch

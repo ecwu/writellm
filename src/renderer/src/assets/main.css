@@ -297,6 +297,24 @@
     border-radius: var(--radius-sm);
   }
 
+  .writing-editor .writellm-comment-anchor {
+    cursor: pointer;
+    border-bottom: 2px solid color-mix(in oklab, var(--primary) 65%, transparent);
+    background-color: color-mix(in oklab, var(--primary) 10%, transparent);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .writing-editor .writellm-comment-anchor-selected {
+    background-color: color-mix(in oklab, var(--primary) 22%, transparent);
+    outline: 1px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  }
+
+  .writing-editor .writellm-comment-anchor-resolved {
+    border-bottom-style: dotted;
+    opacity: 0.65;
+  }
+
   @media (forced-colors: active) {
     .writing-editor .writellm-readable-citation {
       border: 1px solid LinkText;
@@ -310,6 +328,12 @@
       outline: 2px solid Highlight;
       background-color: Highlight;
       color: HighlightText;
+    }
+
+    .writing-editor .writellm-comment-anchor {
+      outline: 2px solid LinkText;
+      background-color: Canvas;
+      color: CanvasText;
     }
   }
 

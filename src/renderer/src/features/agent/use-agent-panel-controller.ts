@@ -353,6 +353,20 @@ export function useAgentPanelController(props: AgentPanelProps) {
       .then((started) => props.onQuickActionHandled?.(request.requestId, started))
   }, [claimQuickAction, loading, props.quickActionRequest, props.onQuickActionHandled])
 
+  useEffect(() => {
+    const request = props.promptRequest
+    if (
+      loading ||
+      request === undefined ||
+      request === null ||
+      !claimQuickAction(request.requestId)
+    )
+      return
+    void startRunRef
+      .current(request.prompt, undefined, false, true)
+      .then((started) => props.onPromptHandled?.(request.requestId, started))
+  }, [claimQuickAction, loading, props.promptRequest, props.onPromptHandled])
+
   const reconcileInactiveRun = async (agentRunId: string): Promise<boolean> => {
     if (activeSessionId === null) return false
     try {

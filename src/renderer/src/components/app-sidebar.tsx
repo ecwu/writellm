@@ -17,6 +17,7 @@ import {
   ListChecks,
   Images,
   ListTree,
+  MessagesSquare,
   Pencil,
   Search,
   Settings2,
@@ -50,6 +51,7 @@ export type WorkspaceKind =
   | 'references'
   | 'find'
   | 'writing_rules'
+  | 'comments'
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   projectName: string
@@ -70,12 +72,14 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   onOpenReferences(): void
   onOpenWritingRules(): void
   onOpenFind(): void
+  onOpenComments(): void
   onCloseFind(): void
   onOpenReference(entry: ManuscriptReferenceEntry): void
   onOpenManuscript(): void
   onOpenSettings(): void
   findPanel: React.ReactNode
   writingRulesPanel: React.ReactNode
+  commentsPanel: React.ReactNode
 }
 
 export function AppSidebar({
@@ -97,19 +101,21 @@ export function AppSidebar({
   onOpenReferences,
   onOpenWritingRules,
   onOpenFind,
+  onOpenComments,
   onCloseFind,
   onOpenReference,
   onOpenManuscript,
   onOpenSettings,
   findPanel,
   writingRulesPanel,
+  commentsPanel,
   ...props
 }: AppSidebarProps): React.JSX.Element {
   const { isMobile, openMobile, setOpen, setOpenMobile } = useSidebar()
   const findWasOpenOnMobileRef = useRef(false)
 
   useEffect(() => {
-    if (!['find', 'writing_rules', 'references'].includes(activeWorkspace)) return
+    if (!['find', 'writing_rules', 'references', 'comments'].includes(activeWorkspace)) return
     if (isMobile) setOpenMobile(true)
     else setOpen(true)
   }, [activeWorkspace, isMobile, setOpen, setOpenMobile])
@@ -153,6 +159,10 @@ export function AppSidebar({
           onOpenFind={() => {
             setOpen(true)
             onOpenFind()
+          }}
+          onOpenComments={() => {
+            setOpen(true)
+            onOpenComments()
           }}
           onOpenManuscript={() => {
             setOpen(true)
@@ -207,9 +217,15 @@ export function AppSidebar({
             ) : null}
           </SidebarHeader>
           <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
+            <div
+              className={activeWorkspace === 'comments' ? 'flex min-h-0 flex-1' : 'hidden'}
+              aria-hidden={activeWorkspace !== 'comments'}
+            >
+              {commentsPanel}
+            </div>
             {activeWorkspace === 'find' ? (
               findPanel
-            ) : activeWorkspace === 'writing_rules' ? (
+            ) : activeWorkspace === 'comments' ? null : activeWorkspace === 'writing_rules' ? (
               writingRulesPanel
             ) : (
               <SidebarGroup>
@@ -375,6 +391,7 @@ export function WorkspaceRail(props: {
   onOpenReferences(): void
   onOpenWritingRules(): void
   onOpenFind(): void
+  onOpenComments?(): void
   onOpenSettings(): void
 }): React.JSX.Element {
   return (
@@ -420,6 +437,18 @@ export function WorkspaceRail(props: {
                 >
                   <FileText />
                   <span>Preview</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  aria-label='Comments'
+                  tooltip={{ children: 'Comments', hidden: false }}
+                  isActive={props.activeWorkspace === 'comments'}
+                  className='px-2.5 md:px-2'
+                  onClick={props.onOpenComments}
+                >
+                  <MessagesSquare />
+                  <span>Comments</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>

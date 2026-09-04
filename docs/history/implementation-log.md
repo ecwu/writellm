@@ -2104,3 +2104,116 @@ Verification and limits:
 
 Reports: `.cache/verification/1788555751530-7487-6d3a7039` (focused tests) and
 `.cache/verification/1788555764894-7726-341970c8` (static checks).
+
+
+## 2026-09-04 Manual feature trial App
+
+The user requested a current App build for manual feature trials after pnpm command consolidation.
+`pnpm package:unpack` used the existing Node 24.15.0 and pnpm 11.17.0 toolchain to build the
+macOS arm64 App from revision `809621e39bb11f10efd0b2894682b5444fad7e8d` with a documentation-only
+tracker change. Release metadata remains `0.2026.9.3`.
+
+- The first attempt passed native preparation and compilation but package assembly encountered
+  sandbox DNS failure (`ENOTFOUND github.com`), exiting after 54.6s. The same command was retried
+  once outside the sandbox with approved network access.
+- The successful retry passed all four build-only stages in 31.2s: production build (including
+  Electron 43.4.1 / ABI 148 native preparation), App assembly, no-Team-ID ad-hoc/linker signature
+  policy, and resource inventory. Inventory includes 33,569 ASAR entries and arm64 better-sqlite3
+  and sqlite-vec binaries.
+- App: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Evidence:
+  `dist/macos-arm64/package-evidence.json` and
+  `.cache/verification/1788556216531-11728-28f727e4`. Failed sandbox attempt:
+  `.cache/verification/1788556150194-11056-a7e05aea`.
+- This was a build for user-driven trials, not functional acceptance. No functional tests,
+  installers, signing identity, notarization, release, commit, or push were requested or run.
+  Final documentation changes are checked with Biome and `git diff --check`; coverage is
+  macOS arm64 only.
+
+## 2026-09-04 Pi 0.85.0 dependency update
+
+The user requested a Pi AI dependency update. npm registry metadata identified 0.85.0 as the
+latest stable release. Both exact Pi pins advance from 0.84.4 to 0.85.0 because Agent Core's
+previous `^0.84.4` dependency does not include AI 0.85.0. Runtime metadata and its existing contract
+test follow the new version; event schema v4 and historical runtime metadata remain unchanged.
+
+- Reviewed Context7 documentation and the tagged upstream
+  [AI changelog](https://github.com/earendil-works/pi/blob/v0.85.0/packages/ai/CHANGELOG.md) and
+  [Agent changelog](https://github.com/earendil-works/pi/blob/v0.85.0/packages/agent/CHANGELOG.md).
+  The listed Workers AI binding rename is outside the application's imports. Typechecking
+  additionally identified `loadSourcedSkills`' new required fourth `Context` argument. The existing
+  manifest-only, in-memory virtual environment now receives Pi's exported `BACKGROUND_CONTEXT`;
+  no filesystem, network, execution, or cancellation authority is added.
+- Updated the lockfile and completed a frozen install with existing Node 24.15.0 and pnpm 11.17.0.
+  Transitive changes comprise Pi Telemetry, Chord, Anthropic SDK, and its webhook dependencies.
+  pnpm recorded four exact 0.85.0 release-age exceptions for the newly published Pi-family packages;
+  no global supply-chain policy was disabled. Electron 43.4.1 / ABI 148 native loading passed.
+- Focused Electron-hosted coverage passed 19 files / 170 tests in 4.6s (4.08s Vitest), covering
+  providers, credentials, IPC, streams, tools, Skills, runtime contracts, context budgets, and
+  sessions. After the context-argument adaptation, all five Skill files / 26 tests passed again
+  in 1.3s (0.786s Vitest). One additional session-message file / 19 tests passed in 4.1s
+  (3.45s Vitest), including reopening and continuing conversations with historical runtime metadata.
+  Final coverage totals 20 files / 189 distinct tests; no test failures, retries, or skips.
+- The first package gate stopped at the missing Skill context type error after 5.7s, before any
+  build. After adapting the call, `pnpm check:package:smoke --unpacked-only` passed all six stages
+  in 81.9s: static checks (10.3s), one production build (11.8s), App assembly (21.0s), signature
+  policy, 33,981-entry inventory, and 12 runtime smoke scenarios (38.7s). The packaged Agent made
+  one successful loopback provider request and all three Worker roles loaded. No smoke retries.
+- App: `dist/macos-arm64/mac-arm64/WriteLLM.app`; release metadata remains `0.2026.9.3`.
+  Verification is local macOS arm64 with fixture providers. Other platforms, live provider
+  credentials, complete E2E, installers, signed release, and publication were outside this scope.
+  Final documentation-only changes receive `pnpm check` and `git diff --check`.
+
+Reports: `.cache/verification/1788556519338-14994-9d1bc38c` (170 tests),
+`.cache/verification/1788556592869-15634-f158df09` (26-test rerun),
+`.cache/verification/1788556637022-16261-261e367f` (19 message tests),
+`.cache/verification/1788556545868-15244-f7d73e38` (initial type error), and
+`.cache/verification/1788556603250-15770-5a09fb98` (successful package gate).
+
+## 2026-09-04 Pi 0.85.0 App build
+
+The user requested a fresh App after the Pi dependency update. `pnpm package:unpack` used the
+existing Node 24.15.0 and pnpm 11.17.0 toolchain and passed four build-only stages in 32.3s,
+without retries: production build with Electron 43.4.1 / ABI 148 native preparation, App assembly,
+no-Team-ID ad-hoc/linker signature policy, and a 33,981-entry resource inventory.
+
+The macOS arm64 App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, containing Pi AI and Agent Core
+0.85.0 under unchanged release metadata `0.2026.9.3`. The preceding 189-test and 12-scenario
+packaged smoke results still cover the application source; this invocation runs no functional
+tests or installers. No commit, push, signing identity, notarization, or publication occurred.
+Final documentation checks use `pnpm check` and `git diff --check`.
+
+Evidence: `dist/macos-arm64/package-evidence.json` and
+`.cache/verification/1788556777954-17830-984fea1e`. Runtime/build coverage is macOS arm64 only.
+
+## 2026-09-04 Manuscript comments and Agent resolution
+
+Checkpoint 84 implements ADR 078 as a project-local review system. Authors can attach comment
+threads to prose selections from the toolbar, context menu, or keyboard, navigate between thread
+and text, reply, edit, delete, resolve, reopen, relink orphaned anchors, filter/search, and delegate
+one or a fixed batch of comments to the Agent. Comments remain outside manuscript exports.
+
+Migration 0044 adds the authoritative thread, message, event, and Agent-read tables. A section
+revision trigger makes every manual, import, replacement, undo, and Agent write invalidate ranges
+inside the same database transaction; the service reattaches only exact ranges or a unique match
+in the same stable block, otherwise preserving the thread as orphaned. Proposal undo reopens linked
+resolutions. Shared Zod contracts, authorized Main IPC, and the preload bridge expose the author
+lifecycle without renderer database access.
+
+Agent tool contract v16 adds bounded comment list/read/reply/resolve operations. Ask and Plan can
+read; Write with the review group can reply or resolve. Main requires the same run to read the
+current thread and then the complete current section revision. Optional proposal linkage must name
+an actually applied revision, and operation identifiers deduplicate resumed replies and resolves.
+
+Final verification passed `check:fast` in 8.9 seconds, seven focused files / 53 tests in 1.5
+seconds, the final atomic-resolution subset with 14 tests in 1.2 seconds, the real-Electron comment
+scenario in 2.9 seconds without retries, and the six-stage macOS arm64 package smoke in 77.3
+seconds with a fresh production build and all 12 packaged runtime scenarios.
+The first package attempt failed at sandbox DNS and was rerun outside the sandbox. Early E2E runs
+found test-selection timing/assertion problems; the deterministic final run passed without retry.
+Coverage is local macOS arm64 with fixture providers; other platforms and live provider credentials
+were not exercised.
+
+Evidence: `.cache/verification/1788561277977-56814-fa05b353`,
+`.cache/verification/1788560744278-51847-965c485f`,
+`.cache/verification/1788561221750-56344-be5dafc2`, and
+`.cache/verification/1788561368063-57752-4df380ed`.

@@ -23,6 +23,14 @@ import {
 import { SKILL_MAX_PROGRESSIVE_REFERENCE_BYTES } from './skills'
 import { blockNoteInlineContentSchema } from './manuscript'
 import {
+  changeCommentStatusInputSchema,
+  commentThreadSchema,
+  listCommentsInputSchema,
+  listCommentsResultSchema,
+  readCommentInputSchema,
+  replyCommentInputSchema
+} from './manuscript-comments'
+import {
   createWritingTaskArgsSchema,
   createWritingTaskResultSchema,
   getWritingTaskArgsSchema,
@@ -54,7 +62,8 @@ export const toolResultMetaSchema = z
       z.literal(12),
       z.literal(13),
       z.literal(14),
-      z.literal(15)
+      z.literal(15),
+      z.literal(16)
     ]),
     toolName: z.string().min(1).max(256),
     toolCallId: z.string().min(1).max(256),
@@ -82,6 +91,10 @@ export const agentToolNameSchema = z.enum([
   'ask_user',
   'activate_tool_groups',
   'inspect_change',
+  'list_comments',
+  'read_comment',
+  'reply_comment',
+  'resolve_comment',
   'get_writing_task',
   'create_writing_task',
   'update_writing_task',
@@ -110,9 +123,13 @@ export const AGENT_TOOL_DESCRIPTORS = {
   search_manuscript: descriptor('parallel', 'manuscript', 5_000, false),
   search_knowledge: descriptor('parallel', 'knowledge', 30_000, true),
   read_citations: descriptor('parallel', 'knowledge', 10_000, false),
+  list_comments: descriptor('parallel', 'manuscript', 5_000, false),
+  read_comment: descriptor('parallel', 'manuscript', 5_000, false),
+  reply_comment: descriptor('sequential', 'manuscript', 5_000, false),
+  resolve_comment: descriptor('sequential', 'manuscript', 5_000, false),
   read_writing_skill: descriptor('parallel', 'skill', 5_000, false),
   ask_user: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 16,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -122,7 +139,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
     maxOutputBytes: AGENT_TOOL_RESULT_BYTES
   },
   activate_tool_groups: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 16,
     effects: ['read'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -140,7 +157,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
   submit_outline_change: descriptor('sequential', 'outline', 10_000, true),
   submit_section_change: descriptor('sequential', 'section', 10_000, true),
   generate_image: {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 16,
     effects: ['proposal', 'mutation'],
     executionMode: 'sequential',
     consistency: 'snapshot',
@@ -152,7 +169,7 @@ export const AGENT_TOOL_DESCRIPTORS = {
 } as const satisfies Record<
   z.infer<typeof agentToolNameSchema>,
   {
-    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15
+    contractVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16
     effects: readonly ('read' | 'proposal' | 'mutation')[]
     executionMode: 'parallel' | 'sequential'
     consistency: 'snapshot'
@@ -189,7 +206,7 @@ function descriptor(
   supportsProgress: boolean
 ) {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 16,
     effects:
       executionMode === 'parallel' ? (['read'] as const) : (['proposal', 'mutation'] as const),
     executionMode,
@@ -203,7 +220,7 @@ function descriptor(
 
 function fixtureMutationDescriptor(deadlineMs: number, lockScope: 'task') {
   return {
-    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 15,
+    contractVersion: AGENT_TOOL_CONTRACT_VERSION as 16,
     effects: ['mutation'] as const,
     executionMode: 'sequential' as const,
     consistency: 'snapshot' as const,
@@ -696,6 +713,18 @@ export const readCitationsResultSchema = strictObject({
   truncated: z.boolean()
 })
 
+export const listCommentsArgsSchema = listCommentsInputSchema.omit({ projectSessionId: true })
+export const readCommentArgsSchema = readCommentInputSchema.omit({ projectSessionId: true })
+export const replyCommentArgsSchema = replyCommentInputSchema.omit({ projectSessionId: true })
+export const resolveCommentArgsSchema = changeCommentStatusInputSchema
+  .omit({ projectSessionId: true, resolutionNote: true })
+  .extend({
+    verificationNote: z.string().trim().min(1).max(65_536),
+    operationId: z.string().min(1).max(256),
+    proposalId: z.uuid().optional()
+  })
+  .strict()
+
 const toolRequestBase = {
   type: z.literal('tool_request'),
   requestId: z.uuid(),
@@ -743,6 +772,26 @@ export const agentToolRequestSchema = z
       ...toolRequestBase,
       toolName: z.literal('read_citations'),
       args: readCitationsArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('list_comments'),
+      args: listCommentsArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('read_comment'),
+      args: readCommentArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('reply_comment'),
+      args: replyCommentArgsSchema
+    }),
+    strictObject({
+      ...toolRequestBase,
+      toolName: z.literal('resolve_comment'),
+      args: resolveCommentArgsSchema
     }),
     strictObject({
       ...toolRequestBase,
@@ -854,6 +903,30 @@ const successResponses = z.discriminatedUnion('toolName', [
     ok: z.literal(true),
     toolName: z.literal('read_citations'),
     data: readCitationsResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('list_comments'),
+    data: listCommentsResultSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('read_comment'),
+    data: commentThreadSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('reply_comment'),
+    data: commentThreadSchema
+  }),
+  strictObject({
+    ...toolResponseBase,
+    ok: z.literal(true),
+    toolName: z.literal('resolve_comment'),
+    data: commentThreadSchema
   }),
   strictObject({
     ...toolResponseBase,
@@ -1044,6 +1117,10 @@ export type SearchManuscriptArgs = z.infer<typeof searchManuscriptArgsSchema>
 export type InspectChangeArgs = z.infer<typeof inspectChangeArgsSchema>
 export type SearchKnowledgeArgs = z.infer<typeof searchKnowledgeArgsSchema>
 export type ReadCitationsArgs = z.infer<typeof readCitationsArgsSchema>
+export type ListCommentsArgs = z.infer<typeof listCommentsArgsSchema>
+export type ReadCommentArgs = z.infer<typeof readCommentArgsSchema>
+export type ReplyCommentArgs = z.infer<typeof replyCommentArgsSchema>
+export type ResolveCommentArgs = z.infer<typeof resolveCommentArgsSchema>
 export type WritingContextResult = z.infer<typeof writingContextResultSchema>
 export type ReadSectionResult = z.infer<typeof readSectionResultSchema>
 export type ReadOutlineResult = z.infer<typeof readOutlineResultSchema>

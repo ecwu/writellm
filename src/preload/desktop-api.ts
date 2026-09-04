@@ -145,6 +145,19 @@ import type {
 } from '../shared/contracts/manuscript-replacement'
 import type { UpdateWritingRulesIpcInput } from '../shared/contracts/writing-rules-ipc'
 import type {
+  ChangeCommentStatusInput,
+  CommentThread,
+  CreateCommentInput,
+  DelegateCommentsInput,
+  DelegateCommentsResult,
+  DeleteCommentInput,
+  EditCommentInput,
+  ListCommentsInput,
+  ListCommentsResult,
+  ReanchorCommentInput,
+  ReplyCommentInput
+} from '../shared/contracts/manuscript-comments'
+import type {
   ProviderConnectionTestResult,
   ImageProviderSelectionInput,
   AgentAuthFlowInput,
@@ -381,6 +394,16 @@ export interface DesktopApi {
       input: { projectSessionId: string },
       listener: (event: ManuscriptReplacementChangedEvent) => void
     ): Promise<() => void>
+    listComments(input: ListCommentsInput): Promise<ListCommentsResult>
+    readComment(input: { projectSessionId: string; threadId: string }): Promise<CommentThread>
+    createComment(input: CreateCommentInput): Promise<CommentThread>
+    replyComment(input: ReplyCommentInput): Promise<CommentThread>
+    editComment(input: EditCommentInput): Promise<CommentThread>
+    resolveComment(input: ChangeCommentStatusInput): Promise<CommentThread>
+    reopenComment(input: ChangeCommentStatusInput): Promise<CommentThread>
+    deleteComment(input: DeleteCommentInput): Promise<void>
+    reanchorComment(input: ReanchorCommentInput): Promise<CommentThread>
+    delegateComments(input: DelegateCommentsInput): Promise<DelegateCommentsResult>
   }
   writingRules: {
     update(input: UpdateWritingRulesIpcInput): Promise<ManuscriptWorkspace>

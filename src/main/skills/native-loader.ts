@@ -1,4 +1,5 @@
 import {
+  BACKGROUND_CONTEXT,
   ExecutionError,
   FileError,
   loadSourcedSkills,
@@ -30,7 +31,9 @@ export async function loadManifestSkillWithPi(input: {
   const loaded = await loadSourcedSkills(
     env,
     [{ path: directory, source: input.virtualUri }],
-    (skill) => ({ ...skill, filePath: input.virtualUri })
+    (skill) => ({ ...skill, filePath: input.virtualUri }),
+    // This adapter reads only the already-verified in-memory document, with no external I/O.
+    BACKGROUND_CONTEXT
   )
   if (loaded.diagnostics.length > 0 || loaded.skills.length !== 1) {
     throw new Error('Pi rejected the Writing Skill manifest entrypoint')

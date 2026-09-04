@@ -36,6 +36,20 @@ import {
   manuscriptReplacementUndoResultSchema
 } from '../shared/contracts/manuscript-replacement'
 import type { DesktopApi } from './desktop-api'
+import {
+  changeCommentStatusInputSchema,
+  commentThreadSchema,
+  createCommentInputSchema,
+  delegateCommentsInputSchema,
+  delegateCommentsResultSchema,
+  deleteCommentInputSchema,
+  editCommentInputSchema,
+  listCommentsInputSchema,
+  listCommentsResultSchema,
+  readCommentInputSchema,
+  reanchorCommentInputSchema,
+  replyCommentInputSchema
+} from '../shared/contracts/manuscript-comments'
 
 export const manuscriptApi: DesktopApi['manuscript'] = {
   async workspace(input) {
@@ -184,5 +198,83 @@ export const manuscriptApi: DesktopApi['manuscript'] = {
       ipcRenderer.removeListener(IPC_CHANNELS.manuscriptReplacementChanged, handler)
       void ipcRenderer.invoke(IPC_CHANNELS.manuscriptReplacementUnsubscribe, subscription)
     }
+  },
+  async listComments(input) {
+    return listCommentsResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsList,
+        listCommentsInputSchema.parse(input)
+      )
+    )
+  },
+  async readComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsRead,
+        readCommentInputSchema.parse(input)
+      )
+    )
+  },
+  async createComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsCreate,
+        createCommentInputSchema.parse(input)
+      )
+    )
+  },
+  async replyComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsReply,
+        replyCommentInputSchema.parse(input)
+      )
+    )
+  },
+  async editComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsEdit,
+        editCommentInputSchema.parse(input)
+      )
+    )
+  },
+  async resolveComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsResolve,
+        changeCommentStatusInputSchema.parse(input)
+      )
+    )
+  },
+  async reopenComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsReopen,
+        changeCommentStatusInputSchema.parse(input)
+      )
+    )
+  },
+  async deleteComment(input) {
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.manuscriptCommentsDelete,
+      deleteCommentInputSchema.parse(input)
+    )
+  },
+  async reanchorComment(input) {
+    return commentThreadSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsReanchor,
+        reanchorCommentInputSchema.parse(input)
+      )
+    )
+  },
+  async delegateComments(input) {
+    return delegateCommentsResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.manuscriptCommentsDelegate,
+        delegateCommentsInputSchema.parse(input)
+      )
+    )
   }
 }

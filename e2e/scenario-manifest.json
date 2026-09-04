@@ -25,6 +25,7 @@
     { "id": "knowledge.citation-coverage", "tiers": [] },
     { "id": "knowledge.rebuilds-derived-index", "tiers": ["critical", "packaged"] },
     { "id": "manuscript.blocknote-054-controls", "tiers": ["packaged"] },
+    { "id": "manuscript.comment-thread", "tiers": ["packaged"] },
     { "id": "manuscript.checkpoint-restore-preserves-history", "tiers": ["packaged"] },
     { "id": "manuscript.citation-display-references-export", "tiers": [] },
     { "id": "manuscript.exports-durable", "tiers": ["packaged"] },

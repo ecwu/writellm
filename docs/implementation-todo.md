@@ -22,6 +22,20 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Checkpoint 84: add manuscript comment threads with persistent text anchors, author discussion,
+  explicit Agent delegation, proposal-based edits, current-revision verification, and resolution.
+  Plan and evidence: [`implementation-todo/phase-33.md`](implementation-todo/phase-33.md).
+
+- [x] Maintenance build: rebuild the macOS arm64 App with Pi 0.85.0. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-app-build).
+
+- [x] Maintenance: update Pi AI and Agent Core to 0.85.0 with adapter and packaged-runtime
+  verification. Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-dependency-update).
+
+- [x] Maintenance build: produce the current macOS arm64 App for manual feature trials using
+  `package:unpack`. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-manual-feature-trial-app).
+
 - [x] Maintenance: consolidate pnpm commands and document focused verification without
   redundant test/build stages. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pnpm-command-consolidation).
