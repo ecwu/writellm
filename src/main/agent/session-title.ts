@@ -1,3 +1,5 @@
+import { truncateUtf8 } from './session-history'
+
 const FALLBACK_TITLE_LENGTH = 48
 const GENERATED_TITLE_LENGTH = 80
 export const SESSION_TITLE_CONTEXT_MAX_BYTES = 16 * 1024
@@ -56,7 +58,7 @@ export function buildSessionTitleContext(messages: readonly SessionTitleMessage[
     const prefix = `${label}: `
     const remaining = SESSION_TITLE_CONTEXT_MAX_BYTES - bytes - Buffer.byteLength(prefix) - 1
     if (remaining <= 0) break
-    const bounded = takeUtf8Bytes(content, remaining)
+    const bounded = truncateUtf8(content, remaining).trimEnd()
     if (bounded.length === 0) continue
     const line = `${prefix}${bounded}`
     lines.push(line)
@@ -72,17 +74,4 @@ function normalizeTitleText(value: string): string {
 function takeCodePoints(value: string, limit: number): string {
   const points = Array.from(value)
   return points.length <= limit ? value : points.slice(0, limit).join('').trimEnd()
-}
-
-function takeUtf8Bytes(value: string, limit: number): string {
-  if (Buffer.byteLength(value) <= limit) return value
-  let result = ''
-  let bytes = 0
-  for (const point of value) {
-    const pointBytes = Buffer.byteLength(point)
-    if (bytes + pointBytes > limit) break
-    result += point
-    bytes += pointBytes
-  }
-  return result.trimEnd()
 }

@@ -7,7 +7,7 @@ complete under ADR 070; Checkpoint 77 remains independently paused.
 Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
 static/fixture gate and all four independent native build/upload jobs under the user's narrowed
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-09-04
+Recorded: 2026-09-05
 
 This is the short completion and routing index. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
@@ -21,6 +21,13 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Maintenance: consolidate Agent UTF-8 truncation and verify Unicode-safe previews.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-ponytail-utf8-cleanup).
+
+- [x] Maintenance: diagnose Gemini stream truncation after model switching and verify bounded
+  pre-content retry. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-gemini-stream-truncation).
 
 - [x] Checkpoint 84: add manuscript comment threads with persistent text anchors, author discussion,
   explicit Agent delegation, proposal-based edits, current-revision verification, and resolution.

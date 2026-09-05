@@ -220,6 +220,11 @@ function retryDecision(
   if (message.stopReason === 'aborted' || permanentProviderError(errorMessage, httpStatus)) {
     return { retryable: false, reasonCode: 'network' }
   }
+  // Google GenAI emits this when EOF leaves an unterminated SSE frame.
+  // Pi does not classify it; the shared content guard still prevents replay.
+  if (errorMessage === 'Incomplete JSON segment at the end') {
+    return { retryable: true, reasonCode: 'stream_ended' }
+  }
   if (httpStatus === 429) {
     return { retryable: true, reasonCode: 'rate_limited' }
   }

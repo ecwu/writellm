@@ -55,6 +55,28 @@ export const commentMessageSchema = z
   })
   .strict()
 
+export const commentEventSchema = z
+  .object({
+    eventId: z.string(),
+    type: z.string(),
+    actor: z.enum(['author', 'agent', 'system']),
+    agentSessionId: z.string().nullable(),
+    agentRunId: z.string().nullable(),
+    proposalId: z.string().nullable(),
+    sectionRevisionId: z.string().nullable(),
+    note: z.string().nullable(),
+    createdAt: z.iso.datetime()
+  })
+  .strict()
+export const commentActivitySchema = z
+  .object({
+    agentSessionId: z.string(),
+    agentRunId: z.string().nullable(),
+    status: z.string(),
+    proposalId: z.string().nullable()
+  })
+  .strict()
+
 export const commentThreadSchema = z
   .object({
     threadId: commentThreadIdSchema,
@@ -64,6 +86,8 @@ export const commentThreadSchema = z
     version: z.number().int().positive(),
     anchor: commentAnchorSchema,
     messages: z.array(commentMessageSchema).max(1_000),
+    events: z.array(commentEventSchema).max(500).default([]),
+    activity: commentActivitySchema.nullable().default(null),
     resolvedBy: commentAuthorSchema.nullable(),
     resolutionNote: z.string().max(COMMENT_TEXT_MAX_BYTES).nullable(),
     resolvedRevisionId: sectionRevisionIdSchema.nullable(),
@@ -73,10 +97,12 @@ export const commentThreadSchema = z
   })
   .strict()
 
-export const commentThreadSummarySchema = commentThreadSchema.omit({ messages: true }).extend({
-  messageCount: z.number().int().nonnegative(),
-  latestMessagePreview: z.string().max(500)
-})
+export const commentThreadSummarySchema = commentThreadSchema
+  .omit({ messages: true, events: true })
+  .extend({
+    messageCount: z.number().int().nonnegative(),
+    latestMessagePreview: z.string().max(500)
+  })
 
 export const listCommentsInputSchema = z
   .object({
@@ -169,7 +195,7 @@ export const delegateCommentsInputSchema = z
       .min(1)
       .max(100)
       .refine((ids) => new Set(ids).size === ids.length),
-    agentSessionId: agentSessionIdSchema.optional()
+    agentSessionId: agentSessionIdSchema
   })
   .strict()
 

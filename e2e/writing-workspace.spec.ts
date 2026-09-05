@@ -113,11 +113,24 @@ test(
       await editor
         .locator('.bn-inline-content', { hasText: 'Alpha review sentence' })
         .evaluate((element) => {
-          const text = element.firstChild
-          if (!(text instanceof Text)) throw new Error('Paragraph text node is unavailable')
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          const nodes: Text[] = []
+          for (let node = walker.nextNode(); node !== null; node = walker.nextNode())
+            nodes.push(node as Text)
+          const total = nodes.reduce((length, node) => length + node.data.length, 0)
           const range = document.createRange()
-          range.setStart(text, text.data.length - 'sentence'.length)
-          range.setEnd(text, text.data.length)
+          let offset = 0
+          for (const node of nodes) {
+            if (
+              total - 'sentence'.length >= offset &&
+              total - 'sentence'.length < offset + node.data.length
+            )
+              range.setStart(node, total - 'sentence'.length - offset)
+            offset += node.data.length
+          }
+          const last = nodes.at(-1)
+          if (last === undefined) throw new Error('Paragraph text node is unavailable')
+          range.setEnd(last, last.data.length)
           const selection = window.getSelection()
           selection?.removeAllRanges()
           selection?.addRange(range)
@@ -126,7 +139,7 @@ test(
         })
       const addComment = launched.page.getByRole('button', { name: 'Add comment', exact: true })
       await expect(addComment).toBeVisible()
-      await addComment.dispatchEvent('click')
+      await addComment.click()
 
       const draft = launched.page.getByPlaceholder('Add a comment…')
       await expect(draft).toBeVisible()
@@ -135,6 +148,77 @@ test(
       await expect(launched.page.getByText('Needs clarity.', { exact: true })).toBeVisible()
       await launched.page.getByText('Needs clarity.', { exact: true }).click()
       await expect(launched.page.locator('.writellm-comment-anchor-selected')).toBeVisible()
+      await launched.page.getByRole('button', { name: 'Edit comment', exact: true }).click()
+      const editedComment = launched.page.locator('textarea[rows="3"]:not([placeholder])')
+      await editedComment.fill('Needs clarity updated.')
+      await launched.page.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(launched.page.getByText('Needs clarity updated.', { exact: true })).toBeVisible()
+
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await editor.focus()
+      await launched.page.keyboard.press('ArrowLeft')
+      await expect(addComment).not.toBeVisible()
+      await editor
+        .locator('.bn-inline-content', { hasText: 'Alpha review sentence' })
+        .evaluate((element) => {
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+          const nodes: Text[] = []
+          for (let node = walker.nextNode(); node !== null; node = walker.nextNode())
+            nodes.push(node as Text)
+          const total = nodes.reduce((length, node) => length + node.data.length, 0)
+          const range = document.createRange()
+          let offset = 0
+          for (const node of nodes) {
+            if (
+              total - 'sentence'.length >= offset &&
+              total - 'sentence'.length < offset + node.data.length
+            )
+              range.setStart(node, total - 'sentence'.length - offset)
+            offset += node.data.length
+          }
+          const last = nodes.at(-1)
+          if (last === undefined) throw new Error('Paragraph text node is unavailable')
+          range.setEnd(last, last.data.length)
+          const selection = window.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          ;(element as HTMLElement).focus()
+          document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+        })
+      await editor.dispatchEvent('pointerup')
+      await expect(addComment).toBeVisible()
+      await addComment.click()
+      await launched.page.getByPlaceholder('Add a comment…').fill('Second comment.')
+      await launched.page.getByRole('button', { name: 'Comment', exact: true }).click()
+      await expect(launched.page.getByText('Second comment.', { exact: true })).toBeVisible()
+      await expect(launched.page.locator('.writellm-comment-anchor').first()).toBeVisible()
+      await launched.page.locator('.writellm-comment-anchor').first().click()
+      const overlapDialog = launched.page.getByRole('dialog', { name: 'Select a comment' })
+      await expect(overlapDialog).toBeVisible()
+      await expect(
+        overlapDialog
+          .getByRole('button')
+          .filter({ hasText: /Needs clarity updated\.|Second comment\./u })
+      ).toHaveCount(2)
+      await overlapDialog.getByRole('button').filter({ hasText: 'Needs clarity updated.' }).click()
+      await expect(launched.page.getByPlaceholder('Follow up…')).toBeVisible()
+      await editor.focus()
+      await editor
+        .locator('.bn-inline-content')
+        .first()
+        .evaluate((element) => {
+          const range = document.createRange()
+          range.selectNodeContents(element)
+          range.collapse(false)
+          const selection = window.getSelection()
+          selection?.removeAllRanges()
+          selection?.addRange(range)
+          ;(element as HTMLElement).focus()
+          document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+        })
+      await launched.page.keyboard.type(' Updated.')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Anchor Rebased', { exact: true })).toBeVisible()
       await launched.page.getByPlaceholder('Follow up…').fill('Author follow up.')
       await launched.page.getByRole('button', { name: 'Reply', exact: true }).click()
       await expect(launched.page.getByText('Author follow up.', { exact: true })).toBeVisible()

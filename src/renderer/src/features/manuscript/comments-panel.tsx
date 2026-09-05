@@ -8,15 +8,23 @@ import {
   Send,
   Trash2
 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
   CommentThread,
   CommentThreadSummary
 } from '../../../../shared/contracts/manuscript-comments'
+import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { EditorExactSelectionSnapshot } from './section-editor'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
@@ -30,12 +38,14 @@ export function CommentsPanel(props: {
   projectSessionId: string
   activeSectionId: string | null
   revisionKey: string
+  visible?: boolean
   draftSelection: PendingCommentSelection | null
   selectedThreadId: string | null
   onDraftConsumed(): void
   onThreads(threads: CommentThreadSummary[]): void
+  onHighlightThreads(threads: CommentThreadSummary[]): void
   onSelect(thread: CommentThreadSummary | null): void
-  onDelegatePrompt(prompt: string): void
+  onDelegate(threadIds: readonly string[]): void
   onReanchor(thread: CommentThread): Promise<void>
   onError(message: string): void
 }): React.JSX.Element {
@@ -50,46 +60,177 @@ export function CommentsPanel(props: {
   const [editDraft, setEditDraft] = useState('')
   const [detail, setDetail] = useState<CommentThread | null>(null)
   const [busy, setBusy] = useState(false)
+  const [proposalReference, setProposalReference] = useState<{
+    proposalId: string
+    agentSessionId: string
+  } | null>(null)
+  const [proposal, setProposal] = useState<MutationProposalRecord | null>(null)
+  const [proposalLoading, setProposalLoading] = useState(false)
+  const [proposalError, setProposalError] = useState<string | null>(null)
+  const proposalRequestRef = useRef(0)
+  const loadSequenceRef = useRef(0)
+  const highlightSequenceRef = useRef(0)
+  const refreshInFlightRef = useRef(false)
+  const selectedThreadIdRef = useRef<string | null>(props.selectedThreadId)
+  selectedThreadIdRef.current = props.selectedThreadId
 
   const load = useCallback(async (): Promise<void> => {
-    void props.revisionKey
+    const sequence = ++loadSequenceRef.current
     try {
-      const result = await window.desktop.manuscript.listComments({
-        projectSessionId: props.projectSessionId,
-        status,
-        query,
-        ...(scope === 'section' && props.activeSectionId !== null
-          ? { sectionId: props.activeSectionId }
-          : {}),
-        limit: 100
-      })
-      setThreads(result.threads)
-      props.onThreads(result.threads)
+      const pages: CommentThreadSummary[] = []
+      const seenCursors = new Set<string>()
+      let cursor: string | undefined
+      for (;;) {
+        const result = await window.desktop.manuscript.listComments({
+          projectSessionId: props.projectSessionId,
+          status,
+          query,
+          ...(scope === 'section' && props.activeSectionId !== null
+            ? { sectionId: props.activeSectionId }
+            : {}),
+          ...(cursor === undefined ? {} : { cursor }),
+          limit: 100
+        })
+        pages.push(...result.threads)
+        if (result.nextCursor === null) break
+        if (seenCursors.has(result.nextCursor)) {
+          throw new Error('Comment pagination returned a repeated cursor')
+        }
+        seenCursors.add(result.nextCursor)
+        cursor = result.nextCursor
+      }
+      if (loadSequenceRef.current !== sequence) return
+      setThreads(pages)
+      props.onThreads(pages)
     } catch {
-      props.onError('Comments could not be loaded.')
+      if (loadSequenceRef.current === sequence) props.onError('Comments could not be loaded.')
     }
   }, [
     props.activeSectionId,
     props.onError,
     props.onThreads,
     props.projectSessionId,
-    props.revisionKey,
     query,
     scope,
     status
   ])
 
-  useEffect(() => void load(), [load])
-  useEffect(() => {
-    if (props.selectedThreadId === null) {
-      setDetail(null)
-      return
+  const loadHighlights = useCallback(async (): Promise<void> => {
+    const sequence = ++highlightSequenceRef.current
+    try {
+      const pages: CommentThreadSummary[] = []
+      const seenCursors = new Set<string>()
+      let cursor: string | undefined
+      for (;;) {
+        const result = await window.desktop.manuscript.listComments({
+          projectSessionId: props.projectSessionId,
+          status: 'open',
+          query: '',
+          limit: 100,
+          ...(cursor === undefined ? {} : { cursor })
+        })
+        pages.push(...result.threads)
+        if (result.nextCursor === null) break
+        if (seenCursors.has(result.nextCursor)) {
+          throw new Error('Comment pagination returned a repeated cursor')
+        }
+        seenCursors.add(result.nextCursor)
+        cursor = result.nextCursor
+      }
+      if (highlightSequenceRef.current !== sequence) return
+      props.onHighlightThreads(pages)
+    } catch {
+      if (highlightSequenceRef.current === sequence) props.onError('Comments could not be loaded.')
     }
-    void window.desktop.manuscript
-      .readComment({ projectSessionId: props.projectSessionId, threadId: props.selectedThreadId })
-      .then(setDetail)
-      .catch(() => props.onError('The selected comment could not be opened.'))
-  }, [props.projectSessionId, props.selectedThreadId, props.onError])
+  }, [props.onError, props.onHighlightThreads, props.projectSessionId])
+
+  const readDetail = useCallback(
+    async (threadId: string | null = selectedThreadIdRef.current): Promise<void> => {
+      if (threadId === null) {
+        setDetail(null)
+        return
+      }
+      try {
+        const next = await window.desktop.manuscript.readComment({
+          projectSessionId: props.projectSessionId,
+          threadId
+        })
+        if (selectedThreadIdRef.current === threadId) setDetail(next)
+      } catch {
+        if (selectedThreadIdRef.current === threadId)
+          props.onError('The selected comment could not be opened.')
+      }
+    },
+    [props.onError, props.projectSessionId]
+  )
+
+  const openProposal = useCallback(
+    async (proposalId: string, agentSessionId: string): Promise<void> => {
+      const requestId = ++proposalRequestRef.current
+      setProposalReference({ proposalId, agentSessionId })
+      setProposal(null)
+      setProposalError(null)
+      setProposalLoading(true)
+      try {
+        const proposals = await window.desktop.agent.listProposals({
+          projectSessionId: props.projectSessionId,
+          agentSessionId
+        })
+        if (proposalRequestRef.current !== requestId) return
+        const match = proposals.find((candidate) => candidate.proposalId === proposalId) ?? null
+        setProposal(match)
+        if (match === null) setProposalError('The linked proposal is no longer available.')
+      } catch {
+        if (proposalRequestRef.current === requestId)
+          setProposalError('The linked proposal could not be loaded.')
+      } finally {
+        if (proposalRequestRef.current === requestId) setProposalLoading(false)
+      }
+    },
+    [props.projectSessionId]
+  )
+
+  const closeProposal = useCallback((): void => {
+    proposalRequestRef.current += 1
+    setProposalReference(null)
+    setProposal(null)
+    setProposalError(null)
+    setProposalLoading(false)
+  }, [])
+
+  const refresh = useCallback(
+    async (includeDetail = true): Promise<void> => {
+      if (refreshInFlightRef.current) return
+      refreshInFlightRef.current = true
+      try {
+        const requests = [load(), loadHighlights()]
+        if (includeDetail) requests.push(readDetail())
+        await Promise.all(requests)
+      } finally {
+        refreshInFlightRef.current = false
+      }
+    },
+    [load, loadHighlights, readDetail]
+  )
+
+  useEffect(() => {
+    void props.revisionKey
+    if (props.selectedThreadId === null) setDetail(null)
+    void refresh()
+  }, [props.revisionKey, props.selectedThreadId, refresh])
+
+  useEffect(() => {
+    if (props.draftSelection === null) return
+    setDetail(null)
+    setEditingMessageId(null)
+  }, [props.draftSelection])
+
+  useEffect(() => {
+    if (props.visible === false) return
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 2_000)
+    return () => window.clearInterval(timer)
+  }, [props.visible, refresh])
 
   const mutate = async (
     operation: () => Promise<unknown>,
@@ -99,16 +240,9 @@ export function CommentsPanel(props: {
     try {
       await operation()
       setReply('')
-      await load()
-      if (refreshSelected && props.selectedThreadId !== null) {
-        setDetail(
-          await window.desktop.manuscript.readComment({
-            projectSessionId: props.projectSessionId,
-            threadId: props.selectedThreadId
-          })
-        )
-      }
+      await refresh(refreshSelected)
     } catch {
+      await readDetail()
       props.onError(
         'The comment changed or the operation could not be completed. Reload and try again.'
       )
@@ -218,6 +352,7 @@ export function CommentsPanel(props: {
                 <span className='font-medium'>Resolution:</span> {detail.resolutionNote}
               </div>
             ) : null}
+            <CommentActivity detail={detail} onOpenProposal={openProposal} />
           </div>
         </ScrollArea>
         <div className='space-y-2 border-t p-3'>
@@ -268,15 +403,7 @@ export function CommentsPanel(props: {
                   size='sm'
                   variant='outline'
                   disabled={busy}
-                  onClick={() =>
-                    void mutate(async () => {
-                      const result = await window.desktop.manuscript.delegateComments({
-                        projectSessionId: props.projectSessionId,
-                        threadIds: [detail.threadId]
-                      })
-                      props.onDelegatePrompt(result.prompt)
-                    })
-                  }
+                  onClick={() => props.onDelegate([detail.threadId])}
                 >
                   Ask Agent
                 </Button>
@@ -319,6 +446,16 @@ export function CommentsPanel(props: {
             </Button>
           </div>
         </div>
+        <CommentProposalDialog
+          open={proposalReference !== null}
+          onOpenChange={(open) => {
+            if (!open) closeProposal()
+          }}
+          reference={proposalReference}
+          proposal={proposal}
+          loading={proposalLoading}
+          error={proposalError}
+        />
       </div>
     )
   }
@@ -441,6 +578,7 @@ export function CommentsPanel(props: {
                   <p className='mt-1 truncate text-xs text-muted-foreground'>
                     “{thread.anchor.quote}” · {thread.messageCount}
                   </p>
+                  <CommentActivitySummary thread={thread} />
                 </button>
               </div>
             </div>
@@ -452,16 +590,11 @@ export function CommentsPanel(props: {
           <Button
             className='w-full'
             disabled={busy}
-            onClick={() =>
-              void mutate(async () => {
-                const result = await window.desktop.manuscript.delegateComments({
-                  projectSessionId: props.projectSessionId,
-                  threadIds: [...selected]
-                })
-                setSelected(new Set())
-                props.onDelegatePrompt(result.prompt)
-              })
-            }
+            onClick={() => {
+              const threadIds = [...selected]
+              setSelected(new Set())
+              props.onDelegate(threadIds)
+            }}
           >
             Ask Agent to address {selected.size}
           </Button>
@@ -469,4 +602,219 @@ export function CommentsPanel(props: {
       ) : null}
     </div>
   )
+}
+
+function CommentActivity({
+  detail,
+  onOpenProposal
+}: {
+  detail: CommentThread
+  onOpenProposal(proposalId: string, agentSessionId: string): void
+}): React.JSX.Element | null {
+  const activity = detail.activity
+  const events = detail.events
+  const activityProposalId = activity?.proposalId ?? null
+  const activityAgentSessionId = activity?.agentSessionId ?? null
+  if (activity == null && events.length === 0) return null
+  return (
+    <section className='space-y-2 border-t pt-3' aria-label='Comment processing activity'>
+      {activity ? (
+        <div className='flex flex-wrap items-center gap-2 text-xs'>
+          <span className='font-medium'>Agent activity</span>
+          <Badge variant={activity.status === 'failed' ? 'destructive' : 'secondary'}>
+            {formatActivityStatus(activity.status)}
+          </Badge>
+          {activityProposalId !== null && activityAgentSessionId !== null ? (
+            <Button
+              className='h-auto p-0 font-mono text-[11px]'
+              variant='link'
+              size='sm'
+              onClick={() => onOpenProposal(activityProposalId, activityAgentSessionId)}
+            >
+              Proposal {activityProposalId}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {events.length > 0 ? (
+        <section className='space-y-2' aria-label='Comment event history'>
+          <p className='text-xs font-medium text-muted-foreground'>Activity history</p>
+          {events.map((event) => {
+            const proposalId = event.proposalId
+            const agentSessionId = event.agentSessionId
+            return (
+              <div key={event.eventId} className='space-y-0.5 text-xs text-muted-foreground'>
+                <div className='flex flex-wrap items-center gap-1.5'>
+                  <span className='font-medium text-foreground'>
+                    {formatCommentEvent(event.type)}
+                  </span>
+                  <span>·</span>
+                  <span>
+                    {event.actor === 'agent'
+                      ? 'Agent'
+                      : event.actor === 'system'
+                        ? 'System'
+                        : 'You'}
+                  </span>
+                  <span>·</span>
+                  <time dateTime={event.createdAt}>{formatEventDate(event.createdAt)}</time>
+                </div>
+                {proposalId !== null && agentSessionId !== null ? (
+                  <Button
+                    className='h-auto p-0 font-mono text-[11px]'
+                    variant='link'
+                    size='sm'
+                    onClick={() => onOpenProposal(proposalId, agentSessionId)}
+                  >
+                    Proposal {proposalId}
+                  </Button>
+                ) : null}
+                {event.note ? <p className='whitespace-pre-wrap'>{event.note}</p> : null}
+              </div>
+            )
+          })}
+        </section>
+      ) : null}
+    </section>
+  )
+}
+
+function CommentProposalDialog(props: {
+  open: boolean
+  onOpenChange(open: boolean): void
+  reference: { proposalId: string; agentSessionId: string } | null
+  proposal: MutationProposalRecord | null
+  loading: boolean
+  error: string | null
+}): React.JSX.Element {
+  const preview = props.proposal?.payload.preview
+  const baseRevisionId =
+    props.proposal?.payload.kind === 'section_patch'
+      ? props.proposal.payload.mutation.baseRevisionId
+      : null
+  return (
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <DialogContent className='max-h-[80vh] overflow-y-auto sm:max-w-2xl'>
+        <DialogHeader>
+          <DialogTitle>Proposal details</DialogTitle>
+          <DialogDescription>
+            Read-only evidence for the change linked from this comment.
+          </DialogDescription>
+        </DialogHeader>
+        {props.loading ? <p className='text-sm text-muted-foreground'>Loading proposal…</p> : null}
+        {props.error ? <p className='text-sm text-destructive'>{props.error}</p> : null}
+        {props.proposal && preview ? (
+          <div className='space-y-4 text-sm'>
+            <div className='flex flex-wrap items-center gap-2'>
+              <Badge>{formatCommentEvent(props.proposal.status)}</Badge>
+              <span className='text-muted-foreground'>{props.proposal.kind}</span>
+              <span className='font-mono text-xs text-muted-foreground'>
+                {props.proposal.proposalId}
+              </span>
+            </div>
+            <p className='font-medium'>{preview.summary}</p>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <ProposalText
+                title='Before'
+                text={preview.beforeText}
+                truncated={preview.beforeTextTruncated}
+              />
+              <ProposalText
+                title='After'
+                text={preview.afterText}
+                truncated={preview.afterTextTruncated}
+              />
+            </div>
+            <dl className='grid gap-2 border-t pt-3 text-xs sm:grid-cols-2'>
+              <div>
+                <dt className='text-muted-foreground'>Base revision</dt>
+                <dd className='mt-0.5 break-all font-mono'>{baseRevisionId ?? 'Not applicable'}</dd>
+              </div>
+              <div>
+                <dt className='text-muted-foreground'>Applied revision</dt>
+                <dd className='mt-0.5 break-all font-mono'>
+                  {props.proposal.appliedRevisionId ?? 'Not applied'}
+                </dd>
+              </div>
+              <div>
+                <dt className='text-muted-foreground'>Agent session</dt>
+                <dd className='mt-0.5 break-all font-mono'>{props.proposal.agentSessionId}</dd>
+              </div>
+              <div>
+                <dt className='text-muted-foreground'>Linked comment session</dt>
+                <dd className='mt-0.5 break-all font-mono'>
+                  {props.reference?.agentSessionId ?? 'Unavailable'}
+                </dd>
+              </div>
+            </dl>
+            {props.proposal.rejectedReason ? (
+              <p className='text-xs text-muted-foreground'>
+                Decision note: {props.proposal.rejectedReason}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ProposalText(props: {
+  title: string
+  text: string
+  truncated: boolean
+}): React.JSX.Element {
+  return (
+    <section className='space-y-1'>
+      <h3 className='text-xs font-medium text-muted-foreground'>{props.title}</h3>
+      <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs'>
+        {props.text || '—'}
+      </pre>
+      {props.truncated ? (
+        <p className='text-[11px] text-muted-foreground'>Text truncated.</p>
+      ) : null}
+    </section>
+  )
+}
+
+function CommentActivitySummary({
+  thread
+}: {
+  thread: CommentThreadSummary
+}): React.JSX.Element | null {
+  const activity = thread.activity
+  if (!activity) return null
+  return (
+    <span className='mt-1 flex items-center gap-1 text-[11px] text-muted-foreground'>
+      <Badge
+        className='h-4 px-1.5 text-[10px]'
+        variant={activity.status === 'failed' ? 'destructive' : 'secondary'}
+      >
+        {formatActivityStatus(activity.status)}
+      </Badge>
+      {activity.proposalId ? <span className='truncate'>Proposal linked</span> : null}
+    </span>
+  )
+}
+
+function formatCommentEvent(type: string): string {
+  return type.replaceAll('_', ' ').replace(/\b\w/g, (value) => value.toLocaleUpperCase())
+}
+
+function formatActivityStatus(status: string): string {
+  const labels: Record<string, string> = {
+    awaiting_review: 'Waiting for approval',
+    awaiting_user: 'Needs your input',
+    completed: 'Completed',
+    delegated: 'Queued',
+    failed: 'Failed',
+    interrupted: 'Stopped',
+    running: 'In progress'
+  }
+  return labels[status] ?? formatCommentEvent(status)
+}
+
+function formatEventDate(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }

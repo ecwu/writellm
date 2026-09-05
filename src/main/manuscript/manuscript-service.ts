@@ -48,6 +48,7 @@ import {
   prepareValidatedSectionContent
 } from './content'
 import { recordRevisionAssetReferences } from './asset-service'
+import { updateCommentAnchors } from './comment-anchor-mapping'
 import { ManuscriptRepository } from './manuscript-repository'
 
 const POSITION_OFFSET = 1_000_000_000
@@ -704,6 +705,7 @@ export class ManuscriptService {
             'The section body has changed'
           )
         }
+        updateCommentAnchors(database, section.section_id)
         return this.#repository.revision(revisionId, database) as SectionRevisionTable
       })
       this.#log.info(
@@ -807,6 +809,7 @@ export class ManuscriptService {
             'The section body has changed'
           )
         }
+        updateCommentAnchors(database, section.section_id)
         const row = this.#repository.revision(revisionId, database)
         if (row === undefined) throw new Error('Replacement revision was not stored')
         result.push(row)
@@ -893,6 +896,7 @@ export class ManuscriptService {
       if (updated.changes !== 1) {
         throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
       }
+      updateCommentAnchors(database, section.section_id)
       const created = this.#repository.revision(revisionId, database)
       if (created === undefined) throw new Error('Replacement undo revision was not stored')
       return created

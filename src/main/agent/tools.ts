@@ -21,6 +21,7 @@ import {
   inspectChangeResultSchema,
   listCommentsArgsSchema,
   readCommentArgsSchema,
+  readSectionArgsSchema,
   replyCommentArgsSchema,
   resolveCommentArgsSchema,
   type InspectChangeResult,
@@ -154,6 +155,8 @@ export class MainAgentTools implements AgentToolExecutor {
   async execute<TName extends AgentToolName>(
     input: AgentToolExecutionInput<TName>
   ): Promise<AgentToolResultMap[TName]> {
+    if (input.signal.aborted)
+      throw new AgentToolDomainError('aborted', 'Agent tool execution was cancelled')
     if (input.toolName === 'ask_user') {
       throw new AgentToolDomainError(
         'unauthorized',
@@ -236,9 +239,20 @@ export class MainAgentTools implements AgentToolExecutor {
     }
     if (input.toolName === 'read_comment') {
       const args = readCommentArgsSchema.parse(input.args)
+      const thread = this.#requireComments().read(args.threadId)
+      if (
+        input.snapshot?.workspace.sections.find(
+          (entry) => entry.section.sectionId === thread.sectionId
+        )?.revision.sectionRevisionId !== thread.anchor.currentRevisionId
+      )
+        throw new AgentToolDomainError(
+          'conflict',
+          'Read the comment in a new model request with a current manuscript snapshot'
+        )
       return this.#requireComments().readForAgent(
         args.threadId,
-        input.agentRunId
+        input.agentRunId,
+        input.modelRequestId
       ) as AgentToolResultMap[TName]
     }
     if (input.toolName === 'reply_comment') {
@@ -250,6 +264,16 @@ export class MainAgentTools implements AgentToolExecutor {
     }
     if (input.toolName === 'resolve_comment') {
       const args = resolveCommentArgsSchema.parse(input.args)
+      const thread = this.#requireComments().read(args.threadId)
+      if (
+        input.snapshot?.workspace.sections.find(
+          (entry) => entry.section.sectionId === thread.sectionId
+        )?.revision.sectionRevisionId !== thread.anchor.currentRevisionId
+      )
+        throw new AgentToolDomainError(
+          'conflict',
+          'Resolve requires a current model request snapshot'
+        )
       return this.#requireComments().resolveForAgent(
         {
           threadId: args.threadId,
@@ -258,7 +282,11 @@ export class MainAgentTools implements AgentToolExecutor {
           operationId: args.operationId,
           proposalId: args.proposalId
         },
-        { sessionId: input.agentSessionId, runId: input.agentRunId }
+        {
+          sessionId: input.agentSessionId,
+          runId: input.agentRunId,
+          modelRequestId: input.modelRequestId
+        }
       ) as AgentToolResultMap[TName]
     }
     const readName = agentReadToolNameSchema.safeParse(input.toolName)
@@ -274,8 +302,9 @@ export class MainAgentTools implements AgentToolExecutor {
         const section = result as ReadSectionResult
         this.comments.recordSectionRead(
           input.agentRunId,
-          section.section.sectionId,
-          section.revisionId
+          input.modelRequestId,
+          section,
+          readSectionArgsSchema.parse(input.args)
         )
       }
       return result as AgentToolResultMap[TName]
@@ -370,6 +399,10 @@ export class MainAgentTools implements AgentToolExecutor {
       ...(tableOperationKinds === undefined ? {} : { tableOperationKinds }),
       signal: input.signal
     })
+    if (proposalName === 'submit_section_change' && this.comments !== undefined) {
+      const args = modelSubmitSectionChangeArgsSchema.parse(input.args)
+      this.comments.linkProposedChange(input.agentRunId, args.sectionId, result.proposalId)
+    }
     return result as AgentToolResultMap[TName]
   }
 

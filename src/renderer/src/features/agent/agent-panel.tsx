@@ -13,7 +13,8 @@ export interface AgentPanelQuickActionRequest {
 
 export interface AgentPanelPromptRequest {
   requestId: string
-  prompt: string
+  prompt?: string
+  commentThreadIds?: readonly string[]
 }
 
 export interface AgentPanelProps {

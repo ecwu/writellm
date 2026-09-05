@@ -11,6 +11,7 @@ import type { BlockNoteDocument, BlockNoteTableContent } from '../../shared/cont
 import { summarizeTableChange } from '../../shared/manuscript-table'
 import type { WritingRulesState } from '../../shared/contracts/writing-rules'
 import type { briefFieldsFromRow } from './mutation-storage'
+import { truncateUtf8 } from './session-history'
 
 export function formatWritingRulesPreview(state: WritingRulesState): string {
   if (state.rules.length === 0) return 'No Writing Rules'
@@ -37,8 +38,8 @@ export function createPreview(input: {
   citedSources: MutationCitedSource[]
   presentation?: ProposalPresentation
 }): MutationPreview {
-  const before = truncateUtf8(input.beforeText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
-  const after = truncateUtf8(input.afterText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
+  const before = truncatePreviewText(input.beforeText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
+  const after = truncatePreviewText(input.afterText, AGENT_MUTATION_PREVIEW_TEXT_LIMIT)
   return mutationPreviewSchema.parse({
     summary: input.summary,
     affectedSectionIds: [...new Set(input.affectedSectionIds)],
@@ -111,13 +112,12 @@ export function boundedPresentationText(value: string | null): ProposalPresentat
   return { text: value.slice(0, maximum), truncated: value.length > maximum }
 }
 
-export function truncateUtf8(
+function truncatePreviewText(
   value: string,
   maximumBytes: number
 ): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(value)
-  if (bytes.byteLength <= maximumBytes) return { text: value, truncated: false }
-  return { text: bytes.subarray(0, maximumBytes).toString('utf8'), truncated: true }
+  const text = truncateUtf8(value, maximumBytes)
+  return { text, truncated: text !== value }
 }
 
 export const BRIEF_PRESENTATION_FIELDS = [
@@ -135,8 +135,7 @@ export const BRIEF_PRESENTATION_FIELDS = [
 
 export function presentationText(value: string | null): ProposalPresentationText {
   if (value === null) return { text: null, truncated: false }
-  const projected = truncateUtf8(value, 4_096)
-  return { text: projected.text, truncated: projected.truncated }
+  return truncatePreviewText(value, 4_096)
 }
 
 export function createBriefPresentation(

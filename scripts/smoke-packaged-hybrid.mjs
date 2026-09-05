@@ -499,7 +499,34 @@ async function runPackagedAppScenarios(resources) {
         ]
       })
       if (!saved.ok) throw new Error(saved.error.message)
+      const comment = await window.desktop.manuscript.createComment({
+        projectSessionId: active.projectSessionId,
+        sectionId,
+        revisionId: saved.result.revision.sectionRevisionId,
+        contentHash: saved.result.revision.contentHash,
+        quote: 'Packaged',
+        segments: [{ blockId: 'packaged-paragraph', from: 0, to: 8 }],
+        body: 'Packaged comment persistence'
+      })
+      const replied = await window.desktop.manuscript.replyComment({
+        projectSessionId: active.projectSessionId,
+        threadId: comment.threadId,
+        expectedVersion: comment.version,
+        body: 'Packaged follow up'
+      })
+      const closed = await window.desktop.manuscript.resolveComment({
+        projectSessionId: active.projectSessionId,
+        threadId: comment.threadId,
+        expectedVersion: replied.version,
+        resolutionNote: 'Packaged verification'
+      })
+      await window.desktop.manuscript.reopenComment({
+        projectSessionId: active.projectSessionId,
+        threadId: comment.threadId,
+        expectedVersion: closed.version
+      })
       return {
+        commentThreadId: comment.threadId,
         projectId: active.projectId,
         sectionId,
         assetId: asset.assetId,
@@ -848,7 +875,7 @@ async function runPackagedAppScenarios(resources) {
       }
     })
     const reopenResult = await page.evaluate(
-      async ({ projectId, firstSessionId, sectionId, assetId }) => {
+      async ({ projectId, firstSessionId, sectionId, assetId, commentThreadId }) => {
         try {
           await window.desktop.projects.close({ projectSessionId: firstSessionId })
         } catch (cause) {
@@ -879,6 +906,27 @@ async function runPackagedAppScenarios(resources) {
         ) {
           throw new Error('Schema-v5 content did not survive packaged reopen')
         }
+        const comment = await window.desktop.manuscript.readComment({
+          projectSessionId: active.projectSessionId,
+          threadId: commentThreadId
+        })
+        if (
+          comment.status !== 'open' ||
+          comment.anchor.status !== 'attached' ||
+          comment.messages.length !== 2
+        )
+          throw new Error('Comment thread did not survive packaged project reopen')
+        let staleCommentAccepted = false
+        try {
+          await window.desktop.manuscript.readComment({
+            projectSessionId: firstSessionId,
+            threadId: commentThreadId
+          })
+          staleCommentAccepted = true
+        } catch {
+          /* Expected revoked project capability. */
+        }
+        if (staleCommentAccepted) throw new Error('Revoked project session read packaged comments')
         const resolved = await window.desktop.editor.resolveAsset({
           projectSessionId: active.projectSessionId,
           assetId

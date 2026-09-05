@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 077
-Recorded: 2026-07-31; amended through 2026-09-03
+Status: accepted implementation baseline, amended through accepted ADR 079
+Recorded: 2026-07-31; amended through 2026-09-05
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,15 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-05 Writer comment verification amendment
+
+ADRs 078 and 079 define project-local text-range discussion threads with `open` and `resolved`
+status. Comment anchors use bounded canonical revision mapping inside each manuscript commit and
+conservative orphaning for ambiguous identity. Session-scoped delegation, actual block-read
+coverage, model request identity, and applied proposal evidence constrain Agent resolution.
+Comment processing derives from existing Agent runs and proposals. No deterministic Review Issues,
+annotation schema, background comment job, or publication-export content is restored.
 
 ## 2026-09-03 Review fixture and annotation removal amendment
 

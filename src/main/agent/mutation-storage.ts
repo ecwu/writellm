@@ -30,6 +30,7 @@ import { assetIdFromUrl, recordRevisionAssetReferences } from '../manuscript/ass
 import { AgentToolDomainError } from './read-tools'
 import { MutationSimulationError } from './mutation-simulator'
 import { MutationProposalError, type ProposalToolExecutionContext } from './mutation-errors'
+import { truncateUtf8 } from './session-history'
 
 export function requireToolCall(
   database: Database.Database,
@@ -261,15 +262,7 @@ export function composeImageIterationPrompt(
 
 export function truncateImagePromptUtf8(value: string, maximumBytes: number): string {
   if (Buffer.byteLength(value) <= maximumBytes) return value
-  let result = ''
-  let size = 0
-  for (const character of value) {
-    const nextSize = Buffer.byteLength(character)
-    if (size + nextSize > maximumBytes - 3) break
-    result += character
-    size += nextSize
-  }
-  return `${result}…`
+  return `${truncateUtf8(value, maximumBytes - 3)}…`
 }
 
 export function requirePrimaryManuscript(

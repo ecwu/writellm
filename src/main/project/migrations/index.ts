@@ -43,6 +43,8 @@ import { migration0042 } from './0042-agent-request-retry'
 import { migration0043 } from './0043-remove-review-fixtures-and-annotations'
 import { migration0044 } from './0044-manuscript-comments'
 
+import { migration0045 } from './0045-comment-acceptance'
+
 export const projectMigrations = [
   migration0001,
   migration0002,
@@ -87,5 +89,6 @@ export const projectMigrations = [
   migration0041,
   migration0042,
   migration0043,
-  migration0044
+  migration0044,
+  migration0045
 ] as const

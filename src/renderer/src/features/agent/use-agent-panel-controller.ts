@@ -255,7 +255,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
     _reuseSkillFromRunId?: string,
     rejectedProposalId?: string,
     quickAction?: AgentQuickActionRequest,
-    quickActionSelection?: AgentPanelSelection
+    quickActionSelection?: AgentPanelSelection,
+    commentThreadIds?: readonly string[]
   ): Promise<boolean> => {
     const trimmed = content.trim()
     const quickActionBlocked =
@@ -275,7 +276,10 @@ export function useAgentPanelController(props: AgentPanelProps) {
       return false
     }
     if (
-      (trimmed.length === 0 && quickAction === undefined && approvedProposalId === undefined) ||
+      (trimmed.length === 0 &&
+        quickAction === undefined &&
+        approvedProposalId === undefined &&
+        commentThreadIds === undefined) ||
       activeSessionArchived ||
       (!allowWhileBusy && busy) ||
       ((activeRun !== null || conversationLocked) &&
@@ -291,13 +295,38 @@ export function useAgentPanelController(props: AgentPanelProps) {
         setError('Save the active section before starting the Agent.')
         return false
       }
-      const session = activeSession ?? (await createSession())
+      let session = activeSession ?? (await createSession())
+      let runPrompt = trimmed
+      if (commentThreadIds !== undefined) {
+        if (commentThreadIds.length === 0) {
+          setError('Select at least one comment for the Agent to address.')
+          return false
+        }
+        if (session.interactionMode !== 'write') {
+          session = await window.desktop.agent.setInteractionMode({
+            projectSessionId: props.projectSessionId,
+            agentSessionId: session.agentSessionId,
+            mode: 'write'
+          })
+          setSessions((current) =>
+            current.map((candidate) =>
+              candidate.agentSessionId === session.agentSessionId ? session : candidate
+            )
+          )
+        }
+        const delegation = await window.desktop.manuscript.delegateComments({
+          projectSessionId: props.projectSessionId,
+          threadIds: [...commentThreadIds],
+          agentSessionId: session.agentSessionId
+        })
+        runPrompt = delegation.prompt
+      }
       const run = await window.desktop.agent.startRun({
         projectSessionId: props.projectSessionId,
         agentSessionId: session.agentSessionId,
         ...(quickAction === undefined
           ? approvedProposalId === undefined
-            ? { prompt: trimmed }
+            ? { prompt: runPrompt }
             : {}
           : { quickAction }),
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
@@ -363,7 +392,17 @@ export function useAgentPanelController(props: AgentPanelProps) {
     )
       return
     void startRunRef
-      .current(request.prompt, undefined, false, true)
+      .current(
+        request.prompt ?? '',
+        undefined,
+        false,
+        request.commentThreadIds === undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        request.commentThreadIds
+      )
       .then((started) => props.onPromptHandled?.(request.requestId, started))
   }, [claimQuickAction, loading, props.promptRequest, props.onPromptHandled])
 

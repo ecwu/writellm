@@ -2217,3 +2217,93 @@ Evidence: `.cache/verification/1788561277977-56814-fa05b353`,
 `.cache/verification/1788560744278-51847-965c485f`,
 `.cache/verification/1788561221750-56344-be5dafc2`, and
 `.cache/verification/1788561368063-57752-4df380ed`.
+
+
+### 2026-09-04 Comment acceptance correction
+
+Independent acceptance review invalidated the earlier CP84 completion claim. Three existing comment
+cases passed, while four added acceptance probes failed: replacement anchors, duplicate occurrence
+identity, orphaned Agent resolution, and zero-block section reads accepted as verification.
+The canonical Electron run took 1.55 seconds (1.9 seconds including the wrapper), without automatic
+retries. UI/delegation integration gaps were also found by code inspection. Current state and the
+tracker were corrected; detailed evidence is in Phase 33. Product code was not modified.
+
+
+### 2026-09-05 Comment acceptance remediation
+
+Under the author's explicit fix request, corrected replacement and duplicate-text anchors with
+transactional canonical mapping, added forward migration 0045, enforced fixed session delegation
+and complete fresh model-request verification, and checked applied proposal/deletion evidence.
+Undo now reopens only the currently dependent resolution. Comment UI pagination, ordering,
+refresh, overlap selection, processing history, and cross-session proposal evidence were repaired.
+
+Verification passed 72 focused Electron-hosted tests in 4.60 seconds (5.0 seconds with wrapper),
+three affected Electron scenarios across targeted runs, and all six packaged-smoke stages in
+77.3 seconds with 12 runtime scenarios. The final comment E2E passed in 2.35 seconds with no
+automatic retries after correcting synthetic selection/closing-toolbar fixture behavior.
+The macOS arm64 App and final source build have matching renderer content. Progress and tracker
+are synchronized; detailed reports, diagnostic iterations, and platform limits are recorded in
+Phase 33. Live-provider UI approval continuation and other platforms were not exercised.
+
+
+### 2026-09-05 Gemini stream truncation
+
+The user reported an immediate Agent failure after switching models. Read-only local log and
+project trace inspection identified run `50f73e29-14bb-4183-b565-66c623d1cbfa` at
+2026-09-05 07:55:19–20 UTC: selection and request both used `gemini-3.1-pro-preview`, the
+logical request failed after 470 ms, and its Google adapter response contained no content,
+zero usage, and `Incomplete JSON segment at the end`, with retryCount zero. The installed
+Google GenAI parser emits this when the response ends with a nonempty unterminated SSE buffer.
+No raw HTTP body/status was retained in this trace, so transient transport truncation versus
+persistent custom-gateway response-format incompatibility cannot be distinguished from this evidence.
+
+Added that exact diagnostic to the existing pre-content retry classification as `stream_ended`.
+The existing five-attempt limit, backoff, cancellation, permanent-error precedence, partial-content
+checks, and structured retry logging remain authoritative. No provider parser, history rewriting,
+migration, dependency, or request-replay mechanism was added. Other JSON errors remain terminal.
+
+Verification: `pnpm test src/workers/agent-provider-stream.test.ts
+src/workers/agent-session-run.test.ts src/workers/agent-provider-runtime.test.ts` passed 3 files /
+50 tests in 3.64 seconds (4.4 seconds with wrapper), without test retries. The new real Google SDK
+fixture switches from prior OpenAI-compatible history, receives a truncated SSE frame, then succeeds
+with an identical second request and retryCount one. Boundary tests cover five-attempt exhaustion,
+text/thinking/tool content, cancellation, permanent HTTP errors, and unrelated JSON errors.
+`pnpm check:fast` passed all three stages in 11.3 seconds. Electron 43.4.1 / ABI 148 hosted tests;
+host Node 26.8.1 triggered the existing Node >=24.15 <25 engine warning, while installed pnpm
+11.17.0 matched the manifest. No replacement runtime was installed. Live custom-provider calls and
+other platforms were not exercised. Existing unrelated comment-acceptance work was preserved.
+
+`pnpm package:unpack` initially failed at application assembly with sandbox DNS
+`ENOTFOUND github.com` after 55.2 seconds. Retrying the same command outside the sandbox passed
+all four build-only stages in 32.9 seconds, including signature policy and 33,981-entry resource
+inventory. The resulting App is `dist/macos-arm64/mac-arm64/WriteLLM.app`; no packaged functional
+or live-provider test is claimed by this build-only gate. Final `pnpm check` and `git diff --check`
+also passed. Reports: `.cache/verification/1788595127677-35254-14107c2b` (tests),
+`.cache/verification/1788595140228-35515-7d352bf8` (static), and
+`.cache/verification/1788595214426-36287-489ffea9` (successful package).
+
+### 2026-09-05 Ponytail UTF8 cleanup
+
+The user requested repository code cleanup with Ponytail. Inspection of Agent text truncation
+found three implementations duplicating the existing `session-history.ts` complete-code-point
+UTF-8 prefix helper. Title context and image iteration now reuse it while retaining title
+whitespace trimming, the original byte limits, and the image ellipsis. Proposal previews use
+the same helper instead of decoding a byte slice that may split a Chinese character or emoji;
+the preview's truncation flag remains explicit. Production code is reduced by 19 lines.
+No dependency, architecture, persistence, IPC, or renderer interaction changes were introduced.
+Existing uncommitted comment-acceptance and provider-retry work was preserved.
+
+Verification scope was static checks plus focused Electron-hosted title, preview, image, and
+outline proposal coverage, because the changed boundary is Main-side text projection.
+`pnpm check:fast` passed all three stages in 10.9 seconds; `pnpm test
+src/main/agent/utf8-truncation.test.ts src/main/agent/session-title.test.ts
+src/main/agent/mutation-service.test.ts src/main/agent/mutation-service.images.test.ts
+src/main/agent/mutation-service.outline.test.ts` passed 5 files / 35 tests in 3.92 seconds
+(4.6 seconds with wrapper), without retries. Four new tests cover every byte boundary of
+ASCII, Chinese, emoji and unpaired-surrogate samples, image ellipses, preview flags, and title
+whitespace trimming. Tests used the canonical Electron runtime (43.4.1 / ABI 148).
+Installed pnpm 11.17.0 matches the repository pin; host Node 26.8.1 emitted the pre-existing
+Node >=24.15 <25 engine warning. No replacement runtime was installed. E2E, packaging,
+live providers, and other platforms were not exercised for this text-projection cleanup.
+Reports: `.cache/verification/1788597027054-51484-3dc59d4e` (static) and
+`.cache/verification/1788597028862-51522-24c7374d` (tests).

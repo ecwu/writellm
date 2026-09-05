@@ -608,6 +608,20 @@ export interface ProjectDatabaseSchema {
   manuscript_comment_messages: ManuscriptCommentMessageTable
   manuscript_comment_events: ManuscriptCommentEventTable
   manuscript_comment_reads: ManuscriptCommentReadTable
+  manuscript_comment_anchor_history: {
+    thread_id: string
+    revision_id: string
+    content_hash: string
+    anchor_json: string
+    anchor_status: 'attached' | 'orphaned'
+  }
+  manuscript_comment_delegations: {
+    agent_session_id: string
+    thread_id: string
+    agent_run_id: string | null
+    delegated_at: string
+  }
+  manuscript_comment_changes: { thread_id: string; proposal_id: string }
   agent_writing_tasks: AgentWritingTaskTable
   manuscript_assets: ManuscriptAssetTable
   section_revision_assets: SectionRevisionAssetTable
@@ -624,6 +638,7 @@ export interface ProjectDatabaseSchema {
 }
 
 export interface ManuscriptCommentThreadTable {
+  anchor_revision_id: string | null
   thread_id: string
   section_id: string
   status: 'open' | 'resolved'
@@ -679,6 +694,10 @@ export interface ManuscriptCommentEventTable {
 }
 
 export interface ManuscriptCommentReadTable {
+  model_request_id: string | null
+  section_model_request_id: string | null
+  covered_blocks_json: string
+  fragment_ranges_json: string
   agent_run_id: string
   thread_id: string
   thread_version: number

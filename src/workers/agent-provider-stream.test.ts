@@ -143,6 +143,58 @@ describe('createRetryingAgentProviderStream', () => {
     }
   })
 
+  it('bounds repeated incomplete Gemini frames to five attempts', async () => {
+    const startAttempt = vi.fn(() => eventStream(errorEvent('Incomplete JSON segment at the end')))
+    const onRetry = vi.fn()
+    const retrying = createRetryingAgentProviderStream({
+      startAttempt,
+      responseStatus: () => undefined,
+      retryAfterMs: () => 0,
+      createErrorMessage: (error) => message('error', '', String(error)),
+      onRetry
+    })
+    expect(await retrying.stream.result()).toMatchObject({
+      stopReason: 'error',
+      errorMessage: 'Incomplete JSON segment at the end'
+    })
+    expect(startAttempt).toHaveBeenCalledTimes(5)
+    expect(onRetry).toHaveBeenCalledTimes(4)
+    expect(retrying.state).toMatchObject({
+      exhausted: true,
+      retryCount: 4,
+      lastReasonCode: 'stream_ended'
+    })
+  })
+
+  it.each(['text', 'thinking', 'toolCall', 'aborted', 'permanent', 'other_json'] as const)(
+    'does not replay incomplete Gemini frames with %s',
+    async (boundary) => {
+      const failure = message('error', '', 'Incomplete JSON segment at the end')
+      if (boundary === 'text') failure.content = [{ type: 'text', text: 'partial' }]
+      if (boundary === 'thinking') failure.content = [{ type: 'thinking', thinking: 'partial' }]
+      if (boundary === 'toolCall')
+        failure.content = [{ type: 'toolCall', id: 'call', name: 'write', arguments: {} }]
+      if (boundary === 'aborted') failure.stopReason = 'aborted'
+      if (boundary === 'other_json') failure.errorMessage = 'Invalid JSON tool arguments'
+      const startAttempt = vi.fn(() =>
+        eventStream({
+          type: 'error',
+          reason: boundary === 'aborted' ? 'aborted' : 'error',
+          error: failure
+        })
+      )
+      const retrying = createRetryingAgentProviderStream({
+        startAttempt,
+        responseStatus: () => (boundary === 'permanent' ? 400 : 200),
+        retryAfterMs: () => 0,
+        createErrorMessage: (error) => message('error', '', String(error)),
+        onRetry: () => undefined
+      })
+      expect(await retrying.stream.result()).toEqual(failure)
+      expect(startAttempt).toHaveBeenCalledTimes(1)
+    }
+  )
+
   it('cancels an active retry delay', async () => {
     const controller = new AbortController()
     let attempts = 0

@@ -156,6 +156,70 @@ describe('runAgentSession', () => {
     expect(events.some((event) => event.type === 'follow_up_consumption_requested')).toBe(false)
   })
 
+  it('recovers a truncated Gemini stream after switching from an earlier model', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)))
+      return new Response(
+        bodies.length === 1
+          ? 'data: {"candidates":'
+          : `data: ${JSON.stringify({
+              candidates: [
+                {
+                  content: { role: 'model', parts: [{ text: 'Recovered draft.' }] },
+                  finishReason: 'STOP'
+                }
+              ],
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 4, totalTokenCount: 14 }
+            })}\n\n`,
+        { headers: { 'content-type': 'text/event-stream' } }
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const events: AgentRuntimeEvent[] = []
+    const logs: string[] = []
+    await runAgentSession(
+      {
+        ...request,
+        config: {
+          ...request.config,
+          api: 'google-generative-ai',
+          providerId: 'google',
+          model: 'gemini-3.1-pro-preview'
+        },
+        runtimeModel: {
+          id: 'gemini-3.1-pro-preview',
+          name: 'Gemini',
+          api: 'google-generative-ai',
+          provider: 'google',
+          baseUrl: 'https://gemini.example.test',
+          reasoning: true,
+          input: ['text'],
+          contextWindow: 1_048_576,
+          maxTokens: 65_536
+        }
+      },
+      (event) => events.push(event),
+      () => undefined,
+      undefined,
+      new FakeMessagePort() as never,
+      (_level, event) => {
+        logs.push(event)
+      }
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(bodies[1]).toEqual(bodies[0])
+    expect(JSON.stringify(bodies[1])).toContain('Earlier answer')
+    expect(logs).toContain('agent.provider.retrying')
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'model_call_finished',
+        outcome: 'succeeded',
+        metadata: expect.objectContaining({ retryCount: 1 })
+      })
+    )
+  })
+
   it('sends the selected Vertex model output and supported off configuration through Pi', async () => {
     const bodies: Array<Record<string, unknown>> = []
     vi.stubGlobal(

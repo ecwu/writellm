@@ -49,6 +49,15 @@ function restoreV5ManuscriptSchema(database: Database.Database): void {
   database.pragma('foreign_keys = OFF')
   dropAgentTraceSchema(database)
   database.exec(`
+    DROP TRIGGER IF EXISTS manuscript_comments_orphan_on_section_revision;
+    DROP TRIGGER IF EXISTS manuscript_comments_reopen_on_proposal_undo;
+    DROP TABLE IF EXISTS manuscript_comment_changes;
+    DROP TABLE IF EXISTS manuscript_comment_delegations;
+    DROP TABLE IF EXISTS manuscript_comment_anchor_history;
+    DROP TABLE IF EXISTS manuscript_comment_reads;
+    DROP TABLE IF EXISTS manuscript_comment_events;
+    DROP TABLE IF EXISTS manuscript_comment_messages;
+    DROP TABLE IF EXISTS manuscript_comment_threads;
     DROP TABLE manuscript_asset_variants;
     DROP TABLE agent_change_set_commands;
     DROP TABLE active_parse_revisions;
@@ -364,7 +373,16 @@ describe('project database', () => {
     dropAgentTraceSchema(native)
     dropReferenceAuthoritySchema(native)
     native.exec(`
-      DROP TABLE manuscript_asset_variants;
+      DROP TRIGGER IF EXISTS manuscript_comments_orphan_on_section_revision;
+    DROP TRIGGER IF EXISTS manuscript_comments_reopen_on_proposal_undo;
+    DROP TABLE IF EXISTS manuscript_comment_changes;
+    DROP TABLE IF EXISTS manuscript_comment_delegations;
+    DROP TABLE IF EXISTS manuscript_comment_anchor_history;
+    DROP TABLE IF EXISTS manuscript_comment_reads;
+    DROP TABLE IF EXISTS manuscript_comment_events;
+    DROP TABLE IF EXISTS manuscript_comment_messages;
+    DROP TABLE IF EXISTS manuscript_comment_threads;
+    DROP TABLE manuscript_asset_variants;
       DROP TABLE agent_change_set_commands;
       DROP TABLE active_parse_revisions;
       DROP TABLE normalization_runs;
@@ -697,7 +715,16 @@ describe('project database', () => {
     dropAgentTraceSchema(native)
     dropReferenceAuthoritySchema(native)
     native.exec(`
-      DROP TABLE manuscript_asset_variants;
+      DROP TRIGGER IF EXISTS manuscript_comments_orphan_on_section_revision;
+    DROP TRIGGER IF EXISTS manuscript_comments_reopen_on_proposal_undo;
+    DROP TABLE IF EXISTS manuscript_comment_changes;
+    DROP TABLE IF EXISTS manuscript_comment_delegations;
+    DROP TABLE IF EXISTS manuscript_comment_anchor_history;
+    DROP TABLE IF EXISTS manuscript_comment_reads;
+    DROP TABLE IF EXISTS manuscript_comment_events;
+    DROP TABLE IF EXISTS manuscript_comment_messages;
+    DROP TABLE IF EXISTS manuscript_comment_threads;
+    DROP TABLE manuscript_asset_variants;
       DROP TABLE agent_change_set_commands;
       DROP TABLE section_revisions;
       DROP TABLE job_transitions;

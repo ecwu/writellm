@@ -45,6 +45,7 @@ import type {
 import type { ProjectDatabase } from '../project/project-database'
 import { decodeStoredSectionContent, extractSectionAgentText } from '../manuscript/content'
 import { assetUrl, type ManuscriptAssetService } from '../manuscript/asset-service'
+import { updateCommentAnchors } from '../manuscript/comment-anchor-mapping'
 import type { ModelExecutionService } from '../providers/model-execution-service'
 import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
@@ -2169,6 +2170,7 @@ export class MutationProposalService {
           )
           .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
         if (sectionUpdate.changes !== 1) throw staleBase('section')
+        updateCommentAnchors(database, mutation.sectionId)
         updateAppliedProposal(database, proposalId, now, { appliedRevisionId: revisionId })
         materializeRevisionIds = [revisionId]
         sectionChanged = {
@@ -2253,6 +2255,7 @@ export class MutationProposalService {
           )
           .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
         if (sectionUpdate.changes !== 1) throw staleBase('section')
+        updateCommentAnchors(database, mutation.sectionId)
         updateAppliedProposal(database, proposalId, now, { appliedRevisionId: revisionId })
         materializeRevisionIds = [revisionId]
         sectionChanged = {
@@ -2337,6 +2340,7 @@ export class MutationProposalService {
       )
       .run(undoRevisionId, now, section.section_id, applied.section_revision_id)
     if (sectionUpdate.changes !== 1) throw staleBase('section')
+    updateCommentAnchors(database, section.section_id)
     const proposalUpdate = database
       .prepare(
         `UPDATE mutation_proposals

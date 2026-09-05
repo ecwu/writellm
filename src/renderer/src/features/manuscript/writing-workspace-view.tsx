@@ -64,13 +64,15 @@ export function WritingWorkspaceView(input: {
 }): React.JSX.Element {
   const { props, controller } = input
   const [commentThreads, setCommentThreads] = useState<CommentThreadSummary[]>([])
+  const [commentHighlightThreads, setCommentHighlightThreads] = useState<CommentThreadSummary[]>([])
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<string | null>(null)
   const [commentDraftSelection, setCommentDraftSelection] =
     useState<PendingCommentSelection | null>(null)
   const [commentPromptRequest, setCommentPromptRequest] = useState<{
     requestId: string
-    prompt: string
+    threadIds: string[]
   } | null>(null)
+  const [overlappingCommentThreadIds, setOverlappingCommentThreadIds] = useState<string[]>([])
   const {
     alternateWorkspace,
     queryClient,
@@ -189,6 +191,20 @@ export function WritingWorkspaceView(input: {
     openChecksFromManuscript
   } = controller
   if (alternateWorkspace !== null) return alternateWorkspace
+
+  const openCommentThread = (thread: CommentThreadSummary): void => {
+    setOverlappingCommentThreadIds([])
+    setSelectedCommentThreadId(thread.threadId)
+    void selectSection(thread.sectionId).then((selected) => {
+      if (!selected) return
+      requestAnimationFrame(() => editorRef.current?.revealComment(thread.threadId))
+    })
+  }
+
+  const findCommentSummary = (threadId: string): CommentThreadSummary | undefined =>
+    commentHighlightThreads.find((thread) => thread.threadId === threadId) ??
+    commentThreads.find((thread) => thread.threadId === threadId)
+
   return (
     <SidebarProvider className='min-h-0 flex-1' defaultSidebarWidth={360}>
       <AppSidebar
@@ -297,23 +313,21 @@ export function WritingWorkspaceView(input: {
             projectSessionId={props.projectSessionId}
             activeSectionId={activeSectionId}
             revisionKey={JSON.stringify(currentRevisionIds)}
+            visible={activeWorkspace === 'comments'}
             draftSelection={commentDraftSelection}
             selectedThreadId={selectedCommentThreadId}
             onDraftConsumed={() => setCommentDraftSelection(null)}
             onThreads={setCommentThreads}
+            onHighlightThreads={setCommentHighlightThreads}
             onSelect={(thread) => {
               if (thread === null) {
                 setSelectedCommentThreadId(null)
                 return
               }
-              setSelectedCommentThreadId(thread.threadId)
-              void selectSection(thread.sectionId).then((selected) => {
-                if (!selected) return
-                requestAnimationFrame(() => editorRef.current?.revealComment(thread.threadId))
-              })
+              openCommentThread(thread)
             }}
-            onDelegatePrompt={(prompt) => {
-              setCommentPromptRequest({ requestId: crypto.randomUUID(), prompt })
+            onDelegate={(threadIds) => {
+              setCommentPromptRequest({ requestId: crypto.randomUUID(), threadIds: [...threadIds] })
               props.onAgentOpenChange(true)
             }}
             onReanchor={async (thread) => {
@@ -470,12 +484,20 @@ export function WritingWorkspaceView(input: {
                     }}
                     onQuickActionError={props.onError}
                     onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
-                    comments={commentThreads.filter(
+                    comments={commentHighlightThreads.filter(
                       (thread) => thread.sectionId === activeSummary.section.sectionId
                     )}
                     selectedCommentThreadId={selectedCommentThreadId}
                     onActivateComments={(threadIds) => {
-                      setSelectedCommentThreadId(threadIds[0] ?? null)
+                      if (threadIds.length > 1) {
+                        setOverlappingCommentThreadIds([...threadIds])
+                        setActiveWorkspace('comments')
+                        return
+                      }
+                      const threadId = threadIds[0]
+                      if (threadId === undefined) return
+                      const thread = findCommentSummary(threadId)
+                      if (thread !== undefined) openCommentThread(thread)
                       setActiveWorkspace('comments')
                     }}
                     onAddComment={(selection: EditorExactSelectionSnapshot) => {
@@ -496,6 +518,7 @@ export function WritingWorkspaceView(input: {
                           sectionId: activeSummary.section.sectionId,
                           ...current
                         })
+                        setSelectedCommentThreadId(null)
                         setActiveWorkspace('comments')
                       })
                     }}
@@ -544,7 +567,11 @@ export function WritingWorkspaceView(input: {
                 selection={selectionContext}
                 quickActionRequest={quickActionRequest}
                 promptRequest={commentPromptRequest}
-                onPromptHandled={(requestId) => {
+                onPromptHandled={(requestId, started) => {
+                  if (!started) {
+                    props.onError('The Agent could not start for the selected comments. Try again.')
+                    return
+                  }
                   setCommentPromptRequest((current) =>
                     current?.requestId === requestId ? null : current
                   )
@@ -563,6 +590,48 @@ export function WritingWorkspaceView(input: {
           </>
         ) : null}
       </ResizablePanelGroup>
+
+      <Dialog
+        open={overlappingCommentThreadIds.length > 1}
+        onOpenChange={(open) => {
+          if (!open) setOverlappingCommentThreadIds([])
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Select a comment</DialogTitle>
+            <DialogDescription>
+              Several comments cover this text. Choose the thread you want to open.
+            </DialogDescription>
+          </DialogHeader>
+          <div className='grid gap-2'>
+            {overlappingCommentThreadIds.map((threadId) => {
+              const thread = findCommentSummary(threadId)
+              return (
+                <Button
+                  key={threadId}
+                  variant='outline'
+                  className='h-auto justify-start whitespace-normal text-left'
+                  onClick={() => {
+                    if (thread === undefined) return
+                    openCommentThread(thread)
+                  }}
+                >
+                  <span className='min-w-0'>
+                    <span className='block truncate text-xs text-muted-foreground'>
+                      {thread?.sectionTitle ?? 'Comment'}
+                    </span>
+                    <span className='line-clamp-2 block'>
+                      {thread?.latestMessagePreview ??
+                        'This comment is no longer in the current list.'}
+                    </span>
+                  </span>
+                </Button>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {workspace ? (
         <OutlineEditPanel

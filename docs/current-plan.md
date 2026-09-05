@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+Status: Phase 33 Checkpoint 84 is locally verified under accepted ADRs 078–079. Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
 complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070. Checkpoint 77 remains independently paused; CP78 is
@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-04
+Recorded: 2026-09-05
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -31,12 +31,25 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Checkpoint 84 is complete under ADR 078. Writer now has persistent text-range comment threads,
-  author discussion and lifecycle controls, safe block-relative anchors, Comments navigation, and
-  explicit single/batch Agent delegation. Agent tool contract v16 enforces a fresh thread read and
-  full current-section read before resolution, preserves existing proposal approval, and reopens a
-  linked resolution when its proposal is undone. Static checks, 53 focused tests, a final
-  real-Electron comment flow, and the six-stage macOS arm64 package smoke passed. Evidence:
+- Ponytail UTF-8 cleanup is locally verified: Agent title context, image prompts, and proposal
+  previews reuse the existing complete-code-point truncator, removing 19 production lines and
+  preventing split-character preview output. Static checks and 35 focused Electron-hosted tests
+  passed without retries. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-ponytail-utf8-cleanup).
+
+- Gemini stream truncation maintenance is locally verified: the exact Google SDK incomplete-frame
+  error now uses existing bounded pre-content retries, preserving no-replay guards. All 50 focused
+  Electron-hosted tests and static checks passed. The macOS arm64 App was rebuilt and inventoried
+  at `dist/macos-arm64/mac-arm64/WriteLLM.app` in 32.9 seconds after a sandbox-network retry;
+  live custom-provider recovery remains unverified. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-gemini-stream-truncation).
+
+- Checkpoint 84 acceptance remediation is implemented and locally verified under ADRs 078–079.
+  Replacement/duplicate anchors, delegated Write authority, fresh complete-read verification,
+  applied-proposal/deletion evidence, and comment UI refresh/history/navigation are corrected.
+  Verification passed 72 focused Electron-hosted tests, three affected Electron scenarios, and
+  all 12 packaged runtime smoke scenarios. The current macOS arm64 App includes these fixes.
+  Live-provider end-to-end approval continuation and other platforms remain unverified. Evidence:
   [`implementation-todo/phase-33.md`](implementation-todo/phase-33.md).
 
 - The user-requested macOS arm64 App rebuild with Pi 0.85.0 is complete at
