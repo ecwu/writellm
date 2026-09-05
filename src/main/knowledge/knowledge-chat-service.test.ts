@@ -422,6 +422,20 @@ describe('KnowledgeChatService', () => {
     )
   })
 
+  it('accepts repeated registered citations without security warnings', async () => {
+    const { service, logger } = await harness({ answer: 'First [[cite:1]]. Again [[cite:1]].' })
+    await service.startTurn('Summarize the evidence.')
+    const snapshot = await completed(service)
+    expect(snapshot.messages.at(-1)).toMatchObject({
+      content: 'First [[cite:1]]. Again [[cite:1]].',
+      citations: [{ ordinal: 1, citationId, knowledgeItemId: sourceA }]
+    })
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'security.notebook_citation_marker_rejected' }),
+      expect.any(String)
+    )
+  })
+
   it('inserts a source boundary and excludes old questions from the next retrieval query', async () => {
     const { service, runtime } = await harness({ answer: 'First [[cite:1]].' })
     await service.startTurn('Old scope question')

@@ -88,13 +88,11 @@ export function notebookCitationMarkdown(
   citationToken = 'registered'
 ): string {
   const allowed = new Set(citationOrdinals)
-  const seen = new Set<number>()
   return content
     .replace(/writellm-citation:/giu, 'writellm-citation-text:')
     .replace(/\[\[cite:(\d{1,3})\]\]/gu, (marker, rawOrdinal: string) => {
       const ordinal = Number(rawOrdinal)
-      if (!allowed.has(ordinal) || seen.has(ordinal)) return marker
-      seen.add(ordinal)
+      if (!allowed.has(ordinal)) return marker
       return `[${ordinal}](writellm-citation:${citationToken}:${ordinal})`
     })
 }

@@ -9,6 +9,7 @@ import {
   listJobsResultSchema,
   type JobStatus
 } from '../../shared/contracts/jobs'
+import type { ProjectDatabase } from '../project/project-database'
 import type { JobRecord } from '../jobs/job-store'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
@@ -29,7 +30,10 @@ export interface JobIpcRegistration {
 
 export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistration {
   const ipc = options.ipc ?? ipcMain
-  const subscriptions = new Map<number, { sender: WebContents; unsubscribe: () => void }>()
+  const subscriptions = new Map<
+    number,
+    { sender: WebContents; projectSessionId: string; unsubscribe: () => void }
+  >()
 
   ipc.handle(IPC_CHANNELS.jobsList, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -43,7 +47,7 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
     options.manager.assertActiveSession(parsed.projectSessionId)
     const last = jobs.at(-1)
     return listJobsResultSchema.parse({
-      jobs: jobs.map(toJobStatus),
+      jobs: jobs.map((job) => toJobStatus(job, context.database)),
       nextCursor:
         jobs.length === parsed.limit && last !== undefined
           ? { updatedAt: last.updatedAt, jobId: last.jobId }
@@ -57,7 +61,7 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const job = context.jobs.require(parsed.jobId)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return jobStatusSchema.parse(toJobStatus(job))
+    return jobStatusSchema.parse(toJobStatus(job, context.database))
   })
 
   ipc.handle(IPC_CHANNELS.jobsRequestCancellation, (event, input: unknown) => {
@@ -67,7 +71,7 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
     const job = context.jobs.requestCancellation(parsed.jobId)
     context.runtime.scheduler.cancel(parsed.jobId)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return jobStatusSchema.parse(toJobStatus(job))
+    return jobStatusSchema.parse(toJobStatus(job, context.database))
   })
 
   ipc.handle(IPC_CHANNELS.jobsSubscribeStatus, (event, input: unknown) => {
@@ -80,7 +84,7 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
         options.manager.assertActiveSession(projectSessionId)
         event.sender.send(
           IPC_CHANNELS.jobsStatusEvent,
-          jobStatusEventSchema.parse({ projectSessionId, job: toJobStatus(job) })
+          jobStatusEventSchema.parse({ projectSessionId, job: toJobStatus(job, context.database) })
         )
       } catch (err) {
         options.logger.error(
@@ -89,21 +93,23 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
         )
       }
     })
-    subscriptions.set(event.sender.id, { sender: event.sender, unsubscribe })
+    subscriptions.set(event.sender.id, { sender: event.sender, projectSessionId, unsubscribe })
   })
 
   ipc.handle(IPC_CHANNELS.jobsUnsubscribeStatus, (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
-    jobStatusInputSchema.omit({ jobId: true }).parse(input)
-    subscriptions.get(event.sender.id)?.unsubscribe()
-    subscriptions.delete(event.sender.id)
+    const { projectSessionId } = jobStatusInputSchema.omit({ jobId: true }).parse(input)
+    const subscription = subscriptions.get(event.sender.id)
+    if (subscription?.projectSessionId === projectSessionId) {
+      subscription.unsubscribe()
+      subscriptions.delete(event.sender.id)
+    }
   })
 
   return {
     revokeSession(projectSessionId) {
       for (const [senderId, subscription] of subscriptions) {
-        const active = options.manager.snapshot().activeProject
-        if (active?.projectSessionId === projectSessionId) {
+        if (subscription.projectSessionId === projectSessionId) {
           subscription.unsubscribe()
           subscriptions.delete(senderId)
         }
@@ -125,10 +131,11 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
   }
 }
 
-function toJobStatus(job: JobRecord): JobStatus {
+export function toJobStatus(job: JobRecord, database: ProjectDatabase): JobStatus {
   return {
     jobId: job.jobId,
     type: job.type,
+    subject: jobSubject(job, database),
     state: job.state,
     priority: job.priority,
     attempts: job.attempts,
@@ -142,4 +149,26 @@ function toJobStatus(job: JobRecord): JobStatus {
     startedAt: job.startedAt,
     completedAt: job.completedAt
   }
+}
+
+function jobSubject(job: JobRecord, database: ProjectDatabase): JobStatus['subject'] {
+  if (job.type === 'artifact_cleanup') return { kind: 'maintenance' }
+  if (typeof job.payload.knowledgeItemId === 'string') {
+    return { kind: 'file', knowledgeItemId: job.payload.knowledgeItemId }
+  }
+  if (job.type === 'mineru_parse' || job.type === 'normalize_parse_revision') {
+    const knowledgeItemId = database.immediate(
+      (connection) =>
+        connection
+          .prepare(
+            job.type === 'mineru_parse'
+              ? 'SELECT knowledge_item_id FROM parse_tasks WHERE parse_task_id = ?'
+              : 'SELECT knowledge_item_id FROM parse_revisions WHERE parse_revision_id = ?'
+          )
+          .pluck()
+          .get(job.payload.parseTaskId ?? job.payload.parseRevisionId) as string | undefined
+    )
+    return knowledgeItemId === undefined ? { kind: 'unknown' } : { kind: 'file', knowledgeItemId }
+  }
+  return { kind: 'project' }
 }

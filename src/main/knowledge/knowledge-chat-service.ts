@@ -943,16 +943,12 @@ export class KnowledgeChatService {
     citations: NotebookChatCitation[]
   ): void {
     const known = new Set(citations.map((citation) => citation.ordinal))
-    const seen = new Set<number>()
     let unknownCount = 0
-    let duplicateCount = 0
     for (const match of content.matchAll(CITATION_MARKER)) {
       const ordinal = Number(match[1])
       if (!known.has(ordinal)) unknownCount += 1
-      else if (seen.has(ordinal)) duplicateCount += 1
-      else seen.add(ordinal)
     }
-    if (unknownCount === 0 && duplicateCount === 0) return
+    if (unknownCount === 0) return
     this.options.log.warn(
       {
         event: 'security.notebook_citation_marker_rejected',
@@ -960,10 +956,9 @@ export class KnowledgeChatService {
         projectSessionId: this.options.projectSessionId,
         turnId: active.turnId,
         messageId: active.assistantMessageId,
-        unknownCount,
-        duplicateCount
+        unknownCount
       },
-      'Notebook answer contained unregistered or duplicate citation markers'
+      'Notebook answer contained unregistered citation markers'
     )
   }
 

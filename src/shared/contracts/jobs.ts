@@ -13,10 +13,16 @@ export const jobTypeDtoSchema = z.enum([
   'artifact_cleanup'
 ])
 
+export const jobSubjectSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('file'), knowledgeItemId: z.uuid() }).strict(),
+  z.object({ kind: z.enum(['project', 'maintenance', 'unknown']) }).strict()
+])
+
 export const jobStatusSchema = z
   .object({
     jobId: z.string().min(1).max(256),
     type: jobTypeDtoSchema,
+    subject: jobSubjectSchema,
     state: jobStateDtoSchema,
     priority: z.number().int().min(-1_000).max(1_000),
     attempts: z.number().int().nonnegative(),

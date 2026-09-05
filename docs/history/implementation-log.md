@@ -2307,3 +2307,75 @@ Node >=24.15 <25 engine warning. No replacement runtime was installed. E2E, pack
 live providers, and other platforms were not exercised for this text-projection cleanup.
 Reports: `.cache/verification/1788597027054-51484-3dc59d4e` (static) and
 `.cache/verification/1788597028862-51522-24c7374d` (tests).
+
+## 2026-09-05 Notebook repeated citations
+
+- The user authorized rendering every valid Notebook citation occurrence after repeated references
+  were shown as raw `[[cite:n]]` text. The architecture amendment supersedes only ADR 058's
+  duplicate-marker rejection; the completed ADR remains historical evidence.
+- Removed Renderer occurrence deduplication and Main's duplicate-marker security warnings.
+  Every registered occurrence uses the existing citation button and preview callback. Unknown
+  ordinals, malformed markers, and forged citation URLs retain their existing protections.
+- Updated the conversion regression and added a service regression for repeated registered
+  citations without rejection warnings. `pnpm test src/renderer/src/features/agent/agent-markdown.test.ts
+  src/renderer/src/features/agent/agent-markdown.test.tsx src/main/knowledge/knowledge-chat-service.test.ts`
+  passed 3 files / 15 tests in 3.4 seconds with no retries. `pnpm check:fast` passed all three
+  stages in 11.2 seconds. Tests used Electron Node 24.18.1, ABI 148; the host wrapper used Node
+  26.8.1 and emitted the existing engine-range warning. pnpm 11.17.0 matches the project pin.
+- No IPC, persistence, dependency, or preview interaction implementation changed. Real Electron
+  UI and packaged App verification were not run for this marker-conversion/logging correction;
+  the existing packaged App was not rebuilt. No other platform runtime was verified.
+
+
+## 2026-09-05 Reference Knowledge sidebar redesign
+
+- Implemented the user-approved sidebar image and implementation plan. Reference rows own
+  expandable attachments, title/author/year hierarchy, searchable/readable/processing status,
+  All/Needs attention filters and title/recent sorting. Association uses the full Reference
+  collection before filtering; file selection resolves the owning Reference explicitly, survives
+  search, and falls back within that Reference after deletion. Knowledge remounts per project
+  session. The existing detail surfaces and import workflows are retained.
+- Removed the permanent drop zone. External file drags into the sidebar show an overlay without
+  moving the list; nested drag transitions, Escape, window blur, drop completion and session
+  changes clear it. Text drags are ignored, busy imports reject additional drops, and the Import
+  button remains the keyboard alternative. Drops import into the project, never the hovered row.
+- Job DTOs project only file IDs or project/maintenance/unknown scope through the existing strict
+  contracts. Main resolves parse/normalization ownership and guards subscription cleanup by the
+  subscribed project session. Activity groups current work and unresolved failures by object,
+  overrides residual progress with terminal outcomes, and hides completed/cancelled records in
+  a separate 50-row cursor-paginated history dialog. Initial activity reads traverse job pages;
+  subsequent events update cached records without rereading history on every heartbeat.
+  Existing import, parsing, index and queue lifecycle logs remain the operational evidence.
+- Added tests for filtered association, multi-attachment state, capability readiness, incomplete
+  metadata, failed updates, terminal progress, recovery, pagination, safe task subjects and stale
+  subscription cleanup. Extended the existing unified-import Electron scenario with search
+  preserving selection, keyboard attachment expansion, real native-file drop, drag cancellation,
+  resize geometry, history access, and deletion fallback to another attachment or citation details.
+- Final focused verification: `pnpm test src/main/ipc/job-ipc.test.ts
+  src/shared/contracts/jobs.test.ts
+  src/renderer/src/features/knowledge/knowledge-sidebar-model.test.ts
+  src/renderer/src/features/knowledge/knowledge-manager.test.ts` passed 4 files / 17 tests in
+  0.85 seconds (1.5 seconds with wrapper), without retries. Report:
+  `.cache/verification/1788628004579-52355-b5c0838d`.
+- Final `pnpm check:e2e e2e/writing-workspace.spec.ts e2e/parsed-knowledge.spec.ts --grep
+  'separates ambiguous|parses, normalizes'` passed static checks, one matching production build
+  and both Electron scenarios in 30.8 seconds; E2E took 9.0 seconds with zero retries. Report:
+  `.cache/verification/1788628206199-53733-667c1255`. The independent existing sidebar pointer/
+  keyboard resize scenario passed earlier in 4.2 seconds and remains applicable; report:
+  `.cache/verification/1788627865647-51155-9174809e`.
+- Earlier E2E runs exposed two product issues: asynchronous direct imports did not refresh the
+  Reference collection after storage, and closing a selected file retained its Reference selection.
+  Both were corrected and rerun successfully. The initial E2E name filter omitted the parsing
+  scenario; that scenario was then run explicitly. There were no automatic test retries. An
+  initial static run caught formatting, and an intermediate typecheck caught a removed icon import;
+  both were corrected before final acceptance. Rebuilds followed changed production inputs.
+- The scoped Impeccable detector reported no findings. Desktop screenshot review and automated
+  settled-width/no-overflow assertions cover the existing 340px sidebar and its 480px resized
+  state. Final captures are `.cache/verification/reference-sidebar-2026-09-05/default.png` and
+  `.cache/verification/reference-sidebar-2026-09-05/wide.png`.
+- Runtime: macOS arm64, Electron 43.4.1 / ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9;
+  pnpm 11.17.0 matches the pin. Host Node 26.8.1 emits the existing >=24.15 <25 engine warning;
+  no replacement toolchain was installed. No dependency, migration, packaged App, installer or
+  release change was made. Live providers and Windows/Linux runtime behavior remain unverified.
+- Documentation was checked with `git diff --check` and local link consistency. Biome does not
+  process these Markdown paths; its explicit documentation-only invocation reported zero files.

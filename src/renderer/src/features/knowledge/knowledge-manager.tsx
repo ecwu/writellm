@@ -14,9 +14,7 @@ import {
   CheckCircle2,
   Circle,
   File,
-  FileCheck2,
   FileText,
-  FileUp,
   FolderOpen,
   Library,
   Link2,
@@ -24,7 +22,6 @@ import {
   PanelLeft,
   Play,
   RefreshCw,
-  Search,
   Trash2,
   Upload,
   X,
@@ -43,7 +40,6 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -67,28 +63,17 @@ import {
   SelectValue
 } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger
-} from '@/components/ui/sidebar'
+import { Sidebar, SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { WorkspaceRail } from '@/components/app-sidebar'
 import { KnowledgeSearch } from './knowledge-search'
 import { ParsedDocumentViewer } from './parsed-document-viewer'
 
-const activeParseStates = new Set([
-  'queued',
-  'allocating',
-  'awaiting_upload',
-  'polling',
-  'downloading',
-  'extracting',
-  'publishing'
-])
+import { KnowledgeSidebar } from './knowledge-sidebar'
+import {
+  hasActiveKnowledgeWorkForItem,
+  isParseInProgress,
+  loadJobs
+} from './knowledge-sidebar-model'
 
 export function KnowledgeManager(props: {
   projectSessionId: string
@@ -120,17 +105,16 @@ export function KnowledgeManager(props: {
     refetchInterval: ({ state }) => (hasActiveKnowledgeWork(state.data ?? []) ? 1_000 : false)
   })
   const items = itemsQuery.data ?? []
-  const [referenceQuery, setReferenceQuery] = useState('')
   const referencesKey = useMemo(
-    () => ['reference-items', props.projectSessionId, referenceQuery] as const,
-    [props.projectSessionId, referenceQuery]
+    () => ['reference-items', props.projectSessionId] as const,
+    [props.projectSessionId]
   )
   const referencesQuery = useQuery({
     queryKey: referencesKey,
     queryFn: () =>
       window.desktop.knowledge.listReferences({
         projectSessionId: props.projectSessionId,
-        query: referenceQuery
+        query: ''
       })
   })
   const connectorKey = useMemo(
@@ -146,12 +130,8 @@ export function KnowledgeManager(props: {
   const references = referencesQuery.data ?? []
   const jobsQuery = useQuery({
     queryKey: jobsKey,
-    queryFn: () =>
-      window.desktop.jobs.list({ projectSessionId: props.projectSessionId, limit: 100 }),
-    refetchInterval: ({ state }) =>
-      state.data?.jobs.some((job) => job.state === 'queued' || job.state === 'running')
-        ? 1_000
-        : false
+    queryFn: () => loadJobs({ projectSessionId: props.projectSessionId, limit: 100 }),
+    retry: false
   })
   const indexStatusQuery = useQuery({
     queryKey: ['knowledge-index-status', props.projectSessionId],
@@ -179,25 +159,84 @@ export function KnowledgeManager(props: {
   const [importOutcomes, setImportOutcomes] = useState<BibliographyImportOutcome[] | null>(null)
   const [conversionPlan, setConversionPlan] = useState<LegacyCitationConversionPlan | null>(null)
   const [busy, setBusy] = useState(false)
-  const [dragging, setDragging] = useState(false)
 
   useEffect(() => {
+    if (!itemsQuery.isSuccess || !referencesQuery.isSuccess) return
     if (selectedItemId !== null && !items.some((item) => item.knowledgeItemId === selectedItemId)) {
-      setSelectedItemId(null)
+      const reference = references.find(
+        (reference) => reference.referenceId === selectedReferenceId
+      )
+      setSelectedItemId(
+        reference?.knowledgeItemIds.find((id) =>
+          items.some((item) => item.knowledgeItemId === id)
+        ) ?? null
+      )
     }
-  }, [items, selectedItemId])
+    if (
+      selectedReferenceId !== null &&
+      !references.some((reference) => reference.referenceId === selectedReferenceId)
+    )
+      setSelectedReferenceId(null)
+  }, [
+    items,
+    references,
+    itemsQuery.isSuccess,
+    referencesQuery.isSuccess,
+    selectedItemId,
+    selectedReferenceId
+  ])
 
   useEffect(() => {
-    if (hasActiveKnowledgeWork(items)) {
-      void queryClient.invalidateQueries({ queryKey: jobsKey })
+    let disposed = false
+    let release: (() => void) | undefined
+    const invalidate = (): void => {
+      for (const queryKey of [
+        key,
+        referencesKey,
+        ['knowledge-index-status', props.projectSessionId],
+        ['knowledge-job-history', props.projectSessionId]
+      ]) {
+        void queryClient.invalidateQueries({ queryKey })
+      }
     }
-  }, [items, jobsKey, queryClient])
+    void window.desktop.jobs
+      .subscribe({ projectSessionId: props.projectSessionId }, ({ job }) => {
+        if (disposed) return
+        queryClient.setQueryData<JobStatus[]>(jobsKey, (previous) => {
+          if (!previous) return previous
+          return [job, ...previous.filter((existing) => existing.jobId !== job.jobId)]
+        })
+        if (job.state !== 'running') invalidate()
+      })
+      .then((unsubscribe) => {
+        if (disposed) unsubscribe()
+        else {
+          release = unsubscribe
+          void queryClient.invalidateQueries({ queryKey: jobsKey })
+        }
+      })
+      .catch(() => {
+        if (!disposed)
+          props.onError(
+            'Background activity updates are unavailable. Refresh the library to retry.'
+          )
+      })
+    return () => {
+      disposed = true
+      release?.()
+    }
+  }, [props.projectSessionId, key, jobsKey, referencesKey, queryClient, props.onError])
+
+  useEffect(() => {
+    if (itemsQuery.data !== undefined)
+      void queryClient.invalidateQueries({ queryKey: referencesKey })
+  }, [itemsQuery.data, referencesKey, queryClient])
 
   const selectedItem = items.find((item) => item.knowledgeItemId === selectedItemId)
   const selectedReference = references.find(
     (reference) => reference.referenceId === selectedReferenceId
   )
-  const jobs = jobsQuery.data?.jobs ?? []
+  const jobs = jobsQuery.data ?? []
   const stats = getStats(items, jobs)
   const embeddingInProgress = jobs.some(
     (job) =>
@@ -395,24 +434,23 @@ export function KnowledgeManager(props: {
     void prepareReferenceImport(retryIds)
   }
   const importDropped = (files: File[]): void => {
-    if (files.length === 0) return
+    if (files.length === 0 || busy) return
     void run(() =>
       window.desktop.knowledge.importDropped({ projectSessionId: props.projectSessionId, files })
     )
   }
-  const parseSelected = async (): Promise<void> => {
-    if (selectedItemId === null) return
+  const parseItem = async (knowledgeItemId: string): Promise<void> => {
     setBusy(true)
     try {
       await window.desktop.knowledge.startParse({
         projectSessionId: props.projectSessionId,
-        knowledgeItemId: selectedItemId
+        knowledgeItemId
       })
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: key }),
         queryClient.invalidateQueries({ queryKey: jobsKey }),
         queryClient.invalidateQueries({
-          queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
+          queryKey: ['parsed-knowledge', props.projectSessionId, knowledgeItemId]
         })
       ])
     } catch {
@@ -566,26 +604,45 @@ export function KnowledgeManager(props: {
           onOpenSettings={props.onOpenSettings}
         />
         <KnowledgeSidebar
+          key={props.projectSessionId}
+          projectSessionId={props.projectSessionId}
           references={references}
           items={items}
           jobs={jobs}
           selectedItemId={selectedItemId}
-          dragging={dragging}
+          selectedReferenceId={selectedReferenceId}
           busy={busy}
-          onSelect={setSelectedItemId}
+          loading={itemsQuery.isPending || referencesQuery.isPending}
+          unavailable={itemsQuery.isError || referencesQuery.isError}
+          jobsUnavailable={jobsQuery.isError}
+          jobsLoading={jobsQuery.isPending}
+          indexStatus={indexStatusQuery.data}
+          indexUnavailable={indexStatusQuery.isError}
+          onSelect={(id, referenceId) => {
+            setSelectedReferenceId(
+              referenceId ??
+                references.find((reference) => reference.knowledgeItemIds.includes(id))
+                  ?.referenceId ??
+                null
+            )
+            setSelectedItemId(id)
+          }}
           onSelectReference={(reference) => {
             setSelectedReferenceId(reference.referenceId)
-            setSelectedItemId(reference.knowledgeItemIds[0] ?? null)
+            setSelectedItemId(
+              reference.knowledgeItemIds.find((id) =>
+                items.some((item) => item.knowledgeItemId === id)
+              ) ?? null
+            )
           }}
-          referenceQuery={referenceQuery}
-          onReferenceQueryChange={setReferenceQuery}
           onImport={importFiles}
-          onDragEnter={() => setDragging(true)}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(files) => {
-            setDragging(false)
-            importDropped(files)
+          onRetry={(id) => void parseItem(id)}
+          onRefresh={() => {
+            void itemsQuery.refetch()
+            void referencesQuery.refetch()
           }}
+          onRefreshJobs={() => void jobsQuery.refetch()}
+          onDrop={importDropped}
         />
       </Sidebar>
       <SidebarInset className='min-h-0 overflow-auto'>
@@ -705,7 +762,7 @@ export function KnowledgeManager(props: {
               reference={selectedReference}
               busy={busy}
               embeddingInProgress={embeddingInProgress}
-              onParse={() => void parseSelected()}
+              onParse={() => void parseItem(selectedItem.knowledgeItemId)}
               onRefreshEmbeddings={() => void refreshEmbeddings(selectedItem.knowledgeItemId)}
               onCancelParse={async () => {
                 if (selectedItemId === null) return
@@ -742,7 +799,10 @@ export function KnowledgeManager(props: {
               }
               onDelete={deleteSelected}
               onInsertCitation={props.onInsertCitation}
-              onClose={() => setSelectedItemId(null)}
+              onClose={() => {
+                setSelectedItemId(null)
+                setSelectedReferenceId(null)
+              }}
               onError={props.onError}
             />
           ) : (
@@ -828,198 +888,6 @@ function KnowledgeOverview(props: {
         ) : null}
       </div>
     </section>
-  )
-}
-
-function KnowledgeSidebar(props: {
-  references: ReferenceItem[]
-  items: KnowledgeItem[]
-  jobs: JobStatus[]
-  selectedItemId: string | null
-  dragging: boolean
-  busy: boolean
-  onSelect(id: string): void
-  onSelectReference(reference: ReferenceItem): void
-  referenceQuery: string
-  onReferenceQueryChange(query: string): void
-  onImport(): void
-  onDragEnter(): void
-  onDragLeave(): void
-  onDrop(files: File[]): void
-}): React.JSX.Element {
-  const activeJobs = props.jobs.filter((job) => job.state === 'queued' || job.state === 'running')
-  const linkedKnowledgeItemIds = new Set(
-    props.references.flatMap((reference) => reference.knowledgeItemIds)
-  )
-  const unlinkedItems = props.items.filter(
-    (item) => !linkedKnowledgeItemIds.has(item.knowledgeItemId)
-  )
-  return (
-    <Sidebar collapsible='none' className='hidden flex-1 md:flex'>
-      <div className='border-b p-4'>
-        <div className='flex items-center justify-between gap-2'>
-          <div className='min-w-0'>
-            <p className='text-sm font-semibold'>References</p>
-            <p className='text-xs text-muted-foreground'>{props.references.length} references</p>
-            <p className='text-xs text-muted-foreground'>
-              {props.items.length} files in this project
-            </p>
-          </div>
-          <Button
-            data-testid='knowledge-upload-button'
-            size='icon-sm'
-            variant='outline'
-            aria-label='Upload files'
-            onClick={props.onImport}
-            disabled={props.busy}
-          >
-            {props.busy ? <Spinner /> : <FileUp />}
-          </Button>
-        </div>
-        <button
-          type='button'
-          className={`mt-3 flex w-full items-center justify-center gap-2 rounded-md border border-dashed px-3 text-xs text-muted-foreground transition-[min-height,background-color] outline-none focus-visible:ring-2 focus-visible:ring-ring ${props.dragging ? 'min-h-24 border-primary bg-primary/5 text-primary' : 'min-h-9 hover:bg-muted/50'}`}
-          onClick={props.onImport}
-          onDragEnter={(event) => {
-            event.preventDefault()
-            props.onDragEnter()
-          }}
-          onDragOver={(event) => event.preventDefault()}
-          onDragLeave={(event) => {
-            event.preventDefault()
-            props.onDragLeave()
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            props.onDrop(Array.from(event.dataTransfer.files))
-          }}
-        >
-          <FileUp className='size-3.5' />
-          {props.dragging ? 'Drop files to upload' : 'Drop files here'}
-        </button>
-        <div className='relative mt-3'>
-          <Search className='pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground' />
-          <Input
-            aria-label='Search references'
-            className='h-8 pl-8 text-xs'
-            placeholder='Title, author, venue, year, key'
-            value={props.referenceQuery}
-            onChange={(event) => props.onReferenceQueryChange(event.target.value)}
-          />
-        </div>
-      </div>
-      <SidebarContent>
-        <SidebarGroup className='py-3'>
-          <SidebarGroupLabel className='px-3'>Library</SidebarGroupLabel>
-          <div className='grid gap-1 px-2'>
-            {props.references.map((reference) => {
-              const item = props.items.find((candidate) =>
-                reference.knowledgeItemIds.includes(candidate.knowledgeItemId)
-              )
-              const parsing = isParseInProgress(item?.parseState)
-              const failed =
-                item?.state === 'failed' ||
-                item?.parseState === 'failed' ||
-                item?.normalizationState === 'failed'
-              return (
-                <button
-                  type='button'
-                  key={reference.referenceId}
-                  data-testid={
-                    item === undefined
-                      ? `knowledge-reference-${reference.referenceId}`
-                      : `knowledge-file-${item.knowledgeItemId}`
-                  }
-                  data-reference-id={reference.referenceId}
-                  className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring ${item !== undefined && props.selectedItemId === item.knowledgeItemId ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
-                  onClick={() => props.onSelectReference(reference)}
-                >
-                  {parsing || item?.state === 'importing' ? (
-                    <Spinner className='shrink-0 text-primary' />
-                  ) : failed ? (
-                    <AlertCircle className='size-4 shrink-0 text-destructive' />
-                  ) : reference.evidenceAvailable ? (
-                    <FileCheck2 className='shrink-0 text-success' />
-                  ) : (
-                    <File className='size-4 shrink-0 text-muted-foreground' />
-                  )}
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate'>{reference.title}</span>
-                    <span className='block truncate text-[10px] text-muted-foreground'>
-                      {reference.creators.find((creator) => creator.role === 'author')?.family ??
-                        reference.containerTitle ??
-                        'Citation details incomplete'}{' '}
-                      · @{reference.citationKey}
-                    </span>
-                  </span>
-                  <Badge variant='outline' className='h-5 px-1 text-[9px]'>
-                    {reference.evidenceAvailable
-                      ? 'Evidence ready'
-                      : item === undefined
-                        ? 'Citation only'
-                        : 'PDF processing'}
-                  </Badge>
-                </button>
-              )
-            })}
-            {unlinkedItems.map((item) => {
-              const failed =
-                item.state === 'failed' ||
-                item.parseState === 'failed' ||
-                item.normalizationState === 'failed'
-              return (
-                <button
-                  type='button'
-                  key={item.knowledgeItemId}
-                  data-testid={`knowledge-file-${item.knowledgeItemId}`}
-                  className={`flex min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left text-sm outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring ${props.selectedItemId === item.knowledgeItemId ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
-                  onClick={() => props.onSelect(item.knowledgeItemId)}
-                >
-                  {item.state === 'importing' ? (
-                    <Spinner className='shrink-0 text-primary' />
-                  ) : failed ? (
-                    <AlertCircle className='size-4 shrink-0 text-destructive' />
-                  ) : (
-                    <File className='size-4 shrink-0 text-muted-foreground' />
-                  )}
-                  <span className='min-w-0 flex-1'>
-                    <span className='block truncate'>{item.displayName}</span>
-                    <span className='block truncate text-[10px] text-muted-foreground'>
-                      {item.state === 'importing' ? 'Importing file' : 'Preparing citation details'}
-                    </span>
-                  </span>
-                  <Badge variant='outline' className='h-5 px-1 text-[9px]'>
-                    {item.state}
-                  </Badge>
-                </button>
-              )
-            })}
-            {props.references.length === 0 && unlinkedItems.length === 0 ? (
-              <p className='px-2 py-6 text-center text-xs text-muted-foreground'>
-                No references yet.
-              </p>
-            ) : null}
-            {props.items.length === 0 ? (
-              <p className='px-2 py-3 text-center text-xs text-muted-foreground'>No files yet.</p>
-            ) : null}
-          </div>
-        </SidebarGroup>
-        <SidebarGroup className='border-t py-3'>
-          <SidebarGroupLabel className='flex items-center justify-between px-3'>
-            <span>Task progress</span>
-            {activeJobs.length > 0 ? <Badge variant='secondary'>{activeJobs.length}</Badge> : null}
-          </SidebarGroupLabel>
-          <div className='grid gap-2 px-3'>
-            {props.jobs.slice(0, 8).map((job) => (
-              <TaskRow key={job.jobId} job={job} />
-            ))}
-            {props.jobs.length === 0 ? (
-              <p className='text-xs text-muted-foreground'>No background tasks.</p>
-            ) : null}
-          </div>
-        </SidebarGroup>
-      </SidebarContent>
-    </Sidebar>
   )
 }
 
@@ -1710,35 +1578,6 @@ function LegacyConversionDialog(props: {
   )
 }
 
-function TaskRow(props: { job: JobStatus }): React.JSX.Element {
-  const running = props.job.state === 'queued' || props.job.state === 'running'
-  const failed = props.job.state === 'failed'
-  const progress =
-    props.job.progress?.completed !== undefined && props.job.progress.total !== undefined
-      ? `${Math.round((props.job.progress.completed / props.job.progress.total) * 100)}%`
-      : props.job.state
-  return (
-    <div className='grid gap-1 text-xs'>
-      <div className='flex items-center gap-2'>
-        {running ? (
-          <Spinner className='text-primary' />
-        ) : failed ? (
-          <AlertCircle className='size-3 text-destructive' />
-        ) : (
-          <CheckCircle2 className='text-success' />
-        )}
-        <span className='min-w-0 flex-1 truncate'>{jobLabel(props.job.type)}</span>
-        <span className='text-muted-foreground'>{progress}</span>
-      </div>
-      {props.job.progress?.stage ? (
-        <p className='truncate pl-5 text-[10px] text-muted-foreground'>
-          {props.job.progress.stage}
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
 function KnowledgeHeaderStats(props: {
   stats: KnowledgeStats
   indexStatus: KnowledgeIndexStatus | undefined
@@ -2006,33 +1845,8 @@ function hasActiveKnowledgeWork(items: KnowledgeItem[]): boolean {
   return items.some(hasActiveKnowledgeWorkForItem)
 }
 
-function hasActiveKnowledgeWorkForItem(item: KnowledgeItem): boolean {
-  return (
-    item.state === 'importing' ||
-    isParseInProgress(item.parseState) ||
-    (item.parseState === 'succeeded' && item.normalizationState === 'staging')
-  )
-}
-
-function isParseInProgress(state: string | null | undefined): boolean {
-  return activeParseStates.has(state ?? '')
-}
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function jobLabel(type: JobStatus['type']): string {
-  const labels: Partial<Record<JobStatus['type'], string>> = {
-    mineru_parse: 'Parse with MinerU',
-    normalize_parse_revision: 'Normalize parsed content',
-    build_index_generation: 'Build search index',
-    build_embedding_generation: 'Embedding generation',
-    remove_index_item: 'Remove from index',
-    rebuild_index: 'Rebuild search index',
-    artifact_cleanup: 'Clean up artifacts'
-  }
-  return labels[type] ?? type
 }

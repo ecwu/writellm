@@ -31,6 +31,20 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Reference / Knowledge sidebar redesign is locally verified: Reference-first rows, expandable
+  attachments, stable search/selection, capability-based status, scoped background activity and
+  paginated history replace mixed file/reference rows and anonymous task logs. File drop targets
+  appear only during a file drag into the sidebar. Static checks, 17 focused Electron-hosted
+  tests, and three relevant Electron scenarios passed; the final composite gate took 30.8 seconds
+  without retries. Source output is rebuilt; the packaged App is unchanged. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-reference-knowledge-sidebar-redesign).
+
+- Notebook repeated-citation rendering maintenance is locally verified: every registered
+  occurrence renders as a citation control without duplicate-marker warnings. Unregistered-marker
+  protection remains. Static checks and 15 focused Electron-hosted tests passed without retries.
+  The packaged App has not been rebuilt. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-notebook-repeated-citations).
+
 - Ponytail UTF-8 cleanup is locally verified: Agent title context, image prompts, and proposal
   previews reuse the existing complete-code-point truncator, removing 19 production lines and
   preventing split-character preview output. Static checks and 35 focused Electron-hosted tests

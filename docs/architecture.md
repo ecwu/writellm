@@ -1198,6 +1198,12 @@ insufficient-evidence response and no answer-model call. Otherwise one single-sh
 receives bounded current-boundary history and explicitly untrusted evidence. Per-message citation
 registries bind only that turn's `[[cite:n]]` markers to retrieved citation IDs.
 
+The 2026-09-05 repeated-citation amendment supersedes ADR 058's duplicate-marker rejection:
+every occurrence of a registered ordinal renders as a citation control. Reusing evidence across
+claims is valid and does not emit a security warning. Unregistered markers remain ordinary text
+and retain content-free warnings. This replaces first-occurrence-only rendering, which exposed
+raw markers in normal answers; it requires no migration or roadmap expansion.
+
 For mixed Chinese and English corpora, evaluate `unicode61` and `trigram` FTS behavior with representative fixtures. Short-query fallback is mandatory.
 
 ### Citation coverage checks

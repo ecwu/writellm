@@ -2,7 +2,9 @@ import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { JobRecord } from '../jobs/job-store'
-import { registerJobIpc, type JobIpcMain } from './job-ipc'
+import Database from 'better-sqlite3'
+import type { ProjectDatabase } from '../project/project-database'
+import { registerJobIpc, toJobStatus, type JobIpcMain } from './job-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
 const job: JobRecord = {
@@ -58,7 +60,14 @@ function harness() {
     })),
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
-      return { jobs, runtime }
+      return {
+        jobs,
+        runtime,
+        database: {
+          immediate: (operation: (db: unknown) => unknown) =>
+            operation({ prepare: () => ({ pluck: () => ({ get: () => undefined }) }) })
+        }
+      }
     })
   }
   const registration = registerJobIpc({
@@ -124,6 +133,18 @@ describe('job IPC', () => {
     expect(runtime.scheduler.cancel).toHaveBeenCalledWith(job.jobId)
   })
 
+  it('ignores stale unsubscriptions and revokes even after the active project changed', () => {
+    const { invoke, registration, unsubscribe, manager } = harness()
+    invoke(IPC_CHANNELS.jobsSubscribeStatus, { projectSessionId })
+    invoke(IPC_CHANNELS.jobsUnsubscribeStatus, {
+      projectSessionId: '33333333-3333-4333-8333-333333333333'
+    })
+    expect(unsubscribe).not.toHaveBeenCalled()
+    manager.snapshot.mockReturnValue({ state: 'closed', activeProject: null } as never)
+    registration.revokeSession(projectSessionId)
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
   it('publishes bounded events and revokes subscriptions by project session', () => {
     const { invoke, registration, listener, sender, unsubscribe } = harness()
     invoke(IPC_CHANNELS.jobsSubscribeStatus, { projectSessionId })
@@ -137,5 +158,59 @@ describe('job IPC', () => {
     )
     registration.revokeSession(projectSessionId)
     expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+})
+
+describe('job subjects', () => {
+  it('resolves parse and normalization ownership without exposing payloads or paths', () => {
+    const connection = new Database(':memory:')
+    const database = {
+      immediate: (operation: (db: Database.Database) => unknown) => operation(connection)
+    } as ProjectDatabase
+    const knowledgeItemId = '22222222-2222-4222-8222-222222222222'
+    try {
+      connection.exec(
+        'CREATE TABLE parse_tasks (parse_task_id TEXT, knowledge_item_id TEXT); CREATE TABLE parse_revisions (parse_revision_id TEXT, knowledge_item_id TEXT)'
+      )
+      connection.prepare('INSERT INTO parse_tasks VALUES (?, ?)').run('parse', knowledgeItemId)
+      connection
+        .prepare('INSERT INTO parse_revisions VALUES (?, ?)')
+        .run('revision', knowledgeItemId)
+      for (const [type, payload] of [
+        ['mineru_parse', { parseTaskId: 'parse' }],
+        ['normalize_parse_revision', { parseRevisionId: 'revision' }],
+        [
+          'build_embedding_generation',
+          { generationId: 'generation', refreshScope: 'item', knowledgeItemId }
+        ],
+        ['remove_index_item', { knowledgeItemId }]
+      ] as const) {
+        expect(toJobStatus({ ...job, type, payload }, database).subject).toEqual({
+          kind: 'file',
+          knowledgeItemId
+        })
+      }
+      expect(toJobStatus(job, database).subject).toEqual({ kind: 'unknown' })
+      expect(
+        toJobStatus(
+          { ...job, type: 'build_index_generation', payload: { generationId: 'generation' } },
+          database
+        ).subject
+      ).toEqual({ kind: 'project' })
+      expect(
+        toJobStatus(
+          { ...job, type: 'build_embedding_generation', payload: { generationId: 'generation' } },
+          database
+        ).subject
+      ).toEqual({ kind: 'project' })
+      expect(
+        toJobStatus(
+          { ...job, type: 'artifact_cleanup', payload: { cleanupId: 'cleanup' } },
+          database
+        ).subject
+      ).toEqual({ kind: 'maintenance' })
+    } finally {
+      connection.close()
+    }
   })
 })

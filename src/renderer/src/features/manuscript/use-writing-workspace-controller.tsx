@@ -1483,6 +1483,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   if (activeWorkspace === 'knowledge') {
     alternateWorkspace = (
       <KnowledgeManager
+        key={props.projectSessionId}
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}

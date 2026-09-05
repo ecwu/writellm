@@ -1656,6 +1656,160 @@ test(
       })
       expect(references.some((reference) => reference.citationKey.startsWith('doc-'))).toBe(false)
 
+      const sidebar = knowledge.getByTestId('knowledge-sidebar')
+      const search = sidebar.getByLabel('Search references')
+      const unified = references.find((reference) => reference.citationKey === 'unified2026')
+      const compact = references.find((reference) => reference.citationKey === 'compact2026')
+      if (!unified || !compact) throw new Error('Imported references missing')
+      await expect(sidebar.locator('[data-reference-id]')).toHaveCount(2)
+      await sidebar.locator(`[data-reference-id="${compact.referenceId}"]`).click()
+      await expect(
+        knowledge.getByRole('heading', { name: compact.title, exact: true })
+      ).toBeVisible()
+      await search.fill('unified')
+      await expect(sidebar.locator('[data-reference-id]')).toHaveCount(1)
+      await expect(sidebar.getByText('Unlinked files', { exact: true })).toHaveCount(0)
+      await expect(
+        knowledge.getByRole('heading', { name: compact.title, exact: true })
+      ).toBeVisible()
+      await sidebar.locator(`[data-reference-id="${unified.referenceId}"]`).click()
+      await expect(
+        knowledge.getByRole('heading', { name: unified.title, exact: true })
+      ).toBeVisible()
+      const attachmentsToggle = sidebar.getByRole('button', {
+        name: `Show attachments for ${unified.title}`
+      })
+      await attachmentsToggle.focus()
+      await attachmentsToggle.press('Enter')
+      const supplement = sidebar.getByTestId(`knowledge-attachment-${unified.knowledgeItemIds[1]}`)
+      await expect(supplement).toBeVisible()
+      await supplement.click()
+      await expect(supplement).toHaveAttribute('aria-pressed', 'true')
+      await expect(
+        knowledge.getByRole('heading', { name: unified.title, exact: true })
+      ).toBeVisible()
+      await search.fill('no-matching-paper')
+      await expect(sidebar.getByText('No matching references', { exact: true })).toBeVisible()
+      await expect(sidebar.getByText('stored', { exact: true })).toHaveCount(0)
+      await search.fill('')
+
+      const zone = sidebar.getByTestId('knowledge-drop-zone')
+      await expect(zone).toHaveCount(0)
+      const textDrag = await launched.page.evaluateHandle(() => {
+        const data = new DataTransfer()
+        data.setData('text/plain', 'not a file')
+        return data
+      })
+      await sidebar.dispatchEvent('dragenter', { dataTransfer: textDrag })
+      await expect(zone).toHaveCount(0)
+      await textDrag.dispose()
+      const fileDrag = await launched.page.evaluateHandle(() => {
+        const data = new DataTransfer()
+        data.items.add(new File(['%PDF-1.7'], 'preview.pdf', { type: 'application/pdf' }))
+        return data
+      })
+      await sidebar.dispatchEvent('dragenter', { dataTransfer: fileDrag })
+      await expect(zone).toContainText('Drop files to import')
+      await search.dispatchEvent('dragenter', { dataTransfer: fileDrag })
+      await search.dispatchEvent('dragleave', { dataTransfer: fileDrag })
+      await expect(zone).toBeVisible()
+      await sidebar.dispatchEvent('dragleave', { dataTransfer: fileDrag })
+      await expect(zone).toHaveCount(0)
+      await sidebar.dispatchEvent('dragenter', { dataTransfer: fileDrag })
+      await launched.page.keyboard.press('Escape')
+      await expect(zone).toHaveCount(0)
+      await fileDrag.dispose()
+
+      const droppedPath = join(testRoot, 'Dropped source.pdf')
+      await writeFile(droppedPath, '%PDF-1.7\nSidebar drag and drop fixture')
+      await launched.page.evaluate(() => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.id = 'sidebar-drop-fixture'
+        input.hidden = true
+        document.body.append(input)
+      })
+      await launched.page.locator('#sidebar-drop-fixture').setInputFiles(droppedPath)
+      const nativeDrag = await launched.page.evaluateHandle(() => {
+        const input = document.querySelector<HTMLInputElement>('#sidebar-drop-fixture')
+        const file = input?.files?.[0]
+        if (!file) throw new Error('Drop fixture file missing')
+        const data = new DataTransfer()
+        data.items.add(file)
+        input?.remove()
+        return data
+      })
+      await sidebar.dispatchEvent('dragenter', { dataTransfer: nativeDrag })
+      await expect(zone).toBeVisible()
+      await sidebar.dispatchEvent('drop', { dataTransfer: nativeDrag })
+      await expect(zone).toHaveCount(0)
+      await expect(sidebar.locator('[data-reference-id]')).toHaveCount(3)
+      await expect
+        .poll(() =>
+          launched.page.evaluate(async () => {
+            const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+              ?.projectSessionId
+            if (!projectSessionId) return 0
+            return (await window.desktop.knowledge.list({ projectSessionId })).length
+          })
+        )
+        .toBe(4)
+      await nativeDrag.dispose()
+
+      const resizeHandle = launched.page.getByRole('separator', { name: 'Resize sidebar' })
+      await resizeHandle.focus()
+      await resizeHandle.press('End')
+      await expect(resizeHandle).toHaveAttribute('aria-valuenow', '480')
+      await expect
+        .poll(() =>
+          launched.page
+            .locator('[data-slot=sidebar-gap]')
+            .evaluate((element) => element.getBoundingClientRect().width)
+        )
+        .toBe(480)
+      await attachmentsToggle.click()
+      await launched.page.screenshot({ path: test.info().outputPath('reference-sidebar-wide.png') })
+      await resizeHandle.dblclick()
+      await expect
+        .poll(() =>
+          launched.page
+            .locator('[data-slot=sidebar-gap]')
+            .evaluate((element) => element.getBoundingClientRect().width)
+        )
+        .toBe(340)
+      await launched.page.screenshot({
+        path: test.info().outputPath('reference-sidebar-default.png')
+      })
+      await expect
+        .poll(() => sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth))
+        .toBe(true)
+
+      await sidebar.getByRole('button', { name: 'View activity history' }).click()
+      const history = launched.page.getByRole('dialog', { name: 'Activity history' })
+      await expect(history).toBeVisible()
+      await expect(history.getByLabel('Filter activity history')).toBeVisible()
+      await launched.page.keyboard.press('Escape')
+      await expect(history).not.toBeVisible()
+
+      await supplement.click()
+      await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Delete source', exact: true }).click()
+      await expect(supplement).toHaveCount(0)
+      await expect(
+        sidebar.getByTestId(`knowledge-attachment-${unified.knowledgeItemIds[0]}`)
+      ).toHaveAttribute('aria-pressed', 'true')
+      await expect(
+        knowledge.getByRole('heading', { name: unified.title, exact: true })
+      ).toBeVisible()
+      await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: 'Delete source', exact: true }).click()
+      await expect(
+        knowledge.getByRole('heading', { name: 'Citation details', exact: true })
+      ).toBeVisible()
+      await expect(sidebar.locator(`[data-reference-id="${unified.referenceId}"]`)).toContainText(
+        'Citation only'
+      )
+
       await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
       const editor = sectionEditor(launched.page)
       await editor.click()
