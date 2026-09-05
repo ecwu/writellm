@@ -9,55 +9,50 @@ Before changing code, read:
 1. `docs/architecture.md` for fixed technology choices, process boundaries, and invariants.
 2. `docs/current-plan.md` for the current checkpoint, acceptance gate, and deferred work.
 3. The ADR under `docs/adrs/` that covers the current boundary or decision.
-4. `docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md` when a task touches its frozen boundaries, and the Checkpoint 19.6/19.7 task lists in `docs/implementation-todo.md` while that remediation window is pending.
+4. Any boundary-specific audit or Phase evidence linked by the current plan or relevant ADR.
 
 `docs/implementation-todo.md`, `docs/implementation-todo/`, and older audit
 records are historical evidence. Read only the Phase material relevant to the
 current checkpoint; newer architecture amendments and ADRs are authoritative
 when historical text conflicts with them.
 
-The Phase files under `docs/implementation-todo/` contain historical implementation evidence. Read only the Phase material related to the current checkpoint. If a Phase file conflicts with the architecture amendment or the CP19.5 audit, the newer amendment is authoritative and the older passage is historical.
-
 ## Document Write Rules
 
 Keep the mutable/immutable split strict so documents never drift from the state they claim:
 
-- Progress and delivery state (current checkpoint, complete/in-progress/deferred, release status,
-  platform-matrix results) lives only in `docs/current-plan.md`. Never write a progress claim into
-  `docs/architecture.md`, an ADR, a Phase file, or an audit — those are frozen once completed.
+- `docs/current-plan.md` is authoritative for current delivery state and platform results.
+  Architecture, ADRs, completed Phase files, and audits record decisions or historical evidence;
+  do not turn them into live status reports. Tracker checkboxes summarize checkpoint state and
+  must agree with the current plan.
 - Detailed checkpoint evidence (per-checkpoint checklists, `Local evidence`, authorization, and
   decision prose) lives only in the matching Phase file under `docs/implementation-todo/`. The
   tracker `docs/implementation-todo.md` keeps only a short `[x]`/`[~]`/`[!]` checklist plus routing
   links; do not copy evidence back into it.
 - `docs/history/implementation-log.md` is the append-only cross-phase chronology. Maintenance that
   has no numbered Phase home is appended there rather than kept in a standalone file.
-- When a checkpoint or maintenance completes, update `docs/current-plan.md`, the tracker, and the
-  history log together, and remove any now-stale deferred/progress text in the same change.
+- Update only records affected by the task: the current plan for delivery-state changes, the
+  tracker for checkpoint-state changes, and the Phase evidence or history log for completed
+  implementation. Keep affected records consistent in the same change. Documentation-only
+  corrections do not require progress entries or unrelated tracker/history edits.
 
 ## Orchestration And Delegation
 
-The main Claude thread is the only orchestrator. It owns requirement interpretation, task decomposition, worker selection, result integration, final verification, and user communication. Do not create or delegate to a general-purpose worker.
-
-Spawn a fixed-role subagent only when all of these conditions hold:
-
-- the work is expected to take more than roughly 10 minutes;
-- the assignment is independently executable;
-- the result can be returned as a compact summary;
-- the work does not share mutable state with another active worker.
-
-Multiple files alone are not a reason to delegate. Prefer sequential execution unless parallelism is expected to reduce latency without introducing shared-state conflicts. Use these advisory concurrency limits and never exceed eight active workers:
-
-- small task: 0 workers;
-- normal coding task: 1-2 workers;
-- large refactor: 3-4 workers;
-- unusually broad research: 5-8 workers.
-
-Choose workers by capability: research, architecture, implementation, review, testing, documentation, refactoring, or security. Every worker handoff must include `Summary`, `Evidence / files`, `Verification`, and `Unresolved risks`. Workers may not delegate further, commit or push, expand the approved checkpoint, or perform unrelated cleanup.
+The primary agent owns scope, integration, final verification, and user communication.
+When permitted by the current session's delegation rules, delegate bounded,
+independently executable work only when it saves time or improves quality.
+Assign explicit file ownership for writes and avoid concurrent edits to shared
+state. Return a compact summary with evidence, verification, and unresolved risks.
+Workers must stay within the authorized scope and must not commit or push.
+Repository guidance does not override the harness's delegation restrictions.
 
 ## Working Rules
 
-- Implement only the currently agreed checkpoint. Do not continue into later phases without explicit user approval.
-- Update `docs/implementation-todo.md` when a task starts or finishes. A task is complete only after its acceptance criteria and verification steps pass.
+- Work within the scope authorized by the current user request and prior conversation,
+  including explicitly requested maintenance or checkpoint changes. Do not ask again for
+  authorization already given, or expand into unrequested phases. Resolve routine reversible
+  implementation choices within that scope; follow Decision Changes for material departures.
+- Update affected delivery records under Document Write Rules. A task is complete only after
+  its applicable acceptance criteria and verification steps pass.
 - Keep changes small and reviewable. Do not install dependencies for future phases.
 - Treat the renderer as untrusted. It must not receive Node.js, raw IPC, database, filesystem, or plaintext credential access.
 - Validate IPC inputs and outputs with shared Zod contracts and authorize the sender in the main process.
@@ -79,7 +74,7 @@ Choose workers by capability: research, architecture, implementation, review, te
 
 Biome is the repository's single formatter and style checker. Run commands from the repository root with pnpm:
 
-- `pnpm check`: verify formatting and lint rules without changing files. Run this before considering a change complete.
+- `pnpm check`: verify formatting and lint rules without changing files. Use the Verification Gates below to select the applicable checks.
 - `pnpm check:write`: apply formatting and safe lint fixes.
 - `pnpm check:write --unsafe`: apply formatting plus safe and unsafe lint fixes. Review the resulting diff carefully.
 - `pnpm format`: format supported files.
@@ -97,7 +92,8 @@ platform limits. Reuse results that still cover the final source; rerun only aff
 
 | Change | Default verification |
 | --- | --- |
-| Text, styling, small Renderer change | `check:fast`; a corresponding E2E only when interaction changes |
+| Documentation only | Diff, formatting, and guidance/link consistency; no application build or tests |
+| UI text, styling, small Renderer change | `check:fast`; a corresponding E2E only when interaction changes |
 | Local business logic | `check:fast` plus `pnpm test <files> [-t <name>]` |
 | IPC, persistence, project lifecycle | Relevant integration tests plus affected real Electron scenarios |
 | Shared infrastructure or cross-module feature | Expand related coverage; use complete suites when justified |
@@ -250,13 +246,12 @@ report.
 
 ## Electron E2E
 
-Build immediately before the Electron Playwright suite so `out/` matches the
-current source:
-
-```sh
-pnpm build
-pnpm test:e2e
-```
+Reuse `out/` when it matches the source, dependencies, configuration, and resources
+under test. Build once if output is missing or affected inputs changed, then run
+`pnpm test:e2e` with the selected file or grep filters. A composite verification
+gate that already built matching output satisfies this prerequisite; do not
+prepend another build. Preserve filters on reruns. Packaged verification still
+uses the matching packaged App required by Verification Gates.
 
 The default E2E wrapper is silent and should remain the normal agent path.
 Use `pnpm test:e2e --visible` only for explicitly requested interactive
@@ -289,9 +284,14 @@ remain usable: its controls must not overlap, and its resize handle must continu
 
 ## Decision Changes
 
-`docs/architecture.md` is the accepted baseline, not an informal suggestion. If implementation evidence requires a change:
+`docs/architecture.md` is the accepted baseline. For a material departure:
 
-1. Stop before introducing the conflicting choice.
+1. Check the current request and prior conversation for authorization. An already
+   approved decision change does not require repeat approval.
 2. Document the reason, alternatives, migration impact, and affected roadmap items.
-3. Ask the user to approve the decision.
-4. Update the architecture and todo documents before implementation.
+3. If the departure is not authorized, defer only that choice, complete independent
+   authorized work, and ask for approval with the concrete proposal and evidence.
+4. Once authorized, update the affected architecture and planning records before
+   implementing the departure. Preserve security, data-integrity, migration, and
+   accessibility guarantees; routine implementation choices within them need no
+   separate architecture approval.
