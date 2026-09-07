@@ -2600,3 +2600,11 @@ Verification and development evidence:
   reused the same App and passed 2/2 in 7.9s with no retries; report
   `.cache/verification/1788824332408-98545-1febb27d`. A first focused attempt exposed
   the old empty-library assumption before this successful correction.
+- The second full package run executed all 35 scenarios: 33 passed; fork's strict
+  locator observed the transient stream/persisted-message handoff, and a Knowledge
+  summary-count assertion raced a background-job refresh. Fork now waits for its
+  completed reply and stream settlement while asserting one final message. Knowledge
+  continues to assert zero detail loads before selection while allowing summary
+  refreshes from job notifications. Both focused packaged checks passed (6.2s and
+  8.7s, no retries); reports `.cache/verification/1788824619328-2929-c4552c6a` and
+  `.cache/verification/1788824673104-3433-d72e7726`.

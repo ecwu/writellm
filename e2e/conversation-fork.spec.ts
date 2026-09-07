@@ -104,13 +104,17 @@ test(
         await panel.getByRole('button', { name: 'Send', exact: true }).click()
       }
 
-      await send('original-question')
-      await expect(timeline.getByText('Original answer', { exact: true })).toBeVisible()
       const forkButtons = timeline.getByRole('button', { name: '从这里分叉', exact: true })
-      await expect(forkButtons).toHaveCount(1)
+      const expectCompleteReply = async (content: string, forkCount: number) => {
+        await expect(forkButtons).toHaveCount(forkCount)
+        await expect(timeline.getByText('Writing response…', { exact: true })).toHaveCount(0)
+        await expect(timeline.getByText(content, { exact: true })).toHaveCount(1)
+        await expect(timeline.getByText(content, { exact: true })).toBeVisible()
+      }
+      await send('original-question')
+      await expectCompleteReply('Original answer', 1)
       await send('future-question')
-      await expect(timeline.getByText('Future answer', { exact: true })).toBeVisible()
-      await expect(forkButtons).toHaveCount(2)
+      await expectCompleteReply('Future answer', 2)
       await panel.getByLabel('Agent message').fill('Keep original draft')
       const beforeFork = requests.length
       await forkButtons.first().focus()
@@ -121,8 +125,7 @@ test(
       await expect(panel.getByLabel('Agent message')).toBeFocused()
       expect(requests).toHaveLength(beforeFork)
       await send('different-angle')
-      await expect(timeline.getByText('Branch answer', { exact: true })).toBeVisible()
-      await expect(forkButtons).toHaveCount(2)
+      await expectCompleteReply('Branch answer', 2)
       expect(requests.at(-1)).toContain('original-question')
       expect(requests.at(-1)).toContain('Original answer')
       expect(requests.at(-1)).not.toContain('future-question')

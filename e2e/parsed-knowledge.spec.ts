@@ -317,9 +317,10 @@ test(
       const knowledge = launched.page.getByTestId('knowledge-workspace')
       await expect(knowledge.getByRole('heading', { name: 'Search knowledge' })).toBeVisible()
       await expect(knowledge.getByRole('heading', { name: 'Knowledge base' })).toHaveCount(0)
+      // Background job notifications may refresh summaries; block details must remain lazy.
       await expect
         .poll(() => diagnosticEventCount(launched.page, 'knowledge.summary.loaded'))
-        .toBe(1)
+        .toBeGreaterThanOrEqual(1)
       expect(await diagnosticEventCount(launched.page, 'knowledge.blocks_page.loaded')).toBe(0)
       await knowledge.getByTestId('knowledge-upload-button').click()
       const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
