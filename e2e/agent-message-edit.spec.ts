@@ -49,7 +49,7 @@ function tool(response: ServerResponse, name: string, args: unknown): void {
 
 test(
   'copies messages, edits after stopping, invalidates proposals and blocks edits after writes',
-  scenario('agent.message-copy-edit'),
+  scenario('agent.message-copy-edit', ['@packaged']),
   async ({ testRoot }, testInfo) => {
     const requests: Record<string, string[]> = {}
     const server = createServer(async (request, response) => {

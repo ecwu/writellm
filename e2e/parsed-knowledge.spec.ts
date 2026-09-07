@@ -787,10 +787,7 @@ test(
 
       const sourceButton = knowledge.getByTestId(/^knowledge-file-/)
       await expect(sourceButton).toHaveCount(1)
-      await expect(knowledge.getByText('1 files in this project', { exact: true })).toBeVisible()
-      await expect(knowledge.getByText('Parse with MinerU', { exact: true }).first()).toBeVisible({
-        timeout: 20_000
-      })
+      await expect(knowledge.getByText('1 references · 1 files', { exact: true })).toBeVisible()
       await sourceButton.click()
       await expect(
         knowledge.getByRole('heading', { name: 'lifecycle source.pdf', exact: true })
@@ -868,7 +865,8 @@ test(
       await knowledge.getByRole('button', { name: 'More file actions', exact: true }).click()
       await launched.page.getByRole('menuitem', { name: 'Delete source', exact: true }).click()
       await expect(sourceButton).toHaveCount(0)
-      await expect(knowledge.getByText('No files yet.', { exact: true })).toBeVisible()
+      await expect(knowledge.getByText('1 references · 0 files', { exact: true })).toBeVisible()
+      await expect(knowledge.getByText('No PDF attached', { exact: true })).toBeVisible()
       await expect
         .poll(() =>
           launched.page.evaluate(async () => {

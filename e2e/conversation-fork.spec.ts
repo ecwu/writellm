@@ -19,7 +19,7 @@ function complete(response: ServerResponse, content: string): void {
 
 test(
   'forks complete replies without model work, navigates sources and restores frozen branches',
-  scenario('agent.conversation-fork'),
+  scenario('agent.conversation-fork', ['@packaged']),
   async ({ testRoot }, testInfo) => {
     const requests: string[] = []
     const server = createServer(async (request, response) => {

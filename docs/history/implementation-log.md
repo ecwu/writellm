@@ -2592,3 +2592,11 @@ Verification and development evidence:
 - Frozen dependency install succeeded; pnpm 11.17.0 matches the pin. Host Node 26.8.1
   remains outside the declared Node 24 range; native tests use Electron 43.4.1 ABI 148.
   App/package and hosted build results will be recorded after execution.
+- The initial package gate passed static/build/inventory and all 12 runtime smoke
+  checks, but failed E2E selection consistency and two stale assertions (31/33
+  executed scenarios passed). Added the two new scenarios' matching `@packaged`
+  tags and updated contract-version and Reference-sidebar assertions, including
+  retention of citation metadata after deleting its attachment. Focused verification
+  reused the same App and passed 2/2 in 7.9s with no retries; report
+  `.cache/verification/1788824332408-98545-1febb27d`. A first focused attempt exposed
+  the old empty-library assumption before this successful correction.
