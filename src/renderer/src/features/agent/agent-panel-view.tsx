@@ -128,6 +128,11 @@ export function AgentPanelView({
     availableModelPresets,
     effectiveRevisionIds,
     presentation,
+    forkConversation,
+    forkBusy,
+    openForkSource,
+    messageEdit,
+    editLastMessageAndRestart,
     thinkingVisualState,
     headerStatus,
     beginNewConversation,
@@ -241,6 +246,16 @@ export function AgentPanelView({
             <X />
           </Button>
         </header>
+        {activeSession?.fork ? (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='justify-start truncate'
+            onClick={() => void openForkSource()}
+          >
+            分叉自：{activeSession.fork.sourceTitle}
+          </Button>
+        ) : null}
 
         <div className='min-h-0 flex-1'>
           {loading ? (
@@ -256,7 +271,14 @@ export function AgentPanelView({
             </div>
           ) : (
             <EventTimeline
+              key={activeSession.agentSessionId}
               presentation={presentation}
+              forkBoundary={activeSession.fork?.throughSequence}
+              forkBusy={forkBusy}
+              onFork={(eventId) => void forkConversation(eventId)}
+              messageEdit={messageEdit}
+              editingDisabled={activeSessionArchived || !modelReady}
+              onEdit={editLastMessageAndRestart}
               projectSessionId={props.projectSessionId}
               sectionTitles={props.sectionTitles}
               onProposalAction={proposalAction}

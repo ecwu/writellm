@@ -42,6 +42,7 @@ describe('test reporting and timeout policy', () => {
     const directory = await mkdtemp(resolve('.cache', 'reporter-fixture-'))
     const reports = join(directory, 'reports')
     const fixture = join(directory, 'retry.test.mjs')
+    const config = join(directory, 'vitest.config.mjs')
     try {
       await writeFile(
         fixture,
@@ -51,7 +52,8 @@ it('retries once', { retry: 1 }, () => expect(++attempts).toBe(2));
 it.skip('not executed', () => {});
 `
       )
-      await promisify(execFile)('node', ['scripts/run-tests.mjs', fixture], {
+      await writeFile(config, 'export default { test: { exclude: [] } }\n')
+      await promisify(execFile)('node', ['scripts/run-tests.mjs', fixture, '--config', config], {
         env: { ...process.env, WRITELLM_VERIFICATION_DIRECTORY: reports },
         maxBuffer: 1024 * 1024
       })

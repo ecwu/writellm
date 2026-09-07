@@ -214,7 +214,7 @@ describe('AgentSessionService: compaction', () => {
         .prepare('INSERT INTO fixture_event_payload (agent_session_id, payload_json) VALUES (?, ?)')
         .run(session.agentSessionId, payloadJson)
       native.exec(`
-          CREATE TEMP VIEW agent_events AS
+          CREATE TEMP VIEW agent_conversation_history AS
           WITH RECURSIVE event_sequence(sequence) AS (
             SELECT 1
             UNION ALL
@@ -227,7 +227,8 @@ describe('AgentSessionService: compaction', () => {
                  'user_message' AS type,
                  fixture_event_payload.payload_json,
                  NULL AS model_request_id,
-                 '2026-07-31T00:00:00.000Z' AS created_at
+                 '2026-07-31T00:00:00.000Z' AS created_at,
+                 NULL AS source_event_id, NULL AS source_session_id, 0 AS forkable
             FROM event_sequence
             CROSS JOIN fixture_event_payload;
         `)

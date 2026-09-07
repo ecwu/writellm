@@ -43,8 +43,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ).toBeLessThanOrEqual(AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES)
   })
 
-  it('keeps all 18 Pi-style contracts compact and one-way compatible with Main defaults', () => {
-    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(18)
+  it('keeps all 22 Pi-style contracts compact and one-way compatible with Main defaults', () => {
+    expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(22)
     const sizes = Object.fromEntries(
       AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => [
         tool.name,
@@ -310,6 +310,10 @@ describe('Pi Agent tool TypeBox schemas', () => {
       'ask_user',
       'activate_tool_groups',
       'inspect_change',
+      'list_comments',
+      'read_comment',
+      'reply_comment',
+      'resolve_comment',
       'get_writing_task',
       'create_writing_task',
       'update_writing_task',
@@ -382,7 +386,9 @@ describe('Pi Agent tool TypeBox schemas', () => {
         'read_section',
         'search_knowledge',
         'search_manuscript',
-        'read_citations'
+        'read_citations',
+        'list_comments',
+        'read_comment'
       ]
     ],
     [
@@ -397,6 +403,8 @@ describe('Pi Agent tool TypeBox schemas', () => {
         'read_writing_skill',
         'ask_user',
         'inspect_change',
+        'list_comments',
+        'read_comment',
         'get_writing_task',
         'create_writing_task',
         'update_writing_task'

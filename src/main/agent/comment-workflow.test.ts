@@ -162,6 +162,16 @@ describe('delegated comment workflow through Main tools and proposals', () => {
         })
         expect(resolved.status).toBe('resolved')
         expect(
+          f.database.immediate((db) =>
+            db
+              .prepare(
+                "SELECT COUNT(*) FROM agent_edit_effects WHERE agent_session_id = ? AND effect_id LIKE 'comment:%'"
+              )
+              .pluck()
+              .get(agentSessionId)
+          )
+        ).toBe(1)
+        expect(
           resolved.events.some(
             (event) => event.proposalId === submitted.proposalId && event.type === 'resolved'
           )

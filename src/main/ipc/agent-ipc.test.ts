@@ -13,6 +13,71 @@ type ListedProposal = Pick<
 >
 
 describe('Agent session IPC', () => {
+  it('validates fork input, sender and revoked capabilities without provider preparation', async () => {
+    const value = harness()
+    const input = {
+      projectSessionId,
+      sourceSessionId: agentSessionId,
+      targetEventId: '019c6a5c-8d34-7a8e-a602-3d37a52dc920',
+      requestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc921'
+    }
+    await expect(value.invoke(IPC_CHANNELS.agentForkConversation, input)).resolves.toMatchObject({
+      agentSessionId
+    })
+    expect(value.sessions.forkConversation).toHaveBeenCalledWith(input)
+    await expect(
+      value.invoke(IPC_CHANNELS.agentForkConversation, { ...input, requestId: 'invalid' })
+    ).rejects.toThrow()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentForkConversation, {
+        ...input,
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc999'
+      })
+    ).rejects.toThrow('stale')
+    const unauthorized = {
+      senderFrame: { url: 'https://attacker.invalid/' },
+      sender: value.sender
+    } as unknown as IpcMainInvokeEvent
+    expect(() =>
+      value.handlers.get(IPC_CHANNELS.agentForkConversation)?.(
+        unauthorized as never,
+        input as never
+      )
+    ).toThrow('Unauthorized IPC sender')
+    expect(value.sessions.forkConversation).toHaveBeenCalledOnce()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentGetSession, { projectSessionId, agentSessionId })
+    ).resolves.toMatchObject({ agentSessionId })
+  })
+
+  it('validates edit input and revoked project capabilities before dispatch', async () => {
+    const value = harness()
+    const input = {
+      projectSessionId,
+      agentSessionId,
+      targetEventId: '019c6a5c-8d34-7a8e-a602-3d37a52dc920',
+      expectedThroughSequence: 3,
+      content: 'Edited instruction',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    await expect(value.invoke(IPC_CHANNELS.agentEditLastMessage, input)).resolves.toMatchObject({
+      run: { agentRunId }
+    })
+    expect(value.sessions.editLastMessageAndRestart).toHaveBeenCalledWith(input)
+    for (const content of ['', ' '.repeat(4), 'x'.repeat(262_145)]) {
+      await expect(
+        value.invoke(IPC_CHANNELS.agentEditLastMessage, { ...input, content })
+      ).rejects.toThrow()
+    }
+    await expect(
+      value.invoke(IPC_CHANNELS.agentEditLastMessage, {
+        ...input,
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc999'
+      })
+    ).rejects.toThrow('stale')
+    expect(value.sessions.editLastMessageAndRestart).toHaveBeenCalledOnce()
+  })
+
   it('installs the session lease before querying replay and completes it explicitly', async () => {
     const value = harness()
     const page = await value.invoke(IPC_CHANNELS.agentSubscribeEvents, {
@@ -520,8 +585,11 @@ function harness() {
     archivedAt: null
   }
   const sessions = {
+    editLastMessageAndRestart: vi.fn(async () => ({ agentRunId })),
     listSessions: vi.fn(() => [session]),
     createSession: vi.fn(),
+    getSession: vi.fn(() => session),
+    forkConversation: vi.fn(() => session),
     generateSessionTitle: vi.fn(async () => ({ ...session, title: 'Generated title' })),
     archiveSession: vi.fn(() => ({
       ...session,

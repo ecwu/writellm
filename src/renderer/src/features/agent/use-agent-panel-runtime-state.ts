@@ -44,6 +44,7 @@ import { subscribeProviderCatalogChanged } from '../providers/provider-catalog-e
 export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   const [sessions, setSessions] = useState<AgentSessionRecord[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [replayedSessionId, setReplayedSessionId] = useState<string | null>(null)
   const [content, setContent] = useState(emptyAgentContent)
   const { events, streamingBySession } = content
   const setEvents = useCallback((update: SetStateAction<AgentEventRecord[]>) => {
@@ -180,6 +181,15 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         })
       ])
       const next = [...active, ...archived]
+      const selected = activeSessionIdRef.current
+      if (selected !== null && !next.some((session) => session.agentSessionId === selected)) {
+        next.push(
+          await window.desktop.agent.getSession({
+            projectSessionId: props.projectSessionId,
+            agentSessionId: selected
+          })
+        )
+      }
       setSessions(next)
       setActiveSessionId((current) => {
         if (
@@ -195,6 +205,58 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     },
     [props.projectSessionId]
   )
+
+  const replacement = sessions.find(
+    (session) => session.agentSessionId === activeSessionId
+  )?.lastReplacement
+  const replacementFrom = replacement?.fromSequence
+  const replacementThrough = replacement?.throughSequence
+  useEffect(() => {
+    if (
+      activeSessionId === null ||
+      replacementFrom === undefined ||
+      replacementThrough === undefined
+    )
+      return
+    let disposed = false
+    setEvents((current) =>
+      current.filter(
+        (event) => event.sequence < replacementFrom || event.sequence > replacementThrough
+      )
+    )
+    const reload = async (): Promise<void> => {
+      const effective: AgentEventRecord[] = []
+      let afterSequence = 0
+      while (!disposed) {
+        const page = await window.desktop.agent.listEvents({
+          projectSessionId: props.projectSessionId,
+          agentSessionId: activeSessionId,
+          afterSequence
+        })
+        effective.push(...page.events)
+        afterSequence = page.nextAfterSequence
+        if (!page.hasMore) break
+      }
+      if (!disposed)
+        setEvents((current) => [
+          ...effective,
+          ...current.filter((event) => event.sequence > afterSequence)
+        ])
+    }
+    void reload().catch((cause) => {
+      if (!disposed) props.onError(errorMessage(cause))
+    })
+    return () => {
+      disposed = true
+    }
+  }, [
+    activeSessionId,
+    replacementFrom,
+    replacementThrough,
+    props.projectSessionId,
+    props.onError,
+    setEvents
+  ])
 
   const refreshSessionTruth = useCallback(
     async (
@@ -219,6 +281,18 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         })
       ])
       const nextSessions = [...activeSessions, ...archivedSessions]
+      const selected = activeSessionIdRef.current
+      if (
+        selected !== null &&
+        !nextSessions.some((session) => session.agentSessionId === selected)
+      ) {
+        nextSessions.push(
+          await window.desktop.agent.getSession({
+            projectSessionId: props.projectSessionId,
+            agentSessionId: selected
+          })
+        )
+      }
       setSessions(nextSessions)
       if (activeSessionIdRef.current !== agentSessionId) {
         return { runs: nextRuns, proposals: nextProposals }
@@ -379,6 +453,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     let disposed = false
     let unsubscribe: (() => void) | undefined
     let unsubscribeMutations: (() => void) | undefined
+    setReplayedSessionId(null)
     setEvents([])
     setRuns([])
     setProposals([])
@@ -432,6 +507,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
             )
           }
           if (
+            rendererEvent.event.type === 'user_message' ||
             rendererEvent.event.type === 'tool_result' ||
             rendererEvent.event.type === 'run_completed' ||
             rendererEvent.event.type === 'run_interrupted'
@@ -444,7 +520,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       )
       .then((release) => {
         if (disposed) release()
-        else unsubscribe = release
+        else {
+          unsubscribe = release
+          setReplayedSessionId(activeSessionId)
+        }
       })
       .catch(() => {
         if (!disposed) {
@@ -488,6 +567,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     sessions,
     setSessions,
     activeSessionId,
+    replayedSessionId,
     setActiveSessionId,
     events,
     setEvents,

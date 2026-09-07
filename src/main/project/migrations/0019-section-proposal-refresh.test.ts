@@ -45,6 +45,23 @@ describe('migration 0019 section proposal refresh', () => {
     const legacy = new Database(databasePath)
     legacy.pragma('foreign_keys = OFF')
     legacy.exec(`
+      DROP TRIGGER manuscript_comments_orphan_on_section_revision;
+      DROP TRIGGER manuscript_comments_reopen_on_proposal_undo;
+      DROP TABLE manuscript_comment_changes;
+      DROP TABLE manuscript_comment_delegations;
+      DROP TABLE manuscript_comment_anchor_history;
+      DROP TABLE manuscript_comment_reads;
+      DROP TABLE manuscript_comment_events;
+      DROP TABLE manuscript_comment_messages;
+      DROP TABLE manuscript_comment_threads;
+      DROP VIEW agent_conversation_history;
+      DROP TABLE agent_history_references;
+      DROP TABLE agent_conversation_forks;
+      DROP VIEW agent_effective_events;
+      DROP TRIGGER agent_edit_proposal_effect;
+      DROP TRIGGER IF EXISTS agent_edit_comment_effect;
+      DROP TABLE agent_message_replacements;
+      DROP TABLE agent_edit_effects;
       DROP INDEX IF EXISTS knowledge_reference_links_primary_idx;
       DROP INDEX IF EXISTS knowledge_reference_links_knowledge_idx;
       DROP INDEX IF EXISTS reference_bindings_connector_idx;

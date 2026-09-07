@@ -2379,3 +2379,216 @@ Reports: `.cache/verification/1788597027054-51484-3dc59d4e` (static) and
   release change was made. Live providers and Windows/Linux runtime behavior remain unverified.
 - Documentation was checked with `git diff --check` and local link consistency. Biome does not
   process these Markdown paths; its explicit documentation-only invocation reported zero files.
+
+
+## 2026-09-05 Sidebar App build
+
+- The user requested a runnable App containing the latest sidebar changes. Ran
+  `pnpm package:unpack` for macOS arm64 from clean source revision
+  `47f82687802b9a0575e673c9b84a7641ffed0587`.
+- The first sandbox run compiled successfully but electron-builder failed to resolve github.com
+  (`ENOTFOUND`); that attempt ended after 54.5 seconds. Retried the same command with elevated
+  network access. All four build-only stages passed in 31.7 seconds: production build (11.1s),
+  App packaging (20.4s), no-Team-ID ad-hoc/linker signature policy, and package inventory.
+- Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Inventory verified Electron 43.4.1 / ABI 148,
+  arm64 better-sqlite3 12.11.1 and sqlite-vec 0.1.9, and renderer asset
+  `out/renderer/assets/index-B3XZgyKu.js`. Report:
+  `.cache/verification/1788628754659-57916-333c84b9`.
+- This build reuses the previously recorded functional evidence; no new functional tests,
+  packaged runtime smoke, installers, Developer ID signing or notarization were requested or run.
+  Host Node 26.8.1 emitted the existing engine-range warning; pnpm 11.17.0 matches the pin.
+
+## 2026-09-06 Pi 0.85.1 Astra update
+
+- The user requested the latest Pi update for Astra. Registry metadata and the
+  [0.85.1 release changelog](https://github.com/earendil-works/pi/blob/v0.85.1/packages/ai/CHANGELOG.md)
+  confirm its September 5 release adds GPT-6 Astra for OpenAI API keys and Codex subscriptions,
+  plus a Responses prompt-cache TTL fix. Context7's unreleased label was stale; the official
+  release tag resolved that discrepancy.
+- Exact AI/Core pins and runtime metadata advance from 0.85.0 to 0.85.1. The lockfile changes
+  only AI, Core, Chord and Telemetry. Frozen installation passed with existing Node 24.15.0 and
+  pnpm 11.17.0; no adapter implementation, migration, or supply-chain policy change was needed.
+  Added one catalog regression test proving both Astra presets survive WriteLLM's projection
+  with the correct transport, reasoning support, image input, and verified metadata.
+- Eight focused Electron-hosted test files / 93 tests passed in 4.0s (3.51s Vitest), including
+  catalog, stream/retry, session, historical conversation, Skill loader, and runtime contracts.
+  `pnpm check:package:smoke` passed six stages in 84.6s: static checks, one production build,
+  App assembly, signature policy, resource inventory, and all 12 runtime smoke scenarios.
+  No failures, retries, or skips. Electron 43.4.1 / ABI 148 and native arm64 modules were verified.
+- App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, retaining release metadata `0.2026.9.3`.
+  Coverage is macOS arm64 with fixture providers; live Astra generation and other platforms
+  were not exercised. No installer, commit, push, or publication was performed. Existing user
+  documentation changes were preserved; final documentation receives diff/link review.
+
+Reports: `.cache/verification/1788710229462-62028-b9373a90` (focused tests) and
+`.cache/verification/1788710244835-62192-84668b93` (package smoke).
+
+## 2026-09-06 Curated Writing Skill refresh
+
+- The user requested an update of the project's pinned Skills. Reviewed the seven existing
+  application catalog entries against upstream default-branch commits resolved on September 6:
+  [Nature 28150f3](https://github.com/Yuan1z0825/nature-skills/commit/28150f30f8b4017991fca8c7b2839f02c6586d2f)
+  replaces `1ea82ffff20f40077bf84b74182f55eeaf3d111d`; and
+  [CCFA 217f687](https://github.com/mikubaka88/CCFA-Skills/commit/217f68774a6703ba8b8fad602fdb47641ff77c6d)
+  replaces `6bab955140bbe21e0a0543c6788f6502842ab685`. Apache-2.0/MIT license files are unchanged.
+- Updated commit pins and changed-file byte sizes/Git blob hashes in `src/main/skills/catalog.ts`.
+  Reviewed changed entrypoints and allowlisted reference additions: CCFA emphasizes scoped
+  scientific prose, evidence-preserving humanization, manuscript review and version comparison,
+  and destination-specific visual composition; Nature adds main-text discipline and NMI guidance.
+  Added seven in-directory text references: Nature's NMI journal fragment; CCFA's adaptive style,
+  editable PPTX, icon system, paper/presentation diagrams, reference layout, and version comparison.
+  The seven entries now allowlist 61 files. No third-party bodies are bundled.
+- ADR 013's immutable pins, text-only allowlists, authority and explicit-update rules remain.
+  Cross-directory `nature-shared`/`ccf-common` resources and other non-allowlisted upstream
+  references remain unavailable; the existing companion handles them as capability/evidence gaps.
+  Scripts, images, external retrieval, PPTX generation and upstream backend preferences do not
+  grant new tools or supported output formats. NMI guidance remains third-party writing guidance,
+  not independently verified current journal policy. No new dependency or migration was needed.
+- Verification: `pnpm check:fast` passed all three stages in 11.3s. The five existing
+  `src/main/skills` test files passed 26 tests in the initial 2.7s focused invocation. A temporary
+  local probe uses Git tree metadata and exact upstream blob bytes as the downloader responses,
+  then exercises real `SkillService` installation, parsing, publication, loading, revalidation,
+  and reference reads for all seven entries / 61 files. Its first run incorrectly passed
+  `SKILL.md` to the reference-only reader and was rejected as designed. Corrected only that probe;
+  its focused rerun passed in 2.1s (1.74s Vitest). No application test failed or automatic retry ran.
+- Upstream retrieval initially hit sandbox DNS blocking; the same read-only remote lookup and
+  subsequent clones succeeded with elevated network access. Runtime verification used the canonical
+  Electron runner on macOS arm64; pnpm 11.17.0 matches the project pin. Host Node 26.8.1 emitted
+  the existing engine-range warning. No new UI interaction, native or packaging boundary changed,
+  so no E2E, build or package gate was run. Live GitHub HTTP installation and other platforms
+  remain unverified. Existing installed Skills and the packaged App were not modified.
+- Reports: `.cache/verification/1788721575304-6360-cf929293` (26 passing tests plus initial probe
+  error), `.cache/verification/1788721601439-7626-7303eb4f` (corrected upstream probe), and
+  `.cache/verification/1788721578845-7468-51d36a4a` (static checks). The local probe lives under
+  `.cache/verification/skill-refresh/` and is not committed. Documentation received diff/link
+  consistency review. Existing Pi update changes were preserved; no commit or push was performed.
+
+## 2026-09-06 Writing Skill App build
+
+- The user requested packaging after the curated Writing Skill refresh. Ran
+  `pnpm package:unpack` for macOS arm64, preserving the existing working-tree Pi 0.85.1 changes
+  and release metadata `0.2026.9.3`.
+- The first invocation passed compilation and native loading but failed at electron-builder's
+  GitHub lookup with sandbox `ENOTFOUND` after 54.9s. The same command with elevated network
+  access passed all four build-only stages in 34.1s: production build (12.4s), App assembly
+  (21.5s), no-Team-ID ad-hoc/linker signature policy, and package inventory.
+- Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Inventory verified 33,981 ASAR entries,
+  Electron 43.4.1 / ABI 148, arm64 better-sqlite3 12.11.1 and sqlite-vec 0.1.9. A read-only ASAR
+  inspection confirmed Nature `28150f30f8b4017991fca8c7b2839f02c6586d2f` and CCFA
+  `217f68774a6703ba8b8fad602fdb47641ff77c6d` in the packaged Main bundle.
+- Reused the catalog's prior static and focused functional verification. No new functional suite,
+  packaged runtime smoke, installer, Developer ID signing, notarization, commit, push or publication
+  was performed. Host Node 26.8.1 emitted the existing engine-range warning; pnpm 11.17.0 matches
+  the project pin. Installed user Skills were not automatically replaced. Other platforms remain
+  unverified. Documentation passed diff and local evidence-link review.
+- Reports: `.cache/verification/1788722387777-13543-38d33f48` (sandbox failure) and
+  `.cache/verification/1788722460223-14250-cde85d1a` (successful App build).
+
+
+## 2026-09-08 — Agent message copy and edit/restart (ADR 080)
+
+- Implemented copying original user/assistant Markdown, including streamed partial text, success
+  feedback and retryable failure. Copy/edit controls are hidden until the corresponding message is
+  hovered or contains keyboard focus. Inline editing preserves drafts on failure, supports Escape
+  and Cmd/Ctrl+Enter, and keeps editor actions visible.
+- Main owns eligibility, project capability checks, slot reservation and commit-time history/write
+  revalidation. Migration 0046 atomically records replacements, new prompts and pending-proposal
+  invalidation. Raw events, request traces and usage remain; timeline, titles and model compaction
+  read effective history. Agent application/undo, comments and task writes persist sequence receipts.
+  Replaced tool counterparts and stale summaries cannot re-enter compaction context. ADR 080 and
+  architecture record the accepted boundaries, including pending work before the edited message.
+- Verification reused focused Electron results across 35 files: 227 current tests passed (one
+  renamed test is counted only once). Coverage includes Main/IPC, migrations and backup/recovery,
+  proposal/comment receipts, context, queue/steer boundaries, concurrency, reopen and components.
+  Earlier fixture/schema failures were fixed and affected tests rerun; all runners used zero
+  automatic retries. Final context/compaction/edit/component batch: 42 tests, 3.9s runner wall time
+  (`1788821966882-64540-8e225571`); added split-tool boundary test: 17 edit tests, 3.8s
+  (`1788822067748-66163-1b31a47b`). Earlier broad boundary batch: 134 tests, 5.6s runner wall time
+  (`1788821293752-53910-4ba52d6e`), with its legacy migration fixture subsequently passing in 2.0s
+  (`1788821631955-59172-7f9e95fa`). Other retained results are under `.cache/verification/`.
+- `check:e2e e2e/agent-message-edit.spec.ts` passed static checks and one build for the final
+  application source (format 0.6s, Main types 5.5s, Renderer types 5.9s, native preparation 0.9s,
+  compile 11.3s). The scenario initially failed on the resize locator: the existing panel library
+  overwrites `data-testid`. The fixture now uses a 1680×900 desktop window and its real separator
+  marker. Reusing that build, `test:e2e` passed one scenario in 5.3s (5.9s runner wall time), zero
+  retries, under `1788822120592-66963-fa9adde8`. Failed locator attempts are retained under
+  `1788821729611-61197-468ea2fd`, `1788821984274-64832-75baef7b`, and
+  `1788822078544-66341-3d085068`; an earlier pre-hover composite passed in 30.5s under
+  `1788821513312-56827-30f55d8b`. No application assertion was bypassed.
+- E2E verified bidirectional multiline Markdown copying, failure/retry, streaming copy, hover and
+  keyboard reveal, empty/cancel/keyboard submission, stop/edit/restart, server-observed history
+  exclusion, unapplied proposal invalidation, actual-write prohibition, desktop overflow and
+  resize. Editor/action screenshots were visually inspected in
+  `test-results/agent-message-edit-copies--fe328-d-blocks-edits-after-writes/`.
+- Host: macOS arm64, pnpm 11.17.0, Node 26.8.1 (existing declared-range warning), Electron 43.4.1
+  / ABI 148, better-sqlite3 12.11.1. Electron's macOS task-name diagnostic was non-fatal. E2E ran
+  with approved process/loopback access. Other platforms are unverified. No dependency added,
+  packaging, release, commit or push; existing workspace changes were preserved.
+
+
+## 2026-09-08 Conversation fork
+
+Implemented the explicitly approved fork plan under ADR 081. Complete settled assistant replies
+can create independent conversations without model work. Migration 0047 adds source/request
+provenance and flattened immutable event references, preserving effective prefixes across parent
+edits, archive and reopening without copying payloads, runs, proposals or usage. A dedicated read
+view supplies timeline/model/title/compaction history; local effective-event authority still owns
+editing and proposal authorization. Child events follow the inherited sequence boundary. Parent
+summaries are excluded and child compaction rebuilds from the frozen prefix on demand. New sends
+read current project context and receive an explicit historical-memory instruction.
+
+Shared validated IPC/preload methods create idempotent forks and retrieve a source conversation
+outside the bounded switcher list. Renderer adds hover/keyboard fork, empty focused child drafts,
+boundary/source markers, branch icons, and complete-replay source navigation. Inherited tool
+records appear only as historical Details, never live pending controls; inherited usage is excluded.
+The source link opens archived conversations without restoring them and explains replaced targets.
+The existing worktree's message-edit, dependency and Writing Skill maintenance was retained.
+
+Verification and development evidence:
+
+- Final applicable focused coverage totals **141 passing tests across 12 files**, reusing unaffected
+  results. The first 137-test integration selection passed 136 and exposed one old synthetic
+  pagination fixture still shadowing the former read view; the fixture now targets the combined
+  history view. The affected 101-test selection passed in a 4.3s runner gate. Final added isolation,
+  archived/truncated-target and Renderer usage tests passed in a 70-test / 3-file selection in
+  2.3s. Initial fork fixtures omitted model-request settlement and were corrected to finish the
+  fake provider request before declaring the run complete. No product eligibility was weakened.
+- Coverage includes flattened nested forks, exact cutoff/pagination, edits, compaction future-data
+  exclusion, idempotency conflicts, injected transaction rollback, reopening, settings inheritance,
+  pending proposal isolation, archived sources, incomplete outputs, IPC sender/capability checks,
+  and legacy project migration backup/integrity/recovery. Recovery inventory passed: 32 cases,
+  14 categories, 30 sources; the new migration case is registered in the existing manifest.
+- The final `pnpm check:e2e e2e/conversation-fork.spec.ts e2e/agent-message-edit.spec.ts` passed all
+  six stages in **29.2s**, including static checks, one matching build and **2/2 Electron scenarios**
+  (6.4s E2E, zero retries/skips). Fork coverage exercises no model work on creation, inherited
+  provider input, original draft retention, keyboard/focus, nested branching, source navigation,
+  restart, replacement and archived-source non-restoration; message editing also verifies resize.
+  Report: `.cache/verification/1788823380785-84472-1f1cebdc`.
+- An earlier 32.1s composite also passed both E2E scenarios; subsequent source-navigation replay
+  settlement and switcher fixes justified the final build above. One earlier composite stopped at
+  formatting due to an unstable chained-call fixture layout, corrected before building. The
+  final commands ran without retries. Electron E2E used the required approved host execution.
+- Scoped Impeccable detection returned no findings; the desktop fork screenshot was inspected.
+  `git diff --check` passed. Host pnpm 11.17.0 matches the manifest. Host Node 26.8.1 exceeds the
+  declared Node 24 range; it was preserved, while canonical native tests ran in Electron 43.4.1,
+  ABI 148, with better-sqlite3 12.11.1. macOS arm64 only; live external providers, other platforms,
+  package/installer creation and release remain unverified and outside this task.
+
+### 2026-09-08 — Release 0.2026.9.4 preparation
+
+- The user authorized complete tests, a local App build, a new September version tag,
+  and publication after the four-platform GitHub Actions build succeeds. The candidate
+  is `0.2026.9.4`; existing tags remain immutable.
+- Included the current conversation fork, message copy/edit, Pi 0.85.1 and curated
+  Writing Skill changes. Added fork and message-edit scenarios to packaged acceptance.
+- Full-suite discovery now excludes ignored `.cache` probes. The reporter's generated
+  retry fixture uses an explicit isolated configuration. Refreshed stale comment-tool
+  expectations, the pre-v45 recovery fixture, and the preview's browser theme fixture.
+  Initial runs exposed these fixture/discovery failures; they were corrected without
+  weakening product assertions. Focused fixture verification passed 28/28 in 3.1s.
+- Final complete Electron tests: **1,440 passed, 3 intentional benchmark skips**,
+  249 passing files, 27.4s, no test retries. Report:
+  `.cache/verification/1788823990211-92741-b9c27e46`.
+- Frozen dependency install succeeded; pnpm 11.17.0 matches the pin. Host Node 26.8.1
+  remains outside the declared Node 24 range; native tests use Electron 43.4.1 ABI 148.
+  App/package and hosted build results will be recorded after execution.

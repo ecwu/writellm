@@ -28,6 +28,7 @@ import type {
 } from '../shared/contracts/skills'
 import type {
   agentAnswerUserQuestionInputSchema,
+  agentEditLastMessageInputSchema,
   agentStartRunInputSchema,
   AgentEventPage,
   AgentProjectActivitySnapshot,
@@ -413,6 +414,16 @@ export interface DesktopApi {
       projectSessionId: string
       status?: 'active' | 'archived'
     }): Promise<AgentSessionRecord[]>
+    getSession(input: {
+      projectSessionId: string
+      agentSessionId: string
+    }): Promise<AgentSessionRecord>
+    forkConversation(input: {
+      projectSessionId: string
+      sourceSessionId: string
+      targetEventId: string
+      requestId: string
+    }): Promise<AgentSessionRecord>
     createSession(input: {
       projectSessionId: string
       title?: string
@@ -468,6 +479,9 @@ export interface DesktopApi {
       projectSessionId: string
       agentSessionId: string
     }): Promise<MutationProposalRecord[]>
+    editLastMessageAndRestart(
+      input: ReturnType<typeof agentEditLastMessageInputSchema.parse>
+    ): Promise<AgentRunRecord>
     startRun(input: ReturnType<typeof agentStartRunInputSchema.parse>): Promise<AgentRunRecord>
     steerRun(input: {
       projectSessionId: string

@@ -95,6 +95,28 @@ afterEach(async () => {
 })
 
 describe('AgentProviderCatalogService', () => {
+  it('exposes GPT-6 Astra for OpenAI API and Codex subscription presets', async () => {
+    const { database, catalog } = await createHarness()
+    try {
+      const snapshot = await catalog.snapshot()
+      for (const [provider, api] of [
+        ['openai', 'openai-responses'],
+        ['openai-codex', 'openai-codex-responses']
+      ]) {
+        const preset = snapshot.presets.find((entry) => entry.presetId === `builtin:${provider}`)
+        expect(preset?.models.find((model) => model.id === 'gpt-6-astra')).toMatchObject({
+          name: 'GPT-6 Astra',
+          api,
+          reasoning: true,
+          input: ['text', 'image'],
+          metadataVerified: true
+        })
+      }
+    } finally {
+      database.close()
+    }
+  })
+
   it('keeps a newer catalog when a cancelled refresh finishes late', async () => {
     const { database, catalog } = await createHarness()
     await catalog.saveCustomPreset({

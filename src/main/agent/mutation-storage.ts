@@ -333,7 +333,8 @@ export function requireProposal(
   const row = database
     .prepare(
       `SELECT * FROM mutation_proposals
-        WHERE mutation_proposal_id = ? AND agent_session_id = ?`
+        WHERE mutation_proposal_id = ? AND agent_session_id = ?
+          AND tool_call_event_id IN (SELECT agent_event_id FROM agent_effective_events)`
     )
     .get(proposalId, agentSessionId) as MutationProposalTable | undefined
   if (row === undefined) {

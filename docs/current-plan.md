@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-05
+Recorded: 2026-09-08
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -31,18 +31,66 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release `0.2026.9.4` is authorized for complete local tests, an unsigned macOS arm64 App,
+  a new immutable tag, and GitHub Release publication after its four-platform Actions build passes.
+  The release includes the current verified working-tree feature and maintenance changes.
+  Complete Electron tests passed: 1,440 passed and 3 benchmark skips in 27.4s.
+  App/package acceptance and four-platform CI are pending; no tag or Release has been created yet.
+
+- Conversation fork is implemented and locally verified under accepted
+  [ADR 081](adrs/081-conversation-fork.md). Migration 0047 freezes effective history references;
+  child conversations retain their own execution authority, drafts and usage. Completed replies
+  expose fork, a boundary marker and source navigation, including archived/replaced sources.
+  Reused and final-source focused coverage totals 141 tests across 12 files. Static checks, one
+  final-source build and both affected Electron scenarios passed in 29.2s with zero E2E retries.
+  Recovery inventory, verified migration backups/rollback and desktop screenshot inspection passed.
+  macOS arm64 only; host Node 26.8.1 is outside the declared Node 24 range, while pnpm 11.17.0
+  matches the project pin and native tests used Electron 43.4.1 (ABI 148). No package or release.
+  Evidence: [implementation history](history/implementation-log.md#2026-09-08-conversation-fork).
+
+- Agent message copy and edit/restart is implemented under accepted
+  [ADR 080](adrs/080-agent-message-edit-and-restart.md). Controls appear on message hover or
+  keyboard focus. Migration 0046 preserves raw evidence and atomically replaces effective history;
+  actual Agent business writes block editing. Focused Electron coverage passed 227 current tests
+  across 35 files (reused boundary results); final message E2E passed in 5.3s with zero retries,
+  including clipboard, stop/edit, proposal invalidation, write prohibition, hover/focus, and resize.
+  The final source passed static checks and one fresh build via `check:e2e`; its E2E locator was
+  corrected and rerun against that same build. macOS arm64 only; no packaging or release.
+  Detailed timings and rerun evidence are in the maintenance history log.
+
+- All seven curated Writing Skills now use reviewed September 6 upstream pins: Nature
+  `28150f3` and CCFA `217f687`. The catalog verifies 61 text files, including seven newly
+  allowlisted references. Static checks, 26 existing focused tests, and a real-upstream-content
+  installation/read/integrity probe passed. The macOS arm64 App now includes this catalog;
+  the four-stage unpacked package gate passed in 34.1s after one sandbox DNS retry, and both
+  upstream pins were verified inside the App's ASAR. Installed Skills still require an explicit
+  update. Evidence: [catalog review](history/implementation-log.md#2026-09-06-curated-writing-skill-refresh)
+  and [App build](history/implementation-log.md#2026-09-06-writing-skill-app-build).
+
+- Pi AI and Agent Core are pinned to 0.85.1. GPT-6 Astra appears in both OpenAI API and
+  Codex subscription catalogs through the existing provider adapter. All 93 focused tests and
+  static checks passed; the macOS arm64 App was rebuilt and passed 12 packaged smoke scenarios
+  in an 84.6-second gate without retries. Live Astra requests remain unverified. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-06-pi-0851-astra-update).
+
+- The requested macOS arm64 App rebuild includes the Reference / Knowledge sidebar redesign
+  and Notebook citation fixes at `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+  `pnpm package:unpack` passed all four build-only stages in 31.7 seconds after one sandbox
+  DNS failure and an elevated retry. Evidence:
+  [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-sidebar-app-build).
+
 - Reference / Knowledge sidebar redesign is locally verified: Reference-first rows, expandable
   attachments, stable search/selection, capability-based status, scoped background activity and
   paginated history replace mixed file/reference rows and anonymous task logs. File drop targets
   appear only during a file drag into the sidebar. Static checks, 17 focused Electron-hosted
   tests, and three relevant Electron scenarios passed; the final composite gate took 30.8 seconds
-  without retries. Source output is rebuilt; the packaged App is unchanged. Evidence:
+  without retries. Source output and the macOS arm64 App now include this change. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-reference-knowledge-sidebar-redesign).
 
 - Notebook repeated-citation rendering maintenance is locally verified: every registered
   occurrence renders as a citation control without duplicate-marker warnings. Unregistered-marker
   protection remains. Static checks and 15 focused Electron-hosted tests passed without retries.
-  The packaged App has not been rebuilt. Evidence:
+  The macOS arm64 App now includes this change. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-notebook-repeated-citations).
 
 - Ponytail UTF-8 cleanup is locally verified: Agent title context, image prompts, and proposal
@@ -71,7 +119,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   in 32.3 seconds without retries. Existing Pi functional coverage remains applicable. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-app-build).
 
-- Pi AI and Agent Core dependency maintenance is complete at exact version 0.85.0, including
+- The earlier Pi AI and Agent Core 0.85.0 maintenance is superseded by 0.85.1 above, including
   runtime metadata and the new explicit context argument for the read-only Skill loader.
   Verification covers 189 distinct focused tests, static checks, and all 12 packaged runtime
   smoke scenarios. The macOS arm64 App now contains this update; the package smoke gate passed

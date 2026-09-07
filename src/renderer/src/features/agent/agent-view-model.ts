@@ -176,6 +176,9 @@ type AgentContent =
       runId: string | null
       payload: Pick<AgentAssistantMessagePayload, 'content' | 'interrupted'>
       streaming: boolean
+      eventId?: string
+      sequence?: number
+      forkable?: boolean
     }
   | {
       type: 'activity'
@@ -339,10 +342,16 @@ export function projectAgentPresentation(input: {
     currentRevisionIds = {},
     now = Date.now()
   } = input
-  const historicalDiagnostics: AgentEventRecord[] = []
-  const orderedEvents = [...new Map(events.map((event) => [event.sequence, event])).values()].sort(
-    (left, right) => left.sequence - right.sequence
+  const inheritedDiagnostics = events.filter(
+    (event) => event.inheritedFrom && !['user_message', 'assistant_message'].includes(event.type)
   )
+  const historicalDiagnostics: AgentEventRecord[] = [...inheritedDiagnostics]
+  const visibleEvents = events.filter(
+    (event) => !event.inheritedFrom || ['user_message', 'assistant_message'].includes(event.type)
+  )
+  const orderedEvents = [
+    ...new Map(visibleEvents.map((event) => [event.sequence, event])).values()
+  ].sort((left, right) => left.sequence - right.sequence)
   const latestSuccessfulCompactionSequence = orderedEvents.reduce((latest, event) => {
     if (event.type !== 'compaction_summary') return latest
     return agentCompactionSummaryPayloadSchema.safeParse(event.payload).success
@@ -457,7 +466,7 @@ export function projectAgentPresentation(input: {
         historicalDiagnostics.push(event)
         continue
       }
-      providerMetadata = parsed.data.metadata
+      if (!event.inheritedFrom) providerMetadata = parsed.data.metadata
       if (parsed.data.content.trim().length === 0) continue
       flushTools()
       const count = (messageCounts.get(event.agentRunId ?? '') ?? 0) + 1
@@ -466,6 +475,13 @@ export function projectAgentPresentation(input: {
         type: 'message',
         role: 'assistant',
         streaming: false,
+        eventId: event.agentEventId,
+        sequence: event.sequence,
+        forkable:
+          event.forkable ||
+          (parsed.data.stopReason === 'stop' &&
+            !parsed.data.interrupted &&
+            runsById.get(event.agentRunId ?? '')?.status === 'completed'),
         id:
           event.agentRunId === null ? event.agentEventId : `assistant-${event.agentRunId}-${count}`,
         runId: event.agentRunId,
@@ -1226,7 +1242,7 @@ export function aggregateAgentUsage(
   let retryCount = 0
   let skillRouteRequests = 0
   for (const event of events) {
-    if (event.type !== 'assistant_message') continue
+    if (event.inheritedFrom || event.type !== 'assistant_message') continue
     const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
     if (!parsed.success) continue
     inputTokens += parsed.data.metadata.usage.inputTokens ?? 0
@@ -1258,7 +1274,7 @@ export function latestAgentContextSnapshot(
 ): AgentContextSnapshot | null {
   if (selection === null) return null
   for (const event of [...events].reverse()) {
-    if (event.type !== 'assistant_message') continue
+    if (event.inheritedFrom || event.type !== 'assistant_message') continue
     const parsed = agentAssistantMessagePayloadSchema.safeParse(event.payload)
     if (!parsed.success) continue
     const metadata = parsed.data.metadata

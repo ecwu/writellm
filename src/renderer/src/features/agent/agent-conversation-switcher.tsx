@@ -4,6 +4,7 @@ import {
   Archive,
   ArchiveRestore,
   Bot,
+  GitBranch,
   ChevronDown,
   CircleHelp,
   MessageSquarePlus,
@@ -207,6 +208,8 @@ function ConversationCommandGroup(props: {
               <AlertCircle className='text-warning' />
             ) : session.status === 'archived' ? (
               <Archive />
+            ) : session.fork ? (
+              <GitBranch aria-label='分支' />
             ) : (
               <MessageSquarePlus />
             )}

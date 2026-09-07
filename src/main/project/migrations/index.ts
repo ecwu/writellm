@@ -45,6 +45,10 @@ import { migration0044 } from './0044-manuscript-comments'
 
 import { migration0045 } from './0045-comment-acceptance'
 
+import { migration0046 } from './0046-agent-message-replacements'
+
+import { migration0047 } from './0047-conversation-fork'
+
 export const projectMigrations = [
   migration0001,
   migration0002,
@@ -90,5 +94,7 @@ export const projectMigrations = [
   migration0042,
   migration0043,
   migration0044,
-  migration0045
+  migration0045,
+  migration0046,
+  migration0047
 ] as const

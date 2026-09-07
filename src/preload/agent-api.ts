@@ -5,6 +5,9 @@ import {
   agentArchiveSessionResultSchema,
   agentAnswerUserQuestionInputSchema,
   agentAnswerUserQuestionResultSchema,
+  agentSessionInputSchema,
+  agentForkConversationInputSchema,
+  agentForkConversationResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentCompactSessionInputSchema,
@@ -34,6 +37,7 @@ import {
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
+  agentEditLastMessageInputSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentStopCompactionInputSchema,
@@ -68,6 +72,19 @@ export const agentApi: DesktopApi['agent'] = {
       await ipcRenderer.invoke(
         IPC_CHANNELS.agentListSessions,
         agentListSessionsInputSchema.parse(input)
+      )
+    )
+  },
+  async getSession(input) {
+    return agentCreateSessionResultSchema.parse(
+      await ipcRenderer.invoke(IPC_CHANNELS.agentGetSession, agentSessionInputSchema.parse(input))
+    )
+  },
+  async forkConversation(input) {
+    return agentForkConversationResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentForkConversation,
+        agentForkConversationInputSchema.parse(input)
       )
     )
   },
@@ -160,6 +177,14 @@ export const agentApi: DesktopApi['agent'] = {
         agentListRunsInputSchema.omit({ limit: true }).parse(input)
       )
     )
+  },
+  async editLastMessageAndRestart(input) {
+    return agentStartRunResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentEditLastMessage,
+        agentEditLastMessageInputSchema.parse(input)
+      )
+    ).run
   },
   async startRun(input) {
     return agentStartRunResultSchema.parse(

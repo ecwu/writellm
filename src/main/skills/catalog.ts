@@ -35,11 +35,11 @@ export const CURATED_SKILL_CATALOG = [
       'Plan and revise research manuscripts with claim-evidence structure, section-specific workflows, and concise Nature-family academic prose.',
     repository: 'Yuan1z0825/nature-skills',
     directory: 'skills/nature-writing',
-    commit: '1ea82ffff20f40077bf84b74182f55eeaf3d111d',
+    commit: '28150f30f8b4017991fca8c7b2839f02c6586d2f',
     license: 'Apache-2.0',
     dependencies: [],
     files: [
-      file('SKILL.md', 6488, 'ad52508a47d3ceaa9945016e13b74af062ba961b'),
+      file('SKILL.md', 9628, '847d5555ad3bc959ffa7c0815f7c7e0285da6072'),
       file('references/abstract.md', 4067, '2bcd3ee42b4cbac33056c21a94e211b44de06062'),
       file('references/conclusion.md', 1244, '60209f9f1442847724efa36c9465888fa148048f'),
       file('references/experiments.md', 4860, '6e76195b742c526368774d0a6572f0f2cd33c26c'),
@@ -47,9 +47,14 @@ export const CURATED_SKILL_CATALOG = [
       file('references/method.md', 7102, 'b9c3820c9293ab75c463d72d8b082df21f37cc9b'),
       file('references/paragraph-flow.md', 1695, 'dccc564c4a89379b089ae3652cbc7a3b46543aa3'),
       file('references/related-work.md', 1283, 'dff0c70908292e55782c8a76c087658b5a3f3f64'),
-      file('static/core/output-format.md', 1276, '429394d1ca0b8f988be3cdfca510fb2ef18f8d7a'),
+      file('static/core/output-format.md', 1828, 'ed2d6f27626971d16bc516a9efaae990907efe40'),
       file('static/core/stance.md', 2279, 'b35c14d8119e1342b3fea05e547812cbf52d7cd1'),
-      file('static/core/workflow.md', 5914, 'd66f5bc0d7ce40645735f612fc21d0d9a7568d08')
+      file('static/core/workflow.md', 6718, 'b81df655629bcb18d6265df7a13a38f98fde4522'),
+      file(
+        'static/fragments/journal/nat-mach-intell.md',
+        6033,
+        '22995b94c64d03d2be3b0556c90b971da97599f7'
+      )
     ]
   },
   {
@@ -59,13 +64,13 @@ export const CURATED_SKILL_CATALOG = [
       'Revise academic prose toward direct, specific, human-authored language while preserving evidence, terminology, and experimental discipline.',
     repository: 'mikubaka88/CCFA-Skills',
     directory: 'ccf-humanization',
-    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    commit: '217f68774a6703ba8b8fad602fdb47641ff77c6d',
     license: 'MIT',
     dependencies: [],
     files: [
-      file('SKILL.md', 6606, '8b1681bf710c29dacd8dbe105bfdab3c0d0d79f7'),
-      file('references/experiment-discipline.md', 3458, '4aa3936d337dc4d50982b74c14afd4f1ee132029'),
-      file('references/humanization-policy.md', 5181, 'ba87e32247106e8ec14e02044581e8b82b6bfaba')
+      file('SKILL.md', 5806, 'd29eaa4998a55da3a22d2e0a3f79a042a06fb78c'),
+      file('references/experiment-discipline.md', 4008, 'f5ffeca983913fb9760f2454177156ca2f9613e6'),
+      file('references/humanization-policy.md', 11814, 'ebf70ce1b3ef5dc2fae5570ba0b339d3b7a87480')
     ]
   },
   {
@@ -75,25 +80,25 @@ export const CURATED_SKILL_CATALOG = [
       'Plan, draft, review, and compress computer-science papers with citation discipline, venue-aware structure, and evidence-backed revision loops.',
     repository: 'mikubaka88/CCFA-Skills',
     directory: 'ccf-paper-writer',
-    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    commit: '217f68774a6703ba8b8fad602fdb47641ff77c6d',
     license: 'MIT',
     dependencies: ['ccf-humanization'],
     files: [
-      file('SKILL.md', 16572, '0a49392f4b7bc9feb3dffcbae1188eff33209e88'),
-      file('references/citation-workflow.md', 7422, 'd807c1d9911ecdc2f1f5ffe6e7951c9e8fca314e'),
+      file('SKILL.md', 10059, '45958c9ce04919946edce3aef166dabb9e7411bb'),
+      file('references/citation-workflow.md', 4607, '171475e160616a08cbd12a3d38c6740e806df6ce'),
       file('references/compression-rules.md', 4650, '1a22ee760f3e34fa54eeec6b3087ba3e55657ef0'),
       file(
         'references/prose-quality-guardrails.md',
-        6472,
-        'ee5e4dd5e746b94430a6fe3895aeef61d04e8744'
+        8051,
+        '27be3b3cc122dc2e8ce0f9d19ad20a1decc35a50'
       ),
       file(
         'references/research-writing-patterns.md',
-        13960,
-        '75a01f78993b3e25ab2a96e9676651d67b1b81e0'
+        14161,
+        '98456ca5a384dec7a16bec2943ad3e62f21c0e9d'
       ),
-      file('references/section-modules.md', 13183, '5c90fea5a01968b261e9dff7c458c288794da73b'),
-      file('references/storyline-blueprint.md', 15496, '48509608bcdcc955840e6e019d7df3973d49dd35'),
+      file('references/section-modules.md', 13343, '9f15a807d8555649191f5141734a1abac0d880f6'),
+      file('references/storyline-blueprint.md', 16086, 'd072f1f88d627a60ce5e10bd2d948fae4fc191eb'),
       file('references/table-style-guide.md', 7703, '1808267ad1857e4684cbba68717341e3028066bc'),
       file('references/venue-adapters.md', 7416, '678d3a622de28e0a9eca8316ddd4d0c9220af6a4')
     ]
@@ -105,15 +110,15 @@ export const CURATED_SKILL_CATALOG = [
       'Design publication-grade scientific figures, tables, method and architecture diagrams, captions, palettes, and visual QA without inventing evidence.',
     repository: 'mikubaka88/CCFA-Skills',
     directory: 'ccf-visual-composer',
-    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    commit: '217f68774a6703ba8b8fad602fdb47641ff77c6d',
     license: 'MIT',
     dependencies: [],
     files: [
-      file('SKILL.md', 8925, 'a6c8a24149183bc8f669dee0bc644a20fa80d354'),
+      file('SKILL.md', 7179, '61613ec2957f38736e30942a32fe9c7189eae636'),
       file(
         'references/architecture-diagram-generation.md',
-        9499,
-        'facfc6cb8c2de4aa4cc8d430fb0bccf330c8f09c'
+        9086,
+        '31fb7a05696ff97c032aeb159f40c98c04831ecd'
       ),
       file('references/figure-table-layout.md', 2697, '586238bf76b57f39e4d6ec84fb2fa4117b4c2d29'),
       file(
@@ -122,9 +127,26 @@ export const CURATED_SKILL_CATALOG = [
         'cabf780bb0ee110a8e80bf570a3e5a76cb7ed7d8'
       ),
       file('references/plot-inspiration-map.md', 3688, '345ea7febbb76060a4d1492a27af6affdb0c5790'),
-      file('references/python-plot-recipes.md', 5385, '1818e7de845413297674e639d05c80108d476d13'),
-      file('references/render-qa.md', 2935, 'cafb3e12b483c1c4512dc6205d40245ec0a0f815'),
-      file('references/visual-contract.md', 3066, '25ed058b5e41c307f9177740694e6aab1fd67f3b')
+      file('references/python-plot-recipes.md', 5919, '7dda9bc4e796820066ecb6c3d853f5eddc6182c6'),
+      file('references/render-qa.md', 5151, 'ab7c772a6dcda1d0d33f3a40801b3a2eb17fa219'),
+      file('references/visual-contract.md', 4440, 'b9b7729a9aef7428517184ca212f7decf30ff1b8'),
+      file(
+        'references/adaptive-architecture-style.md',
+        6217,
+        '484276afaec65956e189ddb0092a43da618e277b'
+      ),
+      file('references/editable-pptx.md', 4796, '5295ca7d30ddcfbde37dc0619b06c693372af3f6'),
+      file('references/icon-system.md', 3657, 'daf55f7197a240df8955cb409a1a61e1d5c47883'),
+      file(
+        'references/paper-vs-presentation-diagrams.md',
+        4030,
+        'd51dbdcd8572ee6e486192343499978314035f68'
+      ),
+      file(
+        'references/reference-layout-blueprint.md',
+        3003,
+        'eaa332fc486083b3f77fafd26593e20bfc2a29c2'
+      )
     ]
   },
   {
@@ -134,17 +156,17 @@ export const CURATED_SKILL_CATALOG = [
       'Review scientific novelty, soundness, evidence, writing, venue fit, and revision priorities through reviewer and area-chair perspectives.',
     repository: 'mikubaka88/CCFA-Skills',
     directory: 'ccf-paper-reviewer',
-    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    commit: '217f68774a6703ba8b8fad602fdb47641ff77c6d',
     license: 'MIT',
     dependencies: [],
     files: [
-      file('SKILL.md', 5394, '5c36a4c1b1755da138cdfa0d6b7357d97b618cc0'),
-      file('references/calibration-and-rank.md', 5193, '132b7f2305c56e1ce701405e0618f953b9d6292a'),
-      file('references/desk-checks.md', 1562, '64c36db86eb9c207d82189dffc44701ed067cf35'),
-      file('references/fixed-output-format.md', 4169, '926001c3b95509fe7553e435ccd84e0f5daa4371'),
-      file('references/review-workflow.md', 2685, '6da85ee77047def504e15106844930b0514a9cbb'),
-      file('references/reviewer-panel.md', 4669, 'fba621fedab1da0e42e796a65f5c8148451a7dfc'),
-      file('references/source-notes.md', 1130, '4ef3456f42b51105113842b784151ce0efc8b0e4'),
+      file('SKILL.md', 9010, '74eed51681cf13ea7b263707a078eed0eec87798'),
+      file('references/calibration-and-rank.md', 6389, 'cec397a4c86cc25ea2577c054f1e15573fcd960a'),
+      file('references/desk-checks.md', 1836, '5d05461545f96b306f13a3a867e6a21e7a00cbae'),
+      file('references/fixed-output-format.md', 9040, '5537c6d25f46c0d5fe915ba7358655248c487533'),
+      file('references/review-workflow.md', 3487, '3ad19474a6818bf5d9b9b361629aecf7c5659566'),
+      file('references/reviewer-panel.md', 2860, 'ad1530d1f2d050254f012dc4165aa80d10b69e82'),
+      file('references/source-notes.md', 2179, 'c721dc072381500bb0fa10d55e7be3032b6d3ff1'),
       file(
         'references/universal-review-rubric.md',
         4856,
@@ -173,14 +195,15 @@ export const CURATED_SKILL_CATALOG = [
       ),
       file(
         'references/writing-review/source-notes.md',
-        1408,
-        '919912ee13bcb4cc71f254e0df90b4b6b33b47bf'
+        1397,
+        'ab1db3cb24e512c21871018bd4c987a57d932932'
       ),
       file(
         'references/writing-review/writing-review-rubric.md',
-        6927,
-        'e70c5f53f8a1e33382add5f3e0eb9fded8a15b6a'
-      )
+        7295,
+        '36e28c081d8ccb2de87a613c3df57386a811c397'
+      ),
+      file('references/version-comparison.md', 6780, '3b94921b76250f824e1e11e6c937868e4703fb1c')
     ]
   },
   {
@@ -190,10 +213,10 @@ export const CURATED_SKILL_CATALOG = [
       'Audit claim-evidence alignment, numeric and terminology consistency, figure and table references, and existing citation support.',
     repository: 'mikubaka88/CCFA-Skills',
     directory: 'ccf-integrity-auditor',
-    commit: '6bab955140bbe21e0a0543c6788f6502842ab685',
+    commit: '217f68774a6703ba8b8fad602fdb47641ff77c6d',
     license: 'MIT',
     dependencies: [],
-    files: [file('SKILL.md', 2397, '026c877d3cff59b334f3af77ef51f640cc1ffa63')]
+    files: [file('SKILL.md', 3441, '9e8ce62eb3cafcdbc696f953deca499e59dcb55e')]
   },
   {
     skillId: 'nature-statistics',
@@ -202,11 +225,11 @@ export const CURATED_SKILL_CATALOG = [
       'Audit and revise statistical reporting, experimental units, replication, p values, uncertainty, multiple comparisons, and figure legends.',
     repository: 'Yuan1z0825/nature-skills',
     directory: 'skills/nature-statistics',
-    commit: '1ea82ffff20f40077bf84b74182f55eeaf3d111d',
+    commit: '28150f30f8b4017991fca8c7b2839f02c6586d2f',
     license: 'Apache-2.0',
     dependencies: [],
     files: [
-      file('SKILL.md', 8248, 'e2b746e2d900d1173effb18f63eabb6ceb3bda81'),
+      file('SKILL.md', 8728, '0dfa57b2e49ccb15eb8eebed0dc4aa57dc64bab7'),
       file('references/common-failure-modes.md', 4206, 'b87f172c53145d19ceb4836a183a4080bbabd5d5'),
       file('references/figure-statistics.md', 2905, 'b12bdfca75abeba2fe9bd21540d134651e8cc2a5'),
       file(

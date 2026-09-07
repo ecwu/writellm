@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import {
+  AGENT_RUN_PROMPT_MAX_CHARACTERS,
   AGENT_PENDING_MESSAGE_LIMIT,
   AGENT_PENDING_MESSAGE_MAX_BYTES,
   agentApprovalModeSchema,
@@ -41,9 +42,32 @@ export const agentSessionWorkflowStateSchema = z.enum([
   'generating'
 ])
 
+export const agentMessageEditStateSchema = strictObject({
+  targetEventId: agentEventIdSchema.nullable(),
+  throughSequence: z.number().int().nonnegative(),
+  reason: z.string().max(500).nullable()
+})
+export type AgentMessageEditState = z.infer<typeof agentMessageEditStateSchema>
+
 export const agentSessionRecordSchema = strictObject({
   agentSessionId: agentSessionIdSchema,
   title: z.string().min(1).max(500),
+  fork: strictObject({
+    sourceSessionId: agentSessionIdSchema,
+    targetEventId: agentEventIdSchema,
+    throughSequence: z.number().int().positive(),
+    sourceTitle: z.string().max(500),
+    sourceAvailable: z.boolean()
+  })
+    .nullable()
+    .optional(),
+  messageEdit: agentMessageEditStateSchema.nullable().optional(),
+  lastReplacement: strictObject({
+    fromSequence: z.number().int().positive(),
+    throughSequence: z.number().int().positive()
+  })
+    .nullable()
+    .optional(),
   status: agentSessionStatusSchema,
   compatible: z.boolean(),
   approvalMode: agentApprovalModeSchema.default('manual'),
@@ -105,6 +129,13 @@ export const agentRunRecordSchema = strictObject({
 })
 
 export const agentEventRecordSchema = strictObject({
+  inheritedFrom: strictObject({
+    agentSessionId: agentSessionIdSchema,
+    agentEventId: agentEventIdSchema
+  })
+    .nullable()
+    .optional(),
+  forkable: z.boolean().optional(),
   agentEventId: agentEventIdSchema,
   agentSessionId: agentSessionIdSchema,
   agentRunId: agentRunIdSchema.nullable(),
@@ -133,6 +164,13 @@ export const agentCreateSessionInputSchema = strictObject({
   modelSelection: agentModelSelectionSchema.nullable().optional()
 })
 export const agentCreateSessionResultSchema = agentSessionRecordSchema
+export const agentForkConversationInputSchema = strictObject({
+  projectSessionId: projectSessionIdSchema,
+  sourceSessionId: agentSessionIdSchema,
+  targetEventId: agentEventIdSchema,
+  requestId: z.uuid()
+})
+export const agentForkConversationResultSchema = agentSessionRecordSchema
 export const agentSetApprovalModeInputSchema = agentSessionInputSchema.extend({
   mode: agentApprovalModeSchema
 })
@@ -305,6 +343,13 @@ export const agentStartRunInputSchema = strictObject({
     })
   }
 })
+export const agentEditLastMessageInputSchema = agentSessionInputSchema.extend({
+  targetEventId: agentEventIdSchema,
+  expectedThroughSequence: z.number().int().positive(),
+  content: z.string().trim().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
+  editorContext: agentEditorContextSchema
+})
+
 export const agentStartRunResultSchema = strictObject({ run: agentRunRecordSchema })
 
 export const agentRunInputSchema = strictObject({

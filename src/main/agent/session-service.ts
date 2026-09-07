@@ -1,3 +1,10 @@
+import { readForkMetadata } from './conversation-fork'
+import {
+  assertMessageReplacement,
+  commitMessageReplacement,
+  messageEditState,
+  type MessageReplacement
+} from './message-replacement'
 import { randomUUID } from 'node:crypto'
 import {
   reconstructAgentDiagnosticError,
@@ -436,6 +443,99 @@ export class AgentSessionService {
     })
   }
 
+  forkConversation(input: {
+    sourceSessionId: string
+    targetEventId: string
+    requestId: string
+  }): AgentSessionRecord {
+    const agentSessionId = this.options.database.immediate((database) => {
+      const existing = database
+        .prepare(`SELECT agent_session_id, source_session_id, target_event_id
+        FROM agent_conversation_forks WHERE request_id = ?`)
+        .get(input.requestId) as
+        | { agent_session_id: string; source_session_id: string; target_event_id: string }
+        | undefined
+      if (existing !== undefined) {
+        if (
+          existing.source_session_id !== input.sourceSessionId ||
+          existing.target_event_id !== input.targetEventId
+        )
+          throw new Error('Fork request was already used for another message')
+        return existing.agent_session_id
+      }
+      const source = this.#requireSessionRecord(input.sourceSessionId)
+      if (!source.compatible)
+        throw new Error('Agent session is incompatible with the current runtime')
+      const target = database
+        .prepare(`SELECT sequence, forkable FROM agent_conversation_history
+        WHERE agent_session_id = ? AND agent_event_id = ?`)
+        .get(input.sourceSessionId, input.targetEventId) as
+        | { sequence: number; forkable: number }
+        | undefined
+      if (target?.forkable !== 1)
+        throw new Error('This reply is unavailable or has not completed. Reload the conversation.')
+      const created = { agentSessionId: this.#createId() }
+      const now = this.#now().toISOString()
+      database
+        .prepare(`INSERT INTO agent_sessions (
+        agent_session_id, title, pi_runtime_version, event_schema_version, status,
+        approval_mode, interaction_mode, provider_preset_id, selected_model_id, thinking_level,
+        skill_mode, skill_id, created_at, updated_at, archived_at)
+        SELECT ?, ?, ?, ?, 'active', approval_mode, interaction_mode, provider_preset_id,
+          selected_model_id, thinking_level, 'auto', NULL, ?, ?, NULL
+        FROM agent_sessions WHERE agent_session_id = ?`)
+        .run(
+          created.agentSessionId,
+          `${source.title.slice(0, 489)} · 分支`,
+          AGENT_RUNTIME_VERSION,
+          AGENT_EVENT_SCHEMA_VERSION,
+          now,
+          now,
+          input.sourceSessionId
+        )
+      database
+        .prepare(`INSERT INTO agent_conversation_forks
+        (agent_session_id, source_session_id, target_event_id, through_sequence, request_id)
+        VALUES (?, ?, ?, ?, ?)`)
+        .run(
+          created.agentSessionId,
+          input.sourceSessionId,
+          input.targetEventId,
+          target.sequence,
+          input.requestId
+        )
+      const rows = database
+        .prepare(`SELECT COALESCE(source_event_id, agent_event_id) AS source_event_id, sequence
+        FROM agent_conversation_history WHERE agent_session_id = ? AND sequence <= ?
+        AND type NOT IN ('compaction_started', 'compaction_summary', 'compaction_failed') ORDER BY sequence`)
+        .all(input.sourceSessionId, target.sequence) as Array<{
+        source_event_id: string
+        sequence: number
+      }>
+      const insert = database.prepare(`INSERT INTO agent_history_references
+        (history_entry_id, agent_session_id, source_event_id, sequence) VALUES (?, ?, ?, ?)`)
+      for (const row of rows)
+        insert.run(this.#createId(), created.agentSessionId, row.source_event_id, row.sequence)
+      return created.agentSessionId
+    })
+    const session = this.#requireSessionRecord(agentSessionId)
+    this.options.log.info(
+      {
+        event: 'agent.session.forked',
+        agentSessionId,
+        sourceSessionId: input.sourceSessionId,
+        requestId: input.requestId
+      },
+      'Conversation fork created'
+    )
+    void this.#publishSession(session, false)
+    return session
+  }
+
+  getSession(agentSessionId: string): AgentSessionRecord {
+    return this.#requireSessionRecord(agentSessionId)
+  }
+
   listSessions(status: 'active' | 'archived' = 'active'): AgentSessionRecord[] {
     return this.#querySessions({ status, limit: 200 })
   }
@@ -507,6 +607,17 @@ export class AgentSessionService {
         agentSessionRecordSchema.parse({
           agentSessionId: row.agent_session_id,
           title: row.title,
+          fork: readForkMetadata(database, row.agent_session_id),
+          lastReplacement:
+            database
+              .prepare(`SELECT from_sequence AS fromSequence, through_sequence AS throughSequence
+            FROM agent_message_replacements WHERE agent_session_id = ? ORDER BY through_sequence DESC LIMIT 1`)
+              .get(row.agent_session_id) ?? null,
+          messageEdit: messageEditState(
+            database,
+            row.agent_session_id,
+            this.#workBySession.has(row.agent_session_id)
+          ),
           status: row.status,
           compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
@@ -740,8 +851,9 @@ export class AgentSessionService {
           .prepare(
             `SELECT agent_event_id, agent_session_id, agent_run_id, sequence, type,
                     length(CAST(payload_json AS BLOB)) AS payload_bytes, model_request_id,
+                    source_event_id, source_session_id, forkable,
                     created_at
-               FROM agent_events
+               FROM agent_conversation_history
               WHERE agent_session_id = ? AND sequence > ?
               ORDER BY sequence
               LIMIT ?`
@@ -753,6 +865,9 @@ export class AgentSessionService {
           sequence: number
           type: AgentEventType
           payload_bytes: number
+          source_event_id: string | null
+          source_session_id: string | null
+          forkable: number
           model_request_id: string | null
           created_at: string
         }>
@@ -779,7 +894,7 @@ export class AgentSessionService {
             const payloadRows = database
               .prepare(
                 `SELECT agent_event_id, payload_json
-                   FROM agent_events
+                   FROM agent_conversation_history
                   WHERE agent_event_id IN (${placeholders})`
               )
               .all(...selectedRows.map((row) => row.agent_event_id)) as Array<{
@@ -794,6 +909,14 @@ export class AgentSessionService {
       const payloadJson = payloadById.get(row.agent_event_id)
       if (payloadJson === undefined) throw new Error('Selected Agent event payload is missing')
       const event = agentEventRecordSchema.parse({
+        inheritedFrom:
+          row.source_event_id === null
+            ? null
+            : {
+                agentSessionId: row.source_session_id,
+                agentEventId: row.source_event_id
+              },
+        forkable: row.forkable === 1,
         agentEventId: row.agent_event_id,
         agentSessionId: row.agent_session_id,
         agentRunId: row.agent_run_id,
@@ -934,6 +1057,24 @@ export class AgentSessionService {
     return run
   }
 
+  editLastMessageAndRestart(input: {
+    agentSessionId: string
+    targetEventId: string
+    expectedThroughSequence: number
+    content: string
+    editorContext: AgentEditorContext
+  }): Promise<StartedAgentRun> {
+    return this.startRun({
+      agentSessionId: input.agentSessionId,
+      prompt: input.content.trim(),
+      editorContext: input.editorContext,
+      replacement: {
+        targetEventId: input.targetEventId,
+        expectedThroughSequence: input.expectedThroughSequence
+      }
+    })
+  }
+
   startRun(input: {
     agentSessionId: string
     prompt: string
@@ -942,6 +1083,7 @@ export class AgentSessionService {
     maxOutputTokens?: number
     temperature?: number
     operationId?: string
+    replacement?: MessageReplacement
     presentation?: AgentUserMessagePayload['presentation']
     interactionMode?: AgentInteractionMode
   }): Promise<StartedAgentRun> {
@@ -952,7 +1094,12 @@ export class AgentSessionService {
       const agentRunId = this.#createId()
       const controller = new AbortController()
       this.#assertCompatibleSession(input.agentSessionId)
-      this.#assertConversationReady(input.agentSessionId)
+      const replacement = input.replacement
+      if (replacement === undefined) this.#assertConversationReady(input.agentSessionId)
+      else
+        this.options.database.immediate((database) =>
+          assertMessageReplacement(database, input.agentSessionId, replacement)
+        )
       this.#reserveRunSlot(input.agentSessionId, agentRunId, controller)
       const starting: StartingRun = {
         agentSessionId: input.agentSessionId,
@@ -989,6 +1136,7 @@ export class AgentSessionService {
     systemPrompt?: string
     maxOutputTokens?: number
     temperature?: number
+    replacement?: MessageReplacement
     presentation?: AgentUserMessagePayload['presentation']
     interactionMode?: AgentInteractionMode
     operationId: string
@@ -1026,6 +1174,7 @@ export class AgentSessionService {
           }
           const runtimeModel =
             resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved)
+          input.controller.signal.throwIfAborted()
           const now = this.#now()
           const automaticTitle = this.#insertRunAndUserEvent({
             agentSessionId: input.agentSessionId,
@@ -1038,6 +1187,7 @@ export class AgentSessionService {
             thinkingLevel,
             modelLimits,
             presentation: input.presentation,
+            replacement: input.replacement,
             now
           })
           const active: ActiveRun = {
@@ -1094,6 +1244,7 @@ export class AgentSessionService {
                 this.#activeRuns.delete(active.agentRunId)
               }
               this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
+              void this.#publishSession(active.agentSessionId, false)
             })
           this.#activeRuns.set(active.agentRunId, active)
           void this.#publishActivitySnapshot()
@@ -1124,6 +1275,7 @@ export class AgentSessionService {
           this.options.log.info(
             {
               event: 'agent.run.started',
+              replacedEventId: input.replacement?.targetEventId,
               agentSessionId: input.agentSessionId,
               agentRunId: input.agentRunId,
               phase: 'skill_preparation',
@@ -3240,11 +3392,16 @@ export class AgentSessionService {
     interactionMode: AgentInteractionMode
     thinkingLevel: AgentThinkingLevel
     modelLimits: AgentModelLimits
+    replacement?: MessageReplacement
     presentation?: AgentUserMessagePayload['presentation']
     now: Date
   }): string | null {
     const now = input.now.toISOString()
     return this.options.database.immediate((database) => {
+      const fromSequence =
+        input.replacement === undefined
+          ? null
+          : assertMessageReplacement(database, input.agentSessionId, input.replacement)
       const session = database
         .prepare(
           `SELECT title,
@@ -3309,6 +3466,15 @@ export class AgentSessionService {
           now,
           now
         )
+      if (input.replacement !== undefined && fromSequence !== null) {
+        commitMessageReplacement(database, {
+          ...input.replacement,
+          agentSessionId: input.agentSessionId,
+          agentRunId: input.agentRunId,
+          fromSequence,
+          now
+        })
+      }
       insertEvent(database, {
         eventId: this.#createId(),
         sessionId: input.agentSessionId,
@@ -3568,7 +3734,7 @@ export class AgentSessionService {
         .prepare(
           `SELECT sequence, 'user' AS role,
                   substr(json_extract(payload_json, '$.content'), 1, 16384) AS content
-             FROM agent_events
+             FROM agent_conversation_history
             WHERE agent_session_id = ? AND type = 'user_message'
             ORDER BY sequence
             LIMIT 1`
@@ -3578,7 +3744,7 @@ export class AgentSessionService {
         .prepare(
           `SELECT sequence, 'summary' AS role,
                   substr(json_extract(payload_json, '$.summary'), 1, 16384) AS content
-             FROM agent_events
+             FROM agent_conversation_history
             WHERE agent_session_id = ? AND type = 'compaction_summary'
             ORDER BY sequence DESC
             LIMIT 1`
@@ -3589,7 +3755,7 @@ export class AgentSessionService {
           `SELECT sequence,
                   CASE type WHEN 'user_message' THEN 'user' ELSE 'assistant' END AS role,
                   substr(json_extract(payload_json, '$.content'), 1, 16384) AS content
-             FROM agent_events
+             FROM agent_conversation_history
             WHERE agent_session_id = ? AND type IN ('user_message', 'assistant_message')
             ORDER BY sequence DESC
             LIMIT 24`

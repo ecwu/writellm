@@ -49,9 +49,12 @@ export function insertEvent(
 ): AgentEventRecord {
   const sequence = Number(
     database
-      .prepare('SELECT COALESCE(MAX(sequence), 0) + 1 FROM agent_events WHERE agent_session_id = ?')
+      .prepare(`SELECT MAX(
+        COALESCE((SELECT MAX(sequence) FROM agent_events WHERE agent_session_id = ?), 0),
+        COALESCE((SELECT through_sequence FROM agent_conversation_forks WHERE agent_session_id = ?), 0)
+      ) + 1`)
       .pluck()
-      .get(input.sessionId)
+      .get(input.sessionId, input.sessionId)
   )
   const payloadJson = JSON.stringify(input.payload)
   if (new TextEncoder().encode(payloadJson).byteLength > 2_097_152) {

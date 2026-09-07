@@ -219,6 +219,7 @@ export class MutationProposalService {
           .prepare(
             `SELECT * FROM mutation_proposals
               WHERE agent_session_id = ?
+                AND tool_call_event_id IN (SELECT agent_event_id FROM agent_effective_events)
               ORDER BY created_at, mutation_proposal_id
               LIMIT 1000`
           )

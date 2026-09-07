@@ -132,6 +132,14 @@ describe('MutationProposalService: sections', () => {
       proposalId: proposed.proposalId
     })
     expect(undone.proposal.status).toBe('undone')
+    expect(
+      value.database.immediate((db) =>
+        db
+          .prepare('SELECT COUNT(*) FROM agent_edit_effects WHERE agent_session_id = ?')
+          .pluck()
+          .get(agentSessionId)
+      )
+    ).toBe(2)
     expect(undone.proposal.undoRevisionId).toBeTruthy()
     expect(value.manuscript.getRevision(undone.proposal.undoRevisionId ?? '')).toMatchObject({
       source: 'undo',

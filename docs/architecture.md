@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 079
-Recorded: 2026-07-31; amended through 2026-09-05
+Status: accepted implementation baseline, amended through accepted ADR 081
+Recorded: 2026-07-31; amended through 2026-09-07
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,21 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-08 Conversation fork amendment
+
+[ADR 081](adrs/081-conversation-fork.md) adds independent conversations with frozen references to
+an effective event prefix. A separate read-only history view combines inherited and local events;
+execution authority remains local. Forks share the current manuscript, never replay tools, and
+start no model work until the user sends a message. Parent edits cannot change frozen history.
+
+## 2026-09-07 Agent message replacement amendment
+
+[ADR 080](adrs/080-agent-message-edit-and-restart.md) adds copy and latest-message editing.
+Persistent replacement intervals select effective conversation history without deleting raw events,
+requests, usage, or traces. Sequence-bound effect receipts prohibit editing after actual Agent
+business writes, including writes later undone. Main atomically replaces the suffix and starts a new
+run; superseded proposals and checkpoint summaries cannot regain execution authority.
 
 ## 2026-09-05 Writer comment verification amendment
 

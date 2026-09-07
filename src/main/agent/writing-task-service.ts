@@ -108,6 +108,7 @@ export class WritingTaskService {
           }
           throw err
         }
+        recordTaskEditEffect(database, actor.agentSessionId)
         return createWritingTaskResultSchema.parse({
           task: mapTask(requireTask(database, taskId)),
           createdStepRefs
@@ -145,7 +146,9 @@ export class WritingTaskService {
     try {
       const result = this.options.database.immediate((database) => {
         assertActor(database, actor)
-        return this.#applyUpdate(database, args, actor.agentSessionId)
+        const updated = this.#applyUpdate(database, args, actor.agentSessionId)
+        recordTaskEditEffect(database, actor.agentSessionId)
+        return updated
       })
       this.options.log.info(
         {
@@ -279,6 +282,7 @@ export class WritingTaskService {
                   ) THEN 1 ELSE 0 END) AS adverse_effect_count
              FROM mutation_proposals
             WHERE writing_task_id = ? AND writing_task_step_id IS NOT NULL
+              AND tool_call_event_id IN (SELECT agent_event_id FROM agent_effective_events)
             GROUP BY writing_task_step_id`
         )
         .all(task.taskId) as Array<{
@@ -554,4 +558,11 @@ function mapTask(row: AgentWritingTaskTable): WritingTaskRecord {
 
 function isUniqueConstraint(err: unknown): boolean {
   return err instanceof Error && /UNIQUE constraint failed/u.test(err.message)
+}
+
+function recordTaskEditEffect(database: Database.Database, agentSessionId: string): void {
+  database
+    .prepare(`INSERT INTO agent_edit_effects (effect_id, agent_session_id, after_sequence)
+    VALUES (?, ?, (SELECT COALESCE(MAX(sequence), 0) FROM agent_events WHERE agent_session_id = ?))`)
+    .run(`task:${randomUUID()}`, agentSessionId, agentSessionId)
 }

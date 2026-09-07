@@ -6,6 +6,9 @@ import {
   agentArchiveSessionResultSchema,
   agentAnswerUserQuestionInputSchema,
   agentAnswerUserQuestionResultSchema,
+  agentSessionInputSchema,
+  agentForkConversationInputSchema,
+  agentForkConversationResultSchema,
   agentCreateSessionInputSchema,
   agentCreateSessionResultSchema,
   agentCompactSessionInputSchema,
@@ -34,6 +37,7 @@ import {
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
+  agentEditLastMessageInputSchema,
   agentStartRunInputSchema,
   agentStartRunResultSchema,
   agentStopCompactionInputSchema,
@@ -108,6 +112,22 @@ export function registerAgentIpc(options: {
     const input = agentListSessionsInputSchema.parse(raw)
     return agentListSessionsResultSchema.parse(
       readService(input.projectSessionId).listSessions(input.status)
+    )
+  })
+  ipc.handle(IPC_CHANNELS.agentGetSession, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentSessionInputSchema.parse(raw)
+    return agentCreateSessionResultSchema.parse(
+      readService(input.projectSessionId).getSession(input.agentSessionId)
+    )
+  })
+  ipc.handle(IPC_CHANNELS.agentForkConversation, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentForkConversationInputSchema.parse(raw)
+    return lifecycle('agent.session.fork', () =>
+      agentForkConversationResultSchema.parse(
+        mutationContext(input.projectSessionId).agentSessions?.forkConversation(input)
+      )
     )
   })
   ipc.handle(IPC_CHANNELS.agentCreateSession, async (event, raw: unknown) => {
@@ -276,6 +296,17 @@ export function registerAgentIpc(options: {
     const context = options.manager.assertActiveSession(input.projectSessionId)
     if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
     return agentListProposalsResultSchema.parse(context.agentMutations.list(input.agentSessionId))
+  })
+  ipc.handle(IPC_CHANNELS.agentEditLastMessage, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = agentEditLastMessageInputSchema.parse(raw)
+    return lifecycle('agent.message.edit', async () => {
+      const service = mutationContext(input.projectSessionId).agentSessions
+      if (service === null) throw new Error('Agent sessions are unavailable')
+      const started = await service.editLastMessageAndRestart(input)
+      options.manager.assertActiveSession(input.projectSessionId)
+      return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
+    })
   })
   ipc.handle(IPC_CHANNELS.agentStartRun, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
@@ -581,6 +612,8 @@ export function registerAgentIpc(options: {
 
   const channels = [
     IPC_CHANNELS.agentListSessions,
+    IPC_CHANNELS.agentGetSession,
+    IPC_CHANNELS.agentForkConversation,
     IPC_CHANNELS.agentCreateSession,
     IPC_CHANNELS.agentGenerateSessionTitle,
     IPC_CHANNELS.agentArchiveSession,
@@ -594,6 +627,7 @@ export function registerAgentIpc(options: {
     IPC_CHANNELS.agentListRuns,
     IPC_CHANNELS.agentListProposals,
     IPC_CHANNELS.agentStartRun,
+    IPC_CHANNELS.agentEditLastMessage,
     IPC_CHANNELS.agentSteerRun,
     IPC_CHANNELS.agentFollowUpRun,
     IPC_CHANNELS.agentSteerPendingFollowUp,

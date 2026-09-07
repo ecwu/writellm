@@ -33,6 +33,28 @@ const base = {
 }
 
 describe('Agent renderer view model', () => {
+  it('renders inherited replies as forkable read-only history without copying usage or live tool state', () => {
+    const inheritedFrom = { agentSessionId: base.agentSessionId, agentEventId: 'original-event' }
+    const message = { ...assistantRecord(2, 'Inherited answer'), inheritedFrom, forkable: true }
+    const tool = { ...toolCallRecord(1, 'old-pending', 'submit_section_change'), inheritedFrom }
+    const presentation = projectAgentPresentation({ events: [tool, message] })
+    expect(presentation.timeline).toHaveLength(1)
+    expect(presentation.timeline[0]).toMatchObject({
+      role: 'assistant',
+      eventId: message.agentEventId,
+      forkable: true
+    })
+    expect(presentation.tools).toEqual([])
+    expect(presentation.historicalDiagnostics).toEqual([tool])
+    expect(presentation.providerMetadata).toBeNull()
+    expect(aggregateAgentUsage([message])).toEqual({
+      inputTokens: 0,
+      outputTokens: 0,
+      retryCount: 0,
+      skillRouteRequests: 0
+    })
+  })
+
   it('maps typed Agent work to the bounded thinking-orb states', () => {
     const searching = timelineFor([
       toolCallRecord(1, 'search', 'search_knowledge', { query: 'evidence' })

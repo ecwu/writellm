@@ -281,6 +281,15 @@
       "category": "migration",
       "source": "src/main/project/migrations/0025-agent-thinking-level.test.ts",
       "tests": ["preserves existing rows as off and enforces bounded levels"]
+    },
+    {
+      "id": "conversation-fork-migration",
+      "category": "migration",
+      "source": "src/main/project/migrations/0047-conversation-fork.test.ts",
+      "tests": [
+        "creates a verified pre-migration backup and keeps existing conversation evidence",
+        "retains an intact original and recoverable backup when migration fails"
+      ]
     }
   ]
 }

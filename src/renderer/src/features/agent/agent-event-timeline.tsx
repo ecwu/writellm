@@ -1,4 +1,11 @@
-import type { AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
+import { useState } from 'react'
+import {
+  MessageCopyButton,
+  MessageEditButton,
+  MessageEditor,
+  MessageForkButton
+} from './agent-message-actions'
+import type { AgentMessageEditState, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AgentDiagnosticError } from '../../../../shared/agent-diagnostic-error'
 import {
@@ -63,6 +70,12 @@ export function EventTimeline(props: {
   projectSessionId: string
   sectionTitles: Readonly<Record<string, string>>
   busy: boolean
+  messageEdit?: AgentMessageEditState | null
+  editingDisabled?: boolean
+  onEdit?(targetEventId: string, content: string): Promise<boolean>
+  forkBoundary?: number
+  forkBusy?: boolean
+  onFork?(eventId: string): void
   onNew(): void
   onProposalAction(
     proposal: MutationProposalRecord,
@@ -82,16 +95,31 @@ export function EventTimeline(props: {
                 <MessageScrollerItem
                   key={item.id}
                   messageId={item.id}
+                  data-event-id={
+                    item.type === 'message' && item.role === 'assistant' ? item.eventId : item.id
+                  }
                   scrollAnchor={index === scrollAnchorIndex}
                 >
                   <TimelineItem
                     item={item}
                     projectSessionId={props.projectSessionId}
                     busy={props.busy}
+                    messageEdit={props.messageEdit}
+                    editingDisabled={props.editingDisabled}
+                    onEdit={props.onEdit}
+                    onFork={props.onFork}
+                    forkBusy={props.forkBusy}
                     sectionTitles={props.sectionTitles}
                     onProposalAction={props.onProposalAction}
                     onNew={props.onNew}
                   />
+                  {item.type === 'message' &&
+                  item.role === 'assistant' &&
+                  item.sequence === props.forkBoundary ? (
+                    <Marker className='mt-4'>
+                      <MarkerContent>从这里开始新分支</MarkerContent>
+                    </Marker>
+                  ) : null}
                   {item.runDurationMs === undefined ? null : (
                     <MessageFooter className='mt-2 gap-1.5 tabular-nums'>
                       <Clock3 className='size-3.5' /> Worked for{' '}
@@ -113,6 +141,12 @@ function TimelineItem(props: {
   item: AgentTimelineItem
   projectSessionId: string
   busy: boolean
+  messageEdit?: AgentMessageEditState | null
+  editingDisabled?: boolean
+  onEdit?(targetEventId: string, content: string): Promise<boolean>
+  forkBoundary?: number
+  forkBusy?: boolean
+  onFork?(eventId: string): void
   onNew(): void
   sectionTitles: Readonly<Record<string, string>>
   onProposalAction(
@@ -121,6 +155,11 @@ function TimelineItem(props: {
   ): Promise<void>
 }): React.JSX.Element | null {
   const { item } = props
+  const [editing, setEditing] = useState(false)
+  const editable = props.onEdit !== undefined && props.messageEdit?.targetEventId === item.id
+  const editReason = props.editingDisabled
+    ? 'Choose an available model in an active conversation to edit.'
+    : (props.messageEdit?.reason ?? null)
   if (item.type === 'message' && item.role === 'user') {
     return (
       <Message align='end'>
@@ -132,25 +171,53 @@ function TimelineItem(props: {
                 ? `Quick action · ${item.payload.presentation.label}`
                 : deliveryLabel(item.payload.delivery)}
           </MessageHeader>
-          <Bubble variant='muted' align='end'>
-            <BubbleContent className='whitespace-pre-wrap'>
-              {item.payload.presentation?.kind === 'quick_action' ? (
-                <div className='flex min-w-0 flex-col gap-2'>
-                  {item.payload.presentation.displayInstruction === null ? null : (
-                    <p>{item.payload.presentation.displayInstruction}</p>
-                  )}
-                  <Alert>
-                    <AlertTitle>Captured selection</AlertTitle>
-                    <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
-                      {item.payload.presentation.selectedText}
-                    </AlertDescription>
-                  </Alert>
-                </div>
-              ) : (
-                item.payload.content
+          {editing && editable ? (
+            <MessageEditor
+              content={item.payload.content}
+              busy={props.busy}
+              reason={editReason}
+              onCancel={() => setEditing(false)}
+              onSave={async (content) => {
+                const saved = (await props.onEdit?.(item.id, content)) ?? false
+                if (saved) setEditing(false)
+                return saved
+              }}
+            />
+          ) : (
+            <Bubble variant='muted' align='end'>
+              <BubbleContent className='whitespace-pre-wrap'>
+                {item.payload.presentation?.kind === 'quick_action' ? (
+                  <div className='flex min-w-0 flex-col gap-2'>
+                    {item.payload.presentation.displayInstruction === null ? null : (
+                      <p>{item.payload.presentation.displayInstruction}</p>
+                    )}
+                    <Alert>
+                      <AlertTitle>Captured selection</AlertTitle>
+                      <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
+                        {item.payload.presentation.selectedText}
+                      </AlertDescription>
+                    </Alert>
+                  </div>
+                ) : (
+                  item.payload.content
+                )}
+              </BubbleContent>
+            </Bubble>
+          )}
+          {!editing && (
+            <MessageFooter
+              data-testid='agent-message-actions'
+              className='gap-1 opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100'
+            >
+              <MessageCopyButton content={item.payload.content} />
+              {editable && (
+                <MessageEditButton
+                  reason={props.busy ? 'Wait for the current operation to finish.' : editReason}
+                  onEdit={() => setEditing(true)}
+                />
               )}
-            </BubbleContent>
-          </Bubble>
+            </MessageFooter>
+          )}
         </MessageContent>
       </Message>
     )
@@ -164,6 +231,20 @@ function TimelineItem(props: {
               <AgentMarkdown content={item.payload.content} />
             </BubbleContent>
           </Bubble>
+          <MessageFooter
+            data-testid='agent-message-actions'
+            className='opacity-0 transition-opacity group-hover/message:opacity-100 group-focus-within/message:opacity-100'
+          >
+            <MessageCopyButton content={item.payload.content} />
+            {!item.streaming && item.forkable && item.eventId && props.onFork ? (
+              <MessageForkButton
+                busy={props.forkBusy ?? false}
+                onFork={() => {
+                  if (item.eventId) props.onFork?.(item.eventId)
+                }}
+              />
+            ) : null}
+          </MessageFooter>
           {item.streaming ? (
             <MessageFooter>
               <span>Writing response…</span>
@@ -279,6 +360,9 @@ function TimelineItem(props: {
 
 export function CompactionFailureMessage(props: {
   payload: Extract<AgentTimelineItem, { type: 'compaction'; state: 'error' }>['payload']
+  forkBoundary?: number
+  forkBusy?: boolean
+  onFork?(eventId: string): void
   onNew(): void
 }): React.JSX.Element {
   const sourceTooLarge = props.payload.code === 'compaction_run_too_large'

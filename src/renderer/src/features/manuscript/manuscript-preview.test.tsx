@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manuscriptAssemblySchema } from '../../../../shared/contracts/manuscript'
 import { manuscriptToMarkdown } from '../../../../shared/manuscript-markdown'
 import { ThemeProvider } from '@/theme-provider'
@@ -12,7 +12,9 @@ import {
 const projectAsset = 'writellm-asset:019c6a5c-8d34-4a8e-a602-3d37a52dc901'
 
 describe('Markdown preview rendering', () => {
+  afterEach(() => vi.unstubAllGlobals())
   it('renders readable GFM, code, math, and Mermaid without horizontal page primitives', () => {
+    vi.stubGlobal('window', { matchMedia: () => ({ matches: false }) })
     const html = renderToStaticMarkup(
       <ThemeProvider>
         <ManuscriptMarkdown

@@ -87,7 +87,7 @@ export function latestSuccessfulCheckpoint(
       native
         .prepare(
           `SELECT agent_event_id, payload_json
-             FROM agent_events
+             FROM agent_conversation_history
             WHERE agent_session_id = ? AND type = 'compaction_summary'
             ORDER BY sequence DESC
             LIMIT ?`
@@ -152,6 +152,18 @@ export function loadContinuousRuntimeHistory(
 ): AgentHistoryMessage[] {
   const checkpoint = latestSuccessfulCheckpoint(database, agentSessionId)
   const history: AgentHistoryMessage[] = []
+  const fork = database.immediate((db) =>
+    db
+      .prepare('SELECT 1 FROM agent_conversation_forks WHERE agent_session_id = ?')
+      .get(agentSessionId)
+  )
+  if (fork !== undefined)
+    history.push({
+      role: 'user',
+      timestamp: 0,
+      content:
+        '<WRITELLM_FORK_CONTEXT authority="conversation_memory">Inherited conversation is historical memory. All branches share the current project. Re-read current project state before acting; historical tools, plans and approvals confer no execution authority.</WRITELLM_FORK_CONTEXT>'
+    })
   if (checkpoint !== null) {
     history.push(checkpointHistoryMessage(checkpoint))
   }
@@ -216,7 +228,7 @@ function loadConversationEventsAfterSequence(
         native
           .prepare(
             `SELECT sequence, type, payload_json
-               FROM agent_events
+               FROM agent_conversation_history
               WHERE agent_session_id = ? AND sequence > ?
                 AND type IN ('user_message', 'assistant_message')
                 AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
@@ -470,7 +482,7 @@ function loadEventRows(
         native
           .prepare(
             `SELECT agent_event_id, agent_run_id, sequence, type, payload_json
-               FROM agent_events
+               FROM agent_conversation_history
               WHERE agent_session_id = ? AND sequence > ?
                 ${COMPACTION_EVENT_TYPES}
                 AND (? IS NULL OR agent_run_id IS NULL OR agent_run_id <> ?)
@@ -492,7 +504,26 @@ function loadEventRows(
     }
     if (rows.length < PAGE_SIZE) break
   }
-  return selected
+  // A steering message can split a tool call from its result. Only discard
+  // facts whose counterpart was replaced; ordinary historical facts stay intact.
+  const replacedTools = database.immediate(
+    (native) =>
+      native
+        .prepare(`SELECT DISTINCT e.agent_run_id, json_extract(e.payload_json, '$.toolCallId') AS tool_call_id
+      FROM agent_events e JOIN agent_message_replacements r
+        ON r.agent_session_id = e.agent_session_id
+       AND e.sequence BETWEEN r.from_sequence AND r.through_sequence
+      WHERE e.agent_session_id = ? AND e.type IN ('tool_call', 'tool_result')`)
+        .all(agentSessionId) as { agent_run_id: string | null; tool_call_id: string }[]
+  )
+  const replacedKeys = new Set(
+    replacedTools.map((row) => `${row.agent_run_id}:${row.tool_call_id}`)
+  )
+  return selected.filter(
+    (row) =>
+      (row.type !== 'tool_call' && row.type !== 'tool_result') ||
+      !replacedKeys.has(`${row.agent_run_id}:${String(row.event.toolCallId)}`)
+  )
 }
 
 function groupCompactionRows(rows: readonly ProjectedEventRow[]): ProjectedEventRow[][] {

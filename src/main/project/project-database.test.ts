@@ -112,6 +112,15 @@ function restoreV5ManuscriptSchema(database: Database.Database): void {
 }
 
 function dropAgentTraceSchema(database: Database.Database): void {
+  database.exec(`DROP VIEW IF EXISTS agent_conversation_history;
+    DROP TABLE IF EXISTS agent_history_references;
+    DROP TABLE IF EXISTS agent_conversation_forks;
+    DROP VIEW IF EXISTS agent_effective_events;
+    DROP TRIGGER IF EXISTS agent_edit_proposal_effect;
+    DROP TRIGGER IF EXISTS agent_edit_comment_effect;
+    DROP TABLE IF EXISTS agent_message_replacements;
+    DROP TABLE IF EXISTS agent_edit_effects;`)
+
   database.exec(`
     DROP VIEW IF EXISTS agent_run_trace_v;
     DROP VIEW IF EXISTS agent_model_request_trace_v;

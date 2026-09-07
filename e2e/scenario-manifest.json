@@ -2,6 +2,8 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "agent.conversation-fork", "tiers": ["packaged"] },
+    { "id": "agent.message-copy-edit", "tiers": ["packaged"] },
     { "id": "agent.current-model-configuration", "tiers": [] },
     { "id": "accessibility.shell-settings", "tiers": ["critical", "packaged"] },
     { "id": "agent.cp50-scope-and-preflight", "tiers": ["packaged"] },

@@ -40,6 +40,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     sessions,
     setSessions,
     activeSessionId,
+    replayedSessionId,
     events,
     runs,
     setRuns,
@@ -356,6 +357,147 @@ export function useAgentPanelController(props: AgentPanelProps) {
       setBusy(false)
     }
   }
+  const [forkBusy, setForkBusy] = useState(false)
+  const forkInFlight = useRef(false)
+  const forkRequests = useRef(new Map<string, string>())
+  const [forkFocus, setForkFocus] = useState<string | null>(null)
+  const [sourceTarget, setSourceTarget] = useState<{ sessionId: string; eventId: string } | null>(
+    null
+  )
+  const projectRef = useRef(props.projectSessionId)
+  projectRef.current = props.projectSessionId
+  useEffect(() => {
+    if (!forkFocus || activeSessionId !== forkFocus || loading || busy) return
+    const frame = requestAnimationFrame(() => {
+      composerTextareaRef.current?.focus()
+      setForkFocus(null)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [forkFocus, activeSessionId, loading, busy, composerTextareaRef])
+  useEffect(() => {
+    if (
+      !sourceTarget ||
+      activeSessionId !== sourceTarget.sessionId ||
+      replayedSessionId !== sourceTarget.sessionId ||
+      loading
+    )
+      return
+    const frame = requestAnimationFrame(() => {
+      const element = document.querySelector(
+        `[data-event-id="${CSS.escape(sourceTarget.eventId)}"]`
+      )
+      if (element) {
+        element.scrollIntoView({ block: 'center' })
+        setSourceTarget(null)
+      } else {
+        setError('来源消息已被替换，当前显示来源会话。分支历史保持不变。')
+        setSourceTarget(null)
+      }
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [sourceTarget, activeSessionId, replayedSessionId, loading, setError])
+  const forkConversation = async (targetEventId: string): Promise<void> => {
+    if (activeSessionId === null || forkInFlight.current) return
+    const sourceSessionId = activeSessionId
+    const projectSessionId = props.projectSessionId
+    const key = `${projectSessionId}:${sourceSessionId}:${targetEventId}`
+    const requestId = forkRequests.current.get(key) ?? crypto.randomUUID()
+    forkRequests.current.set(key, requestId)
+    forkInFlight.current = true
+    setForkBusy(true)
+    setError(null)
+    try {
+      const created = await window.desktop.agent.forkConversation({
+        projectSessionId,
+        sourceSessionId,
+        targetEventId,
+        requestId
+      })
+      if (projectRef.current !== projectSessionId) return
+      forkRequests.current.delete(key)
+      setSessions((current) => [
+        created,
+        ...current.filter((session) => session.agentSessionId !== created.agentSessionId)
+      ])
+      if (runtime.activeSessionIdRef.current === sourceSessionId) {
+        openSession(created.agentSessionId)
+        setForkFocus(created.agentSessionId)
+      }
+    } catch (cause) {
+      if (projectRef.current === projectSessionId) setError(errorMessage(cause))
+    } finally {
+      forkInFlight.current = false
+      setForkBusy(false)
+    }
+  }
+  const openForkSource = async (): Promise<void> => {
+    if (!activeSession?.fork) return
+    const source = activeSession.fork
+    try {
+      const session = await window.desktop.agent.getSession({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: source.sourceSessionId
+      })
+      if (
+        projectRef.current !== props.projectSessionId ||
+        runtime.activeSessionIdRef.current !== activeSession.agentSessionId
+      )
+        return
+      setSessions((current) => [
+        session,
+        ...current.filter((item) => item.agentSessionId !== session.agentSessionId)
+      ])
+      setSourceTarget({ sessionId: source.sourceSessionId, eventId: source.targetEventId })
+      openSession(source.sourceSessionId)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    }
+  }
+  const editLastMessageAndRestart = async (
+    targetEventId: string,
+    content: string
+  ): Promise<boolean> => {
+    const edit = activeSession?.messageEdit
+    if (
+      activeSession === null ||
+      busy ||
+      activeSessionArchived ||
+      edit == null ||
+      edit.targetEventId !== targetEventId ||
+      edit.reason !== null
+    )
+      return false
+    const sessionId = activeSession.agentSessionId
+    setBusy(true)
+    setError(null)
+    try {
+      if (!(await props.flushCurrent())) {
+        setError('Save the active section before restarting the Agent.')
+        return false
+      }
+      await window.desktop.agent.editLastMessageAndRestart({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: sessionId,
+        targetEventId,
+        expectedThroughSequence: edit.throughSequence,
+        content,
+        editorContext: editorContextForScope(
+          scope,
+          props.activeSectionId,
+          props.selection,
+          props.currentRevisionIds
+        )
+      })
+      await refreshSessionTruth(sessionId)
+      return true
+    } catch (cause) {
+      setError(errorMessage(cause))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const startRunRef = useRef(startRun)
   startRunRef.current = startRun
 
@@ -894,6 +1036,11 @@ export function useAgentPanelController(props: AgentPanelProps) {
     availableModelPresets,
     effectiveRevisionIds,
     presentation,
+    forkConversation,
+    forkBusy,
+    openForkSource,
+    messageEdit: activeSession?.messageEdit ?? null,
+    editLastMessageAndRestart,
     thinkingVisualState,
     headerStatus,
     beginNewConversation,

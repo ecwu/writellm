@@ -494,6 +494,14 @@ describe('comment project recovery', () => {
     })
     f.database.immediate((db) =>
       db.exec(`
+      DROP VIEW agent_conversation_history;
+      DROP TABLE agent_history_references;
+      DROP TABLE agent_conversation_forks;
+      DROP VIEW agent_effective_events;
+      DROP TRIGGER agent_edit_proposal_effect;
+      DROP TRIGGER agent_edit_comment_effect;
+      DROP TABLE agent_message_replacements;
+      DROP TABLE agent_edit_effects;
       DROP TABLE manuscript_comment_anchor_history;
       DROP TABLE manuscript_comment_delegations;
       DROP TABLE manuscript_comment_changes;
@@ -502,7 +510,7 @@ describe('comment project recovery', () => {
       ALTER TABLE manuscript_comment_reads DROP COLUMN section_model_request_id;
       ALTER TABLE manuscript_comment_reads DROP COLUMN covered_blocks_json;
       ALTER TABLE manuscript_comment_reads DROP COLUMN fragment_ranges_json;
-      DELETE FROM schema_migrations WHERE version = 45;
+      DELETE FROM schema_migrations WHERE version >= 45;
       UPDATE schema_manifest SET schema_version = 44 WHERE id = 1;
       PRAGMA user_version = 44;
     `)
@@ -521,7 +529,7 @@ describe('comment project recovery', () => {
       expect(upgraded.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
       expect(
         (await readdir(join(f.projectRoot, '.writellm', 'backups'))).some((name) =>
-          name.startsWith('migration-v44-to-v45-')
+          name.startsWith('migration-v44-to-v47-')
         )
       ).toBe(true)
       const copyRoot = await mkdtemp(join(tmpdir(), 'writellm-comment-copy-'))
