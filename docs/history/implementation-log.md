@@ -2608,3 +2608,39 @@ Verification and development evidence:
   refreshes from job notifications. Both focused packaged checks passed (6.2s and
   8.7s, no retries); reports `.cache/verification/1788824619328-2929-c4552c6a` and
   `.cache/verification/1788824673104-3433-d72e7726`.
+
+## 2026-09-08 Release 0.2026.9.4 publication
+
+- Completed the authorized test → App build → tag → successful Actions → Release sequence.
+  Immutable tag `v0.2026.9.4` identifies `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.
+  Source and tag were atomically pushed; no prior tag was changed.
+- Final local `pnpm check:package` passed all 10 stages in **212.2s**, including static
+  checks, 32 recovery cases across 14 categories/30 sources, native inventory, **12 runtime
+  smoke checks and 35/35 packaged E2E scenarios** (94.7s, zero retries/flakes/skips), and
+  DMG/ZIP creation from the same tested macOS arm64 App. Report:
+  `.cache/verification/1788824710848-3832-fb0380dc`. Full Electron tests remain valid:
+  **1,440 passed, 3 benchmark skips**, 27.4s; subsequent changes only affected E2E fixtures
+  and delivery records. Earlier failed attempts and focused corrections are recorded above.
+- Local App: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Its package evidence records the
+  clean tagged revision. Local DMG SHA-256:
+  `425a9aa6d06f26b17afad281f06df2b80dd3c6ef78694462c26f48db3f206468`; ZIP:
+  `749804f71874b3ec176001bddff8536c0ab5dca660f505642aa38496d5dea15e`.
+- [Actions run 34171296372](https://github.com/ecwu/writellm/actions/runs/34171296372)
+  succeeded: static/fixtures 58s, macOS arm64 3m46s, Windows x64 5m38s, Linux x64 5m09s,
+  macOS x64 7m37s, and timing summary. CI used Node 24.15.0 and pnpm 11.17.0; hosted
+  platform jobs build and inspect artifacts without functional runtime tests.
+- Downloaded all four CI artifacts and checked source revision, release/package version,
+  native architecture, completed build stages, expected formats, file sizes and SHA-256.
+  Windows and Intel Mac evidence records `dirty`; the native preparation script creates
+  their untracked `resources/native/sqlite-vec/win32-x64` and `darwin-x64` directories,
+  unlike the tracked arm64/Linux resources. This explains the platform-dependent marker;
+  original evidence is preserved, not rewritten or represented as a clean-worktree attestation.
+- [WriteLLM 0.2026.9.4](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4)
+  was published at **2026-09-08T00:06:38Z**, verified as latest, non-draft and non-prerelease.
+  It contains seven Actions-built installers (1,344,343,299 bytes total) and four renamed
+  original platform evidence JSON files. GitHub's uploaded asset sizes and SHA-256 digests
+  matched all 11 local files. The release explicitly identifies unsigned, unnotarized builds
+  and the local macOS arm64 runtime-acceptance limit.
+- Local audit material: `.cache/releases/0.2026.9.4/` (CI result, artifact validation,
+  release metadata, logs and notes). This post-publication documentation synchronization
+  does not alter the immutable tag or rebuild the accepted App.

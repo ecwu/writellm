@@ -31,11 +31,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Release `0.2026.9.4` is authorized for complete local tests, an unsigned macOS arm64 App,
-  a new immutable tag, and GitHub Release publication after its four-platform Actions build passes.
-  The release includes the current verified working-tree feature and maintenance changes.
-  Complete Electron tests passed: 1,440 passed and 3 benchmark skips in 27.4s.
-  App/package acceptance and four-platform CI are pending; no tag or Release has been created yet.
+- [Release `0.2026.9.4`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4)
+  is published as latest from immutable tag `v0.2026.9.4`, source `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.
+  Complete Electron tests passed: 1,440 passed and 3 benchmark skips in 27.4s. The local macOS
+  arm64 package gate passed in 212.2s, including 12 runtime checks, 35 packaged E2E scenarios
+  (zero retries/skips), migration recovery inventory, and DMG/ZIP creation from the tested App.
+  [Actions run 34171296372](https://github.com/ecwu/writellm/actions/runs/34171296372) passed
+  static checks and all four platform builds. Seven CI installers and four original evidence files
+  are published; all uploaded sizes and SHA-256 digests were verified. Builds remain unsigned and
+  not notarized; hosted CI is build-only, with runtime acceptance on local macOS arm64.
+  Windows and Intel Mac evidence retain their generated-native-resource dirty-worktree markers.
+  Detailed evidence: [release history](history/implementation-log.md#2026-09-08-release-0202694-publication).
 
 - Conversation fork is implemented and locally verified under accepted
   [ADR 081](adrs/081-conversation-fork.md). Migration 0047 freezes effective history references;
@@ -45,7 +51,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   final-source build and both affected Electron scenarios passed in 29.2s with zero E2E retries.
   Recovery inventory, verified migration backups/rollback and desktop screenshot inspection passed.
   macOS arm64 only; host Node 26.8.1 is outside the declared Node 24 range, while pnpm 11.17.0
-  matches the project pin and native tests used Electron 43.4.1 (ABI 148). No package or release.
+  matches the project pin and native tests used Electron 43.4.1 (ABI 148). Included in release
+  `0.2026.9.4` with packaged verification above.
   Evidence: [implementation history](history/implementation-log.md#2026-09-08-conversation-fork).
 
 - Agent message copy and edit/restart is implemented under accepted
@@ -55,7 +62,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   across 35 files (reused boundary results); final message E2E passed in 5.3s with zero retries,
   including clipboard, stop/edit, proposal invalidation, write prohibition, hover/focus, and resize.
   The final source passed static checks and one fresh build via `check:e2e`; its E2E locator was
-  corrected and rerun against that same build. macOS arm64 only; no packaging or release.
+  corrected and rerun against that same build. Runtime verification is macOS arm64; included in
+  release `0.2026.9.4` with packaged verification above.
   Detailed timings and rerun evidence are in the maintenance history log.
 
 - All seven curated Writing Skills now use reviewed September 6 upstream pins: Nature
