@@ -31,10 +31,19 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Release `0.2026.9.5` is in preparation at the user's request, including the editor save
-  continuity repair below. The three new editor scenarios are included in packaged acceptance.
-  Full Electron tests, macOS arm64 package acceptance, immutable tag CI, and publication are
-  pending; the latest published release remains `0.2026.9.4`.
+- [Release `0.2026.9.5`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5)
+  is published as latest from immutable tag `v0.2026.9.5`, source
+  `65a663f0013ee3efb5e1934139bf442241aa014b`, including the editor save continuity repair.
+  Full Electron tests passed: 1,440 tests with three intentional benchmark skips in 25.9s.
+  Local macOS arm64 full package acceptance passed in 209.3s, including 12 runtime checks and
+  all 38 packaged E2E scenarios with zero retries/skips. The same tested App produced DMG/ZIP.
+  [Actions run 34413270209](https://github.com/ecwu/writellm/actions/runs/34413270209) passed
+  static/fixtures and all four native build/upload jobs. Seven installers and four original
+  platform evidence files are published; all uploaded sizes and SHA-256 digests were verified.
+  The local App is `dist/macos-arm64/mac-arm64/WriteLLM.app`. Builds remain unsigned and
+  unnotarized; hosted CI is build-only, runtime acceptance is local macOS arm64, and physical
+  system-input-method switching/candidate selection remains unverified. Evidence:
+  [release history](history/implementation-log.md#2026-09-09-release-0202695-publication).
 
 - Editor save continuity maintenance is implemented and locally verified. Ordinary autosave and
   checkpoint acknowledgements retain the active BlockNote instance, selection, scroll position,
@@ -44,12 +53,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Verification passed 20 focused Electron-hosted tests and nine affected real Electron scenarios;
   the final static/build/E2E gate passed in 40.3s with zero E2E retries or skips. Runtime evidence
   is macOS arm64, with synthetic composition coverage only: actual system-input-method switching
-  and candidate selection remain unverified. Source `out/` is updated; the packaged App and
-  published release are unchanged. Evidence:
+  and candidate selection remain unverified. Source `out/` and the packaged macOS arm64 App
+  include this repair, now published in release `0.2026.9.5`. Evidence:
   [editor continuity maintenance](history/implementation-log.md#2026-09-09-editor-save-continuity-and-composition).
 
 - [Release `0.2026.9.4`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4)
-  is published as latest from immutable tag `v0.2026.9.4`, source `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.
+  was published from immutable tag `v0.2026.9.4`, source `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.
   Complete Electron tests passed: 1,440 passed and 3 benchmark skips in 27.4s. The local macOS
   arm64 package gate passed in 212.2s, including 12 runtime checks, 35 packaged E2E scenarios
   (zero retries/skips), migration recovery inventory, and DMG/ZIP creation from the tested App.

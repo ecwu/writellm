@@ -2724,3 +2724,49 @@ Verification and development evidence:
 - Frozen install passed without dependency changes. Full Electron-hosted tests passed
   **249 files / 1,440 tests**, with three benchmark files/tests intentionally skipped, in
   **25.23s** Vitest time. Evidence: `.cache/releases/0.2026.9.5/full-tests.log`.
+
+
+## 2026-09-09 Release 0.2026.9.5 publication
+
+- Completed the requested App rebuild and next September release. Immutable annotated tag
+  `v0.2026.9.5` identifies `65a663f0013ee3efb5e1934139bf442241aa014b`. The source commit contains
+  the editor continuity repair, its three packaged regression scenarios, and release metadata.
+  `verify-release-source.mjs` confirmed matching tag/revision, SemVer base, build number and
+  clean source. Main and the new tag were pushed atomically; previous tags were unchanged.
+- Full Electron tests passed **1,440 tests across 249 files**, with three benchmark files/tests
+  intentionally skipped, in **25.23s** Vitest / **25.9s** runner time. Report:
+  `.cache/verification/1788993225584-31359-fd0a488e`; log:
+  `.cache/releases/0.2026.9.5/full-tests.log`.
+- Clean-source local `pnpm check:package` passed **all ten stages in 209.3s** without retries:
+  static checks, recovery inventory, native preparation/production build, App assembly,
+  no-Team-ID signature policy, ASAR/resource/native inventory, **12 runtime smoke checks**,
+  **38/38 packaged E2E scenarios** (100.8s wrapper, zero retries/flakes/skips), and DMG/ZIP
+  generation/checksums from that same tested App. Report:
+  `.cache/verification/1788993287445-32358-9df8cb28`; original evidence is preserved in
+  `.cache/releases/0.2026.9.5/local-package-evidence.json`.
+- Local App: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Info.plist reports SemVer
+  `0.2026.9` and native build `2026.9.5`, matching four-component release `0.2026.9.5`.
+  Local DMG SHA-256: `c30c1e21c754b7dabc6557dea703af146dc84fd251051f896d9f8084c8a39d70`;
+  ZIP: `38a1362860251d11f0db926607aa520777647aec2c1b9180dbd34065f3f4b062`.
+- [Actions run 34413270209](https://github.com/ecwu/writellm/actions/runs/34413270209)
+  passed all jobs: static/fixtures 61s, macOS arm64 3m44s, macOS x64 7m48s, Windows x64
+  5m49s, Linux x64 5m14s, plus timing summary. Hosted jobs use Node 24.15.0 and pnpm
+  11.17.0, and build/inspect packages without runtime tests. Local tests use Electron
+  43.4.1 ABI 148 on macOS arm64; host Node 26.8.1 remains outside the declared Node 24 range.
+- Downloaded the four Actions package artifacts and verified exact source commit, release/base
+  versions, native target/architecture, successful build stages, formats, file sizes and SHA-256
+  for all seven installers (1,344,319,514 bytes). Windows and Intel Mac evidence preserve their
+  generated-native-resource dirty-worktree markers, as in the preceding release; they were not
+  rewritten as clean-source claims. Original platform evidence is published under distinct names.
+- Created a draft with seven installers and four evidence files, then verified **all 11 uploaded
+  asset sizes and GitHub-provided SHA-256 digests** against the local files before publication.
+  [WriteLLM 0.2026.9.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5) was publicly
+  published at **2026-09-09T22:54:17Z**, verified as Latest, non-draft and non-prerelease.
+  Public assets were checked again after publication; no asset was overwritten.
+- Release notes explicitly identify unsigned/unnotarized builds, local macOS arm64 runtime
+  acceptance, and synthetic composition coverage. Actual macOS Pinyin/ABC switching and
+  candidate-window selection remain manually unverified. No signing or disabled promotion
+  workflow was enabled. Audit files, original CI evidence, checksums, notes and upload/public
+  responses live under `.cache/releases/0.2026.9.5/`.
+- This post-publication documentation update records the observed result without altering the
+  accepted tag or rebuilding its App.
