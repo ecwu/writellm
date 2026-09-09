@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-08
+Recorded: 2026-09-09
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,23 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Release `0.2026.9.5` is in preparation at the user's request, including the editor save
+  continuity repair below. The three new editor scenarios are included in packaged acceptance.
+  Full Electron tests, macOS arm64 package acceptance, immutable tag CI, and publication are
+  pending; the latest published release remains `0.2026.9.4`.
+
+- Editor save continuity maintenance is implemented and locally verified. Ordinary autosave and
+  checkpoint acknowledgements retain the active BlockNote instance, selection, scroll position,
+  and undo/redo history. External revisions use guarded session replacement; late local replies
+  cannot clear conflicts or overwrite newer authority. Composition defers autosave and rejects
+  premature final flush, and editable-state-only updates no longer mark the document dirty.
+  Verification passed 20 focused Electron-hosted tests and nine affected real Electron scenarios;
+  the final static/build/E2E gate passed in 40.3s with zero E2E retries or skips. Runtime evidence
+  is macOS arm64, with synthetic composition coverage only: actual system-input-method switching
+  and candidate selection remain unverified. Source `out/` is updated; the packaged App and
+  published release are unchanged. Evidence:
+  [editor continuity maintenance](history/implementation-log.md#2026-09-09-editor-save-continuity-and-composition).
 
 - [Release `0.2026.9.4`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4)
   is published as latest from immutable tag `v0.2026.9.4`, source `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.

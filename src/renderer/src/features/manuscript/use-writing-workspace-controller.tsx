@@ -1177,11 +1177,11 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     replaceOpen
   ])
 
-  const updateRevision = (revision: SectionRevision): void => {
+  const updateRevision = (revision: SectionRevision, document = revision.content): void => {
     setCitationDraft({
       sectionId: revision.sectionId,
       sectionRevisionId: revision.sectionRevisionId,
-      content: revision.content
+      content: document
     })
     queryClient.setQueryData<ManuscriptWorkspace>(workspaceKey, (current) => {
       if (!current) return current

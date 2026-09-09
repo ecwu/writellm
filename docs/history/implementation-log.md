@@ -2644,3 +2644,83 @@ Verification and development evidence:
 - Local audit material: `.cache/releases/0.2026.9.4/` (CI result, artifact validation,
   release metadata, logs and notes). This post-publication documentation synchronization
   does not alter the immutable tag or rebuild the accepted App.
+
+
+## 2026-09-09 Editor save continuity and composition
+
+- Implemented the user-approved editor lifecycle/IME repair plan. The workspace key now scopes
+  the editor to project session and section. A stable outer editor distinguishes acknowledged
+  local revisions from external revisions and owns the inner editor generation. Autosave and
+  explicit checkpoints update the persistence base without remounting, focusing, replacing
+  content, or resetting local history. Revision notifications also carry the live draft for
+  citation presentation when the persisted snapshot trails ongoing input.
+- External content loads only into a clean, idle, non-composing editor. Agent/replacement flush
+  barriers and canonical reload remain in use; accepted external content starts fresh local
+  history without automatic focus. Dirty/pending/composing external updates preserve the draft
+  as a conflict, and a late local save reply cannot clear it or replace the newer query result.
+  Generation and unmount checks reject obsolete callbacks. Section/project changes still start
+  a new history; cross-section history remains out of scope.
+- Saves remain single-flight even with concurrent explicit flush requests. Pending input is
+  retained, saved status reflects unsaved work, and composition prevents new autosaves. After
+  compositionend settles, the existing 1.5-second debounce resumes. Explicit flush rejects an
+  unfinished composition before read-only/acknowledgement; final flush also rechecks composition
+  and dirty state after persistence. Failed final flush restores editability. Save/reload failures
+  report through the existing Renderer diagnostics channel and Main logger; no IPC/schema,
+  dependency, shortcut, migration, package, or release changes were made.
+- Verified an additional BlockNote 0.54.0 behavior from installed source: changing isEditable
+  calls Tiptap setEditable with emitUpdate, even when the document did not change. Filtering
+  empty getChanges results prevents false dirty/conflict transitions on mutation barriers.
+  Context7 documentation for the pinned release confirmed the change-detail API. Platform-native
+  undo/redo bindings remain unchanged (Command on macOS, Control on Windows/Linux).
+- Regression evidence: the new continuity scenario failed against the existing pre-fix build in
+  5.1s (5.8s wrapper), proving that the editor DOM node was disconnected after autosave. Report:
+  `.cache/verification/1788992159673-23214-5f2cf471`.
+- Focused Electron-hosted tests passed **5 files / 20 tests**, 0.793s Vitest / 1.4s wrapper,
+  zero retries: BlockNote characterization, inline-math guard, readable-citation extension,
+  search-highlight extension, and citation command. These untouched boundaries remain covered
+  by the same results. Report: `.cache/verification/1788992468687-25310-996fe2cc`.
+- The first composite gate passed static checks/build and 4/9 E2E scenarios in 66.9s overall;
+  failures exposed the editable-state update issue and test caret positioning assumptions.
+  The second passed 8/9 in 45.1s overall; the remaining assertion incorrectly treated adjacent
+  typing as separate history events. Tests now place a DOM caret explicitly and let the initial
+  autosave idle period separate typing history. Reports:
+  `.cache/verification/1788992498482-25551-182112ac` and
+  `.cache/verification/1788992706210-27132-cc0d8432`. No automatic retries were used.
+- Final-source `pnpm check:e2e e2e/writing-workspace.spec.ts
+  e2e/agent-proposal-refresh.spec.ts --grep 'preserves editor selection|retains input and
+  serializes|defers autosave|surfaces a stale section|replacement|Markdown|refreshes a
+  non-conflicting|edits a brief and nested outline'` passed **all six stages in 40.3s**:
+  formatting/lint, both typechecks, native compatibility preparation, one production build,
+  and **9/9 Electron scenarios in 20.0s**, zero retries/flakes/skips. Report:
+  `.cache/verification/1788992840446-28281-65eb6bb7`.
+- New scenarios prove third-paragraph caret, selection and scroll retention, undo after auto/manual
+  save, redo after an intervening save, pending-reply typing and concurrent save serialization,
+  external revision conflict during a held local reply, canonical history reset, and composition
+  deferral across the debounce. Main-only test instrumentation holds real save replies and
+  counts final-flush saves/acks: all four composing flush purposes (close/snapshot/export/mutation)
+  reject with zero writes/acks. Existing scenarios prove Agent proposal refresh/application,
+  safe replacement/undo, Markdown import, conflict reload, section switching/reopening, and rich
+  media/export compatibility. Test instrumentation adds no production or preload capability.
+- Host/runtime: macOS arm64, host Node 26.8.1 (outside the declared Node 24 range), matching pnpm
+  11.17.0, Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9. The native host
+  toolchain was preserved. The non-fatal macOS task_name_for_pid diagnostic did not prevent tests.
+  Electron E2E used approved execution outside the sandbox for process/loopback access.
+- Limits: synthetic composition events do **not** validate actual macOS system Pinyin/ABC switching,
+  candidate-window selection or physical input-method shortcuts. Those manual trials and other
+  platforms remain unverified. The source build is updated; the packaged App and published
+  release were intentionally not rebuilt or changed.
+
+
+## 2026-09-09 Release 0.2026.9.5 preparation
+
+- The user requested an App rebuild and publication of the next September sequence. Remote
+  releases/tags confirm `0.2026.9.4` as latest and `v0.2026.9.5` as unused. Advanced
+  `release.version` to `0.2026.9.5`, retaining SemVer base `0.2026.9`, and promoted the three
+  editor continuity/composition/race scenarios to packaged acceptance.
+- Follow the currently enabled tag-only four-platform build workflow and the preceding release
+  procedure: full local Electron tests, local macOS arm64 package acceptance, immutable source
+  tag, successful hosted builds, verified artifacts, then explicit unsigned GitHub Release.
+  No signing/notarization or disabled promotion workflow is enabled by this maintenance.
+- Frozen install passed without dependency changes. Full Electron-hosted tests passed
+  **249 files / 1,440 tests**, with three benchmark files/tests intentionally skipped, in
+  **25.23s** Vitest time. Evidence: `.cache/releases/0.2026.9.5/full-tests.log`.

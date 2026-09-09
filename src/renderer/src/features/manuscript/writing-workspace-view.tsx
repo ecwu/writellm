@@ -459,7 +459,7 @@ export function WritingWorkspaceView(input: {
                   ) : null}
                   <SectionEditor
                     ref={editorRef}
-                    key={`${props.projectSessionId}:${activeSummary.section.sectionId}:${editorQuery.data.revision.sectionRevisionId}`}
+                    key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
                     projectSessionId={props.projectSessionId}
                     revision={editorQuery.data.revision}
                     citationNumberByTitle={citationNumberByTitle}

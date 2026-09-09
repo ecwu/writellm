@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
+import { IPC_CHANNELS } from '../src/shared/contracts/channels'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
 
 async function createProject(page: Page, name: string): Promise<void> {
@@ -94,6 +95,349 @@ async function closeProject(page: Page): Promise<void> {
     .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
     .toBe('closed')
 }
+
+async function placeCaret(paragraph: Locator, offset?: number): Promise<void> {
+  await paragraph.evaluate((element, offset) => {
+    const text = element.firstChild
+    if (!(text instanceof Text)) throw new Error('Expected a plain-text paragraph')
+    ;(element.closest('[contenteditable]') as HTMLElement).focus()
+    const range = document.createRange()
+    range.setStart(text, offset ?? text.length)
+    range.collapse(true)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
+  }, offset)
+}
+
+test(
+  'preserves editor selection and undo history across saves',
+  scenario('manuscript.editor-save-continuity', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Editor continuity')
+      const editor = sectionEditor(launched.page)
+      await expect(editor).toBeVisible()
+      await editor.click()
+      await launched.page.keyboard.type('First paragraph')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type('Second paragraph')
+      await launched.page.keyboard.press('Enter')
+      await launched.page.keyboard.type('Third paragraph')
+      for (let index = 0; index < 20; index += 1) {
+        await launched.page.keyboard.press('Enter')
+        await launched.page.keyboard.type(`Later paragraph ${index}`)
+      }
+      // Let autosave also separate this initial typing from the next history event.
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      const instance = await editor.elementHandle()
+      if (instance === null) throw new Error('Editor missing')
+      const third = editor.locator('.bn-inline-content').nth(2)
+      await third.scrollIntoViewIfNeeded()
+      const scroll = await editor.evaluate((element) => {
+        const positions: number[] = []
+        for (let parent = element.parentElement; parent; parent = parent.parentElement)
+          positions.push(parent.scrollTop)
+        return positions
+      })
+      await placeCaret(third, 'Third paragrap'.length)
+      await launched.page.keyboard.type('X')
+      const selection = await editor.evaluate(() => {
+        const selection = window.getSelection()
+        return { text: selection?.anchorNode?.textContent, offset: selection?.anchorOffset }
+      })
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      expect(await instance.evaluate((element) => element.isConnected)).toBe(true)
+      expect(
+        await editor.evaluate(() => {
+          const selection = window.getSelection()
+          return { text: selection?.anchorNode?.textContent, offset: selection?.anchorOffset }
+        })
+      ).toEqual(selection)
+      expect(
+        await editor.evaluate((element) => {
+          const positions: number[] = []
+          for (let parent = element.parentElement; parent; parent = parent.parentElement)
+            positions.push(parent.scrollTop)
+          return positions
+        })
+      ).toEqual(scroll)
+      await launched.page.keyboard.type('Y')
+      await launched.page.keyboard.press('Shift+ArrowLeft')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      await expect(third).toContainText('Third paragrapXYh')
+      expect(await editor.evaluate(() => window.getSelection()?.toString())).toBe('Y')
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(third).toContainText('Third paragrapXh')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      await launched.page.keyboard.press('ControlOrMeta+Shift+z')
+      await expect(third).toContainText('Third paragrapXYh')
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(third).toHaveText('Third paragraph')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+async function currentEditorRevision(page: Page) {
+  return page.evaluate(async () => {
+    const lifecycle = await window.desktop.projects.lifecycle()
+    const projectSessionId = lifecycle.activeProject?.projectSessionId
+    if (!projectSessionId) throw new Error('Project missing')
+    const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+    const sectionId = workspace.sections[0]?.section.sectionId
+    if (!sectionId) throw new Error('Section missing')
+    return (await window.desktop.editor.loadSection({ projectSessionId, sectionId })).revision
+  })
+}
+
+// Main-only test instrumentation: hold the first persistence reply after it commits.
+// No production/preload API or timing seam is added.
+async function holdEditorSaveReply(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ ipcMain }, channel) => {
+    const handlers = (
+      ipcMain as unknown as {
+        _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>>
+      }
+    )._invokeHandlers
+    const original = handlers.get(channel)
+    if (!original) throw new Error('Save handler missing')
+    let release = (): void => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const state = { calls: 0, entered: false, release }
+    ;(globalThis as unknown as { editorSaveGate: typeof state }).editorSaveGate = state
+    ipcMain.removeHandler(channel)
+    ipcMain.handle(channel, async (...args) => {
+      state.calls += 1
+      const result = await original(...args)
+      if (state.calls === 1) {
+        state.entered = true
+        await gate
+      }
+      return result
+    })
+  }, IPC_CHANNELS.editorSaveSectionDocument)
+}
+
+async function saveGateState(app: ElectronApplication) {
+  return app.evaluate(() => {
+    const state = (
+      globalThis as unknown as {
+        editorSaveGate: { entered: boolean; calls: number }
+      }
+    ).editorSaveGate
+    return { entered: state.entered, calls: state.calls }
+  })
+}
+
+async function releaseSaveReply(app: ElectronApplication): Promise<void> {
+  await app.evaluate(() => {
+    ;(globalThis as unknown as { editorSaveGate?: { release(): void } }).editorSaveGate?.release()
+  })
+}
+
+test(
+  'retains input and serializes saves while a persistence reply is delayed',
+  scenario('manuscript.editor-save-race', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Save race')
+      await saveEditorText(launched.page, 'Base ')
+      const editor = sectionEditor(launched.page)
+      await placeCaret(editor.locator('.bn-inline-content').first())
+      const instance = await editor.elementHandle()
+      await holdEditorSaveReply(launched.app)
+      await launched.page.keyboard.type('A')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect.poll(() => saveGateState(launched.app)).toEqual({ entered: true, calls: 1 })
+      await launched.page.keyboard.type('B')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(editor).toContainText('Base AB')
+      expect((await saveGateState(launched.app)).calls).toBe(1)
+      await releaseSaveReply(launched.app)
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      expect(await instance?.evaluate((element) => element.isConnected)).toBe(true)
+      expect(JSON.stringify((await currentEditorRevision(launched.page)).content)).toContain(
+        'Base AB'
+      )
+      expect((await saveGateState(launched.app)).calls).toBe(2)
+
+      // A later external revision must not replace the draft or be hidden by a late local reply.
+      await placeCaret(editor.locator('.bn-inline-content').first())
+      await holdEditorSaveReply(launched.app)
+      await launched.page.keyboard.type('C')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect.poll(() => saveGateState(launched.app)).toEqual({ entered: true, calls: 1 })
+      const external = await launched.page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (!projectSessionId) throw new Error('Project missing')
+        const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
+        const sectionId = workspace.sections[0].section.sectionId
+        const { revision } = await window.desktop.editor.loadSection({
+          projectSessionId,
+          sectionId
+        })
+        const saved = await window.desktop.editor.saveSectionDocument({
+          projectSessionId,
+          sectionId,
+          baseRevisionId: revision.sectionRevisionId,
+          baseContentHash: revision.contentHash,
+          document: [
+            {
+              ...revision.content[0],
+              content: [{ type: 'text', text: 'External authority', styles: {} }]
+            }
+          ]
+        })
+        if (!saved.ok) throw new Error('External save failed')
+        return {
+          projectSessionId,
+          reason: 'replacement' as const,
+          sections: [{ sectionId, sectionRevisionId: saved.result.revision.sectionRevisionId }]
+        }
+      })
+      await launched.app.evaluate(
+        ({ BrowserWindow }, { channel, event }) => {
+          BrowserWindow.getAllWindows()[0]?.webContents.send(channel, event)
+        },
+        { channel: IPC_CHANNELS.manuscriptReplacementChanged, event: external }
+      )
+      await expect(launched.page.getByText(/This section changed elsewhere/)).toBeVisible()
+      await expect(editor).toContainText('Base ABC')
+      await releaseSaveReply(launched.app)
+      // Wait for the pending reply's continuation before checking conflict preservation.
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText(/This section changed elsewhere/)).toBeVisible()
+      expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
+        external.sections[0].sectionRevisionId
+      )
+      await launched.page.getByRole('button', { name: 'Reload canonical version' }).click()
+      await expect(editor).toContainText('External authority')
+      await editor.click()
+      await launched.page.keyboard.press('ControlOrMeta+z')
+      await expect(editor).toContainText('External authority')
+      await expect(editor).not.toContainText('Base ABC')
+    } finally {
+      await releaseSaveReply(launched.app)
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'defers autosave and refuses final flush during input-method composition',
+  scenario('manuscript.editor-composition', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    try {
+      await createProject(launched.page, 'Composition')
+      await saveEditorText(launched.page, 'Before ')
+      const before = await currentEditorRevision(launched.page)
+      const editor = sectionEditor(launched.page)
+      await placeCaret(editor.locator('.bn-inline-content').first())
+      const instance = await editor.elementHandle()
+      await editor.dispatchEvent('compositionstart', { data: '' })
+      await launched.page.keyboard.insertText('中文')
+      // Deliberately cross the 1.5-second autosave boundary while composing.
+      await launched.page.waitForTimeout(1_800)
+      expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
+        before.sectionRevisionId
+      )
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(
+        launched.page.getByText('Finish choosing the input-method text, then retry the operation.')
+      ).toBeVisible()
+      const projectSessionId = await launched.page.evaluate(
+        async () => (await window.desktop.projects.lifecycle()).activeProject?.projectSessionId
+      )
+      if (!projectSessionId) throw new Error('Project missing')
+      await launched.app.evaluate(
+        ({ ipcMain, BrowserWindow }, { channels, projectSessionId }) => {
+          const state = { saves: 0, acknowledgements: 0, rejections: 0 }
+          ;(globalThis as unknown as { compositionFlush: typeof state }).compositionFlush = state
+          const handlers = (
+            ipcMain as unknown as {
+              _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>>
+            }
+          )._invokeHandlers
+          for (const [channel, field] of [
+            [channels.editorFinalFlushSave, 'saves'],
+            [channels.editorFlushAck, 'acknowledgements']
+          ] as const) {
+            const original = handlers.get(channel)
+            if (!original) throw new Error('Flush handler missing')
+            ipcMain.removeHandler(channel)
+            ipcMain.handle(channel, (...args) => {
+              state[field] += 1
+              return original(...args)
+            })
+          }
+          ipcMain.on(channels.diagnosticsReportRendererError, (_event, report) => {
+            if (report.source === 'writing-workspace.final-flush') state.rejections += 1
+          })
+          for (const purpose of ['close', 'snapshot', 'export', 'mutation']) {
+            BrowserWindow.getAllWindows()[0]?.webContents.send(channels.editorFlushRequest, {
+              projectSessionId,
+              closingToken: globalThis.crypto.randomUUID(),
+              bodyRequired: true,
+              purpose
+            })
+          }
+        },
+        { channels: IPC_CHANNELS, projectSessionId }
+      )
+      await expect
+        .poll(() =>
+          launched.app.evaluate(
+            () =>
+              (
+                globalThis as unknown as {
+                  compositionFlush: { saves: number; acknowledgements: number; rejections: number }
+                }
+              ).compositionFlush
+          )
+        )
+        .toEqual({ saves: 0, acknowledgements: 0, rejections: 4 })
+      expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
+        before.sectionRevisionId
+      )
+      await expect(editor).toHaveAttribute('contenteditable', 'true')
+      await editor.dispatchEvent('compositionend', { data: '中文' })
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      expect(await instance?.evaluate((element) => element.isConnected)).toBe(true)
+      await expect(editor).toContainText('Before 中文')
+      expect(JSON.stringify((await currentEditorRevision(launched.page)).content)).toContain(
+        'Before 中文'
+      )
+      await launched.page.keyboard.insertText('继续')
+      await launched.page.keyboard.press('ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
+      await expect(editor).toContainText('Before 中文继续')
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
 
 test(
   'creates, locates, follows up, and resolves a manuscript comment',
@@ -1139,6 +1483,10 @@ test(
       await expect(launched.page.getByTestId('manuscript-preview-workspace')).toHaveCount(0)
       await expect(editor).toContainText('Local stale draft')
       await launched.page.getByRole('button', { name: 'Reload canonical version' }).click()
+      await expect(editor).toContainText('External canonical update')
+      await expect(editor).not.toContainText('Local stale draft')
+      await editor.click()
+      await launched.page.keyboard.press('ControlOrMeta+z')
       await expect(editor).toContainText('External canonical update')
       await expect(editor).not.toContainText('Local stale draft')
       await closeProject(launched.page)

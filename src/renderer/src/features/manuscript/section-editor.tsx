@@ -40,7 +40,15 @@ import {
   WandSparkles,
   Workflow
 } from 'lucide-react'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState
+} from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -155,29 +163,114 @@ interface CitationSearchAnchor {
   position: number
 }
 
-export const SectionEditor = forwardRef<
-  SectionEditorHandle,
-  {
-    projectSessionId: string
-    revision: SectionRevision
-    autoFocus?: boolean
-    onRevision(revision: SectionRevision): void
-    citationNumberByTitle: ReadonlyMap<string, number>
-    onCitationDocumentChange?(document: BlockNoteDocument): void
-    onSaveStateChange?(state: SaveState): void
-    onSelectionContextChange?(context: EditorSelectionContext): void
-    onQuickActionRequest?(
-      request: AgentQuickActionRequest,
-      selection: EditorExactSelectionSnapshot
-    ): void
-    onQuickActionError?(message: string): void
-    onSearchTargetInvalidated?(): void
-    comments?: readonly CommentThreadSummary[]
-    selectedCommentThreadId?: string | null
-    onAddComment?(selection: EditorExactSelectionSnapshot): void
-    onActivateComments?(threadIds: readonly string[]): void
+interface SectionEditorProps {
+  projectSessionId: string
+  revision: SectionRevision
+  autoFocus?: boolean
+  onRevision(revision: SectionRevision, document?: BlockNoteDocument): void
+  citationNumberByTitle: ReadonlyMap<string, number>
+  onCitationDocumentChange?(document: BlockNoteDocument): void
+  onSaveStateChange?(state: SaveState): void
+  onSelectionContextChange?(context: EditorSelectionContext): void
+  onQuickActionRequest?(
+    request: AgentQuickActionRequest,
+    selection: EditorExactSelectionSnapshot
+  ): void
+  onQuickActionError?(message: string): void
+  onSearchTargetInvalidated?(): void
+  comments?: readonly CommentThreadSummary[]
+  selectedCommentThreadId?: string | null
+  onAddComment?(selection: EditorExactSelectionSnapshot): void
+  onActivateComments?(threadIds: readonly string[]): void
+}
+
+interface SectionEditorSessionHandle extends SectionEditorHandle {
+  canReload(): boolean
+  rejectExternalRevision(): void
+}
+
+// Persistence acknowledgements advance the base without replacing the live editor.
+// Only accepted external content starts a new editing/history session.
+export const SectionEditor = forwardRef<SectionEditorHandle, SectionEditorProps>(
+  function SectionEditor(props, ref): React.JSX.Element {
+    const [loaded, setLoaded] = useState({ revision: props.revision, generation: 0 })
+    const acceptedRef = useRef(props.revision)
+    const generationRef = useRef(0)
+    const sessionRef = useRef<SectionEditorSessionHandle>(null)
+    const mountedRef = useRef(true)
+    useLayoutEffect(() => {
+      mountedRef.current = true
+      return () => {
+        mountedRef.current = false
+      }
+    }, [])
+    useImperativeHandle(ref, () => {
+      const session = (): SectionEditorSessionHandle => {
+        if (sessionRef.current === null)
+          throw new Error('The editor session is no longer available.')
+        return sessionRef.current
+      }
+      return {
+        focus: () => session().focus(),
+        insertText: (text) => session().insertText(text),
+        flush: () => session().flush(),
+        finalFlush: (request) => session().finalFlush(request),
+        releaseMutationBarrier: () => session().releaseMutationBarrier(),
+        exportNativeJson: () => session().exportNativeJson(),
+        exportMarkdown: () => session().exportMarkdown(),
+        revealSearchTarget: (target) => session().revealSearchTarget(target),
+        revealBlock: (blockId) => session().revealBlock(blockId),
+        clearSearchTarget: () => session().clearSearchTarget(),
+        revealComment: (threadId) => session().revealComment(threadId),
+        captureSelection: () => session().captureSelection()
+      }
+    }, [])
+    useLayoutEffect(() => {
+      const incoming = props.revision
+      if (
+        incoming.sectionRevisionId === acceptedRef.current.sectionRevisionId ||
+        incoming.revisionNumber <= acceptedRef.current.revisionNumber
+      )
+        return
+      if (!sessionRef.current?.canReload()) {
+        sessionRef.current?.rejectExternalRevision()
+        return
+      }
+      acceptedRef.current = incoming
+      generationRef.current += 1
+      setLoaded({ revision: incoming, generation: generationRef.current })
+    }, [props.revision])
+    const isCurrent = (): boolean =>
+      mountedRef.current && generationRef.current === loaded.generation
+    return (
+      <SectionEditorSession
+        {...props}
+        ref={sessionRef}
+        key={loaded.generation}
+        revision={loaded.revision}
+        autoFocus={loaded.generation === 0 && props.autoFocus !== false}
+        onRevision={(revision, document) => {
+          if (!isCurrent()) return
+          acceptedRef.current = revision
+          setLoaded((current) => ({ ...current, revision }))
+          props.onRevision(revision, document)
+        }}
+        onReload={(revision) => {
+          if (!isCurrent()) return
+          acceptedRef.current = revision
+          generationRef.current += 1
+          setLoaded({ revision, generation: generationRef.current })
+          props.onRevision(revision)
+        }}
+      />
+    )
   }
->(function SectionEditor(props, ref): React.JSX.Element {
+)
+
+const SectionEditorSession = forwardRef<
+  SectionEditorSessionHandle,
+  SectionEditorProps & { onReload(revision: SectionRevision): void }
+>(function SectionEditorSession(props, ref): React.JSX.Element {
   const { resolvedTheme, citationDisplayMode } = useTheme()
   const [formattedCitations, setFormattedCitations] = useState<ReadonlyMap<string, string>>(
     new Map()
@@ -320,8 +413,30 @@ export const SectionEditor = forwardRef<
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const runningRef = useRef<Promise<void> | null>(null)
-  const replacingImportedDocumentRef = useRef(false)
   const saveBlockedRef = useRef(false)
+  const externalConflictRef = useRef(false)
+  const mountedRef = useRef(true)
+  const composingRef = useRef(false)
+  const compositionSettlingRef = useRef(false)
+  const compositionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const isComposing = (): boolean =>
+    composingRef.current || compositionSettlingRef.current || editor.prosemirrorView.composing
+  const assertCompositionFinished = (): void => {
+    if (!isComposing()) return
+    const error = new Error('Finish choosing the input-method text, then retry the operation.')
+    reportEditorError('manuscript.editor.composition_pending', error)
+    notifyActionError(error.message)
+    throw error
+  }
+  const scheduleAutosave = (): void => {
+    if (timerRef.current !== undefined) clearTimeout(timerRef.current)
+    if (!mountedRef.current || !dirtyRef.current || saveBlockedRef.current || isComposing()) return
+    timerRef.current = setTimeout(() => {
+      timerRef.current = undefined
+      void save().catch(() => undefined) // save reports the original error and retains the draft.
+    }, 1_500)
+  }
+
   const lastExactSelectionRef = useRef<EditorExactSelectionSnapshot | null>(null)
 
   const captureSelection = useCallback((): EditorExactSelectionSnapshot | null => {
@@ -660,13 +775,24 @@ export const SectionEditor = forwardRef<
     revisionSource: 'manual_autosave' | 'manual_checkpoint' = 'manual_autosave',
     purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
   ): Promise<void> => {
-    if (runningRef.current !== null) {
+    if (revisionSource === 'manual_checkpoint' || closingToken !== undefined) {
+      assertCompositionFinished()
+      if (externalConflictRef.current)
+        throw new Error('Reload the canonical revision before saving this conflicted section.')
+    }
+    while (runningRef.current !== null) {
       try {
         await runningRef.current
       } catch (error) {
         if (closingToken === undefined) throw error
       }
     }
+    if (!mountedRef.current) return
+    if (revisionSource === 'manual_checkpoint' || closingToken !== undefined) {
+      assertCompositionFinished()
+      if (externalConflictRef.current)
+        throw new Error('Reload the canonical revision before saving this conflicted section.')
+    } else if (isComposing() || saveBlockedRef.current) return
     if (!dirtyRef.current && closingToken === undefined) return
 
     const operation = (async () => {
@@ -696,20 +822,38 @@ export const SectionEditor = forwardRef<
             conflict = true
             throw new Error(response.error.message)
           }
+          if (!mountedRef.current) return
           const result = response.result
           baseRef.current = result.revision
+          if (externalConflictRef.current) {
+            dirtyRef.current = true
+            setSaveState('conflict')
+            return
+          }
           saveBlockedRef.current = false
-          props.onRevision(result.revision)
+          props.onRevision(result.revision, toCanonicalDocument(editor.document))
           setSaveState(
-            result.disposition === 'saved_materialization_pending' ? 'mirror-pending' : 'saved'
+            dirtyRef.current
+              ? 'clean'
+              : result.disposition === 'saved_materialization_pending'
+                ? 'mirror-pending'
+                : 'saved'
           )
         } catch (error) {
+          reportEditorError('manuscript.editor.save_failed', error)
+          if (!mountedRef.current) return
           dirtyRef.current = true
           saveBlockedRef.current = true
           setSaveState(conflict ? 'conflict' : 'failed')
           throw error
         }
-      } while (dirtyRef.current && closingToken === undefined)
+      } while (
+        mountedRef.current &&
+        dirtyRef.current &&
+        closingToken === undefined &&
+        !isComposing() &&
+        !saveBlockedRef.current
+      )
     })()
     runningRef.current = operation
     try {
@@ -746,11 +890,39 @@ export const SectionEditor = forwardRef<
     }
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    mountedRef.current = true
     return () => {
+      mountedRef.current = false
       if (timerRef.current !== undefined) clearTimeout(timerRef.current)
+      if (compositionTimerRef.current !== undefined) clearTimeout(compositionTimerRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    const dom = editor.prosemirrorView.dom
+    const start = (): void => {
+      composingRef.current = true
+      compositionSettlingRef.current = false
+      if (timerRef.current !== undefined) clearTimeout(timerRef.current)
+      if (compositionTimerRef.current !== undefined) clearTimeout(compositionTimerRef.current)
+    }
+    const end = (): void => {
+      composingRef.current = false
+      compositionSettlingRef.current = true
+      // ProseMirror settles the final composition transaction after the DOM event.
+      compositionTimerRef.current = setTimeout(() => {
+        compositionSettlingRef.current = false
+        scheduleAutosave()
+      }, 0)
+    }
+    dom.addEventListener('compositionstart', start)
+    dom.addEventListener('compositionend', end)
+    return () => {
+      dom.removeEventListener('compositionstart', start)
+      dom.removeEventListener('compositionend', end)
+    }
+  })
 
   useEffect(() => {
     if (props.autoFocus === false) return
@@ -759,6 +931,19 @@ export const SectionEditor = forwardRef<
   }, [editor, props.autoFocus])
 
   useImperativeHandle(ref, () => ({
+    canReload() {
+      return (
+        !dirtyRef.current &&
+        runningRef.current === null &&
+        !isComposing() &&
+        !saveBlockedRef.current
+      )
+    },
+    rejectExternalRevision() {
+      externalConflictRef.current = true
+      saveBlockedRef.current = true
+      setSaveState('conflict')
+    },
     focus() {
       editor.focus()
     },
@@ -774,17 +959,23 @@ export const SectionEditor = forwardRef<
       await save(undefined, 'manual_checkpoint')
     },
     async finalFlush(request) {
+      assertCompositionFinished()
       if (request.purpose === 'close') {
         closingRef.current = true
         await Promise.allSettled([...pendingAssetResolutionsRef.current])
       }
-      if (request.purpose !== 'snapshot') setReadOnly(true)
       try {
+        assertCompositionFinished()
+        if (request.purpose !== 'snapshot') setReadOnly(true)
         if (timerRef.current !== undefined) {
           clearTimeout(timerRef.current)
           timerRef.current = undefined
         }
         await save(request.closingToken, 'manual_checkpoint', request.purpose)
+        if (!mountedRef.current) return
+        assertCompositionFinished()
+        if (dirtyRef.current)
+          throw new Error('The section changed during the final save. Retry the operation.')
         await window.desktop.editor.acknowledgeFlush({
           ...request,
           sectionId: baseRef.current.sectionId,
@@ -792,7 +983,7 @@ export const SectionEditor = forwardRef<
         })
       } catch (error) {
         if (request.purpose === 'close') closingRef.current = false
-        if (request.purpose === 'mutation') setReadOnly(false)
+        if (mountedRef.current) setReadOnly(false)
         throw error
       }
     },
@@ -853,18 +1044,15 @@ export const SectionEditor = forwardRef<
             slashMenu={false}
             formattingToolbar={false}
             editable={!readOnly && saveState !== 'conflict'}
-            onChange={() => {
+            onChange={(_editor, { getChanges }) => {
+              // setEditable emits an update too; it must not create a dirty draft.
+              if (getChanges().length === 0) return
               lastExactSelectionRef.current = null
               props.onCitationDocumentChange?.(toCanonicalDocument(editor.document))
-              if (replacingImportedDocumentRef.current) {
-                replacingImportedDocumentRef.current = false
-                return
-              }
               dirtyRef.current = true
               if (saveBlockedRef.current) return
               setSaveState('clean')
-              if (timerRef.current !== undefined) clearTimeout(timerRef.current)
-              timerRef.current = setTimeout(() => void save().catch(() => undefined), 1_500)
+              scheduleAutosave()
             }}
             onSelectionChange={() => {
               const cursor = editor.getTextCursorPosition()
@@ -969,31 +1157,16 @@ export const SectionEditor = forwardRef<
                   sectionId: baseRef.current.sectionId
                 })
                 .then((current) => {
-                  const replacement =
-                    current.revision.content.length === 0
-                      ? [
-                          {
-                            id: crypto.randomUUID(),
-                            type: 'paragraph' as const,
-                            props: {
-                              backgroundColor: 'default',
-                              textColor: 'default',
-                              textAlignment: 'left' as const
-                            },
-                            content: [],
-                            children: []
-                          }
-                        ]
-                      : toApprovedEditorDocument(current.revision.content)
-                  replacingImportedDocumentRef.current = true
-                  editor.replaceBlocks(editor.document, replacement)
-                  baseRef.current = current.revision
-                  dirtyRef.current = false
-                  saveBlockedRef.current = false
-                  props.onRevision(current.revision)
-                  setSaveState('saved')
+                  if (!mountedRef.current) return
+                  assertCompositionFinished()
+                  if (runningRef.current !== null)
+                    throw new Error('Wait for the current save before reloading.')
+                  props.onReload(current.revision)
                 })
-                .catch(() => setSaveState('failed'))
+                .catch((error) => {
+                  reportEditorError('manuscript.editor.reload_failed', error)
+                  if (mountedRef.current) setSaveState('failed')
+                })
             }}
           >
             Reload canonical version
@@ -1320,4 +1493,15 @@ function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
       {labels[state]}
     </Badge>
   )
+}
+
+function reportEditorError(source: string, error: unknown): void {
+  const original =
+    error instanceof Error ? error : new Error('Unknown editor failure', { cause: error })
+  window.desktop.diagnostics.reportRendererError({
+    event: 'renderer.error',
+    source,
+    message: original.message,
+    stack: original.stack
+  })
 }
