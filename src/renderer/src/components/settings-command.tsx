@@ -1,3 +1,4 @@
+import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -66,11 +67,18 @@ import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings
 import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
 
-type SettingsSection = 'general' | 'skills' | 'publication' | 'shortcuts' | 'about' | ProviderRole
+type SettingsSection =
+  | 'default-models'
+  | 'general'
+  | 'skills'
+  | 'publication'
+  | 'shortcuts'
+  | 'about'
+  | ProviderRole
 
 interface SettingsCommandProps {
   open: boolean
-  initialSection?: 'general' | 'skills'
+  initialSection?: 'general' | 'skills' | 'default-models'
   onOpenChange: (open: boolean) => void
   onOpenLogs: () => void
   onExportDiagnostics: () => void
@@ -84,6 +92,7 @@ export const settingsSections: Array<{
 }> = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'agent', label: 'Agent API', icon: Bot },
+  { id: 'default-models', label: 'Default Models', icon: Braces },
   { id: 'skills', label: 'Writing Skills', icon: BookOpen },
   { id: 'embedding', label: 'Embedding API', icon: Braces },
   { id: 'rerank', label: 'Reranking API', icon: Braces },
@@ -348,6 +357,8 @@ export function SettingsCommand({
                 onApprovalMode={selectApprovalMode}
                 onCitationDisplayMode={selectCitationDisplayMode}
               />
+            ) : section === 'default-models' ? (
+              <DefaultModelSettings closeAction={<SettingsCloseButton />} />
             ) : section === 'skills' && skillSnapshot ? (
               <WritingSkillsSettings
                 snapshot={skillSnapshot}

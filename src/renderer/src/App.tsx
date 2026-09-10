@@ -120,7 +120,17 @@ function App(): React.JSX.Element {
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [activeAction, setActiveAction] = useState<ProjectAction | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<'general' | 'skills'>('general')
+  const [settingsSection, setSettingsSection] = useState<'general' | 'skills' | 'default-models'>(
+    'general'
+  )
+  useEffect(() => {
+    const open = () => {
+      setSettingsSection('default-models')
+      setSettingsOpen(true)
+    }
+    window.addEventListener('writellm:open-autocomplete-settings', open)
+    return () => window.removeEventListener('writellm:open-autocomplete-settings', open)
+  }, [])
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)

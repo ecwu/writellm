@@ -1,3 +1,6 @@
+import { AutocompleteMenu } from '../autocomplete/autocomplete-menu'
+import { useAutocompleteSession } from '../autocomplete/use-autocomplete-session'
+import type { AutocompleteStatus } from '../autocomplete/autocomplete-extension'
 import type {
   ManuscriptReferenceEntry,
   UpdateManuscriptBriefInput
@@ -63,6 +66,9 @@ export function WritingWorkspaceView(input: {
   controller: WritingWorkspaceController
 }): React.JSX.Element {
   const { props, controller } = input
+  const autocomplete = useAutocompleteSession(props.projectSessionId)
+  const [autocompleteMenuOpen, setAutocompleteMenuOpen] = useState(false)
+  const [autocompleteStatus, setAutocompleteStatus] = useState<AutocompleteStatus>('idle')
   const [commentThreads, setCommentThreads] = useState<CommentThreadSummary[]>([])
   const [commentHighlightThreads, setCommentHighlightThreads] = useState<CommentThreadSummary[]>([])
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<string | null>(null)
@@ -369,6 +375,30 @@ export function WritingWorkspaceView(input: {
           <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
             <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
               <SidebarTrigger className='-ml-1' />
+              <AutocompleteMenu
+                session={autocomplete.session}
+                busy={autocomplete.busy}
+                open={autocompleteMenuOpen}
+                onOpenChange={setAutocompleteMenuOpen}
+                onToggle={(enabled) => void autocomplete.toggle(enabled)}
+                onStyle={(style) => void autocomplete.setStyle(style)}
+              />
+              {autocomplete.session.enabled && autocompleteStatus === 'loading' ? (
+                <Spinner aria-label='Loading autocomplete' />
+              ) : null}
+              {autocompleteStatus === 'paused' ? (
+                <span className='text-sm text-muted-foreground' role='status'>
+                  Autocomplete paused; check model settings
+                </span>
+              ) : null}
+              {autocomplete.session.enabled &&
+              ['cooldown', 'failed'].includes(autocompleteStatus) ? (
+                <span className='text-sm text-muted-foreground' role='status'>
+                  {autocompleteStatus === 'cooldown'
+                    ? 'Autocomplete cooling down'
+                    : 'Autocomplete unavailable; try typing again'}
+                </span>
+              ) : null}
               <Badge className='ml-auto' variant='secondary'>
                 {props.lifecycleState}
               </Badge>
@@ -459,6 +489,13 @@ export function WritingWorkspaceView(input: {
                   ) : null}
                   <SectionEditor
                     ref={editorRef}
+                    autocompleteMenuOpen={autocompleteMenuOpen}
+                    autocompleteEnabled={
+                      autocomplete.session.enabled && autocomplete.session.available
+                    }
+                    autocompleteVersion={autocomplete.change.version}
+                    autocompleteChangeReason={autocomplete.change.reason}
+                    onAutocompleteStatus={setAutocompleteStatus}
                     key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
                     projectSessionId={props.projectSessionId}
                     revision={editorQuery.data.revision}

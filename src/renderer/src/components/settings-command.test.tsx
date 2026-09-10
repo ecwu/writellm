@@ -25,6 +25,7 @@ describe('SettingsCommand', () => {
     expect(settingsSections.map(({ id, label }) => [id, label])).toEqual([
       ['general', 'General'],
       ['agent', 'Agent API'],
+      ['default-models', 'Default Models'],
       ['skills', 'Writing Skills'],
       ['embedding', 'Embedding API'],
       ['rerank', 'Reranking API'],

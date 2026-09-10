@@ -1,3 +1,4 @@
+import type { AutocompleteApi } from '../shared/contracts/autocomplete'
 import type {
   AppInfo,
   AccentPreference,
@@ -205,6 +206,7 @@ import type {
 } from '../shared/contracts/references'
 
 export interface DesktopApi {
+  autocomplete: AutocompleteApi
   app: {
     quit(): Promise<void>
     getInfo(): Promise<AppInfo>

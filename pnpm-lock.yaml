@@ -145,6 +145,9 @@ importers:
       pino-roll:
         specifier: ^4.0.0
         version: 4.0.0
+      prosemirror-history:
+        specifier: 1.5.0
+        version: 1.5.0
       prosemirror-state:
         specifier: 1.4.4
         version: 1.4.4

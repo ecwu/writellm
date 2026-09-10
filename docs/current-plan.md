@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-09
+Recorded: 2026-09-10
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,33 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local
+  annotated source tag. Release metadata is `0.2026.9.6`; no remote push or publication
+  is included. Functional and packaged evidence below is reused from the unchanged
+  implementation. The existing local App predates this metadata bump and retains its
+  earlier build number; it is not a newly packaged `0.2026.9.6` artifact.
+
+- DeepSeek editor autocomplete, its style dropdown and continuous completion are locally
+  verified under [ADR 082](adrs/082-deepseek-autocomplete.md). Tab schedules another request
+  after 200ms; matching typing retains remaining ghost text, while composition waits for
+  final committed text. Esc/undo suppression survives focus and menu changes. Independent
+  model/style settings and project-session enablement remain in effect.
+  Continuous-completion coverage has 65 distinct tests across five files and four affected
+  Electron scenarios passing (41.3-second static/build/E2E gate; zero retries/skips). A final
+  menu-restoration refinement passed 31 focused editor tests and was built into the macOS
+  arm64 App: package smoke passed all 12 checks in 84.2s, then the autocomplete scenario
+  passed against that exact App in 16.5s without another build or retry.
+  The verified implementation matches `out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app`;
+  release metadata was subsequently bumped for the candidate above. No installers or release
+  publication. Runtime coverage is macOS arm64. Composition commit/cancel is automated;
+  a native system-input-source attempt produced literal letters without a candidate window,
+  so physical system-IME candidate selection remains unverified, as do other platforms.
+  Earlier style live-provider evidence remains applicable: 12 flash requests across styles,
+  languages and protocols succeeded in 558–1,554ms; sentence results can still be incomplete.
+  Evidence: [initial autocomplete](history/implementation-log.md#2026-09-10-deepseek-editor-autocomplete),
+  [styles](history/implementation-log.md#2026-09-10-autocomplete-style-dropdown),
+  [continuous completion](history/implementation-log.md#2026-09-10-continuous-autocomplete-and-composition).
 
 - [Release `0.2026.9.5`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5)
   is published as latest from immutable tag `v0.2026.9.5`, source

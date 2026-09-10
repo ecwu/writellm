@@ -1,3 +1,8 @@
+import {
+  autocompleteExtension,
+  refreshAutocomplete,
+  type AutocompleteStatus
+} from '../autocomplete/autocomplete-extension'
 import type { BlockNoteDocument, SectionRevision } from '../../../../shared/contracts/manuscript'
 import type { ReferenceSearchCandidate } from '../../../../shared/contracts/references'
 import {
@@ -164,6 +169,11 @@ interface CitationSearchAnchor {
 }
 
 interface SectionEditorProps {
+  autocompleteMenuOpen?: boolean
+  autocompleteEnabled?: boolean
+  autocompleteVersion?: number
+  autocompleteChangeReason?: 'model' | 'provider' | 'style' | 'toggle'
+  onAutocompleteStatus?(status: AutocompleteStatus): void
   projectSessionId: string
   revision: SectionRevision
   autoFocus?: boolean
@@ -272,6 +282,10 @@ const SectionEditorSession = forwardRef<
   SectionEditorProps & { onReload(revision: SectionRevision): void }
 >(function SectionEditorSession(props, ref): React.JSX.Element {
   const { resolvedTheme, citationDisplayMode } = useTheme()
+  const autocompletePropsRef = useRef(props)
+  autocompletePropsRef.current = props
+  const autocompleteComposingRef = useRef<() => boolean>(() => false)
+  const autocompleteBlockedRef = useRef<() => boolean>(() => true)
   const [formattedCitations, setFormattedCitations] = useState<ReadonlyMap<string, string>>(
     new Map()
   )
@@ -330,6 +344,16 @@ const SectionEditorSession = forwardRef<
         cellTextColor: false
       },
       extensions: [
+        autocompleteExtension({
+          api: window.desktop.autocomplete,
+          projectSessionId: props.projectSessionId,
+          sectionId: props.revision.sectionId,
+          enabled: () => autocompletePropsRef.current.autocompleteEnabled === true,
+          blocked: () => autocompleteBlockedRef.current(),
+          composing: () => autocompleteComposingRef.current(),
+          onStatus: (status) => autocompletePropsRef.current.onAutocompleteStatus?.(status),
+          onError: (err) => reportEditorError('manuscript.editor.autocomplete_failed', err)
+        }),
         ...nativeInlineMathExtensions,
         inlineMathGuardExtension({
           onReject: (message) => notifyActionError(message)
@@ -421,6 +445,57 @@ const SectionEditorSession = forwardRef<
   const compositionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const isComposing = (): boolean =>
     composingRef.current || compositionSettlingRef.current || editor.prosemirrorView.composing
+  autocompleteComposingRef.current = isComposing
+  autocompleteBlockedRef.current = () =>
+    props.autocompleteMenuOpen === true ||
+    closingRef.current ||
+    saveBlockedRef.current ||
+    readOnly ||
+    saveState === 'conflict' ||
+    isComposing() ||
+    citationSearchAnchor !== null ||
+    citationDialog !== null ||
+    quickActionMenuOpen ||
+    customQuickActionOpen
+  const autocompleteResetKey = [
+    props.autocompleteMenuOpen,
+    props.autocompleteEnabled,
+    props.autocompleteVersion,
+    readOnly,
+    saveState === 'conflict',
+    citationSearchAnchor !== null,
+    citationDialog !== null,
+    quickActionMenuOpen,
+    customQuickActionOpen
+  ].join(':')
+  const previousAutocompleteConfiguration = useRef({
+    key: '',
+    version: props.autocompleteVersion,
+    enabled: props.autocompleteEnabled
+  })
+  useEffect(() => {
+    const previous = previousAutocompleteConfiguration.current
+    if (previous.key === autocompleteResetKey) return
+    const reason =
+      previous.version !== props.autocompleteVersion
+        ? (props.autocompleteChangeReason ?? 'toggle')
+        : previous.enabled !== props.autocompleteEnabled
+          ? 'toggle'
+          : 'ui'
+    previousAutocompleteConfiguration.current = {
+      key: autocompleteResetKey,
+      version: props.autocompleteVersion,
+      enabled: props.autocompleteEnabled
+    }
+    refreshAutocomplete(editor.prosemirrorView, reason)
+  }, [
+    editor,
+    autocompleteResetKey,
+    props.autocompleteVersion,
+    props.autocompleteEnabled,
+    props.autocompleteChangeReason
+  ])
+
   const assertCompositionFinished = (): void => {
     if (!isComposing()) return
     const error = new Error('Finish choosing the input-method text, then retry the operation.')

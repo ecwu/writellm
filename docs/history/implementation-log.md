@@ -2770,3 +2770,280 @@ Verification and development evidence:
   responses live under `.cache/releases/0.2026.9.5/`.
 - This post-publication documentation update records the observed result without altering the
   accepted tag or rebuilding its App.
+
+
+## 2026-09-10 DeepSeek editor autocomplete
+
+Implemented the user's approved [ADR 082](../adrs/082-deepseek-autocomplete.md) PoC.
+Default Models exposes only the independent FIM/Autocomplete selection, initially unset.
+It reuses the enabled built-in DeepSeek credential through the existing bound credential
+store, without changing Agent model preferences or persisting another secret. Existing
+app_settings stores the purpose reference; no migration or checkpoint advancement is needed.
+Embedding, rerank and image configuration redesign remains deferred.
+
+The fixed editor toolbar toggle belongs to the current project session. Switching sections
+or workspaces retains it; closing/reopening resets it. A 600ms debounce requests bounded live
+chapter context. Current-block end uses Chat Prefix with thinking disabled; an inline suffix
+uses FIM. The background-worker adapter has a fixed official beta origin, non-streaming
+128-token requests, ten-second cancellation and no retries. 401/403 pause until configuration
+changes, and 429 respects a minimum thirty-second cooldown. Invalidated request/generation
+identities cannot restore suggestions. Context, output and credentials are never written to
+logs or model-request traces.
+
+Suggestions are ProseMirror decorations. Tab acceptance is one ordinary insertion isolated
+by the public closeHistory API; suggestions themselves do not change saves, exports, revisions
+or undo history. The existing transitive prosemirror-history 1.5.0 is now an exact direct
+dependency, with no newly resolved dependency version. Menus and composition take priority;
+the debounce checks eligibility after IME settlement rather than at compositionend. Settings
+uses the existing shadcn Command workspace, Field/Select primitives and scrolling/padding.
+
+### Verification
+
+- Final-source focused coverage: **72 distinct tests in nine files**, reusing applicable
+  results. Initial 67 tests passed in 4.2s; affected service/IPC/client/context rerun passed
+  33 tests in 1.2s; the final client annotation check passed four tests in 1.1s; final
+  context/IME regression passed nine tests in 1.1s. No automatic test retries or skips.
+- Five distinct affected source Electron scenarios passed: settings accessibility,
+  autocomplete, editor save continuity, delayed-save serialization and composition/final
+  flush. The three existing editor scenarios passed in 7.8s, 2.5s and 5.8s respectively;
+  settings accessibility passed in 3.3s. Final autocomplete passed in **11.5s** including
+  routing with later blocks, ephemeral save content, Tab/undo, Esc, composition, configuration
+  revocation, late responses, workspace/section switching, slash menus and reopen reset.
+- The initial check:e2e performed one build. Two fixture-only failures were corrected
+  without rebuilding: the Settings close-button name and use of the actual UI project-close
+  command. Expanded IME coverage then exposed a real compositionend settlement race;
+  the scheduling fix has both a focused regression and passing real Electron evidence.
+- Final **check:package:smoke passed in 79.1s**, including static checks (11.1s), one build,
+  unpacked App/inventory/signature-policy validation and **all 12 runtime smoke checks**
+  (38.5s). The earlier gate stopped at a test mock type annotation before building; an
+  intermediate package passed before the final IME/layout correction. The final gate
+  contains both corrections, with no retries/skips.
+- Packaged app.sqlite remained user_version 10 with integrity OK. Packaged native SQLite,
+  sqlite-vec, all process roles, cancellation/security boundaries and structured logging
+  passed. Log checks found no credential/private-body/private-root leaks.
+- Visual inspection of final Electron screenshots confirmed the Default Models layout,
+  editor toolbar and inline muted suggestion. Screenshots are under
+  test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/.
+
+Final package report: .cache/verification/1789051163552-17620-4ef9a56c/.
+Final autocomplete E2E report: .cache/verification/1789051204439-17984-6fe2f75a/.
+Final IME test report: .cache/verification/1789051138518-17544-e17d9f3d/.
+The final App is dist/macos-arm64/mac-arm64/WriteLLM.app; source out/ matches it.
+No commit, push, release or installer publication was performed.
+
+### Live-provider evidence and limits
+
+An isolated Electron probe read the existing enabled DeepSeek record read-only, checked its
+credential security binding, decrypted only in memory and used the actual built background
+Worker. Four self-authored English/Chinese prefix/FIM samples ran for each of deepseek-v4-pro
+and deepseek-flash: **8/8 succeeded**, with 298 total input/output tokens. No private manuscript
+was used, no user default was changed and no key was printed or copied to another store.
+Durations were **808–1,902ms**, mean **1,121ms**, excluding the editor debounce. Safe synthetic
+results are retained in .cache/autocomplete-probe/live-results.json.
+
+Both candidates support both endpoints in this live sample. Flash's examples were shorter;
+one Pro Chinese FIM response contained several sentences and the Pro English FIM response
+had weaker suffix continuity. This small capability probe is not a writing-quality benchmark.
+The UI still requires an explicit model choice. The adapter's first-line/token bounds are
+retained without speculative sentence-rewriting heuristics.
+
+Runtime evidence is macOS arm64, Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec
+0.1.9. Host pnpm 11.17.0 matches the manifest; host Node 26.8.1 remains outside the declared
+Node 24 range. The offline dependency-add attempt encountered a missing cached tarball;
+the normal host-store add and frozen install succeeded. Installation restored a system-Node
+SQLite binary (ABI 147); the repository's forced Electron rebuild and native load check
+restored ABI 148 before tests. Physical input-method candidate selection, Windows and Linux
+runtime behavior remain unverified. The App is unsigned/unnotarized as in the existing local
+package policy.
+
+## 2026-09-10 Autocomplete style dropdown
+
+Implemented the user-approved ADR 082 amendment: one shadcn DropdownMenu combines the
+session checkbox, word/sentence/paragraph radio choices and model settings. The closed
+trigger always shows an on/off icon and style, with a descriptive tooltip/accessible name.
+The existing English product vocabulary is retained (Words, Sentence, Paragraph). Style
+is stored as `editor.autocomplete.style.v1` in app_settings, defaults to word, and survives
+project changes; changing it never enables autocomplete or changes model selection.
+
+Shared Zod contracts and a sender-authorized narrow style IPC carry only the enum. Main
+loads the persisted choice for each Worker request. Style changes invalidate pending and
+delivered suggestions while retaining authentication suspension and rate cooldown. Menu
+open state blocks the editor plugin; restored focus uses the existing 600ms debounce.
+The adapter uses 32/128/384 tokens, style-specific Chat Prefix instructions, unchanged FIM
+context, and ICU word/sentence/grapheme segmentation with English abbreviation tailoring.
+Display caps are four words/24 code points, one sentence/160 code points, or three sentences/
+480 code points. Newline and Unicode line separators terminate suggestions; caps preserve
+leading whitespace and avoid splitting graphemes. Logs add style and character counts,
+never generated content. No dependency, native binary, Worker entrypoint or schema change
+was required for this amendment.
+
+Verification (host pnpm 11.17.0 / Node 26.8.1; Electron 43.4.1 ABI 148):
+
+- 66 distinct tests across seven files cover settings, service, IPC, Worker gateway,
+  protocol/length handling, segmentation and editor eligibility. The initial 65-test run
+  took 1.4 seconds and found two failures: the new persistence assertion was placed before
+  its setup, and ICU assigned generated leading whitespace to the preceding completed
+  sentence. Moved the assertion and ignored whitespace-only continuation sentence segments.
+  The affected 22 tests passed in 1.3 seconds. After adding restored-focus coverage and
+  request/accept style logging, 24 affected tests passed in 1.1 seconds. The final 14 adapter
+  tests passed in 0.8 seconds; other applicable results were reused. Zero automatic retries
+  or skips. Reports: `.cache/verification/1789052301008-19121-8e5ebb51/`,
+  `1789052363797-19285-d3ed9b48/`, `1789052415601-19431-f62c34d2/`,
+  `1789052507538-19879-441840c7/` (all under `.cache/verification/`).
+- `pnpm check:e2e e2e/autocomplete.spec.ts e2e/writing-workspace.spec.ts --grep
+  'autocomplete routes|preserves editor selection|retains input and serializes|defers autosave'`
+  passed in 39.8 seconds: static checks, one 11.1-second production compile, four real
+  Electron scenarios in 16.5 seconds (13.7s autocomplete, 7.9s save continuity, 2.4s delayed
+  save, 5.8s composition; two workers). Zero retries/skips. Evidence:
+  `.cache/verification/1789052457818-19565-bf9431c3/`.
+- The autocomplete scenario verifies keyboard menu selection, checked radio state,
+  disabled default, settings guidance, no implicit enablement, menu blocking, delayed
+  stale response rejection on style change, FIM/Prefix routing, ephemeral decoration,
+  Tab/undo/Esc, IME settlement, workspace/section changes, project reopen and a second
+  project's inherited global style. Transport remains a Main-only fixture; actual adapter
+  and utility-process transport are covered separately below.
+- Visually inspected real Electron menu and ghost-text screenshots under
+  `test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/`.
+  The normal desktop menu is readable, on/off icons differ, selected style remains visible
+  while off, and no custom component styling was added.
+
+Live synthetic probe: `.cache/autocomplete-probe/style-live.cjs` reused the previous
+read-only credential-binding/safeStorage probe and actual compiled background-worker.
+No credential or user configuration was copied or changed. Twelve deepseek-flash requests
+covered three styles × English/Chinese × FIM/Chat Prefix; all succeeded in 558–1,554ms
+(mean 979ms, excluding debounce), using 513 total tokens. Synthetic-only response evidence
+is `.cache/autocomplete-probe/style-live-results.json`.
+
+| Style | English Prefix / FIM displayed characters | Chinese Prefix / FIM displayed characters |
+| --- | --- | --- |
+| Word | 23 / 21 | 8 / 7 |
+| Sentence | 39 / 21 | 10 / 15 |
+| Paragraph | 141 / 21 | 47 / 28 |
+
+The word English Prefix response originally contained 150 characters and was reduced to
+four words / 23 characters. Paragraph Prefix yielded three English and three Chinese
+sentences. Sentence Prefix sometimes ended mid-thought, and FIM could stay short even with
+a larger budget; these are bounded maximum styles, not guarantees of exact semantic length
+or factual quality. No automatic retry or punctuation synthesis was introduced. The probe
+covers flash for this amendment, not a fresh pro-model quality evaluation.
+
+The final source and `out/` match. This scoped change did not run full/release acceptance
+or rebuild the packaged App; the existing App is the prior fixed-length autocomplete PoC.
+The host Node is outside the declared Node 24 range, while canonical tests and the live
+Worker use Electron. macOS arm64 only, synthetic IME events rather than physical candidate
+selection; Windows/Linux remain unverified. No commit, push or publication was performed.
+
+
+## 2026-09-10 Autocomplete style App packaging
+
+At the user's explicit request, rebuilt the macOS arm64 App with the completion style
+menu. `pnpm check:package:smoke` passed in 83.5 seconds: static checks 11.2s, one build
+11.6s, App packaging 20.7s, inventory/signature checks, and all 12 packaged runtime smoke
+scenarios in 39.7s. Zero retries/skips. SQLite user_version 10 and integrity check passed;
+all four process roles loaded, native modules were arm64, and credential/body/root leak
+checks passed. Evidence: `.cache/verification/1789052845483-20238-2110b8c3/`.
+
+Artifact: `dist/macos-arm64/mac-arm64/WriteLLM.app`, matching the current source and `out/`.
+Source E2E coverage from the style implementation remains applicable; no full E2E rerun,
+installers, release signing/notarization or publication. macOS arm64 only; existing host
+Node 26 / declared Node 24 limitation remains, with Electron ABI 148 for native runtime.
+
+## 2026-09-10 Continuous autocomplete and composition
+
+Implemented the user's approved ADR 082 amendment. Tab accepts one suggestion as an
+independent history event and schedules a new request after 200ms. A following edit
+replaces that deadline with 600ms. Matching pure insertion consumes the existing prefix
+locally, updates the candidate's document/caret snapshot and retains the remainder; full
+consumption schedules ordinary completion. Paste/drop, replacement, structure changes or
+an incomplete grapheme discard it safely. Held Tab repeats do not accept new suggestions.
+
+Esc, undo/redo and empty/failed results retain a quiet document/selection snapshot. Focus,
+save metadata and menu transitions do not release it; actual edits, caret changes and
+explicit completion configuration do. Menus independently opening/closing are observed
+even without document edits. One timer and one in-flight request are maintained, old
+results are generation/document/caret checked, and Main still enforces provider cooldown.
+
+Composition hides and retains the original suggestion and editor snapshot without
+cancelling its delivered receipt. In-flight requests are cancelled. Preedit spelling is
+never compared; after host/ProseMirror settlement, verified committed insertion can
+consume the candidate, and an unchanged document can restore it. Blur, configuration,
+authority changes and mismatching/structural edits discard held candidates. Settlement
+waits for a short stable transaction interval and is bounded; candidate keys remain with
+IME. A shared Zod configuration event distinguishes model/provider/style, and bounded
+trigger/cancel-reason enums extend existing safe request logs without text or pinyin.
+
+Documentation verification used Context7's ProseMirror official reference/guides and the
+installed public prosemirror-history 1.5.0 declaration for `isHistoryTransaction`. No new
+dependency, migration or provider-generation change. The existing native host versions
+remain pnpm 11.17.0, Node 26.8.1 (outside the declared Node 24 range), Electron 43.4.1 / ABI 148.
+
+Verification and iteration:
+
+- Final distinct coverage: 65 tests in five files, using the Electron-hosted runner.
+  The first 26-test run took 1.4s: one old composition timing assertion still assumed that
+  debounce started at the raw compositionend event. Replaced it with a real ProseMirror
+  transaction harness covering settlement. The first 30-test harness run took 1.4s and
+  exposed six test-fixture failures: a hardcoded caret offset was one position short,
+  and splitting the BlockNote wrapper directly was invalid. Derived the text start from
+  the document and used a valid heading transformation. All 30 tests then passed in 1.1s.
+  The final menu-close transition regression expanded that file to 31 tests, passing in
+  1.2s. The four service/IPC/gateway/adapter files passed 34 tests in 1.1s; no automatic
+  retries or skips. Reports under `.cache/verification/`:
+  `1789053816457-21580-803e84cf`, `1789053961312-21793-0c61e04c`,
+  `1789053992357-21939-4c5790b6`, `1789054086941-22083-a22e20d2`,
+  `1789054258004-22600-af37207c`.
+- `pnpm check:e2e e2e/autocomplete.spec.ts e2e/writing-workspace.spec.ts --grep
+  'autocomplete routes|preserves editor selection|retains input and serializes|defers autosave'`
+  passed in 41.3s, with static checks, one build and four scenarios (16.6s autocomplete,
+  7.9s save continuity, 2.4s delayed saves, 5.8s composition; 17.0s parallel E2E elapsed).
+  Zero retries/skips. Report: `.cache/verification/1789054149569-22215-2421fd16/`.
+- The real-editor fixture now accepts two consecutive suggestions without typing, undoes
+  each separately, types a matching English prefix without new requests, and verifies
+  that undoing the Tab suffix keeps the typed portion. Esc survives menu/focus changes.
+  It also simulates `tuijian` preedit, commits `推荐`, retains `内容`, checks independent
+  Tab undo, and cancels another composition to restore the unchanged candidate.
+- After the final menu-restoration refinement, `pnpm check:package:smoke` passed in 84.2s:
+  static checks 11.2s, one build, App packaging 21.0s, inventory/signature checks and all
+  12 runtime smoke scenarios in 40.1s. SQLite version 10 integrity passed; native modules,
+  all four process roles and credential/body/root leak checks passed. Report:
+  `.cache/verification/1789054284412-22684-e6f96398/`.
+- Reused that exact App with `WRITELLM_E2E_EXECUTABLE_PATH` and
+  `pnpm test:e2e e2e/autocomplete.spec.ts`: passed in 16.5s (16.0s scenario), zero retries/
+  skips, no rebuild. This covers final source. Earlier unaffected save scenarios were
+  reused. Report: `.cache/verification/1789054395669-23490-a66a1581/`.
+
+Native IME attempt and limits:
+
+The host has ABC, U.S. and Apple Simplified Chinese Pinyin input sources enabled. Launched
+an isolated temporary project using `.cache/autocomplete-probe/native-ime.cjs`, with fake
+provider credentials and a Main-only synthetic suggestion fixture. No real user project
+or real provider request was used. Native CUA focused its editor and tried the system
+input-switch shortcuts followed by individual `tuijian` keys. The UI showed literal ASCII
+and no candidate window, so this does not verify native candidate selection or disprove
+composition handling. The native UI tool's initial app lookup took about 478s. The probe's
+non-TTY stdin was closed, so optional instrumentation commands were unavailable; inspected
+native UI directly and closed the probe with the app Quit shortcut. The probe process
+exited cleanly. No alternate UI automation or system preference rewrite was used.
+
+Actual system candidate selection remains unverified; the automated composition and
+transaction tests above are distinct evidence. Windows/Linux are unverified. Final source,
+`out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app` match. No full/release gate, installers,
+commit, push or publication; existing unsigned/unnotarized local package policy applies.
+
+## 2026-09-10 Candidate 0.2026.9.6 source tag
+
+The user requested the next 9.x version tag. The existing highest local tag was
+`v0.2026.9.5`; the next candidate is `v0.2026.9.6`, with `package.json` release.version
+updated to `0.2026.9.6` and the three-component package version retained as `0.2026.9`.
+The candidate commit includes the previously verified DeepSeek autocomplete PoC,
+style selection, continuous completion and composition handling documented above.
+An annotated local tag records that source; remote push and publication are outside
+this operation.
+
+Verification reuses the unchanged implementation's 65 focused tests, four affected
+Electron scenarios, 12 packaged smoke checks and final packaged autocomplete scenario.
+The metadata-only update passed the release metadata resolver (macOS build `2026.9.6`),
+Biome across 811 files in 342ms and `git diff --check`, with no retries. No application
+build or functional tests were repeated. The existing App retains the earlier build
+number and is not a newly packaged 0.2026.9.6 artifact. Existing macOS-only runtime,
+real system-IME and Node 26 versus declared Node 24 limitations remain unchanged.

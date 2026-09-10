@@ -1,3 +1,4 @@
+import { autocompleteApi } from './autocomplete-api'
 import { contextBridge } from 'electron'
 import type { DesktopApi } from './desktop-api'
 import { appApi } from './app-api'
@@ -16,6 +17,7 @@ import { diagnosticsApi } from './diagnostics-api'
 export type { DesktopApi } from './desktop-api'
 
 const desktopApi: DesktopApi = {
+  autocomplete: autocompleteApi,
   app: appApi,
   skills: skillsApi,
   projects: projectsApi,

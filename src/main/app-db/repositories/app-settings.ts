@@ -1,3 +1,9 @@
+import {
+  autocompleteSelectionSchema,
+  autocompleteStyleSchema,
+  type AutocompleteStyle,
+  type AutocompleteSelection
+} from '../../../shared/contracts/autocomplete'
 import type { Logger } from 'pino'
 import {
   accentPreferenceSchema,
@@ -61,6 +67,35 @@ export class AppSettingsRepository {
     private readonly log: Logger,
     private readonly now: () => string = () => new Date().toISOString()
   ) {}
+
+  async getAutocompleteStyle(): Promise<AutocompleteStyle> {
+    return this.#readSetting(
+      'editor.autocomplete.style.v1',
+      autocompleteStyleSchema,
+      'word',
+      'app.settings.invalid_autocomplete_style'
+    )
+  }
+
+  async setAutocompleteStyle(style: AutocompleteStyle): Promise<void> {
+    await this.#writeSetting('editor.autocomplete.style.v1', autocompleteStyleSchema.parse(style))
+  }
+
+  async getAutocompleteSelection(): Promise<AutocompleteSelection | null> {
+    return this.#readSetting(
+      'models.autocomplete.default.v1',
+      autocompleteSelectionSchema.nullable(),
+      null,
+      'app.settings.invalid_autocomplete_selection'
+    )
+  }
+
+  async setAutocompleteSelection(selection: AutocompleteSelection | null): Promise<void> {
+    await this.#writeSetting(
+      'models.autocomplete.default.v1',
+      autocompleteSelectionSchema.nullable().parse(selection)
+    )
+  }
 
   async getThemePreference(): Promise<ThemePreference> {
     const row = await this.database.kysely

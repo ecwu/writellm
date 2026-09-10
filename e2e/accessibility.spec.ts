@@ -21,6 +21,7 @@ test(
       const expectedSections = [
         'general',
         'agent',
+        'default-models',
         'skills',
         'embedding',
         'rerank',

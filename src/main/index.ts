@@ -1,3 +1,8 @@
+import { autocompleteChangeSchema } from '../shared/contracts/autocomplete'
+import { IPC_CHANNELS } from '../shared/contracts/channels'
+import { AutocompleteService } from './providers/autocomplete-service'
+import { AutocompleteClient } from './providers/autocomplete-client'
+import { registerAutocompleteIpc } from './ipc/autocomplete-ipc'
 import {
   app,
   BrowserWindow,
@@ -751,7 +756,30 @@ if (!hasSingleInstanceLock) {
         ),
         citationFormatting
       })
+      const autocomplete = new AutocompleteService({
+        settings: appSettings,
+        credential: () => agentProviderCatalog.autocompleteCredential(),
+        gateway: new AutocompleteClient(backgroundWorker),
+        assertSection: (sessionId, sectionId) => {
+          projectManager.assertMutationSession(sessionId).manuscript.getSection(sectionId)
+        },
+        log: loggerSystem.createModuleLogger('llm', 'autocomplete'),
+        changed: (change) => {
+          if (mainWindow && !mainWindow.isDestroyed())
+            mainWindow.webContents.send(
+              IPC_CHANNELS.autocompleteChanged,
+              autocompleteChangeSchema.parse(change)
+            )
+        }
+      })
+      const autocompleteIpc = registerAutocompleteIpc({
+        service: autocomplete,
+        manager: projectManager,
+        developmentUrl,
+        ipc
+      })
       const unregisterProviderIpc = registerProviderIpc({
+        onConfigurationChanged: () => autocomplete.configurationChanged(),
         providers,
         logger: loggerSystem.createModuleLogger('ipc', 'providers'),
         developmentUrl,
@@ -779,6 +807,7 @@ if (!hasSingleInstanceLock) {
         },
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
+          autocompleteIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
           unregisterManuscriptIpc.revokeSession(projectSessionId)
           agentMutationIpc.revokeSession(projectSessionId)
@@ -835,6 +864,7 @@ if (!hasSingleInstanceLock) {
         },
         unregisterProjectIpc: () => {
           unregisterSkillIpc()
+          autocompleteIpc.unregister()
           unregisterProviderIpc()
           unregisterSearchIpc()
           notebookIpc.unregister()

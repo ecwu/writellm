@@ -2,6 +2,7 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "manuscript.autocomplete", "tiers": ["packaged"] },
     { "id": "agent.conversation-fork", "tiers": ["packaged"] },
     { "id": "agent.message-copy-edit", "tiers": ["packaged"] },
     { "id": "agent.current-model-configuration", "tiers": [] },

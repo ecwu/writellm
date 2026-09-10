@@ -36,6 +36,34 @@ afterEach(async () => {
 })
 
 describe('AppSettingsRepository', () => {
+  it('persists an independent autocomplete default without changing the Agent selection', async () => {
+    const database = await openTestDatabase()
+    try {
+      const settings = new AppSettingsRepository(database, log)
+      expect(await settings.getAutocompleteSelection()).toBeNull()
+      const agent = { presetId: 'builtin:openai', modelId: 'writer' }
+      await settings.setDefaultAgentModelSelection(agent)
+      const selection = {
+        providerPresetId: 'builtin:deepseek' as const,
+        modelId: 'deepseek-v4-pro' as const
+      }
+      expect(await settings.getAutocompleteStyle()).toBe('word')
+      await settings.setAutocompleteStyle('paragraph')
+      await settings.setAutocompleteSelection(selection)
+      expect(await new AppSettingsRepository(database, log).getAutocompleteStyle()).toBe(
+        'paragraph'
+      )
+      expect(await new AppSettingsRepository(database, log).getAutocompleteSelection()).toEqual(
+        selection
+      )
+      expect(await settings.getDefaultAgentModelSelection()).toEqual(agent)
+      await settings.setAutocompleteSelection(null)
+      expect(await settings.getAutocompleteSelection()).toBeNull()
+      expect(await settings.getAutocompleteStyle()).toBe('paragraph')
+    } finally {
+      database.close()
+    }
+  })
   it('does not treat an existing application state as a first run after upgrade', async () => {
     const database = await openTestDatabase()
     const repository = new AppSettingsRepository(database, log)

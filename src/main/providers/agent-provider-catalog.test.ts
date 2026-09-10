@@ -95,6 +95,23 @@ afterEach(async () => {
 })
 
 describe('AgentProviderCatalogService', () => {
+  it('reuses the bound DeepSeek credential independently of Agent model preferences', async () => {
+    const { database, catalog } = await createHarness()
+    try {
+      expect(await catalog.autocompleteCredential()).toBeNull()
+      await catalog.setApiKey('builtin:deepseek', 'autocomplete-test-key')
+      expect(await catalog.autocompleteCredential()).toBe('autocomplete-test-key')
+      await catalog.setModelEnabled('builtin:deepseek', 'deepseek-v4-pro', false)
+      expect(await catalog.autocompleteCredential()).toBe('autocomplete-test-key')
+      await catalog.setProviderEnabled('builtin:deepseek', false)
+      expect(await catalog.autocompleteCredential()).toBeNull()
+      await catalog.setProviderEnabled('builtin:deepseek', true)
+      await catalog.clearCredential('builtin:deepseek')
+      expect(await catalog.autocompleteCredential()).toBeNull()
+    } finally {
+      database.close()
+    }
+  })
   it('exposes GPT-6 Astra for OpenAI API and Codex subscription presets', async () => {
     const { database, catalog } = await createHarness()
     try {

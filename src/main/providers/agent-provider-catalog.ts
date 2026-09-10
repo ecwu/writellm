@@ -586,6 +586,13 @@ export class AgentProviderCatalogService {
     return this.snapshot()
   }
 
+  async autocompleteCredential(): Promise<string | null> {
+    if (!(await this.#providerEnabled('builtin:deepseek', true))) return null
+    // Resolve through the existing bound store, independently of Agent model preferences.
+    const credential = await this.#credentialStore.read('deepseek')
+    return credential?.type === 'api_key' ? credential.key || null : null
+  }
+
   async resolve(selection: AgentModelSelection): Promise<ResolvedAgentCatalogModel> {
     const parsed = agentModelSelectionSchema.parse(selection)
     const models = await this.#buildModels()

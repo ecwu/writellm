@@ -1,4 +1,9 @@
 import {
+  autocompleteWorkerRequestSchema,
+  type AutocompleteWorkerResult
+} from '../shared/contracts/autocomplete'
+import { runAutocompleteRequest, AutocompleteHttpError } from './autocomplete-request'
+import {
   auxiliaryUtilityRequestSchema,
   utilityCancelMessageSchema,
   type AuxiliaryUtilityResponse
@@ -78,6 +83,58 @@ parentPort.on('message', (event) => {
 })
 
 async function dispatch(value: unknown): Promise<void> {
+  const autocomplete = autocompleteWorkerRequestSchema.safeParse(value)
+  if (autocomplete.success) {
+    const request = autocomplete.data
+    const controller = new AbortController()
+    activeRequests.set(request.requestId, {
+      projectSessionId: request.projectSessionId,
+      controller
+    })
+    await withLogContext(
+      {
+        ...request.context,
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId
+      },
+      async () => {
+        try {
+          const result = await runAutocompleteRequest(request, controller.signal)
+          post({
+            type: 'autocomplete-result',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            ...result
+          } satisfies AutocompleteWorkerResult)
+        } catch (err) {
+          workerLog?.(
+            'error',
+            'worker.background.autocomplete_failed',
+            'Autocomplete request failed',
+            { requestId: request.requestId },
+            err
+          )
+          const error = serializeModelError(err, 'Autocomplete request failed')
+          post({
+            type: 'autocomplete-result',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            text: '',
+            error: {
+              ...error,
+              ...(err instanceof AutocompleteHttpError
+                ? { httpStatus: err.httpStatus, retryAt: err.retryAt }
+                : {})
+            }
+          } satisfies AutocompleteWorkerResult)
+        } finally {
+          activeRequests.delete(request.requestId)
+        }
+      }
+    )
+    return
+  }
+
   const citationFormatting = citationFormatterRequestSchema.safeParse(value)
   if (citationFormatting.success) {
     const startedAt = Date.now()

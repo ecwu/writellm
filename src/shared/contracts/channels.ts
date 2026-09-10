@@ -1,4 +1,14 @@
 export const IPC_CHANNELS = {
+  autocompleteStyle: 'autocomplete:style',
+  autocompleteSettings: 'autocomplete:settings',
+  autocompleteSelect: 'autocomplete:select',
+  autocompleteSession: 'autocomplete:session',
+  autocompleteToggle: 'autocomplete:toggle',
+  autocompleteComplete: 'autocomplete:complete',
+  autocompleteCancel: 'autocomplete:cancel',
+  autocompleteAccepted: 'autocomplete:accepted',
+  autocompleteChanged: 'autocomplete:changed',
+
   appQuit: 'app:quit',
   appGetInfo: 'app:get-info',
   appGetThemePreference: 'app:get-theme-preference',

@@ -35,6 +35,7 @@ export interface ProviderIpcMain {
 
 export interface RegisterProviderIpcOptions {
   providers: ProviderService
+  onConfigurationChanged?: () => void
   logger: Logger
   developmentUrl?: string
   ipc?: ProviderIpcMain
@@ -43,11 +44,30 @@ export interface RegisterProviderIpcOptions {
 
 export function registerProviderIpc({
   providers,
+  onConfigurationChanged,
   logger,
   developmentUrl,
   ipc = ipcMain,
   openExternal = (url) => shell.openExternal(url)
 }: RegisterProviderIpcOptions): () => void {
+  const readOnlyChannels = new Set<string>([
+    IPC_CHANNELS.providersSnapshot,
+    IPC_CHANNELS.providersTestConnection,
+    IPC_CHANNELS.providersRespondAgentAuth,
+    IPC_CHANNELS.providersCancelAgentAuth
+  ])
+  const handle: ProviderIpcMain['handle'] = (channel, listener) => {
+    ipc.handle(channel, async (event, ...args) => {
+      authorizeSender(event.senderFrame, developmentUrl)
+      try {
+        return await listener(event, ...args)
+      } finally {
+        // A mutation may commit before its status projection fails. Revoke old
+        // autocomplete work even when that projection cannot be returned.
+        if (!readOnlyChannels.has(channel)) onConfigurationChanged?.()
+      }
+    })
+  }
   const authFlows = new Map<
     string,
     {
@@ -56,11 +76,11 @@ export function registerProviderIpc({
       prompts: Map<string, { resolve: (value: string) => void; reject: (err: Error) => void }>
     }
   >()
-  ipc.handle(IPC_CHANNELS.providersSnapshot, async (event) => {
+  handle(IPC_CHANNELS.providersSnapshot, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return providerSettingsSnapshotSchema.parse(await providers.snapshot())
   })
-  ipc.handle(IPC_CHANNELS.providersSave, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSave, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = providerSaveInputSchema.parse(rawInput)
     logger.info(
@@ -73,14 +93,14 @@ export function registerProviderIpc({
     )
     return providerSettingsSnapshotSchema.parse(await providers.save(input.config, input.apiKey))
   })
-  ipc.handle(IPC_CHANNELS.providersRemove, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersRemove, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = providerRoleInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(
       await providers.remove(input.role, input.role === 'image' ? input.providerId : undefined)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersTestConnection, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersTestConnection, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = providerRoleInputSchema.parse(rawInput)
     return providerConnectionTestResultSchema.parse(
@@ -90,22 +110,22 @@ export function registerProviderIpc({
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.providersSetActiveImage, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetActiveImage, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { providerId } = imageProviderSelectionInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.setActiveImageProvider(providerId))
   })
-  ipc.handle(IPC_CHANNELS.providersSaveAgentPreset, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSaveAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = agentCustomPresetInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.saveAgentCustomPreset(input))
   })
-  ipc.handle(IPC_CHANNELS.providersRemoveAgentPreset, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersRemoveAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId } = agentPresetInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.removeAgentPreset(presetId))
   })
-  ipc.handle(IPC_CHANNELS.providersRefreshAgentPreset, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersRefreshAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId } = agentPresetInputSchema.parse(rawInput)
     const controller = new AbortController()
@@ -113,50 +133,50 @@ export function registerProviderIpc({
       await providers.refreshAgentPreset(presetId, controller.signal)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersSetAgentDefault, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetAgentDefault, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const selection = agentModelSelectionSchema.nullable().parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.setAgentDefaultSelection(selection))
   })
-  ipc.handle(IPC_CHANNELS.providersSetAgentCredential, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetAgentCredential, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, apiKey } = agentPresetCredentialInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.setAgentApiKey(presetId, apiKey))
   })
-  ipc.handle(IPC_CHANNELS.providersClearAgentCredential, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersClearAgentCredential, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId } = agentPresetInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.clearAgentCredential(presetId))
   })
-  ipc.handle(IPC_CHANNELS.providersSetAgentProviderEnabled, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetAgentProviderEnabled, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, enabled } = agentProviderEnabledInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(
       await providers.setAgentProviderEnabled(presetId, enabled)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersSetAgentModelEnabled, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetAgentModelEnabled, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, modelId, enabled } = agentModelEnabledInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(
       await providers.setAgentModelEnabled(presetId, modelId, enabled)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersSaveAgentManualModel, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSaveAgentManualModel, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, model } = agentManualModelInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(
       await providers.saveAgentManualModel(presetId, model)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersRemoveAgentManualModel, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersRemoveAgentManualModel, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, modelId } = agentManualModelRemoveInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(
       await providers.removeAgentManualModel(presetId, modelId)
     )
   })
-  ipc.handle(IPC_CHANNELS.providersLoginAgentPreset, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersLoginAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = agentPresetLoginInputSchema.parse(rawInput)
     if (authFlows.has(input.flowId)) throw new Error('Agent authentication flow already exists')
@@ -225,7 +245,7 @@ export function registerProviderIpc({
       }
     }
   })
-  ipc.handle(IPC_CHANNELS.providersRespondAgentAuth, (event, rawInput) => {
+  handle(IPC_CHANNELS.providersRespondAgentAuth, (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = agentAuthPromptResponseSchema.parse(rawInput)
     const flow = authFlows.get(input.flowId)
@@ -237,7 +257,7 @@ export function registerProviderIpc({
     flow.prompts.delete(input.promptId)
     prompt.resolve(input.value)
   })
-  ipc.handle(IPC_CHANNELS.providersCancelAgentAuth, (event, rawInput) => {
+  handle(IPC_CHANNELS.providersCancelAgentAuth, (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { flowId } = agentAuthFlowInputSchema.parse(rawInput)
     const flow = authFlows.get(flowId)

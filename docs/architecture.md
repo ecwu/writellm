@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 081
-Recorded: 2026-07-31; amended through 2026-09-07
+Status: accepted implementation baseline, amended through accepted ADR 082
+Recorded: 2026-07-31; amended through 2026-09-10
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,24 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-10 Editor autocomplete amendment
+
+[ADR 082](adrs/082-deepseek-autocomplete.md) adds session-enabled, ephemeral editor
+autocomplete. A separate application default selects a completion model while reusing
+the enabled built-in DeepSeek credential. A dedicated FIM/Chat Prefix adapter runs in
+background-worker with short cancellable requests, no Agent run or durable job. Ghost
+text becomes manuscript content only when accepted through ordinary editor insertion.
+Its toolbar dropdown combines session enablement with an independent, globally persisted
+word/sentence/paragraph style (default word). Main resolves style; the adapter enforces
+32/128/384-token budgets and locale-aware, grapheme-safe display limits. Style changes
+revoke requests without clearing provider suspension or cooldown; menus block suggestions.
+Tab acceptance schedules another request after 200ms; ordinary edits use 600ms. Verified
+matching text insertion retains the remaining ghost suggestion. Composition hides and
+holds the original suggestion until final document settlement; preedit spelling is never
+matched. Esc and history operations suppress completion at the current document/caret,
+including across focus and menu restoration. Typed configuration reasons distinguish
+model/provider resets from style/UI changes, preserving provider backoff.
 
 ## 2026-09-08 Conversation fork amendment
 
