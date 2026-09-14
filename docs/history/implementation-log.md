@@ -3182,3 +3182,42 @@ passing results, with the initial harness timeout retained as evidence. Reports:
 .cache/verification/1789393594976-54562-8c21f72e/. Recovery inventory passed 32 cases.
 Local full package acceptance and hosted build/publication results will be recorded
 after they complete, without altering the immutable release tag.
+
+## 2026-09-14 Release 0.2026.9.7 publication
+
+- Completed the user-authorized App build, new tag and next September Release.
+  Immutable annotated tag `v0.2026.9.7` identifies
+  `553511063698ca2afb847af40c76f9af9943e8e9`; main and that tag were pushed atomically.
+  Clean-source verification confirmed matching versions/revision. Existing tags, including
+  the local .6 candidate, were not modified. This release includes .6 autocomplete plus
+  application defaults/temporary overrides and the existing Brief/Outline preview changes.
+- Full test evidence is recorded in the preparation entry: 1,530 distinct passing tests,
+  three intended benchmark skips, and one initial test-reporting timeout resolved by a
+  focused rerun without source changes. Host pnpm 11.17.0 matches the manifest; Node
+  26.8.2 is outside the declared 24.x range. Native tests target Electron 43.4.1 ABI 148.
+- `pnpm check:package` passed all ten stages in 224.953s: static checks, recovery inventory,
+  native preparation/build, clean-source App assembly, signature policy/resource inventory,
+  packaged runtime smoke (40.2s), 39/39 packaged E2E (115.9s wrapper, zero retries/skips),
+  and DMG/ZIP from the same tested App. Report:
+  `.cache/verification/1789393626532-54699-32e0017c/`.
+  App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.7`.
+  Local DMG SHA-256: `5c8ff11f6e32a742ca35bd0315da12aa093e3cd02648c4d60ce249a79b966785`;
+  ZIP: `0b0b43ff69a0ca0c7d3d79b7d6ef8ad3c9e78aa67cf4484a49ed00f8ee9942fe`.
+- [Actions run 34851835641](https://github.com/ecwu/writellm/actions/runs/34851835641)
+  passed all six jobs: static/fixtures 65s, macOS arm64 6m17s, Windows x64 5m32s,
+  macOS x64 9m00s, Linux x64 5m23s, and timing summary. CI uses Node 24.15.0 /
+  pnpm 11.17.0 and performs native builds/inventory rather than runtime acceptance.
+- Downloaded and verified the exact source revision, versions, native architecture,
+  successful stages, formats, sizes and SHA-256 of seven installers (1,344,483,426 bytes).
+  Preserved original platform evidence; Windows/Intel Mac retain generated-native-resource
+  dirty-source markers, as in .5. Uploaded seven installers and four distinct evidence
+  JSONs to a draft without overwriting assets, then verified all 11 GitHub asset sizes
+  and SHA-256 digests before publishing.
+- [WriteLLM 0.2026.9.7](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
+  was published at 2026-09-14T14:09:17Z and verified as Latest, non-draft and
+  non-prerelease. Public asset sizes/digests were verified again. Notes identify
+  unsigned/unnotarized distribution, local macOS arm64 runtime coverage and synthetic
+  composition testing; physical system-IME candidate selection remains unverified.
+- Evidence, original downloaded artifacts, checksums, notes, CI results and publication
+  responses live in `.cache/releases/0.2026.9.7/`. This documentation follow-up records
+  the observed outcome without modifying the tag or rebuilding the accepted App.

@@ -31,9 +31,22 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Release `0.2026.9.7` is authorized and being prepared from the current autocomplete
-  defaults and Brief/Outline preview source. Local complete tests and package acceptance
-  precede the immutable tag push, four-platform build and unsigned GitHub publication.
+- [Release `0.2026.9.7`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
+  is published as Latest from immutable tag `v0.2026.9.7`, source
+  `553511063698ca2afb847af40c76f9af9943e8e9`. It includes DeepSeek autocomplete,
+  application defaults/temporary overrides and Brief/Outline previews. 1,530 distinct
+  Electron tests have passing evidence; three benchmark tests are intentionally skipped.
+  One 5-second reporting-subprocess timeout in the full run passed on focused rerun.
+  Local macOS arm64 full package acceptance passed all ten stages in 225.0s, including
+  runtime smoke and 39/39 packaged E2E scenarios with zero retries/skips. The same App
+  produced DMG/ZIP. [CI run 34851835641](https://github.com/ecwu/writellm/actions/runs/34851835641)
+  passed static/fixtures and all four build/upload targets. Seven installers and four
+  original platform evidence files are public; all 11 asset sizes and SHA-256 digests
+  were verified before and after publication. Local App:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.7`.
+  Builds remain unsigned/unnotarized; hosted CI is build-only, runtime coverage is local
+  macOS arm64, and physical IME candidate selection remains unverified.
+  Evidence: [release publication](history/implementation-log.md#2026-09-14-release-0202697-publication).
 
 - Autocomplete application defaults and temporary overrides are locally verified under
   [ADR 082](adrs/082-deepseek-autocomplete.md). Default Models saves auto-enable and
@@ -44,8 +57,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   same build in 18.2s. A final computed-style/animation-free screenshot check also passed
   in 18.2s using that build. All three E2E invocations had zero retries/skips. Runtime evidence is macOS
   arm64; the host Node 26.8.2 is outside the declared 24.x range, while native tests target
-  Electron 43.4.1 ABI 148. Current out/ includes this change; the existing packaged App does
-  not. No package or release work was performed.
+  Electron 43.4.1 ABI 148. Both current out/ and the packaged App now include this change,
+  published in 0.2026.9.7 above.
   Evidence: [application defaults](history/implementation-log.md#2026-09-14-autocomplete-application-defaults-and-temporary-overrides).
 
 - Brief and Outline previews are locally verified. The existing Preview workspace now offers
@@ -58,15 +71,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   regression was repaired. Current `out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app` include
   this change. The user-requested unpacked macOS arm64 build passed all four build-only stages
   in 33.5s after one sandbox DNS failure and elevated retry. Package runtime tests were not
-  repeated; functional runtime evidence remains the source Electron scenario above.
+  repeated in that build-only invocation; the later 0.2026.9.7 package gate above now
+  covers the preview scenario against the packaged App.
   Evidence: [Brief / Outline preview](history/implementation-log.md#2026-09-13-brief-and-outline-preview).
 
 - Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local
-  annotated source tag. Release metadata is `0.2026.9.6`; no remote push or publication
-  is included. Functional and packaged evidence below is reused from the unchanged
-  implementation. The September 13 user-requested App build now uses `0.2026.9.6` metadata
-  and includes subsequent working-tree Brief / Outline preview changes; it is not an immutable
-  artifact of the candidate tag.
+  annotated source tag, retained locally without its own remote publication. Its release
+  metadata was `0.2026.9.6`; the September 13 App also included subsequent Brief/Outline
+  preview changes. Current release metadata and App are now `0.2026.9.7` as recorded above.
 
 - DeepSeek editor autocomplete, its style dropdown and continuous completion are locally
   verified under [ADR 082](adrs/082-deepseek-autocomplete.md). Tab schedules another request
@@ -79,10 +91,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   menu-restoration refinement passed 31 focused editor tests and was built into the macOS
   arm64 App: package smoke passed all 12 checks in 84.2s, then the autocomplete scenario
   passed against that exact App in 16.5s without another build or retry.
-  The packaged `dist/macos-arm64/mac-arm64/WriteLLM.app` contains this earlier implementation;
-  `out/` now also includes the application-default changes above. Release metadata was
-  subsequently bumped for the candidate above. No installers or release
-  publication. Runtime coverage is macOS arm64. Composition commit/cancel is automated;
+  Current `out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app` include this implementation
+  plus the application-default changes, now published in 0.2026.9.7. Runtime coverage is
+  macOS arm64. Composition commit/cancel is automated;
   a native system-input-source attempt produced literal letters without a candidate window,
   so physical system-IME candidate selection remains unverified, as do other platforms.
   Earlier style live-provider evidence remains applicable: 12 flash requests across styles,
@@ -92,7 +103,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   [continuous completion](history/implementation-log.md#2026-09-10-continuous-autocomplete-and-composition).
 
 - [Release `0.2026.9.5`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5)
-  is published as latest from immutable tag `v0.2026.9.5`, source
+  remains a previous published release from immutable tag `v0.2026.9.5`, source
   `65a663f0013ee3efb5e1934139bf442241aa014b`, including the editor save continuity repair.
   Full Electron tests passed: 1,440 tests with three intentional benchmark skips in 25.9s.
   Local macOS arm64 full package acceptance passed in 209.3s, including 12 runtime checks and
