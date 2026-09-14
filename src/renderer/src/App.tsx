@@ -653,9 +653,9 @@ function App(): React.JSX.Element {
         />
       ) : null}
 
-      <div className='relative flex min-h-0 flex-1'>
+      <div className='relative flex min-h-0 min-w-0 flex-1'>
         <div
-          className='flex min-h-0 flex-1'
+          className='flex min-h-0 min-w-0 flex-1'
           aria-hidden={projectOpening || undefined}
           inert={projectOpening || undefined}
         >

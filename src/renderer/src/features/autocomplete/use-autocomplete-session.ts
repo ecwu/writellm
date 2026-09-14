@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type {
   AutocompleteSession,
   AutocompleteChange,
@@ -9,6 +9,8 @@ import { openAutocompleteSettings, reportAutocompleteError } from './autocomplet
 export function useAutocompleteSession(projectSessionId: string) {
   const [session, setSession] = useState<AutocompleteSession>({
     style: 'word',
+    defaultEnabled: false,
+    overrides: { enabled: false, style: false },
     enabled: false,
     available: false,
     selection: null
@@ -18,18 +20,24 @@ export function useAutocompleteSession(projectSessionId: string) {
     reason: AutocompleteChange['reason'] | 'toggle'
   }>({ version: 0, reason: 'toggle' })
   const [busy, setBusy] = useState(false)
+  const sequence = useRef(0)
+  const mutation = useRef(0)
+  const reload = useRef<(() => void) | null>(null)
+  const activeId = useRef(projectSessionId)
+  activeId.current = projectSessionId
   useEffect(() => {
     let current = true
-    let sequence = 0
     const load = () => {
-      const request = ++sequence
+      const request = ++sequence.current
       void window.desktop.autocomplete
         .session({ projectSessionId })
         .then((next) => {
-          if (current && request === sequence) setSession(next)
+          if (current && request === sequence.current) setSession(next)
         })
         .catch(reportAutocompleteError)
     }
+    reload.current = load
+    setBusy(false)
     load()
     const unsubscribe = window.desktop.autocomplete.subscribeChanges((event) => {
       setChange((previous) => ({ version: previous.version + 1, reason: event.reason }))
@@ -38,33 +46,43 @@ export function useAutocompleteSession(projectSessionId: string) {
     })
     return () => {
       current = false
+      sequence.current++
+      mutation.current++
+      reload.current = null
       unsubscribe()
     }
   }, [projectSessionId])
-  const toggle = async (enabled: boolean): Promise<void> => {
+  const update = async (
+    action: () => Promise<AutocompleteSession>,
+    reason: 'toggle' | 'style',
+    enabling = false
+  ): Promise<void> => {
+    const request = ++mutation.current
+    const isCurrent = () => request === mutation.current && activeId.current === projectSessionId
     setBusy(true)
     try {
-      const next = await window.desktop.autocomplete.toggle({ projectSessionId, enabled })
-      setSession(next)
-      setChange((previous) => ({ version: previous.version + 1, reason: 'toggle' }))
-      if (enabled && !next.available) openAutocompleteSettings()
+      await action()
+      // Change notifications can race the mutation reply; read current Main authority again.
+      const next = await window.desktop.autocomplete.session({ projectSessionId })
+      if (!isCurrent()) return
+      reload.current?.()
+      setChange((previous) => ({ version: previous.version + 1, reason }))
+      if (enabling && !next.available) openAutocompleteSettings()
     } catch (err) {
       reportAutocompleteError(err)
     } finally {
-      setBusy(false)
+      if (isCurrent()) setBusy(false)
     }
   }
-  const setStyle = async (style: AutocompleteStyle): Promise<void> => {
-    setBusy(true)
-    setChange((previous) => ({ version: previous.version + 1, reason: 'style' }))
-    try {
-      const settings = await window.desktop.autocomplete.setStyle(style)
-      setSession((previous) => ({ ...previous, ...settings }))
-    } catch (err) {
-      reportAutocompleteError(err)
-    } finally {
-      setBusy(false)
-    }
-  }
-  return { session, change, busy, toggle, setStyle }
+  const toggle = (enabled: boolean) =>
+    update(
+      () => window.desktop.autocomplete.toggle({ projectSessionId, enabled }),
+      'toggle',
+      enabled
+    )
+  const setStyle = (style: AutocompleteStyle) =>
+    update(() => window.desktop.autocomplete.setSessionStyle({ projectSessionId, style }), 'style')
+  const resetOverrides = () =>
+    update(() => window.desktop.autocomplete.resetOverrides({ projectSessionId }), 'toggle')
+  return { session, change, busy, toggle, setStyle, resetOverrides }
 }

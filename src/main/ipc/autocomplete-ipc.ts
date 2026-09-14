@@ -8,6 +8,8 @@ import {
   autocompleteResultSchema,
   autocompleteSelectionSchema,
   autocompleteStyleSchema,
+  autocompleteDefaultEnabledSchema,
+  autocompleteSessionStyleInputSchema,
   autocompleteSessionInputSchema,
   autocompleteSessionSchema,
   autocompleteSettingsSchema,
@@ -62,6 +64,24 @@ export function registerAutocompleteIpc(options: {
     autocompleteStyleSchema,
     autocompleteSettingsSchema,
     (input) => options.service.setStyle(input)
+  )
+  handle(
+    IPC_CHANNELS.autocompleteDefaultEnabled,
+    autocompleteDefaultEnabledSchema,
+    autocompleteSettingsSchema,
+    (enabled) => options.service.setDefaultEnabled(enabled)
+  )
+  handle(
+    IPC_CHANNELS.autocompleteSessionStyle,
+    autocompleteSessionStyleInputSchema,
+    autocompleteSessionSchema,
+    ({ projectSessionId, style }) => options.service.setSessionStyle(projectSessionId, style)
+  )
+  handle(
+    IPC_CHANNELS.autocompleteResetOverrides,
+    autocompleteSessionInputSchema,
+    autocompleteSessionSchema,
+    ({ projectSessionId }) => options.service.resetOverrides(projectSessionId)
   )
   handle(
     IPC_CHANNELS.autocompleteSession,

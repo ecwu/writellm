@@ -31,24 +31,57 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release `0.2026.9.7` is authorized and being prepared from the current autocomplete
+  defaults and Brief/Outline preview source. Local complete tests and package acceptance
+  precede the immutable tag push, four-platform build and unsigned GitHub publication.
+
+- Autocomplete application defaults and temporary overrides are locally verified under
+  [ADR 082](adrs/082-deepseek-autocomplete.md). Default Models saves auto-enable and
+  word/sentence/paragraph length in app.sqlite; editor overrides survive project switches,
+  reset at application exit and never write saved preferences. Restore defaults clears both
+  overrides. 63 focused tests passed in 1.7s. Static checks, one build and the expanded real
+  Electron scenario passed in 44.6s; a final UI checked-state assertion passed against the
+  same build in 18.2s. A final computed-style/animation-free screenshot check also passed
+  in 18.2s using that build. All three E2E invocations had zero retries/skips. Runtime evidence is macOS
+  arm64; the host Node 26.8.2 is outside the declared 24.x range, while native tests target
+  Electron 43.4.1 ABI 148. Current out/ includes this change; the existing packaged App does
+  not. No package or release work was performed.
+  Evidence: [application defaults](history/implementation-log.md#2026-09-14-autocomplete-application-defaults-and-temporary-overrides).
+
+- Brief and Outline previews are locally verified. The existing Preview workspace now offers
+  all ten Brief form fields and the complete numbered outline with objectives/statuses, plus
+  plain-text Copy all, refresh and clipboard failure recovery. They reuse the saved manuscript
+  assembly and existing lifecycle diagnostics without new IPC or persistence. Long metadata
+  wraps within the desktop workspace after constraining its ancestor flex containers.
+  Eight focused tests passed; static checks and one affected real Electron scenario passed.
+  The final scenario ran in an 8.1-second gate with zero retries/skips after the viewport-width
+  regression was repaired. Current `out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app` include
+  this change. The user-requested unpacked macOS arm64 build passed all four build-only stages
+  in 33.5s after one sandbox DNS failure and elevated retry. Package runtime tests were not
+  repeated; functional runtime evidence remains the source Electron scenario above.
+  Evidence: [Brief / Outline preview](history/implementation-log.md#2026-09-13-brief-and-outline-preview).
+
 - Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local
   annotated source tag. Release metadata is `0.2026.9.6`; no remote push or publication
   is included. Functional and packaged evidence below is reused from the unchanged
-  implementation. The existing local App predates this metadata bump and retains its
-  earlier build number; it is not a newly packaged `0.2026.9.6` artifact.
+  implementation. The September 13 user-requested App build now uses `0.2026.9.6` metadata
+  and includes subsequent working-tree Brief / Outline preview changes; it is not an immutable
+  artifact of the candidate tag.
 
 - DeepSeek editor autocomplete, its style dropdown and continuous completion are locally
   verified under [ADR 082](adrs/082-deepseek-autocomplete.md). Tab schedules another request
   after 200ms; matching typing retains remaining ghost text, while composition waits for
-  final committed text. Esc/undo suppression survives focus and menu changes. Independent
-  model/style settings and project-session enablement remain in effect.
+  final committed text. Esc/undo suppression survives focus and menu changes. The original
+  project-session enablement and toolbar style persistence are superseded by the application
+  defaults and temporary overrides above.
   Continuous-completion coverage has 65 distinct tests across five files and four affected
   Electron scenarios passing (41.3-second static/build/E2E gate; zero retries/skips). A final
   menu-restoration refinement passed 31 focused editor tests and was built into the macOS
   arm64 App: package smoke passed all 12 checks in 84.2s, then the autocomplete scenario
   passed against that exact App in 16.5s without another build or retry.
-  The verified implementation matches `out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app`;
-  release metadata was subsequently bumped for the candidate above. No installers or release
+  The packaged `dist/macos-arm64/mac-arm64/WriteLLM.app` contains this earlier implementation;
+  `out/` now also includes the application-default changes above. Release metadata was
+  subsequently bumped for the candidate above. No installers or release
   publication. Runtime coverage is macOS arm64. Composition commit/cancel is automated;
   a native system-input-source attempt produced literal letters without a candidate window,
   so physical system-IME candidate selection remains unverified, as do other platforms.

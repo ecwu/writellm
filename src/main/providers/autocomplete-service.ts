@@ -14,13 +14,14 @@ import { currentLogContext, withLogContext } from '../observability/log-context'
 import type { AutocompleteGateway } from './autocomplete-client'
 
 type Session = {
-  enabled: boolean
   pending?: { requestId: string; controller: AbortController }
   delivered?: { requestId: string; sectionId: string; style: AutocompleteStyle }
 }
 
 export class AutocompleteService {
   readonly #sessions = new Map<string, Session>()
+  #enabledOverride: boolean | undefined
+  #styleOverride: AutocompleteStyle | undefined
   #configurationVersion = 0
   #paused = false
   #retryAt = 0
@@ -28,6 +29,8 @@ export class AutocompleteService {
     private readonly options: {
       settings: Pick<
         AppSettingsRepository,
+        | 'getAutocompleteDefaultEnabled'
+        | 'setAutocompleteDefaultEnabled'
         | 'getAutocompleteSelection'
         | 'setAutocompleteSelection'
         | 'getAutocompleteStyle'
@@ -46,6 +49,7 @@ export class AutocompleteService {
     const selection = await this.options.settings.getAutocompleteSelection()
     return {
       selection,
+      defaultEnabled: await this.options.settings.getAutocompleteDefaultEnabled(),
       style: await this.options.settings.getAutocompleteStyle(),
       available: selection !== null && (await this.options.credential()) !== null
     }
@@ -61,32 +65,71 @@ export class AutocompleteService {
   }
   async setStyle(style: AutocompleteStyle): Promise<AutocompleteSettings> {
     await this.options.settings.setAutocompleteStyle(style)
-    this.#configurationVersion++
-    for (const id of this.#sessions.keys()) this.cancel(id, undefined, 'configuration')
-    this.options.changed({ reason: 'style' })
+    if (this.#styleOverride === undefined) this.#preferencesChanged('style')
     this.options.log.info(
       { event: 'autocomplete.style_changed', style },
       'Autocomplete style changed'
     )
     return this.settings()
   }
+  #preferencesChanged(reason: 'style' | 'toggle'): void {
+    this.#configurationVersion++
+    for (const id of this.#sessions.keys()) this.cancel(id, undefined, 'configuration')
+    this.options.changed({ reason })
+  }
+  async setDefaultEnabled(enabled: boolean): Promise<AutocompleteSettings> {
+    await this.options.settings.setAutocompleteDefaultEnabled(enabled)
+    if (this.#enabledOverride === undefined) this.#preferencesChanged('toggle')
+    this.options.log.info(
+      { event: 'autocomplete.default_enabled_changed', enabled },
+      'Autocomplete default updated'
+    )
+    return this.settings()
+  }
   async session(projectSessionId: string): Promise<AutocompleteSession> {
-    const state = this.#sessions.get(projectSessionId)
-    return { ...(await this.settings()), enabled: state?.enabled ?? false }
+    // Register synchronously so revocation during asynchronous settings reads cannot resurrect work.
+    if (!this.#sessions.has(projectSessionId)) this.#sessions.set(projectSessionId, {})
+    const settings = await this.settings()
+    return {
+      ...settings,
+      style: this.#styleOverride ?? settings.style,
+      enabled: (this.#enabledOverride ?? settings.defaultEnabled) && settings.available,
+      overrides: {
+        enabled: this.#enabledOverride !== undefined,
+        style: this.#styleOverride !== undefined
+      }
+    }
   }
   async toggle(projectSessionId: string, enabled: boolean): Promise<AutocompleteSession> {
-    this.cancel(projectSessionId, undefined, enabled ? 'configuration' : 'disabled')
-    const state: Session = { enabled: false }
-    this.#sessions.set(projectSessionId, state)
-    const settings = await this.settings()
-    // Project close or a newer toggle may have revoked this pending enablement.
-    if (this.#sessions.get(projectSessionId) === state)
-      state.enabled = enabled && settings.available
+    this.#enabledOverride = enabled
+    this.#preferencesChanged('toggle')
     this.options.log.info(
-      { event: 'autocomplete.toggled', projectSessionId, enabled: state.enabled },
-      'Autocomplete session preference changed'
+      { event: 'autocomplete.toggled', projectSessionId, enabled },
+      'Autocomplete temporary preference changed'
     )
-    return { ...settings, enabled: state.enabled }
+    return this.session(projectSessionId)
+  }
+  async setSessionStyle(
+    projectSessionId: string,
+    style: AutocompleteStyle
+  ): Promise<AutocompleteSession> {
+    this.#styleOverride = style
+    this.#preferencesChanged('style')
+    this.options.log.info(
+      { event: 'autocomplete.temporary_style_changed', projectSessionId, style },
+      'Autocomplete temporary preference changed'
+    )
+    return this.session(projectSessionId)
+  }
+  async resetOverrides(projectSessionId: string): Promise<AutocompleteSession> {
+    this.#enabledOverride = undefined
+    this.#styleOverride = undefined
+    this.#preferencesChanged('toggle')
+    this.options.log.info(
+      { event: 'autocomplete.overrides_reset', projectSessionId },
+      'Autocomplete defaults restored'
+    )
+    return this.session(projectSessionId)
   }
   configurationChanged(reason: 'provider' | 'model' = 'provider'): void {
     this.#configurationVersion++
@@ -123,7 +166,7 @@ export class AutocompleteService {
   }
   accepted(projectSessionId: string, requestId: string): void {
     const state = this.#sessions.get(projectSessionId)
-    if (state?.delivered?.requestId !== requestId || !state.enabled) return
+    if (state?.delivered?.requestId !== requestId) return
     this.options.assertSection(projectSessionId, state.delivered.sectionId)
     this.options.log.info(
       {
@@ -160,7 +203,7 @@ export class AutocompleteService {
       ...(retryAt === undefined ? {} : { retryAt })
     })
     const state = this.#sessions.get(input.projectSessionId)
-    if (!state?.enabled) return result('unavailable')
+    if (!state) return result('unavailable')
     this.cancel(input.projectSessionId)
     if (this.#paused) return result('paused')
     if (Date.now() < this.#retryAt) return result('cooldown', '', this.#retryAt)
@@ -177,16 +220,17 @@ export class AutocompleteService {
     }, this.options.timeoutMs ?? 10_000)
     const current = () =>
       !controller.signal.aborted &&
-      state.enabled &&
       state.pending === pending &&
       this.#sessions.get(input.projectSessionId) === state &&
       version === this.#configurationVersion
     try {
       const selection = await this.options.settings.getAutocompleteSelection()
-      const style = await this.options.settings.getAutocompleteStyle()
+      const enabled =
+        this.#enabledOverride ?? (await this.options.settings.getAutocompleteDefaultEnabled())
+      const style = this.#styleOverride ?? (await this.options.settings.getAutocompleteStyle())
       const credential = selection === null ? null : await this.options.credential()
       if (!current()) return result('cancelled')
-      if (selection === null || credential === null) return result('unavailable')
+      if (!enabled || selection === null || credential === null) return result('unavailable')
       this.options.assertSection(input.projectSessionId, input.sectionId)
       this.options.log.info(
         {

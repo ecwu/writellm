@@ -10,6 +10,8 @@ function harness() {
   const complete = vi.fn()
   const service = new AutocompleteService({
     settings: {
+      getAutocompleteDefaultEnabled: async () => false,
+      setAutocompleteDefaultEnabled: async () => undefined,
       getAutocompleteStyle: async () => 'word',
       setAutocompleteStyle: async () => undefined,
       getAutocompleteSelection: async () => null,
@@ -75,9 +77,33 @@ describe('Autocomplete IPC', () => {
     ).rejects.toThrow('Unauthorized')
     expect(h.complete).not.toHaveBeenCalled()
   })
+  it('validates and authorizes temporary changes and reset', async () => {
+    const h = harness()
+    await h.invoke(IPC_CHANNELS.autocompleteSession, h.event, session)
+    await expect(
+      h.invoke(IPC_CHANNELS.autocompleteDefaultEnabled, h.event, 'true')
+    ).rejects.toThrow()
+    await expect(
+      h.invoke(IPC_CHANNELS.autocompleteSessionStyle, h.event, { ...session, style: 'long' })
+    ).rejects.toThrow()
+    for (const [channel, value] of [
+      [IPC_CHANNELS.autocompleteSessionStyle, { ...session, style: 'sentence' }],
+      [IPC_CHANNELS.autocompleteResetOverrides, session]
+    ] as const) {
+      await expect(
+        h.invoke(channel, { ...h.event, sender: { id: 2 } } as IpcMainInvokeEvent, value)
+      ).rejects.toThrow('another window')
+      h.manager.assertActiveSession.mockImplementationOnce(() => {
+        throw new Error('Revoked')
+      })
+      await expect(h.invoke(channel, h.event, value)).rejects.toThrow('Revoked')
+    }
+  })
   it('binds a session to its sender and removes all handlers on unregister', async () => {
     const h = harness()
     expect(await h.invoke(IPC_CHANNELS.autocompleteSession, h.event, session)).toEqual({
+      defaultEnabled: false,
+      overrides: { enabled: false, style: false },
       selection: null,
       style: 'word',
       enabled: false,

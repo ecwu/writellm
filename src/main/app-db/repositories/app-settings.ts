@@ -68,6 +68,19 @@ export class AppSettingsRepository {
     private readonly now: () => string = () => new Date().toISOString()
   ) {}
 
+  async getAutocompleteDefaultEnabled(): Promise<boolean> {
+    return this.#readSetting(
+      'editor.autocomplete.enabled.v1',
+      z.boolean(),
+      false,
+      'app.settings.invalid_autocomplete_enabled'
+    )
+  }
+
+  async setAutocompleteDefaultEnabled(enabled: boolean): Promise<void> {
+    await this.#writeSetting('editor.autocomplete.enabled.v1', z.boolean().parse(enabled))
+  }
+
   async getAutocompleteStyle(): Promise<AutocompleteStyle> {
     return this.#readSetting(
       'editor.autocomplete.style.v1',

@@ -1,8 +1,14 @@
+import {
+  briefPreviewGroups,
+  outlinePreviewGroups,
+  previewGroupsToText,
+  MetadataPreview
+} from './metadata-preview'
 import type { ManuscriptAssembly } from '../../../../shared/contracts/manuscript'
 import { manuscriptToMarkdown } from '../../../../shared/manuscript-markdown'
 import { isAllowedExternalUrl } from '../../../../shared/security/urls'
-import { AlertCircle, FileText, ImageOff, RefreshCw } from 'lucide-react'
-import { useEffect, useId, useMemo, useState } from 'react'
+import { AlertCircle, Copy, FileText, ImageOff, RefreshCw } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
@@ -85,17 +91,32 @@ export function safePreviewMarkdownUrl(url: string, key: string): string {
 export function ManuscriptPreviewWorkspace(
   props: ManuscriptPreviewWorkspaceProps
 ): React.JSX.Element {
+  const [previewType, setPreviewType] = useState<'markdown' | 'brief' | 'outline'>('markdown')
+  const title = {
+    markdown: 'Markdown preview',
+    brief: 'Brief preview',
+    outline: 'Outline preview'
+  }[previewType]
+  const groups = useMemo(() => {
+    if (!props.assembly || previewType === 'markdown') return []
+    return previewType === 'brief'
+      ? briefPreviewGroups(props.assembly.brief)
+      : outlinePreviewGroups(props.assembly.sections.map((item) => item.section))
+  }, [props.assembly, previewType])
+  const copyText = useMemo(() => previewGroupsToText(groups), [groups])
   const projection = useMemo(
     () =>
-      props.assembly === undefined ? undefined : manuscriptToMarkdown(props.assembly, (url) => url),
-    [props.assembly]
+      props.assembly === undefined || previewType !== 'markdown'
+        ? undefined
+        : manuscriptToMarkdown(props.assembly, (url) => url),
+    [props.assembly, previewType]
   )
   const empty = props.assembly?.sections.length === 0 || projection?.markdown.trim() === ''
 
   return (
     <SidebarProvider
       data-testid='manuscript-preview-workspace'
-      className='min-h-0 flex-1'
+      className='min-h-0 min-w-0 flex-1'
       defaultSidebarWidth={280}
     >
       <Sidebar
@@ -122,19 +143,33 @@ export function ManuscriptPreviewWorkspace(
               <FileText className='size-4' aria-hidden='true' />
               <span className='font-medium'>Preview</span>
             </div>
-            <p className='text-xs text-muted-foreground'>Rendered Markdown</p>
+            <p className='text-xs text-muted-foreground'>Manuscript, Brief, and Outline</p>
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
               <SidebarGroupLabel>Preview</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton isActive aria-current='page'>
-                      <FileText />
-                      <span>Markdown preview</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
+                  {(['markdown', 'brief', 'outline'] as const).map((type) => (
+                    <SidebarMenuItem key={type}>
+                      <SidebarMenuButton
+                        isActive={previewType === type}
+                        aria-current={previewType === type ? 'page' : undefined}
+                        onClick={() => setPreviewType(type)}
+                      >
+                        <FileText />
+                        <span>
+                          {
+                            {
+                              markdown: 'Markdown preview',
+                              brief: 'Brief preview',
+                              outline: 'Outline preview'
+                            }[type]
+                          }
+                        </span>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -152,7 +187,7 @@ export function ManuscriptPreviewWorkspace(
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
-                <BreadcrumbPage>Markdown preview</BreadcrumbPage>
+                <BreadcrumbPage>{title}</BreadcrumbPage>
               </BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
@@ -164,31 +199,44 @@ export function ManuscriptPreviewWorkspace(
           <div className='mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-8'>
             <div className='flex min-w-0 flex-col gap-4 border-b pb-6 sm:flex-row sm:items-end sm:justify-between'>
               <div className='min-w-0'>
-                <h1 className='text-2xl font-semibold tracking-tight'>Markdown preview</h1>
+                <h1 className='text-2xl font-semibold tracking-tight'>{title}</h1>
                 <p className='mt-2 max-w-2xl text-sm text-muted-foreground'>
-                  A read-only projection of the manuscript’s current Markdown export.
+                  {previewType === 'markdown'
+                    ? 'A read-only projection of the manuscript’s current Markdown export.'
+                    : 'Read-only saved content. Copy all as plain text.'}
                 </p>
-                {props.assembly === undefined ? null : (
+                {props.assembly === undefined || previewType !== 'markdown' ? null : (
                   <p className='mt-2 text-sm text-muted-foreground' data-testid='preview-counts'>
                     {props.assembly.wordCount.toLocaleString()} words ·{' '}
                     {props.assembly.characterCount.toLocaleString()} characters
                   </p>
                 )}
               </div>
-              <Button
-                className='self-start sm:self-auto'
-                variant='outline'
-                size='sm'
-                disabled={props.loading}
-                onClick={props.onRetry}
-              >
-                {props.loading ? (
-                  <Spinner data-icon='inline-start' />
-                ) : (
-                  <RefreshCw data-icon='inline-start' />
+              <div className='flex flex-wrap items-center gap-2'>
+                {previewType === 'markdown' ? null : (
+                  <PreviewCopyButton
+                    key={previewType}
+                    content={copyText}
+                    disabled={
+                      props.loading || props.error || !props.assembly || groups.length === 0
+                    }
+                  />
                 )}
-                Refresh
-              </Button>
+                <Button
+                  className='self-start sm:self-auto'
+                  variant='outline'
+                  size='sm'
+                  disabled={props.loading}
+                  onClick={props.onRetry}
+                >
+                  {props.loading ? (
+                    <Spinner data-icon='inline-start' />
+                  ) : (
+                    <RefreshCw data-icon='inline-start' />
+                  )}
+                  Refresh
+                </Button>
+              </div>
             </div>
 
             {props.loading ? (
@@ -196,7 +244,7 @@ export function ManuscriptPreviewWorkspace(
             ) : props.error ? (
               <Alert variant='destructive'>
                 <AlertCircle />
-                <AlertTitle>The Markdown preview could not be assembled</AlertTitle>
+                <AlertTitle>The {title} could not be assembled</AlertTitle>
                 <AlertDescription>
                   <p>Your manuscript is unchanged. Retry when you are ready.</p>
                   <Button className='mt-3' variant='outline' size='sm' onClick={props.onRetry}>
@@ -204,15 +252,23 @@ export function ManuscriptPreviewWorkspace(
                   </Button>
                 </AlertDescription>
               </Alert>
+            ) : previewType !== 'markdown' && props.assembly && groups.length > 0 ? (
+              <MetadataPreview groups={groups} />
             ) : empty || projection === undefined ? (
               <Empty className='min-h-80 border'>
                 <EmptyHeader>
                   <EmptyMedia variant='icon'>
                     <FileText />
                   </EmptyMedia>
-                  <EmptyTitle>No manuscript content is available</EmptyTitle>
+                  <EmptyTitle>
+                    {previewType === 'outline'
+                      ? 'No outline sections are available'
+                      : 'No manuscript content is available'}
+                  </EmptyTitle>
                   <EmptyDescription>
-                    Add a section and manuscript body to create a Markdown preview.
+                    {previewType === 'outline'
+                      ? 'Add a section to create an Outline preview.'
+                      : 'Add a section and manuscript body to create a Markdown preview.'}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -239,6 +295,60 @@ export function ManuscriptPreviewWorkspace(
         </main>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+function PreviewCopyButton({
+  content,
+  disabled
+}: {
+  content: string
+  disabled: boolean
+}): React.JSX.Element {
+  const [status, setStatus] = useState<'idle' | 'copying' | 'copied' | 'failed'>('idle')
+  const generation = useRef<{ content: string; disabled: boolean } | null>(null)
+  useEffect(() => {
+    generation.current = { content, disabled }
+    setStatus('idle')
+    return () => {
+      generation.current = null
+    }
+  }, [content, disabled])
+  useEffect(() => {
+    if (status !== 'copied') return
+    const timer = setTimeout(() => setStatus('idle'), 2_000)
+    return () => clearTimeout(timer)
+  }, [status])
+  const copy = async (): Promise<void> => {
+    const current = generation.current
+    setStatus('copying')
+    try {
+      await navigator.clipboard.writeText(content)
+      if (current === generation.current) setStatus('copied')
+    } catch (err) {
+      reportPreviewError('manuscript.preview.copy_failed', err)
+      if (current === generation.current) setStatus('failed')
+    }
+  }
+  return (
+    <div className='flex flex-col items-start gap-1'>
+      <Button
+        variant='outline'
+        size='sm'
+        disabled={disabled || status === 'copying'}
+        onClick={() => void copy()}
+      >
+        <Copy data-icon='inline-start' />
+        {status === 'copied' ? 'Copied' : 'Copy all'}
+      </Button>
+      <span role='status' className='text-xs text-muted-foreground'>
+        {status === 'failed'
+          ? 'Copy failed. Retry or select the text to copy manually.'
+          : status === 'copied'
+            ? 'Copied to clipboard.'
+            : ''}
+      </span>
+    </div>
   )
 }
 

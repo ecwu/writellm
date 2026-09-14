@@ -85,7 +85,7 @@ test(
       userData: join(testRoot, 'user-data'),
       dialogPaths: [testRoot, testRoot]
     })
-    const { page, app } = launched
+    let { page, app } = launched
     try {
       await page.getByRole('button', { name: 'Create project', exact: true }).click()
       const create = page.getByRole('dialog', { name: 'Create project' })
@@ -109,7 +109,25 @@ test(
       await expect(
         settings.getByText('Configure and enable DeepSeek in Agent API to use autocomplete.')
       ).toBeVisible()
-      await page.screenshot({ path: testInfo.outputPath('autocomplete-settings.png') })
+      const autoEnable = settings.getByRole('switch', { name: 'Automatically enable autocomplete' })
+      const offColor = await autoEnable.evaluate(
+        (element) => getComputedStyle(element).backgroundColor
+      )
+      await autoEnable.click()
+      await settings.getByRole('radio', { name: 'Sentence', exact: true }).click()
+      await expect
+        .poll(() => page.evaluate(() => window.desktop.autocomplete.settings()))
+        .toMatchObject({ defaultEnabled: true, style: 'sentence' })
+      await expect(
+        settings.getByRole('switch', { name: 'Automatically enable autocomplete' })
+      ).toBeChecked()
+      await expect
+        .poll(() => autoEnable.evaluate((element) => getComputedStyle(element).backgroundColor))
+        .not.toBe(offColor)
+      await page.screenshot({
+        path: testInfo.outputPath('autocomplete-settings.png'),
+        animations: 'disabled'
+      })
       await settings.getByRole('button', { name: 'Close settings', exact: true }).first().click()
       await page.evaluate(async () => {
         await window.desktop.providers.setAgentCredential({
@@ -122,7 +140,9 @@ test(
         })
       })
       await installCompletionFixture(app)
-      // The closed trigger reflects the persisted style; keyboard selection never enables it.
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
+      await toggleEnabled()
+      // The closed trigger reflects the temporary style; keyboard selection never enables it.
       await toggle.focus()
       await page.keyboard.press('Enter')
       await page.keyboard.press('p')
@@ -135,6 +155,10 @@ test(
       await page.keyboard.press('Enter')
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Paragraph')
       expect((await calls(app)).length).toBe(0)
+      expect(await page.evaluate(() => window.desktop.autocomplete.settings())).toMatchObject({
+        defaultEnabled: true,
+        style: 'sentence'
+      })
       await toggle.click()
       await expect(
         page.getByRole('menuitemradio', {
@@ -322,12 +346,12 @@ test(
       await expect(page.getByRole('button', { name: 'Create project', exact: true })).toBeVisible()
       await page.getByRole('button', { name: 'Open Autocomplete proof', exact: true }).click()
       await expectActiveProject(page, 'Autocomplete proof')
-      await expect(toggle).toHaveAttribute('aria-label', /^Autocomplete: Off/)
+      await expect(toggle).toHaveAttribute('aria-label', /^Autocomplete: On/)
       expect(await page.evaluate(() => window.desktop.autocomplete.settings())).toMatchObject({
         selection: { modelId: 'deepseek-v4-pro' },
         style: 'sentence'
       })
-      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Sentence')
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
       await page.screenshot({ path: testInfo.outputPath('autocomplete-editor.png') })
       await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
       await page
@@ -337,7 +361,49 @@ test(
       await create.getByLabel('Project name').fill('Another autocomplete project')
       await create.getByRole('button', { name: 'Choose location' }).click()
       await expectActiveProject(page, 'Another autocomplete project')
-      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Sentence')
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
+      await toggle.click()
+      await page
+        .getByRole('menuitemradio', { name: 'Paragraph · Continue this paragraph', exact: true })
+        .click()
+      await page.evaluate(async () => {
+        await window.desktop.autocomplete.setStyle('word')
+        await window.desktop.autocomplete.setDefaultEnabled(false)
+      })
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Paragraph')
+      await toggle.click()
+      await page.getByRole('menuitem', { name: 'Restore defaults', exact: true }).click()
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Words')
+      await page.evaluate(async () => {
+        await window.desktop.autocomplete.setStyle('sentence')
+        await window.desktop.autocomplete.setDefaultEnabled(true)
+      })
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
+      await toggleEnabled()
+      await toggle.click()
+      await page
+        .getByRole('menuitemradio', { name: 'Paragraph · Continue this paragraph', exact: true })
+        .click()
+      await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Paragraph')
+      await app.close()
+      ;({ page, app } = await launchApp({ userData: join(testRoot, 'user-data') }))
+      await page
+        .getByRole('button', { name: 'Open Another autocomplete project', exact: true })
+        .click()
+      await expectActiveProject(page, 'Another autocomplete project')
+      await expect(page.getByRole('button', { name: /^Autocomplete:/ })).toHaveAttribute(
+        'aria-label',
+        'Autocomplete: On · Sentence'
+      )
+      expect(
+        await page.evaluate(async () => {
+          const { activeProject } = await window.desktop.projects.lifecycle()
+          if (!activeProject) throw new Error('No project')
+          return window.desktop.autocomplete.session({
+            projectSessionId: activeProject.projectSessionId
+          })
+        })
+      ).toMatchObject({ overrides: { enabled: false, style: false } })
     } finally {
       await app.close()
     }

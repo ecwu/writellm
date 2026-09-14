@@ -94,3 +94,24 @@ an unchanged document or verified pure insertion at the original caret may resto
 consume the candidate. Other changes, blur or revoked authority discard it. IME candidate
 keys take precedence. Suggestions, timers and requests remain ephemeral and bounded;
 reason enums enrich existing safe lifecycle logs without document or preedit content.
+
+## 2026-09-14 amendment: application defaults and temporary overrides
+
+The user authorized application-global default enablement (initially false) and the
+existing word/sentence/paragraph default style in Default Models. The existing style
+key retains its value; a boolean app_settings key adds default enablement without a
+schema migration. This supersedes project-session-only enablement and toolbar style
+persistence above.
+
+Main owns independent optional enabled/style overrides for the application process
+lifetime. Editor operations change only these overrides, including across project
+close/open; exiting the application clears them. Unoverridden fields immediately
+follow saved defaults. Restore defaults clears both overrides. Missing credentials
+or a model prevent requests without erasing user intent. Session capabilities still
+protect every editor operation, and revocation cancels pending/delivered work without
+clearing application preferences. Effective changes invalidate suggestions without
+resetting authentication suspension or cooldown. Settings and runtime projections are
+separate validated contracts; the renderer cannot persist temporary choices implicitly.
+
+Existing shadcn controls expose defaults and temporary state. No worker transport,
+completion budgets, dependency, project schema or release change is required.

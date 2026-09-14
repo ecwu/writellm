@@ -1243,6 +1243,53 @@ test(
       expect(previewText).toContain('Supporting context')
       expect(previewText).toContain('Preview flush draft')
       expect(previewText).not.toContain('Frame the opening evidence.')
+
+      await previewWorkspace.getByRole('button', { name: 'Brief preview', exact: true }).click()
+      const metadataPreview = previewWorkspace.getByTestId('metadata-preview')
+      await expect(metadataPreview).toContainText(manuscriptTitle)
+      await expect(metadataPreview.locator('dt')).toHaveCount(10)
+      await previewWorkspace.getByRole('button', { name: 'Copy all', exact: true }).click()
+      await expect
+        .poll(() => launched.app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toContain(`Title:\n${manuscriptTitle}`)
+      await expect(
+        previewWorkspace.getByRole('button', { name: 'Copied', exact: true })
+      ).toBeVisible()
+      await previewWorkspace.getByRole('button', { name: 'Outline preview', exact: true }).click()
+      await expect(metadataPreview.getByRole('heading')).toHaveText([
+        '1 Conclusion',
+        '2 Introduction',
+        '2.1 Background'
+      ])
+      await expect(metadataPreview).toContainText('Frame the opening evidence.')
+      await expect(metadataPreview).toContainText('Completed')
+      await expect(metadataPreview).not.toContainText('Supporting context')
+      await launched.page.screenshot({ path: '.cache/verification/outline-preview.png' })
+      await launched.page.evaluate(() => {
+        const original = navigator.clipboard.writeText.bind(navigator.clipboard)
+        navigator.clipboard.writeText = async () => {
+          navigator.clipboard.writeText = original
+          throw new DOMException('Fixture clipboard unavailable', 'NotAllowedError')
+        }
+      })
+      await previewWorkspace.getByRole('button', { name: 'Copy all', exact: true }).click()
+      await expect(previewWorkspace.getByRole('status')).toContainText('Copy failed.')
+      await previewWorkspace.getByRole('button', { name: 'Copy all', exact: true }).click()
+      await expect
+        .poll(() => launched.app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toBe(
+          '1 Conclusion\n\nObjective:\n\n\nStatus:\nCompleted\n\n2 Introduction\n\nObjective:\nFrame the opening evidence.\n\nStatus:\nDrafting\n\n2.1 Background\n\nObjective:\n\n\nStatus:\nPlanned'
+        )
+      await previewWorkspace.getByRole('button', { name: 'Refresh', exact: true }).click()
+      await expect(metadataPreview).toContainText('Frame the opening evidence.')
+      await expect
+        .poll(() =>
+          metadataPreview.evaluate((element) => element.scrollWidth <= element.clientWidth)
+        )
+        .toBe(true)
+      await previewWorkspace.getByRole('button', { name: 'Markdown preview', exact: true }).click()
+      await expect(preview).toContainText('Preview flush draft')
+
       await expect
         .poll(() =>
           previewWorkspace.evaluate((element) => {
@@ -1304,6 +1351,50 @@ test(
         reopenedOutline.getByRole('radio', { name: 'Drafting', exact: true })
       ).toHaveAttribute('data-state', 'on')
       await reopenedOutline.getByRole('button', { name: 'Done', exact: true }).click()
+
+      await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
+      const updatedBrief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
+      const longInstructions = `中文\n**literal** <b>plain text</b>\n${'LongContent'.repeat(400)}`
+      await updatedBrief.getByLabel('Additional instructions').fill(longInstructions)
+      await updatedBrief.getByRole('button', { name: 'Save brief' }).click()
+      await expect(updatedBrief.getByText('Saved', { exact: true })).toBeVisible()
+      await updatedBrief.getByRole('button', { name: 'Close', exact: true }).first().click()
+      await launched.page.getByRole('button', { name: 'Preview', exact: true }).click()
+      await expect(preview).toBeVisible()
+      await previewWorkspace.getByRole('button', { name: 'Brief preview', exact: true }).click()
+      await expect(metadataPreview).toContainText(longInstructions)
+      await expect(metadataPreview.locator('b')).toHaveCount(0)
+      await previewWorkspace.getByRole('button', { name: 'Copy all', exact: true }).click()
+      await expect
+        .poll(() => launched.app.evaluate(({ clipboard }) => clipboard.readText()))
+        .toContain(`Additional instructions:\n${longInstructions}`)
+      await expect
+        .poll(() =>
+          metadataPreview.evaluate((element) => element.scrollWidth <= element.clientWidth)
+        )
+        .toBe(true)
+      await expect
+        .poll(() =>
+          launched.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)
+        )
+        .toBe(true)
+      await expect
+        .poll(() =>
+          previewWorkspace.evaluate(
+            (element) => element.getBoundingClientRect().right <= window.innerWidth
+          )
+        )
+        .toBe(true)
+      await launched.page.screenshot({ path: '.cache/verification/brief-preview.png' })
+      await metadataPreview.getByText(longInstructions, { exact: true }).scrollIntoViewIfNeeded()
+      await launched.page.screenshot({ path: '.cache/verification/brief-preview-long.png' })
+      await previewWorkspace.getByRole('button', { name: 'Outline preview', exact: true }).click()
+      await expect(metadataPreview.getByRole('heading')).toHaveText([
+        '1 Conclusion',
+        '2 Introduction',
+        '2.1 Background'
+      ])
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
 
       await launched.page
         .getByTestId(/^outline-section-/)

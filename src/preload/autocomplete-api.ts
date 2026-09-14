@@ -8,6 +8,8 @@ import {
   autocompleteResultSchema,
   autocompleteSelectionSchema,
   autocompleteStyleSchema,
+  autocompleteDefaultEnabledSchema,
+  autocompleteSessionStyleInputSchema,
   autocompleteSessionInputSchema,
   autocompleteSessionSchema,
   autocompleteSettingsSchema,
@@ -31,6 +33,30 @@ export const autocompleteApi: AutocompleteApi = {
   async setStyle(input) {
     return autocompleteSettingsSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.autocompleteStyle, autocompleteStyleSchema.parse(input))
+    )
+  },
+  async setDefaultEnabled(input) {
+    return autocompleteSettingsSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.autocompleteDefaultEnabled,
+        autocompleteDefaultEnabledSchema.parse(input)
+      )
+    )
+  },
+  async setSessionStyle(input) {
+    return autocompleteSessionSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.autocompleteSessionStyle,
+        autocompleteSessionStyleInputSchema.parse(input)
+      )
+    )
+  },
+  async resetOverrides(input) {
+    return autocompleteSessionSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.autocompleteResetOverrides,
+        autocompleteSessionInputSchema.parse(input)
+      )
     )
   },
   async session(input) {

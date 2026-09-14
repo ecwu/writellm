@@ -47,6 +47,11 @@ describe('AppSettingsRepository', () => {
         providerPresetId: 'builtin:deepseek' as const,
         modelId: 'deepseek-v4-pro' as const
       }
+      expect(await settings.getAutocompleteDefaultEnabled()).toBe(false)
+      await settings.setAutocompleteDefaultEnabled(true)
+      expect(await new AppSettingsRepository(database, log).getAutocompleteDefaultEnabled()).toBe(
+        true
+      )
       expect(await settings.getAutocompleteStyle()).toBe('word')
       await settings.setAutocompleteStyle('paragraph')
       await settings.setAutocompleteSelection(selection)

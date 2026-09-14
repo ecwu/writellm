@@ -3047,3 +3047,138 @@ Biome across 811 files in 342ms and `git diff --check`, with no retries. No appl
 build or functional tests were repeated. The existing App retains the earlier build
 number and is not a newly packaged 0.2026.9.6 artifact. Existing macOS-only runtime,
 real system-IME and Node 26 versus declared Node 24 limitations remain unchanged.
+
+
+## 2026-09-13 Brief and Outline preview
+
+Implemented the user-approved plan as a Renderer extension of the existing Preview workspace.
+Markdown remains the default; Brief displays all ten form fields in their shared form order,
+and Outline displays every active section in sibling order with hierarchical numbering,
+objectives and status. Internal IDs, versions, extensions and body content are excluded.
+The plain-text copy projection preserves complete values and line breaks; empty values keep
+their labels but omit the display-only `Not specified` placeholder. Literal markup remains text.
+Copy success, failure/retry, loading/disabled and empty-outline states use existing components.
+Refresh/re-entry reads the existing saved manuscript assembly through its logged
+`manuscript.preview.load` lifecycle. Clipboard failures use the existing Renderer diagnostic
+channel; no content is added to logs and no IPC/database change was required.
+
+The desktop visual pass exposed ancestor flex minimum widths allowing long Brief content to
+expand the workspace beyond the window. Added `min-w-0` to Preview and its two App containers,
+and strengthened E2E assertions to cover viewport bounds as well as local content overflow.
+Final screenshots show intact navigation/actions and wrapping long text at 900 x 800 CSS pixels.
+
+Verification:
+
+- `pnpm test src/renderer/src/features/manuscript/metadata-preview.test.tsx
+  src/renderer/src/features/manuscript/manuscript-preview.test.tsx`: 8 tests in two files passed,
+  987ms Vitest / 1.7s wrapper, no retries/skips. Coverage includes all field labels/order, empty
+  values, multiline Unicode/markup, 32,000-character content, sorted nested numbering/status,
+  empty outline, and existing safe Markdown rendering. A later test-only template-literal cleanup
+  preserves the same fixture bytes; subsequent production edits change only layout classes.
+- `pnpm check:e2e e2e/writing-workspace.spec.ts --grep 'edits a brief and nested outline'`:
+  Biome, both typechecks, one build and the existing scenario passed in 31.8s (7.8s Playwright).
+  Added actual clipboard failure/retry, all three preview destinations, exact outline copying,
+  refresh and Markdown regression assertions.
+- Extended the same scenario with saved Brief changes after a cached preview, project reopening,
+  4,000+ characters of literal markup/continuous text, and screenshots. Reused the build:
+  `pnpm test:e2e` with the same filters passed in 7.5s, but visual inspection exposed the width
+  defect. The first width fix rebuilt in 11.0s; the stronger viewport assertion failed in 15.4s.
+  Fixing the App ancestors rebuilt in 11.2s, then the same filtered E2E passed in 8.1s
+  (one scenario, 7.5s test execution, zero automatic retries/skips).
+- Final screenshots: `.cache/verification/brief-preview.png`, `brief-preview-long.png`, and
+  `outline-preview.png`. Impeccable's mechanical scan returned no findings for the preview
+  surfaces. Final Biome and diff checks passed. No checkpoint/tracker changes are needed for
+  this maintenance entry; completed CP58 evidence remains historical.
+
+Final runtime report: `.cache/verification/1789319402568-27696-2be87100`.
+Runtime: macOS arm64, Electron 43.4.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
+the declared Node 24 range; tests used the canonical Electron runner. E2E ran outside the sandbox
+for Electron/loopback authority. No other platforms or packaged artifacts were verified;
+`out/` matches the implementation, while the existing packaged App predates this feature.
+
+
+## 2026-09-13 Brief and Outline preview App build
+
+The user requested a local App to use the new previews. `pnpm package:unpack` built
+`dist/macos-arm64/mac-arm64/WriteLLM.app` with release metadata `0.2026.9.6`, including
+the current uncommitted preview changes. The first sandbox invocation failed after 55.5s
+when electron-builder could not resolve GitHub. The same command outside the sandbox
+passed all four build-only stages in 33.5s: production build, App packaging, signature
+policy and ASAR/resource/native inventory. The no-Team-ID ad-hoc/linker signature and
+arm64 native modules passed inventory checks. Report:
+`.cache/verification/1789330018726-29484-aad157ca`.
+
+The App was opened for use. Existing source functional evidence remains applicable;
+this request did not repeat functional suites or packaged runtime verification and did
+not create installers or publish a release. Host Node 26.8.2 versus declared Node 24
+remains unchanged; pnpm 11.17.0 and Electron 43.4.1 / ABI 148 were used.
+
+## 2026-09-14 Autocomplete application defaults and temporary overrides
+
+Implemented the user-approved ADR 082 amendment. Default Models now exposes a saved
+application auto-enable preference (initially false) and word/sentence/paragraph length.
+The existing style key is retained; editor.autocomplete.enabled.v1 adds a boolean in
+app_settings with no schema migration. Main owns independent optional enabled/style
+overrides for the application lifetime. Closing and reopening or switching projects
+preserves them; restarting clears them. Restore defaults clears both and follows the
+latest saved settings. Updating an uncovered default applies immediately. Missing model
+or credentials blocks requests without erasing preference intent.
+
+Separate validated settings and runtime contracts expose saved defaults, effective values
+and override flags. Temporary length/reset operations remain sender- and project-capability
+validated. Effective preference changes cancel pending/delivered suggestions without
+resetting provider backoff. Lifecycle logs contain safe preference metadata. Renderer
+request sequencing rejects outdated reads/replies. The existing shadcn controls and menu
+show the defaults, temporary lifetime and reset action. No dependencies or project records
+changed; pre-existing Brief/Outline preview edits were preserved.
+
+Verification:
+
+- `pnpm test src/main/providers/autocomplete-service.test.ts
+  src/main/ipc/autocomplete-ipc.test.ts src/main/app-db/repositories/app-settings.test.ts
+  src/renderer/src/features/autocomplete/autocomplete-extension.test.ts`: 63 tests across
+  four files passed in 1.7s (Vitest 960ms), no retries/skips. Covers persistence, independent
+  overrides, restart, effective Worker style, unavailable credentials, stale request and
+  session cancellation, IPC validation/ownership, backoff and existing editor behavior.
+  Report: `.cache/verification/1789392661423-52620-7de18dfa/`.
+- An initial `check:fast` failed the Main typecheck due to duplicated schema arguments in
+  one IPC registration; corrected before runtime acceptance. No application failure.
+- `pnpm check:e2e e2e/autocomplete.spec.ts` passed all six stages in 44.6s: static checks,
+  one production compile (11.5s), and one expanded Electron scenario (18.8s; runner 19.5s),
+  zero retries/skips. Report: `.cache/verification/1789392746165-52803-721f4659/`.
+- Screenshot inspection prompted an explicit saved-switch checked-state assertion.
+  `pnpm test:e2e e2e/autocomplete.spec.ts` reused the matching build and passed in 18.2s
+  (scenario 17.6s), zero retries/skips. It verifies UI defaults, temporary style without
+  persistence, project close/reopen and switching, preserving overrides across saved-default
+  changes, reset, immediate default application and real process restart. Existing ghost
+  text, Tab, undo, composition and provider-disable flows also pass.
+  Report: `.cache/verification/1789392839494-53145-78265d98/`. Settings/menu screenshots under
+  `test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/` were inspected.
+- A final visual check asserts the checked switch background differs from the unchecked
+  state and disables screenshot animations. The same scenario/build passed again in 18.2s
+  (scenario 17.6s), zero retries/skips. Report:
+  `.cache/verification/1789392934082-53326-ecc06c60/`.
+
+Host pnpm 11.17.0 matches the manifest; Node 26.8.2 is outside the declared 24.x range.
+Canonical native tests use Electron 43.4.1 ABI 148. E2E ran with elevated process/loopback
+access on macOS arm64. Other platforms and physical IME remain unverified. Source out/
+contains the final implementation; the existing packaged App was not rebuilt. No commit,
+push, package or release was performed.
+
+## 2026-09-14 Release 0.2026.9.7 preparation
+
+The user authorized building the App, tagging the next September version and publishing
+a release. Version 0.2026.9.7 follows local candidate .6 and published .5; it includes
+DeepSeek autocomplete, application defaults/temporary overrides and Brief/Outline previews.
+The existing unsigned four-platform tag build and explicit GitHub Release publication
+remain the distribution path. Signing and notarization are not introduced.
+
+Frozen install passed with pnpm 11.17.0. The complete Electron invocation covered 1,533
+tests: 1,529 passed, three benchmark skips and one test-reporting subprocess timeout at
+5 seconds (31.1s runner). The affected scripts/test-reporting.test.ts passed both tests
+on focused rerun in 1.9s without code changes. Thus 1,530 distinct tests are covered by
+passing results, with the initial harness timeout retained as evidence. Reports:
+.cache/verification/1789393546638-53832-5c2c980a/ and
+.cache/verification/1789393594976-54562-8c21f72e/. Recovery inventory passed 32 cases.
+Local full package acceptance and hosted build/publication results will be recorded
+after they complete, without altering the immutable release tag.

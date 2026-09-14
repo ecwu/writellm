@@ -13,7 +13,7 @@ export const autocompleteSelectionSchema = z
 export const autocompleteStyleSchema = z.enum(['word', 'sentence', 'paragraph'])
 export type AutocompleteStyle = z.infer<typeof autocompleteStyleSchema>
 export const autocompleteChangeSchema = z
-  .object({ reason: z.enum(['model', 'provider', 'style']) })
+  .object({ reason: z.enum(['model', 'provider', 'style', 'toggle']) })
   .strict()
 export type AutocompleteChange = z.infer<typeof autocompleteChangeSchema>
 export const autocompleteTriggerSchema = z.enum([
@@ -43,6 +43,7 @@ export type AutocompleteTrigger = z.infer<typeof autocompleteTriggerSchema>
 export type AutocompleteCancelReason = z.infer<typeof autocompleteCancelReasonSchema>
 export const autocompleteSettingsSchema = z
   .object({
+    defaultEnabled: z.boolean(),
     selection: autocompleteSelectionSchema.nullable(),
     style: autocompleteStyleSchema,
     available: z.boolean()
@@ -54,7 +55,14 @@ export const autocompleteSessionInputSchema = z
 export const autocompleteToggleInputSchema = autocompleteSessionInputSchema.extend({
   enabled: z.boolean()
 })
-export const autocompleteSessionSchema = autocompleteSettingsSchema.extend({ enabled: z.boolean() })
+export const autocompleteSessionStyleInputSchema = autocompleteSessionInputSchema.extend({
+  style: autocompleteStyleSchema
+})
+export const autocompleteDefaultEnabledSchema = z.boolean()
+export const autocompleteSessionSchema = autocompleteSettingsSchema.extend({
+  enabled: z.boolean(),
+  overrides: z.object({ enabled: z.boolean(), style: z.boolean() }).strict()
+})
 const text = (maximum: number) =>
   z
     .string()
@@ -149,6 +157,13 @@ export interface AutocompleteApi {
   settings(): Promise<AutocompleteSettings>
   select(input: AutocompleteSelection | null): Promise<AutocompleteSettings>
   setStyle(input: AutocompleteStyle): Promise<AutocompleteSettings>
+  setDefaultEnabled(input: boolean): Promise<AutocompleteSettings>
+  setSessionStyle(
+    input: z.infer<typeof autocompleteSessionStyleInputSchema>
+  ): Promise<AutocompleteSession>
+  resetOverrides(
+    input: z.infer<typeof autocompleteSessionInputSchema>
+  ): Promise<AutocompleteSession>
   session(input: z.infer<typeof autocompleteSessionInputSchema>): Promise<AutocompleteSession>
   toggle(input: z.infer<typeof autocompleteToggleInputSchema>): Promise<AutocompleteSession>
   complete(input: AutocompleteRequest): Promise<AutocompleteResult>

@@ -17,8 +17,11 @@ autocomplete. A separate application default selects a completion model while re
 the enabled built-in DeepSeek credential. A dedicated FIM/Chat Prefix adapter runs in
 background-worker with short cancellable requests, no Agent run or durable job. Ghost
 text becomes manuscript content only when accepted through ordinary editor insertion.
-Its toolbar dropdown combines session enablement with an independent, globally persisted
-word/sentence/paragraph style (default word). Main resolves style; the adapter enforces
+Its settings store application default enablement (initially off) and an independent
+word/sentence/paragraph style (default word). The toolbar changes only application-process
+owned temporary overrides, retained across project switches and cleared at app exit.
+Uncovered fields follow saved defaults; Restore defaults clears both overrides.
+Project capabilities continue to govern requests and revocation. Main resolves effective style; the adapter enforces
 32/128/384-token budgets and locale-aware, grapheme-safe display limits. Style changes
 revoke requests without clearing provider suspension or cooldown; menus block suggestions.
 Tab acceptance schedules another request after 200ms; ordinary edits use 600ms. Verified

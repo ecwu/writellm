@@ -31,6 +31,7 @@ export function AutocompleteMenu(props: {
   open: boolean
   onOpenChange(open: boolean): void
   onToggle(enabled: boolean): void
+  onResetOverrides(): void
   onStyle(style: AutocompleteStyle): void
 }) {
   const { enabled, style, available } = props.session
@@ -84,6 +85,19 @@ export function AutocompleteMenu(props: {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
+          <DropdownMenuLabel>
+            {props.session.overrides.enabled || props.session.overrides.style
+              ? 'Temporary settings · Until app exit'
+              : 'Using saved defaults'}
+          </DropdownMenuLabel>
+          <DropdownMenuItem
+            disabled={
+              props.busy || !(props.session.overrides.enabled || props.session.overrides.style)
+            }
+            onSelect={props.onResetOverrides}
+          >
+            Restore defaults
+          </DropdownMenuItem>
           <DropdownMenuItem onSelect={openAutocompleteSettings}>
             {available ? 'Model settings…' : 'Set up autocomplete…'}
           </DropdownMenuItem>

@@ -381,6 +381,7 @@ export function WritingWorkspaceView(input: {
                 open={autocompleteMenuOpen}
                 onOpenChange={setAutocompleteMenuOpen}
                 onToggle={(enabled) => void autocomplete.toggle(enabled)}
+                onResetOverrides={() => void autocomplete.resetOverrides()}
                 onStyle={(style) => void autocomplete.setStyle(style)}
               />
               {autocomplete.session.enabled && autocompleteStatus === 'loading' ? (

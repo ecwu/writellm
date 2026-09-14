@@ -1,4 +1,7 @@
 export const IPC_CHANNELS = {
+  autocompleteDefaultEnabled: 'autocomplete:default-enabled',
+  autocompleteSessionStyle: 'autocomplete:session-style',
+  autocompleteResetOverrides: 'autocomplete:reset-overrides',
   autocompleteStyle: 'autocomplete:style',
   autocompleteSettings: 'autocomplete:settings',
   autocompleteSelect: 'autocomplete:select',

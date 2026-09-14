@@ -1,3 +1,4 @@
+import { briefTextFields, type BriefFields } from './brief-fields'
 import type { ManuscriptBrief } from '../../../../shared/contracts/manuscript'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
@@ -14,49 +15,6 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
-
-type BriefFields = Omit<
-  ManuscriptBrief,
-  'manuscriptBriefId' | 'manuscriptId' | 'version' | 'schemaVersion' | 'createdAt'
->
-
-const textFields: Array<{
-  key: keyof BriefFields
-  label: string
-  multiline?: boolean
-  placeholder: string
-}> = [
-  { key: 'title', label: 'Title', placeholder: 'Working title' },
-  {
-    key: 'description',
-    label: 'Purpose',
-    multiline: true,
-    placeholder: 'What should this manuscript accomplish?'
-  },
-  { key: 'topic', label: 'Topic and coverage', multiline: true, placeholder: 'Core topic' },
-  { key: 'targetAudience', label: 'Audience', placeholder: 'Who is this for?' },
-  { key: 'language', label: 'Language', placeholder: 'English, 中文…' },
-  { key: 'styleTone', label: 'Style and tone', multiline: true, placeholder: 'Voice and tone' },
-  {
-    key: 'scopeExclusions',
-    label: 'Scope and exclusions',
-    multiline: true,
-    placeholder: 'What is in or out of scope?'
-  },
-  { key: 'targetLength', label: 'Target length', placeholder: 'For example, 2,000 words' },
-  {
-    key: 'citationRequirements',
-    label: 'Citation requirements',
-    multiline: true,
-    placeholder: 'Citation style and evidence rules'
-  },
-  {
-    key: 'additionalInstructions',
-    label: 'Additional instructions',
-    multiline: true,
-    placeholder: 'Anything else the writing workflow should retain'
-  }
-]
 
 function editableFields(brief: ManuscriptBrief): BriefFields {
   const {
@@ -131,9 +89,8 @@ export function ManuscriptBriefDialog(props: {
           </DialogDescription>
         </DialogHeader>
         <FieldGroup className='grid gap-4 sm:grid-cols-2'>
-          {textFields.map((field) => {
+          {briefTextFields.map((field) => {
             const value = fields[field.key]
-            if (field.key === 'extensible') return null
             return (
               <Field
                 key={field.key}
