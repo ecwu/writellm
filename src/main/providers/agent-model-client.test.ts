@@ -232,6 +232,21 @@ describe('AgentModelClient', () => {
     )
 
     await vi.waitFor(() => expect(child.runs).toHaveLength(3))
+    const overflow = client.beginSessionRun(
+      config,
+      'process-secret',
+      {
+        ...sessionInput(),
+        agentSessionId: crypto.randomUUID(),
+        agentRunId: crypto.randomUUID(),
+        modelRequestId: crypto.randomUUID(),
+        toolProfile: 'notebook_knowledge'
+      },
+      new AbortController().signal,
+      () => undefined
+    )
+    await expect(overflow.completion).rejects.toThrow('Three Agent or Notebook')
+    expect(child.runs).toHaveLength(3)
     controllers[1]?.abort()
     await expect(handles[1]?.completion).rejects.toMatchObject({ name: 'AbortError' })
     child.complete(inputs[0].agentRunId)
@@ -240,6 +255,30 @@ describe('AgentModelClient', () => {
     await expect(handles[2]?.completion).resolves.toMatchObject({ outcome: 'finished' })
     expect(child.cancelledRunIds).toEqual([inputs[1].agentRunId])
     expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('releases shared admission when the worker cannot be created', async () => {
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      {
+        fork: () => {
+          throw new Error('test worker launch failed')
+        }
+      } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const handle = client.beginSessionRun(
+        config,
+        'process-secret',
+        sessionInput(),
+        new AbortController().signal,
+        () => undefined
+      )
+      await expect(handle.completion).rejects.toThrow('test worker launch failed')
+    }
   })
 
   it('settles a capability-bound queue action only after the worker acknowledgement', async () => {

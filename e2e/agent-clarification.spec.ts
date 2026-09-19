@@ -198,7 +198,8 @@ test(
     try {
       await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
       await createProject(launched.page, 'Clarification workflow')
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await launched.page.getByRole('button', { name: /^AI tasks:/ }).click()
+      await launched.page.getByRole('menuitem', { name: 'Open Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -215,6 +216,9 @@ test(
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       const questionnaire = panel.getByTestId('agent-questionnaire')
       await expect(questionnaire).toBeVisible()
+      await expect(
+        launched.page.getByRole('button', { name: 'AI tasks: 1 need attention', exact: true })
+      ).toBeVisible()
       await expect(
         panel.getByText('Which scope should the revision use?', { exact: true })
       ).toHaveCount(1)
@@ -308,7 +312,8 @@ test(
         .getByRole('button', { name: 'Open Clarification workflow', exact: true })
         .click()
       await expectActiveProject(restarted.page, 'Clarification workflow')
-      await restarted.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await restarted.page.getByRole('button', { name: /^AI tasks:/ }).click()
+      await restarted.page.getByRole('menuitem', { name: 'Open Agent', exact: true }).click()
       const restoredPanel = restarted.page.getByTestId('agent-panel')
       const restoredQuestionnaire = restoredPanel.getByTestId('agent-questionnaire')
       await expect(restoredQuestionnaire).toHaveCount(0)

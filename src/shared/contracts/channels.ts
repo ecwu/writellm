@@ -1,4 +1,9 @@
 export const IPC_CHANNELS = {
+  notebookCreate: 'notebook:create',
+  notebookDestroy: 'notebook:destroy',
+  workbenchLayoutRead: 'workbench:layout-read',
+  workbenchLayoutSave: 'workbench:layout-save',
+  workbenchLayoutReset: 'workbench:layout-reset',
   autocompleteDefaultEnabled: 'autocomplete:default-enabled',
   autocompleteSessionStyle: 'autocomplete:session-style',
   autocompleteResetOverrides: 'autocomplete:reset-overrides',

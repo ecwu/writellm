@@ -278,7 +278,7 @@ remain usable: its controls must not overlap, and its resize handle must continu
 - Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts for the configured desktop surfaces.
 - Keep a global shadcn `Menubar` at the top of every application state. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
 - Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
-- Base the active-project workspace on the official shadcn `sidebar-09` block: a collapsible icon rail plus contextual secondary sidebar and a `SidebarInset` content region.
+- Follow ADR 083 for the active-project shell: retain the shadcn activity rail and controls, with one Dockview content tab group and independently dockable tool groups. Contextual sidebars stay inside their owning content or tool surface. Do not restore the fixed sidebar-09 composition.
 - Extend the established shell and official component language for future screens. Do not introduce bespoke gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.
 - Preserve keyboard-accessible behavior from the official components. Any unavailable future action must be visibly disabled or labeled as unavailable rather than simulated.
 

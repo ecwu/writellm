@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 082
-Recorded: 2026-07-31; amended through 2026-09-10
+Status: accepted implementation baseline, amended through accepted ADR 083
+Recorded: 2026-07-31; amended through 2026-09-19
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -9,6 +9,20 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-09-19 Notebook source capacity amendment
+
+ADR 058's source capacity amendment removes its historical fifty-source limit. Every indexed
+project source is selectable, with no product-level source-count cap. Each turn retains an
+explicit frozen source set; selected-source authorization, retrieval/evidence budgets, and
+ADR 062's read-only Agent boundary remain unchanged. Source sets use a bound JSON array for
+SQL filtering rather than one parameter per source. No schema or index migration is needed.
+
+## 2026-09-19 Workbench and shared admission amendment
+
+[ADR 083](adrs/083-tabbed-docking-workbench.md) supersedes the fixed shell and singleton Notebook.
+It also restores a shared three-run Agent/Notebook limit at the Main model gateway, with immediate
+overflow rejection and no waiting queue, superseding ADR 074's unlimited admission decision.
 
 ## 2026-09-10 Editor autocomplete amendment
 
@@ -85,7 +99,7 @@ Details. Existing events/proposals remain authoritative, with no schema or proto
 ## 2026-09-02 Agent Occam ablation amendment
 
 ADR 074 and Protocol v14 supersede conflicting historical clauses below. Agent loops have no
-event-count finalization or project-wide three-work admission cap. Context is token-derived with
+event-count finalization. Its removal of the three-work admission cap is superseded by ADR 083. Context is token-derived with
 one lossy old-history summary plus recent atomic turns, not rolling step/event budgets. Skill
 roots are explicitly injected or progressively read; dependency completion and runtime count
 budgets do not gate work. Trace capture is best effort and cannot block network I/O. Live retry
@@ -239,6 +253,13 @@ These controls preserve the Renderer sandbox, three fixed worker roles, forward-
 request-scoped provider work, and project portability. The filesystem threat model covers
 malicious projects containing pre-existing links; protecting against a same-user process replacing
 paths concurrently would require a future native handle/dirfd design.
+
+## Tabbed Workbench Amendment
+
+ADR 083 replaces the fixed sidebar-09 composition with one content tab group and dockable
+tool groups using Dockview React 8.3.1 (MIT). shadcn remains the design system. Local per-project
+layout preferences belong to app.sqlite, never project content. Notebook supports independent
+in-memory instances; project teardown revokes all of them. See [ADR 083](adrs/083-tabbed-docking-workbench.md).
 
 ## Product Scope And Invariants
 
@@ -477,9 +498,10 @@ The active interactive boundary is the sessionful `AgentSessionRuntime` hosted i
 version compatibility, and persist-before-publish ordering in `project.sqlite`; the worker owns
 only request-scoped Pi loops. Each conversation remains single-line, with a run or manual
 compaction reservation acquired before asynchronous preparation. Different Agent conversations
-and Notebook sessions run independently without a project/Worker admission quota. Automatic
+and Notebook sessions run independently within ADR 083’s shared three-run Main admission limit. Automatic
 compaction uses its run reservation. The single-shot `AgentModelRuntime` remains the boundary for
-conversation-title generation, one-summary compaction, and ADR 058's transient Notebook answers;
+conversation-title generation and one-summary compaction; Notebook uses the sessionful runtime
+with ADR 062’s read-only tool profile and ADR 083’s independent ephemeral instances;
 interactive tool-using Agent turns use `AgentSessionRuntime`. The low-level `Agent` class is used directly; the Pi harness's JSONL session storage
 is an explicit non-choice because durable Agent history must live in the project database. See
 ADRs 018, 019, and 058.

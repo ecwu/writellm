@@ -1,3 +1,4 @@
+import type { WorkbenchApi } from '../shared/contracts/workbench'
 import type { AutocompleteApi } from '../shared/contracts/autocomplete'
 import type {
   AppInfo,
@@ -662,28 +663,35 @@ export interface DesktopApi {
       input: ReadableCitationResolutionInput
     ): Promise<ReadableCitationResolutionResult>
   }
+  workbench: WorkbenchApi
   notebook: {
-    snapshot(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    create(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    destroy(input: { projectSessionId: string; notebookId: string }): Promise<void>
+    snapshot(input: { projectSessionId: string; notebookId: string }): Promise<NotebookChatSnapshot>
     startTurn(input: {
       projectSessionId: string
+      notebookId: string
       content: string
     }): Promise<NotebookChatStartTurnResult>
-    stopTurn(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
-    clear(input: { projectSessionId: string }): Promise<NotebookChatSnapshot>
+    stopTurn(input: { projectSessionId: string; notebookId: string }): Promise<NotebookChatSnapshot>
+    clear(input: { projectSessionId: string; notebookId: string }): Promise<NotebookChatSnapshot>
     setSources(input: {
       projectSessionId: string
+      notebookId: string
       sourceScope: NotebookSourceScope
     }): Promise<NotebookChatSnapshot>
     setModel(input: {
       projectSessionId: string
+      notebookId: string
       modelSelection: AgentModelSelection
     }): Promise<NotebookChatSnapshot>
     setThinkingLevel(input: {
       projectSessionId: string
+      notebookId: string
       level: AgentThinkingLevel
     }): Promise<NotebookChatSnapshot>
     subscribe(
-      input: { projectSessionId: string },
+      input: { projectSessionId: string; notebookId: string },
       listener: (event: NotebookChatEvent) => void
     ): Promise<{ snapshot: NotebookChatSnapshot; unsubscribe: () => void }>
   }

@@ -2,6 +2,8 @@ import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import {
+  notebookCreateInputSchema,
+  notebookDestroyInputSchema,
   notebookChatClearInputSchema,
   notebookChatCommandResultSchema,
   notebookChatSetModelInputSchema,
@@ -28,11 +30,13 @@ export function registerNotebookChatIpc(options: {
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
-  const service = (projectSessionId: string) => {
+  const registry = (projectSessionId: string) => {
     const context = options.manager.assertActiveSession(projectSessionId)
     if (context.knowledgeChat === null) throw new Error('Notebook chat is unavailable')
     return context.knowledgeChat
   }
+  const service = (projectSessionId: string, notebookId: string) =>
+    registry(projectSessionId).instance(notebookId)
   const lifecycle = async <T>(event: string, operation: () => Promise<T>): Promise<T> => {
     const startedAt = Date.now()
     try {
@@ -51,11 +55,43 @@ export function registerNotebookChatIpc(options: {
     }
   }
 
+  ipc.handle(IPC_CHANNELS.notebookCreate, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = notebookCreateInputSchema.parse(raw)
+    return lifecycle('knowledge.notebook.create', async () => {
+      const owner = registry(input.projectSessionId)
+      const instance = owner.createInstance()
+      try {
+        return notebookChatSnapshotSchema.parse(await instance.snapshot())
+      } catch (err) {
+        options.logger.error(
+          {
+            event: 'knowledge.notebook.create_snapshot.failed',
+            err,
+            notebookId: instance.notebookId
+          },
+          'Notebook initialization failed'
+        )
+        await owner.destroyInstance(instance.notebookId)
+        throw err
+      }
+    })
+  })
+  ipc.handle(IPC_CHANNELS.notebookDestroy, (event, raw: unknown) => {
+    authorizeSender(event.senderFrame, options.developmentUrl)
+    const input = notebookDestroyInputSchema.parse(raw)
+    return lifecycle('knowledge.notebook.destroy', async () => {
+      await registry(input.projectSessionId).destroyInstance(input.notebookId)
+      options.broker.revokeNotebook(input.projectSessionId, input.notebookId)
+    })
+  })
   ipc.handle(IPC_CHANNELS.notebookChatSnapshot, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatSnapshotInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.snapshot', async () =>
-      notebookChatSnapshotSchema.parse(await service(input.projectSessionId).snapshot())
+      notebookChatSnapshotSchema.parse(
+        await service(input.projectSessionId, input.notebookId).snapshot()
+      )
     )
   })
   ipc.handle(IPC_CHANNELS.notebookChatStartTurn, (event, raw: unknown) => {
@@ -63,7 +99,7 @@ export function registerNotebookChatIpc(options: {
     const input = notebookChatStartTurnInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.start_turn', async () =>
       notebookChatStartTurnResultSchema.parse(
-        await service(input.projectSessionId).startTurn(input.content)
+        await service(input.projectSessionId, input.notebookId).startTurn(input.content)
       )
     )
   })
@@ -71,14 +107,18 @@ export function registerNotebookChatIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatStopTurnInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.stop_turn', async () =>
-      notebookChatCommandResultSchema.parse(await service(input.projectSessionId).stopTurn())
+      notebookChatCommandResultSchema.parse(
+        await service(input.projectSessionId, input.notebookId).stopTurn()
+      )
     )
   })
   ipc.handle(IPC_CHANNELS.notebookChatClear, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatClearInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.clear', async () =>
-      notebookChatCommandResultSchema.parse(await service(input.projectSessionId).clear())
+      notebookChatCommandResultSchema.parse(
+        await service(input.projectSessionId, input.notebookId).clear()
+      )
     )
   })
   ipc.handle(IPC_CHANNELS.notebookChatSetSources, (event, raw: unknown) => {
@@ -86,7 +126,7 @@ export function registerNotebookChatIpc(options: {
     const input = notebookChatSetSourcesInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.set_sources', async () =>
       notebookChatCommandResultSchema.parse(
-        await service(input.projectSessionId).setSources(input.sourceScope)
+        await service(input.projectSessionId, input.notebookId).setSources(input.sourceScope)
       )
     )
   })
@@ -95,7 +135,7 @@ export function registerNotebookChatIpc(options: {
     const input = notebookChatSetModelInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.set_model', async () =>
       notebookChatCommandResultSchema.parse(
-        await service(input.projectSessionId).setModel(input.modelSelection)
+        await service(input.projectSessionId, input.notebookId).setModel(input.modelSelection)
       )
     )
   })
@@ -104,20 +144,20 @@ export function registerNotebookChatIpc(options: {
     const input = notebookChatSetThinkingLevelInputSchema.parse(raw)
     return lifecycle('knowledge.notebook.set_thinking_level', async () =>
       notebookChatCommandResultSchema.parse(
-        await service(input.projectSessionId).setThinkingLevel(input.level)
+        await service(input.projectSessionId, input.notebookId).setThinkingLevel(input.level)
       )
     )
   })
   ipc.handle(IPC_CHANNELS.notebookChatSubscribe, async (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatSubscribeInputSchema.parse(raw)
-    options.broker.subscribe(event.sender, input.projectSessionId)
+    options.broker.subscribe(event.sender, input.projectSessionId, input.notebookId)
     try {
       return notebookChatSubscribeResultSchema.parse({
-        snapshot: await service(input.projectSessionId).snapshot()
+        snapshot: await service(input.projectSessionId, input.notebookId).snapshot()
       })
     } catch (err) {
-      options.broker.unsubscribe(event.sender.id, input.projectSessionId)
+      options.broker.unsubscribe(event.sender.id, input.projectSessionId, input.notebookId)
       options.logger.error(
         {
           event: 'knowledge.notebook.subscribe.failed',
@@ -133,7 +173,7 @@ export function registerNotebookChatIpc(options: {
   ipc.handle(IPC_CHANNELS.notebookChatUnsubscribe, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = notebookChatUnsubscribeInputSchema.parse(raw)
-    options.broker.unsubscribe(event.sender.id, input.projectSessionId)
+    options.broker.unsubscribe(event.sender.id, input.projectSessionId, input.notebookId)
   })
 
   return {
@@ -142,6 +182,8 @@ export function registerNotebookChatIpc(options: {
     },
     unregister() {
       for (const channel of [
+        IPC_CHANNELS.notebookCreate,
+        IPC_CHANNELS.notebookDestroy,
         IPC_CHANNELS.notebookChatSnapshot,
         IPC_CHANNELS.notebookChatStartTurn,
         IPC_CHANNELS.notebookChatStopTurn,

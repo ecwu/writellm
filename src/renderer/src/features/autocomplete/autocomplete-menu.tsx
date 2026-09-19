@@ -1,3 +1,5 @@
+import type { AutocompleteStatus } from './autocomplete-extension'
+import { Spinner } from '@/components/ui/spinner'
 import { ChevronDown, CircleSlash, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -26,6 +28,7 @@ const labels: Record<AutocompleteStyle, string> = {
   paragraph: 'Paragraph'
 }
 export function AutocompleteMenu(props: {
+  status?: AutocompleteStatus
   session: AutocompleteSession
   busy: boolean
   open: boolean
@@ -36,15 +39,35 @@ export function AutocompleteMenu(props: {
 }) {
   const { enabled, style, available } = props.session
   const label = `Autocomplete: ${enabled ? 'On' : 'Off'} · ${labels[style]}`
-  const Icon = enabled ? Sparkles : CircleSlash
+  const status = props.status
+  const statusText =
+    status === 'paused'
+      ? 'Paused'
+      : enabled && status === 'cooldown'
+        ? 'Cooling down'
+        : enabled && status === 'failed'
+          ? 'Unavailable'
+          : null
+  const statusHelp =
+    status === 'paused'
+      ? 'Autocomplete paused; check model settings'
+      : status === 'cooldown'
+        ? 'Autocomplete cooling down'
+        : status === 'failed'
+          ? 'Autocomplete unavailable; try typing again'
+          : ''
+  const Icon = enabled && status === 'loading' ? Spinner : enabled ? Sparkles : CircleSlash
   return (
     <DropdownMenu open={props.open} onOpenChange={props.onOpenChange}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button size='sm' variant='outline' aria-label={label}>
-              <Icon data-icon='inline-start' />
-              {labels[style]}
+            <Button size='xs' variant='ghost' aria-label={label}>
+              <Icon
+                data-icon='inline-start'
+                aria-label={enabled && status === 'loading' ? 'Loading autocomplete' : undefined}
+              />
+              {statusText ? `Autocomplete: ${statusText}` : label}
               <ChevronDown data-icon='inline-end' />
             </Button>
           </DropdownMenuTrigger>
@@ -52,9 +75,10 @@ export function AutocompleteMenu(props: {
         <TooltipContent>
           {label}
           {!available ? ' · Set up a model to enable' : ''}
+          {statusHelp ? ` · ${statusHelp}` : ''}
         </TooltipContent>
       </Tooltip>
-      <DropdownMenuContent align='start'>
+      <DropdownMenuContent side='top' align='end'>
         <DropdownMenuGroup>
           <DropdownMenuLabel>Autocomplete</DropdownMenuLabel>
           <DropdownMenuCheckboxItem

@@ -235,6 +235,7 @@ class NotebookRuntime implements AgentSessionRuntime {
 async function harness(
   options: {
     evidence?: boolean
+    sourceIds?: string[]
     answer?: string
     searchKnowledgeItemIds?: string[]
     readCitationIds?: string[]
@@ -243,6 +244,7 @@ async function harness(
     defaultThinkingLevel?: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   } = {}
 ) {
+  const sourceIds = options.sourceIds ?? [sourceA, sourceB]
   const evidence = options.evidence ?? true
   const hitCount = options.hitCount ?? (evidence ? 1 : 0)
   const answer = options.answer ?? 'Grounded answer [[cite:1]] and fake [[cite:9]].'
@@ -305,10 +307,11 @@ async function harness(
     async (): Promise<CurrentIndexedSourceSnapshot> => ({
       state: 'ready',
       generationId: 'generation',
-      sources: [
-        { knowledgeItemId: sourceA, displayName: 'Source A', extension: 'pdf' },
-        { knowledgeItemId: sourceB, displayName: 'Source B', extension: 'pdf' }
-      ]
+      sources: sourceIds.map((knowledgeItemId) => ({
+        knowledgeItemId,
+        displayName: 'Source',
+        extension: 'pdf'
+      }))
     })
   )
   const root = await mkdtemp(join(tmpdir(), 'writellm-notebook-agent-'))
@@ -335,7 +338,7 @@ async function harness(
     projectIndex: {
       currentIndexedSources
     },
-    listKnowledgeItems: () => [item(sourceA, 'Source A'), item(sourceB, 'Source B')],
+    listKnowledgeItems: () => sourceIds.map((id) => item(id, 'Source')),
     references: {
       list: () => [
         notebookReference(sourceA, 'sourceA2026', 'Source A'),
@@ -372,6 +375,98 @@ async function completed(service: KnowledgeChatService) {
 }
 
 describe('KnowledgeChatService', () => {
+  it.each([51, 201, 301, 1_000])(
+    'searches all %i sources and honors explicit exclusions',
+    async (count) => {
+      const ids = Array.from(
+        { length: count },
+        (_, index) => `019d0000-0000-7000-8000-${String(index + 1000).padStart(12, '0')}`
+      )
+      const { service, retrieval } = await harness({ sourceIds: ids, evidence: false })
+      expect((await service.snapshot()).availableKnowledgeItemIds).toEqual(ids)
+      await service.startTurn('Search all sources')
+      await completed(service)
+      expect(retrieval.search).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({ knowledgeItemIds: ids })
+        }),
+        expect.any(AbortSignal)
+      )
+      await service.setSources({ mode: 'selected', knowledgeItemIds: ids.slice(1) })
+      await service.startTurn('Search selected sources')
+      await completed(service)
+      expect(retrieval.search).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          filters: expect.objectContaining({ knowledgeItemIds: ids.slice(1) })
+        }),
+        expect.any(AbortSignal)
+      )
+      await expect(
+        service.setSources({ mode: 'selected', knowledgeItemIds: [sourceA] })
+      ).rejects.toThrow('indexed')
+      await service.setSources({ mode: 'selected', knowledgeItemIds: [] })
+      await expect(service.startTurn('No sources')).rejects.toThrow('at least one')
+    }
+  )
+
+  it('keeps the active turn scope frozen when another indexed source appears', async () => {
+    const ids = [sourceA]
+    const { service, retrieval } = await harness({ sourceIds: ids, evidence: false })
+    let release: (() => void) | undefined
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    retrieval.search.mockImplementationOnce(async () => {
+      await held
+      return { mode: 'none', rerankStatus: 'disabled', hits: [] }
+    })
+    await service.startTurn('Use the current sources')
+    await vi.waitFor(() => expect(retrieval.search).toHaveBeenCalledTimes(1))
+    ids.push(sourceB)
+    expect((await service.snapshot()).availableKnowledgeItemIds).toContain(sourceB)
+    expect(retrieval.search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ knowledgeItemIds: [sourceA] })
+      }),
+      expect.any(AbortSignal)
+    )
+    release?.()
+    await completed(service)
+    await service.startTurn('Now use the new sources too')
+    await completed(service)
+    expect(retrieval.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ knowledgeItemIds: [sourceA, sourceB] })
+      }),
+      expect.any(AbortSignal)
+    )
+  })
+
+  it('refreshes all sources between turns without expanding explicit selections', async () => {
+    const ids = [sourceA]
+    const { service, retrieval, currentIndexedSources } = await harness({
+      sourceIds: ids,
+      evidence: false
+    })
+    await service.snapshot()
+    ids.push(sourceB)
+    await service.startTurn('New source included')
+    await completed(service)
+    expect(retrieval.search).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        filters: expect.objectContaining({ knowledgeItemIds: [sourceA, sourceB] })
+      }),
+      expect.any(AbortSignal)
+    )
+    await service.setSources({ mode: 'selected', knowledgeItemIds: [sourceA] })
+    ids.push(randomUUID())
+    expect((await service.snapshot()).sourceScope.knowledgeItemIds).toEqual([sourceA])
+    currentIndexedSources.mockResolvedValueOnce({ state: 'unavailable' })
+    expect((await service.snapshot()).sourceReadiness).toBe('unavailable')
+    ids.splice(0, 1)
+    expect((await service.snapshot()).sourceScope.knowledgeItemIds).toEqual([])
+  })
+
   it('defaults to all indexed sources and skips the answer model when evidence is absent', async () => {
     const { service, retrieval, runtime } = await harness({ evidence: false })
     const initial = await service.snapshot()
@@ -584,5 +679,53 @@ describe('KnowledgeChatService', () => {
       expect.objectContaining({ err: retrievalError, event: 'knowledge.notebook.tool_failed' }),
       expect.any(String)
     )
+  })
+})
+
+describe('Notebook instance ownership', () => {
+  it('keeps background turns isolated and cancels only the destroyed instance', async () => {
+    const { service, runtime } = await harness()
+    runtime.block = true
+    const first = service.createInstance()
+    const second = service.createInstance()
+    const concurrent = await Promise.allSettled([
+      first.startTurn('First ongoing answer'),
+      first.startTurn('Duplicate preparation')
+    ])
+    expect(concurrent.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(concurrent.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    await second.startTurn('Second ongoing answer')
+    await vi.waitFor(() => expect(runtime.calls).toHaveLength(2))
+    await expect(first.startTurn('Duplicate')).rejects.toThrow()
+    await service.destroyInstance(first.notebookId)
+    await expect(first.snapshot()).rejects.toThrow('closed')
+    const ongoing = await second.snapshot()
+    expect(ongoing.phase).not.toBe('idle')
+    expect(JSON.stringify(ongoing.messages)).not.toContain('First ongoing answer')
+    await service.close()
+    await expect(second.snapshot()).rejects.toThrow('closed')
+  })
+
+  it('isolates source scopes and messages, limits instances, and revokes all children on close', async () => {
+    const { service } = await harness()
+    const first = service.createInstance()
+    const second = service.createInstance()
+    expect(first.notebookId).not.toBe(second.notebookId)
+    await first.setSources({ mode: 'selected', knowledgeItemIds: [sourceA] })
+    expect((await second.snapshot()).sourceScope).toEqual({ mode: 'all', knowledgeItemIds: [] })
+    await first.startTurn('Question in the first notebook')
+    await completed(first)
+    expect((await first.snapshot()).messages.length).toBeGreaterThan(0)
+    expect((await second.snapshot()).messages).toEqual([])
+    for (let index = 2; index < 10; index++) service.createInstance()
+    expect(() => service.createInstance()).toThrow('10 Notebooks')
+    await service.destroyInstance(first.notebookId)
+    expect(() => service.instance(first.notebookId)).toThrow('unavailable')
+    await expect(first.snapshot()).rejects.toThrow('closed')
+    expect((await second.snapshot()).messages).toEqual([])
+    service.createInstance()
+    await service.close()
+    await expect(second.snapshot()).rejects.toThrow('closed')
+    expect(() => service.createInstance()).toThrow('closed')
   })
 })

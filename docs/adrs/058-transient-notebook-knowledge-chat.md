@@ -72,3 +72,16 @@ Web search, cross-project sources, saved chats, saved Notes, Studio, Audio Overv
 conversations, Agent tools, and manuscript mutation remain out of scope. This ADR extends the
 single-shot runtime boundary in ADRs 018–019 and otherwise preserves their Agent authority and
 persistence decisions.
+
+## 2026-09-19 Source capacity amendment
+
+The user authorized removing the fifty-source product limit. All currently indexed project
+Knowledge sources are selectable. Source count is independent of retrieval-result, evidence,
+citation, and model-context budgets, which remain bounded under ADR 062. Main freezes the
+selected source IDs for each turn and enforces that scope on search and citation expansion.
+`all` includes newly available sources only in subsequent turns; explicit selection does not.
+
+The alternative of raising the limit to 200 or 300 retains an arbitrary product restriction.
+Source filters instead use a bound JSON array in SQLite to avoid one SQL parameter per source.
+No database migration, new indexing pipeline, reparse, embedding rebuild, or roadmap phase is
+required. Existing indexed data is reused; chat and source selections remain transient.

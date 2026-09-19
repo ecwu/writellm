@@ -1,3 +1,4 @@
+import { workbenchLayoutSchema, type WorkbenchLayout } from '../../../shared/contracts/workbench'
 import {
   autocompleteSelectionSchema,
   autocompleteStyleSchema,
@@ -67,6 +68,21 @@ export class AppSettingsRepository {
     private readonly log: Logger,
     private readonly now: () => string = () => new Date().toISOString()
   ) {}
+
+  async getWorkbenchLayout(projectId: string): Promise<WorkbenchLayout | null> {
+    return this.#readSetting(
+      `workbench.layout.v1.${projectIdSchema.parse(projectId)}`,
+      workbenchLayoutSchema.nullable(),
+      null,
+      'workbench.layout.invalid'
+    )
+  }
+  async setWorkbenchLayout(projectId: string, layout: WorkbenchLayout | null): Promise<void> {
+    await this.#writeSetting(
+      `workbench.layout.v1.${projectIdSchema.parse(projectId)}`,
+      workbenchLayoutSchema.nullable().parse(layout)
+    )
+  }
 
   async getAutocompleteDefaultEnabled(): Promise<boolean> {
     return this.#readSetting(

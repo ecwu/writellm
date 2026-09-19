@@ -130,7 +130,7 @@ function sendNotebookToolCall(
   response.end('data: [DONE]\n\n')
 }
 
-async function startNotebookAgentServer() {
+async function startNotebookAgentServer(sourceIds: () => string[] = () => []) {
   const requestBodies: unknown[] = []
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/v1/models') {
@@ -155,7 +155,12 @@ async function startNotebookAgentServer() {
         sendNotebookToolCall(response, {
           id: 'notebook-search',
           name: 'search_knowledge',
-          arguments: { query: 'Normalized body from MinerU', limit: 10, rerank: true }
+          arguments: {
+            query: 'Normalized body from MinerU',
+            knowledgeItemIds: sourceIds(),
+            limit: 10,
+            rerank: true
+          }
         })
         return
       }
@@ -527,6 +532,128 @@ test(
       )
       await new Promise<void>((resolve, reject) =>
         notebookAgent.server.close((error) => (error ? reject(error) : resolve()))
+      )
+    }
+  }
+)
+
+test(
+  'selects and searches more than 300 indexed Notebook sources',
+  scenario('notebook.large-source-scope', ['@packaged']),
+  async ({ testRoot }) => {
+    test.setTimeout(240_000)
+    const sources = Array.from({ length: 301 }, (_, index) => join(testRoot, `source-${index}.pdf`))
+    await Promise.all(
+      sources.map((path, index) => writeFile(path, `${makeMinimalPdf()}\n% source ${index}\n`))
+    )
+    const mineru = await startSuccessfulMineruServer(await resultZip())
+    let targetId = ''
+    const agent = await startNotebookAgentServer(() => (targetId ? [targetId] : []))
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot],
+      knowledgeDialogPaths: sources
+    })
+    try {
+      await launched.app.evaluate(({ BrowserWindow }) =>
+        BrowserWindow.getAllWindows()[0]?.setSize(1440, 900)
+      )
+      await configureMineruProvider(launched.page, mineru.port)
+      await configureNotebookAgentProvider(launched.page, `http://127.0.0.1:${agent.port}/v1`)
+      await createProject(launched.page, 'Large Notebook')
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await launched.page.getByTestId('knowledge-upload-button').click()
+      await expect
+        .poll(
+          () =>
+            launched.page.evaluate(async () => {
+              const session = (await window.desktop.projects.lifecycle()).activeProject
+                ?.projectSessionId
+              if (session === undefined) return 0
+              return (await window.desktop.knowledge.list({ projectSessionId: session })).filter(
+                (item) => item.normalizationState === 'published'
+              ).length
+            }),
+          { timeout: 180_000 }
+        )
+        .toBe(301)
+      await launched.page.getByRole('button', { name: 'Notebook', exact: true }).click()
+      const notebook = launched.page.getByTestId('notebook-workspace')
+      await expect(notebook.getByText('301/301', { exact: true })).toBeVisible({ timeout: 30_000 })
+      await expect(notebook.getByText(/Not indexed/)).toHaveCount(0)
+      const checkboxes = notebook
+        .getByRole('group', { name: 'Notebook Knowledge sources' })
+        .getByRole('checkbox')
+      await expect(checkboxes).toHaveCount(301)
+      // Choose the lexicographically last source, guaranteed to be excluded by the old slice(0, 50).
+      const sourceIds = await checkboxes.evaluateAll((nodes) =>
+        nodes.map((node) => node.id.replace('notebook-source-', '')).sort()
+      )
+      targetId = sourceIds.at(-1) ?? ''
+      expect(targetId).not.toBe('')
+      const target = notebook.locator(`[id="notebook-source-${targetId}"]`)
+      await target.scrollIntoViewIfNeeded()
+      await target.uncheck()
+      await expect(notebook.getByText('300/301', { exact: true })).toBeVisible()
+      await expect(target.locator('..')).toContainText('Indexed')
+      await expect(target).toBeEnabled()
+      await notebook.getByRole('checkbox', { name: 'Select all indexed sources' }).check()
+      await expect(notebook.getByText('301/301', { exact: true })).toBeVisible()
+      await expect(target).toBeChecked()
+      const handle = launched.page
+        .locator(
+          '.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-enabled'
+        )
+        .last()
+      const box = await handle.boundingBox()
+      if (box === null) throw new Error('Workbench resize handle missing')
+      const widthBefore = await notebook.evaluate((node) => node.getBoundingClientRect().width)
+      await launched.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await launched.page.mouse.down()
+      await launched.page.mouse.move(box.x + 70, box.y + box.height / 2)
+      await launched.page.mouse.up()
+      await expect
+        .poll(() => notebook.evaluate((node) => node.getBoundingClientRect().width))
+        .not.toBe(widthBefore)
+      await expect(
+        notebook.getByRole('checkbox', { name: 'Select all indexed sources' })
+      ).toBeVisible()
+      await notebook.getByTestId('agent-model-selector').click()
+      const picker = launched.page.getByTestId('agent-model-effort-picker')
+      await picker.getByRole('option', { name: /Model/ }).click()
+      await picker.getByRole('option', { name: /Notebook model/ }).click()
+      await notebook.getByLabel('Ask selected Knowledge sources').fill('Read the selected evidence')
+      await notebook.getByRole('button', { name: 'Ask Notebook' }).click()
+      await expect(
+        notebook.getByText('The source says Normalized body from MinerU.', { exact: false })
+      ).toBeVisible({ timeout: 30_000 })
+      await notebook.getByRole('button', { name: 'Open citation 1' }).click()
+      const preview = launched.page
+        .getByRole('dialog')
+        .filter({ hasText: 'Normalized body from MinerU' })
+      await expect(preview).toBeVisible()
+      await preview.getByRole('button', { name: 'Close', exact: true }).click()
+      expect(agent.requestBodies).toHaveLength(3)
+      // An omitted tool subset must pass the full frozen 301-source scope through retrieval.
+      await notebook.getByRole('button', { name: 'Clear chat', exact: true }).click()
+      targetId = ''
+      await notebook
+        .getByLabel('Ask selected Knowledge sources')
+        .fill('Search every selected source')
+      await notebook.getByRole('button', { name: 'Ask Notebook' }).click()
+      await expect(
+        notebook.getByText('The source says Normalized body from MinerU.', { exact: false })
+      ).toBeVisible({ timeout: 30_000 })
+      expect(agent.requestBodies).toHaveLength(6)
+    } finally {
+      await launched.app.close()
+      await Promise.all(
+        [mineru.server, agent.server].map(
+          (server) =>
+            new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve()))
+            )
+        )
       )
     }
   }

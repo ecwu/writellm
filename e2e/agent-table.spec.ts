@@ -31,7 +31,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function openAgentForSection(page: Page): Promise<ReturnType<Page['getByTestId']>> {
-  await page.getByTestId('agent-menubar-trigger').click()
+  if ((await page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !== 'true')
+    await page.getByTestId('agent-menubar-trigger').click()
   const panel = page.getByTestId('agent-panel')
   if (await panel.getByTestId('agent-model-recovery').isVisible()) {
     await panel.getByTestId('agent-model-selector').click()
@@ -449,7 +450,11 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('Accuracy')
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       await startNewConversation(launched.page)
       await panel.getByLabel('Agent message').fill('Update the score and add the latency row.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -463,7 +468,11 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('0.95')
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       await startNewConversation(launched.page)
       await panel.getByLabel('Agent message').fill('Change the accuracy once more.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -499,7 +508,11 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('manual value')
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       await expect(
         panel.getByRole('button', { name: 'Refresh proposal', exact: true })
       ).toBeVisible()

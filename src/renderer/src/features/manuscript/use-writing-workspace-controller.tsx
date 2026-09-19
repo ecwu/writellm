@@ -1,3 +1,9 @@
+import {
+  useWorkbench,
+  tabId,
+  reportWorkbenchError,
+  type WorkbenchActions
+} from '../workbench/use-workbench'
 import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import type {
   BlockNoteDocument,
@@ -29,7 +35,6 @@ import {
 } from '../../../../shared/readable-citation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useGroupRef } from 'react-resizable-panels'
 import type { WorkspaceKind } from '@/components/app-sidebar'
 import type {
   AgentPanelQuickActionRequest,
@@ -100,18 +105,6 @@ function sameExactSelection(
   )
 }
 
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
-  useEffect(() => {
-    const media = window.matchMedia(query)
-    const update = (): void => setMatches(media.matches)
-    update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [query])
-  return matches
-}
-
 export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const queryClient = useQueryClient()
   const workspaceKey = useMemo(
@@ -151,10 +144,39 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       window.desktop.manuscript.publicationPreview({ projectSessionId: props.projectSessionId }),
     enabled: publicationOpen
   })
-  const wideAgentLayout = useMediaQuery('(min-width: 1280px)')
-  const sideChatGroupRef = useGroupRef()
-  const sideChatGroupElementRef = useRef<HTMLDivElement>(null)
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceKind>('manuscript')
+  const [activeWorkspace, setActiveWorkspaceRaw] = useState<WorkspaceKind>('manuscript')
+  const workbenchActions = useRef<WorkbenchActions>({
+    flush: async () => true,
+    activateSection: async () => {},
+    setWorkspace: () => {},
+    clearSelection: () => {}
+  })
+  const workbench = useWorkbench(props.projectSessionId, workbenchActions, props.onError)
+  const setActiveWorkspace = useCallback(
+    (kind: WorkspaceKind): void => {
+      if (kind === 'notebook') {
+        void workbench.openNotebook()
+        return
+      }
+      if (kind === 'knowledge' || kind === 'preview' || kind === 'assets' || kind === 'checks') {
+        void workbench.open({ kind })
+        return
+      }
+      if (kind === 'manuscript') {
+        void workbench.openRecentSection()
+        return
+      }
+      if (
+        kind === 'find' ||
+        kind === 'references' ||
+        kind === 'writing_rules' ||
+        kind === 'comments'
+      )
+        workbench.requestTool(kind)
+      setActiveWorkspaceRaw(kind)
+    },
+    [workbench.open, workbench.openNotebook, workbench.openRecentSection, workbench.requestTool]
+  )
   const [citationDraft, setCitationDraft] = useState<{
     sectionId: string
     sectionRevisionId: string
@@ -178,7 +200,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const manuscriptScrollRef = useRef<HTMLElement>(null)
   const activeSectionIdRef = useRef<string | null>(null)
   const pendingScrollSectionIdRef = useRef<string | null>(null)
-  const sectionSwitchLockRef = useRef<Promise<void>>(Promise.resolve())
   const metadataDraftSectionIdRef = useRef<string | null>(null)
   const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
   const metadataCanonicalTitleRef = useRef<string | null>(null)
@@ -285,26 +306,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     [props.projectSessionId]
   )
 
-  useEffect(() => {
-    if (!props.agentOpen) return
-    const frame = window.requestAnimationFrame(() => {
-      const group = sideChatGroupRef.current
-      const width = sideChatGroupElementRef.current?.getBoundingClientRect().width ?? 0
-      if (group === null || width <= 0) return
-      if (!wideAgentLayout) {
-        group.setLayout({ manuscript: 0, agent: 100 })
-        return
-      }
-      const agentPercent = Math.min(60, Math.max(20, (480 / width) * 100))
-      group.setLayout({ manuscript: 100 - agentPercent, agent: agentPercent })
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [props.agentOpen, sideChatGroupRef, wideAgentLayout])
-
-  useEffect(() => {
-    if (props.agentOpen) setActiveWorkspace('manuscript')
-  }, [props.agentOpen])
-
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
     queryFn: () =>
@@ -353,26 +354,40 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       setCitationDraft(null)
       setSelectionContext(null)
       setActiveSectionId(sectionId)
+      workbench.didActivateSection(sectionId)
     },
-    [props.projectSessionId, queryClient, workspaceKey]
+    [props.projectSessionId, queryClient, workspaceKey, workbench.didActivateSection]
   )
 
+  const initialTabActivated = useRef(false)
   useEffect(() => {
-    if (!workspace) return
-    if (workspace.sections.length === 0) {
-      activeSectionIdRef.current = null
-      setActiveSectionId(null)
-      return
-    }
-    if (!workspace.sections.some((item) => item.section.sectionId === activeSectionId)) {
-      const fallback = workspace.sections[0]?.section.sectionId
-      if (fallback !== undefined) {
-        void activateSection(fallback).catch(() =>
-          props.onError('The initial manuscript section could not be activated.')
-        )
+    if (!workspace || !workbench.ready) return
+    workbench.reconcileSections(new Set(workspace.sections.map((item) => item.section.sectionId)))
+    if (!initialTabActivated.current) {
+      initialTabActivated.current = true
+      const restored = workbench.tabs.find(
+        (tab) =>
+          (tab.kind !== 'section' ||
+            workspace.sections.some((item) => item.section.sectionId === tab.sectionId)) &&
+          tabId(tab) === workbench.activeId
+      )
+      if (restored) {
+        void workbench.open(restored)
+        return
       }
+      if (workbench.initialLayout !== null) return
+      const first = workspace.sections[0]?.section.sectionId
+      if (first) void workbench.open({ kind: 'section', sectionId: first })
     }
-  }, [activateSection, activeSectionId, props, workspace])
+  }, [
+    workspace,
+    workbench.ready,
+    workbench.tabs,
+    workbench.activeId,
+    workbench.initialLayout,
+    workbench.open,
+    workbench.reconcileSections
+  ])
 
   const activeSummary = workspace?.sections.find(
     (item) => item.section.sectionId === activeSectionId
@@ -470,11 +485,20 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     try {
       await editorRef.current?.flush()
       return await saveMetadata()
-    } catch {
+    } catch (err) {
+      reportWorkbenchError(err, 'workbench.section.flush')
+      editorRef.current?.focus()
       props.onError('Save the current section before leaving it. Your local edits are preserved.')
       return false
     }
   }, [props, saveMetadata])
+
+  workbenchActions.current = {
+    flush: flushCurrent,
+    activateSection,
+    setWorkspace: (kind) => setActiveWorkspaceRaw(kind === 'section' ? 'manuscript' : kind),
+    clearSelection: () => setSelectionContext(null)
+  }
 
   const startQuickAction = useCallback(
     async (
@@ -503,7 +527,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
 
   const switchSection = useCallback(
     async (sectionId: string, source: 'user' | 'agent' | 'find'): Promise<boolean> => {
-      if (sectionId === activeSectionIdRef.current) return true
+      if (sectionId === activeSectionIdRef.current) {
+        workbench.didActivateSection(sectionId)
+        return true
+      }
       if (!(await flushCurrent())) return false
       try {
         setEditorAutoFocus(source === 'user')
@@ -518,19 +545,16 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         return false
       }
     },
-    [activateSection, flushCurrent, props]
+    [activateSection, flushCurrent, props, workbench.didActivateSection]
   )
 
   const enqueueSectionSwitch = useCallback(
     (sectionId: string, source: 'user' | 'agent' | 'find'): Promise<boolean> => {
-      const operation = sectionSwitchLockRef.current.then(() => switchSection(sectionId, source))
-      sectionSwitchLockRef.current = operation.then(
-        () => undefined,
-        () => undefined
-      )
-      return operation
+      return workbench
+        .enqueue(() => switchSection(sectionId, source))
+        .then((result) => result ?? false)
     },
-    [switchSection]
+    [switchSection, workbench.enqueue]
   )
 
   const selectSection = useCallback(
@@ -843,10 +867,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   useEffect(() => {
     if (workspaceSearchVersionRef.current === workspaceSearchVersion) return
     workspaceSearchVersionRef.current = workspaceSearchVersion
-    if (activeWorkspace !== 'find') return
+    if (!findQuery.trim()) return
     const timer = window.setTimeout(() => void runFind(), 200)
     return () => window.clearTimeout(timer)
-  }, [activeWorkspace, runFind, workspaceSearchVersion])
+  }, [findQuery, runFind, workspaceSearchVersion])
 
   const activateFindHit = useCallback(
     async (hit: ManuscriptSearchHit): Promise<void> => {
@@ -937,6 +961,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       .subscribeFlush({ projectSessionId: props.projectSessionId }, (request) => {
         if (disposed) return
         void (async () => {
+          await workbench.save(request.closingToken)
           if (request.purpose === 'mutation') {
             if (!(await saveMetadataRef.current())) throw new Error('Section metadata flush failed')
             if (!request.bodyRequired) {
@@ -951,7 +976,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
               return
             }
           }
-          if (editorRef.current) {
+          if (editorRef.current && editorRef.current.hasActiveEditor?.() !== false) {
             await editorRef.current.finalFlush(request)
             return
           }
@@ -1000,7 +1025,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       disposed = true
       unsubscribe?.()
     }
-  }, [props.projectSessionId, queryClient, workspaceKey])
+  }, [props.projectSessionId, queryClient, workspaceKey, workbench.save])
 
   useEffect(() => {
     let disposed = false
@@ -1111,19 +1136,20 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const orderedIds = workspace?.sections.map((item) => item.section.sectionId) ?? []
   const activeIndex = activeSectionId === null ? -1 : orderedIds.indexOf(activeSectionId)
   const openFind = useCallback((): void => {
-    props.onAgentOpenChange(false)
     setEditorAutoFocus(false)
     setActiveWorkspace('find')
-  }, [props.onAgentOpenChange])
+  }, [setActiveWorkspace])
   const closeFind = useCallback((): void => {
+    workbench.requestTool('find', false)
     editorRef.current?.clearSearchTarget()
     setSelectedFindMatchId(null)
     setPendingSearchTarget(null)
     setReplaceOpen(false)
     invalidateReplacementReview()
     setEditorAutoFocus(true)
-    setActiveWorkspace('manuscript')
-  }, [invalidateReplacementReview])
+    if (workbench.activeId?.startsWith('section:')) setActiveWorkspaceRaw('manuscript')
+    else setActiveWorkspace('manuscript')
+  }, [invalidateReplacementReview, setActiveWorkspace, workbench.activeId, workbench.requestTool])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -1331,7 +1357,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
 
   const openPreviewWorkspace = async (): Promise<void> => {
     if (!(await flushCurrent())) return
-    props.onAgentOpenChange(false)
     setActiveWorkspace('preview')
     try {
       await queryClient.invalidateQueries({
@@ -1448,7 +1473,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
 
   const openChecksFromManuscript = async (): Promise<void> => {
     if (!(await flushCurrent())) return
-    props.onAgentOpenChange(false)
     setActiveWorkspace('checks')
   }
 
@@ -1498,9 +1522,16 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     )
   }
 
-  if (activeWorkspace === 'notebook') {
+  const activeNotebook = workbench.tabs.find(
+    (tab) => tab.kind === 'notebook' && tabId(tab) === workbench.activeId
+  )
+  if (activeWorkspace === 'notebook' && activeNotebook?.kind === 'notebook') {
     alternateWorkspace = (
       <NotebookWorkspace
+        notebookId={activeNotebook.notebookId}
+        onState={(snapshot, draft) => {
+          workbench.updateNotebook(activeNotebook.notebookId, snapshot, draft)
+        }}
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}
@@ -1586,6 +1617,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   }
 
   return {
+    workbench,
     alternateWorkspace,
     queryClient,
     workspaceKey,
@@ -1607,9 +1639,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     importApplying,
     importError,
     publicationQuery,
-    wideAgentLayout,
-    sideChatGroupRef,
-    sideChatGroupElementRef,
     activeWorkspace,
     setActiveWorkspace,
     setCitationDraft,

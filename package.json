@@ -2,7 +2,7 @@
   "name": "writellm",
   "version": "0.2026.9",
   "release": {
-    "version": "0.2026.9.7"
+    "version": "0.2026.9.8"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.17.0",
@@ -70,6 +70,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "dockview-react": "8.3.1",
     "docx": "9.7.1",
     "fast-xml-parser": "5.11.1",
     "isomorphic-git": "1.41.9",

@@ -3,7 +3,13 @@ import { agentModelSelectionSchema, agentThinkingLevelSchema } from './providers
 import { projectSessionIdSchema, projectSessionInputSchema } from './projects'
 import { citationIdSchema } from './search'
 
-export const NOTEBOOK_MAX_SOURCES = 50
+export const NOTEBOOK_MAX_INSTANCES = 10
+export const notebookInstanceInputSchema = projectSessionInputSchema
+  .extend({ notebookId: z.uuid() })
+  .strict()
+export const notebookCreateInputSchema = projectSessionInputSchema
+export const notebookDestroyInputSchema = notebookInstanceInputSchema
+
 export const NOTEBOOK_MAX_MESSAGES = 200
 export const NOTEBOOK_MAX_CHAT_BYTES = 2 * 1024 * 1024
 export const NOTEBOOK_MAX_QUESTION_BYTES = 16 * 1024
@@ -23,7 +29,7 @@ const boundedQuestionSchema = z
 export const notebookSourceScopeSchema = z
   .object({
     mode: z.enum(['all', 'selected']),
-    knowledgeItemIds: z.array(z.uuid()).max(NOTEBOOK_MAX_SOURCES)
+    knowledgeItemIds: z.array(z.uuid())
   })
   .strict()
   .superRefine((scope, context) => {
@@ -112,12 +118,13 @@ export type NotebookChatMessage = z.infer<typeof notebookChatMessageSchema>
 export const notebookChatSnapshotSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,
+    notebookId: z.uuid(),
     revision: z.number().int().nonnegative(),
     phase: z.enum(['idle', 'thinking', 'retrieving', 'generating', 'stopping']),
     activeTurnId: z.uuid().nullable(),
     sourceScope: notebookSourceScopeSchema,
     sourceReadiness: z.enum(['preparing', 'ready', 'unavailable']),
-    availableKnowledgeItemIds: z.array(z.uuid()).max(NOTEBOOK_MAX_SOURCES),
+    availableKnowledgeItemIds: z.array(z.uuid()),
     modelSelection: agentModelSelectionSchema.nullable(),
     thinkingLevel: agentThinkingLevelSchema,
     contextEpoch: z.number().int().nonnegative(),
@@ -146,23 +153,23 @@ export const notebookChatSnapshotSchema = z
   })
 export type NotebookChatSnapshot = z.infer<typeof notebookChatSnapshotSchema>
 
-export const notebookChatSnapshotInputSchema = projectSessionInputSchema
-export const notebookChatStartTurnInputSchema = projectSessionInputSchema
+export const notebookChatSnapshotInputSchema = notebookInstanceInputSchema
+export const notebookChatStartTurnInputSchema = notebookInstanceInputSchema
   .extend({ content: boundedQuestionSchema })
   .strict()
-export const notebookChatStopTurnInputSchema = projectSessionInputSchema
-export const notebookChatClearInputSchema = projectSessionInputSchema
-export const notebookChatSetSourcesInputSchema = projectSessionInputSchema
+export const notebookChatStopTurnInputSchema = notebookInstanceInputSchema
+export const notebookChatClearInputSchema = notebookInstanceInputSchema
+export const notebookChatSetSourcesInputSchema = notebookInstanceInputSchema
   .extend({ sourceScope: notebookSourceScopeSchema })
   .strict()
-export const notebookChatSetModelInputSchema = projectSessionInputSchema
+export const notebookChatSetModelInputSchema = notebookInstanceInputSchema
   .extend({ modelSelection: agentModelSelectionSchema })
   .strict()
-export const notebookChatSetThinkingLevelInputSchema = projectSessionInputSchema
+export const notebookChatSetThinkingLevelInputSchema = notebookInstanceInputSchema
   .extend({ level: agentThinkingLevelSchema })
   .strict()
-export const notebookChatSubscribeInputSchema = projectSessionInputSchema
-export const notebookChatUnsubscribeInputSchema = projectSessionInputSchema
+export const notebookChatSubscribeInputSchema = notebookInstanceInputSchema
+export const notebookChatUnsubscribeInputSchema = notebookInstanceInputSchema
 
 export const notebookChatStartTurnResultSchema = z
   .object({ turnId: z.uuid(), snapshot: notebookChatSnapshotSchema })
@@ -179,6 +186,7 @@ const notebookChatSnapshotEventSchema = z
   .object({
     kind: z.literal('snapshot'),
     projectSessionId: projectSessionIdSchema,
+    notebookId: z.uuid(),
     revision: z.number().int().nonnegative(),
     snapshot: notebookChatSnapshotSchema
   })
@@ -188,6 +196,7 @@ const notebookChatDeltaEventSchema = z
   .object({
     kind: z.literal('delta'),
     projectSessionId: projectSessionIdSchema,
+    notebookId: z.uuid(),
     revision: z.number().int().nonnegative(),
     turnId: z.uuid(),
     messageId: z.uuid(),
@@ -195,8 +204,18 @@ const notebookChatDeltaEventSchema = z
   })
   .strict()
 
-export const notebookChatEventSchema = z.discriminatedUnion('kind', [
-  notebookChatSnapshotEventSchema,
-  notebookChatDeltaEventSchema
-])
+export const notebookChatEventSchema = z
+  .discriminatedUnion('kind', [notebookChatSnapshotEventSchema, notebookChatDeltaEventSchema])
+  .superRefine((event, context) => {
+    if (
+      event.kind === 'snapshot' &&
+      (event.projectSessionId !== event.snapshot.projectSessionId ||
+        event.notebookId !== event.snapshot.notebookId ||
+        event.revision !== event.snapshot.revision)
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Notebook event identity does not match its snapshot'
+      })
+  })
 export type NotebookChatEvent = z.infer<typeof notebookChatEventSchema>

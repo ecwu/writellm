@@ -2,6 +2,7 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "workbench.tabs-docking-restore", "tiers": ["packaged"] },
     { "id": "manuscript.autocomplete", "tiers": ["packaged"] },
     { "id": "agent.conversation-fork", "tiers": ["packaged"] },
     { "id": "agent.message-copy-edit", "tiers": ["packaged"] },
@@ -48,6 +49,7 @@
     { "id": "manuscript.section-conflict-reloads-canonical", "tiers": [] },
     { "id": "manuscript.section-title-wraps", "tiers": [] },
     { "id": "manuscript.workspace-survives-reopen", "tiers": ["packaged"] },
+    { "id": "notebook.large-source-scope", "tiers": ["packaged"] },
     { "id": "notebook.transient-workspace", "tiers": ["critical", "packaged"] },
     { "id": "onboarding.optional-provider-to-project", "tiers": ["critical", "packaged"] },
     { "id": "project.create-conflict-preserves-data", "tiers": [] },

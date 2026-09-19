@@ -6,7 +6,7 @@ export const citationIdSchema = z.string().regex(/^citation-[a-f0-9]{40}$/)
 
 export const knowledgeSearchFiltersSchema = z
   .object({
-    knowledgeItemIds: z.array(z.uuid()).max(50).default([]),
+    knowledgeItemIds: z.array(z.uuid()).default([]),
     fileExtensions: z.array(z.enum(SUPPORTED_KNOWLEDGE_EXTENSIONS)).max(20).default([]),
     parseRevisionIds: z.array(z.uuid()).max(50).default([]),
     pageFrom: z.number().int().nonnegative().optional(),

@@ -3,9 +3,7 @@ import type { KnowledgeSearchFilters } from '../../shared/contracts/search'
 export function knowledgeSearchFilterSql(filters: KnowledgeSearchFilters): string {
   const predicates: string[] = []
   if (filters.knowledgeItemIds.length > 0) {
-    predicates.push(
-      `chunks.knowledge_item_id IN (${filters.knowledgeItemIds.map(() => '?').join(',')})`
-    )
+    predicates.push('chunks.knowledge_item_id IN (SELECT value FROM json_each(?))')
   }
   if (filters.fileExtensions.length > 0) {
     predicates.push(`chunks.extension IN (${filters.fileExtensions.map(() => '?').join(',')})`)
@@ -33,7 +31,7 @@ export function knowledgeSearchFilterSql(filters: KnowledgeSearchFilters): strin
 
 export function knowledgeSearchFilterParams(filters: KnowledgeSearchFilters): unknown[] {
   return [
-    ...filters.knowledgeItemIds,
+    ...(filters.knowledgeItemIds.length === 0 ? [] : [JSON.stringify(filters.knowledgeItemIds)]),
     ...filters.fileExtensions,
     ...filters.parseRevisionIds,
     ...(filters.heading === undefined

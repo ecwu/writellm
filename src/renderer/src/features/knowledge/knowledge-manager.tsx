@@ -137,11 +137,6 @@ export function KnowledgeManager(props: {
     queryKey: ['knowledge-index-status', props.projectSessionId],
     queryFn: () =>
       window.desktop.knowledge.indexStatus({ projectSessionId: props.projectSessionId }),
-    refetchInterval: ({ state }) =>
-      state.data?.readiness === 'preparing' ||
-      (state.data?.readiness === 'available' && !state.data.indexed)
-        ? 1_000
-        : false,
     retry: false
   })
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null)
@@ -185,47 +180,6 @@ export function KnowledgeManager(props: {
     selectedItemId,
     selectedReferenceId
   ])
-
-  useEffect(() => {
-    let disposed = false
-    let release: (() => void) | undefined
-    const invalidate = (): void => {
-      for (const queryKey of [
-        key,
-        referencesKey,
-        ['knowledge-index-status', props.projectSessionId],
-        ['knowledge-job-history', props.projectSessionId]
-      ]) {
-        void queryClient.invalidateQueries({ queryKey })
-      }
-    }
-    void window.desktop.jobs
-      .subscribe({ projectSessionId: props.projectSessionId }, ({ job }) => {
-        if (disposed) return
-        queryClient.setQueryData<JobStatus[]>(jobsKey, (previous) => {
-          if (!previous) return previous
-          return [job, ...previous.filter((existing) => existing.jobId !== job.jobId)]
-        })
-        if (job.state !== 'running') invalidate()
-      })
-      .then((unsubscribe) => {
-        if (disposed) unsubscribe()
-        else {
-          release = unsubscribe
-          void queryClient.invalidateQueries({ queryKey: jobsKey })
-        }
-      })
-      .catch(() => {
-        if (!disposed)
-          props.onError(
-            'Background activity updates are unavailable. Refresh the library to retry.'
-          )
-      })
-    return () => {
-      disposed = true
-      release?.()
-    }
-  }, [props.projectSessionId, key, jobsKey, referencesKey, queryClient, props.onError])
 
   useEffect(() => {
     if (itemsQuery.data !== undefined)

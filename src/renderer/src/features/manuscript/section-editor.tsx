@@ -129,6 +129,7 @@ export interface EditorExactSelectionSnapshot extends EditorSelectionContext {
 }
 
 export interface SectionEditorHandle {
+  hasActiveEditor?(): boolean
   focus(): void
   insertText(text: string): void
   flush(): Promise<void>
@@ -177,6 +178,7 @@ interface SectionEditorProps {
   onAutocompleteStatus?(status: AutocompleteStatus): void
   projectSessionId: string
   revision: SectionRevision
+  active?: boolean
   autoFocus?: boolean
   onRevision(revision: SectionRevision, document?: BlockNoteDocument): void
   citationNumberByTitle: ReadonlyMap<string, number>
@@ -448,6 +450,7 @@ const SectionEditorSession = forwardRef<
     composingRef.current || compositionSettlingRef.current || editor.prosemirrorView.composing
   autocompleteComposingRef.current = isComposing
   autocompleteBlockedRef.current = () =>
+    props.active === false ||
     props.autocompleteMenuOpen === true ||
     closingRef.current ||
     saveBlockedRef.current ||
@@ -578,6 +581,7 @@ const SectionEditorSession = forwardRef<
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (props.active === false) return
       if (!matchesShortcut(event, 'comment') || !props.onAddComment) return
       if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
       event.preventDefault()
@@ -585,7 +589,7 @@ const SectionEditorSession = forwardRef<
     }
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [editor, requestAddComment, props.onAddComment])
+  }, [editor, requestAddComment, props.onAddComment, props.active])
 
   const requestQuickAction = useCallback(
     (action: AgentQuickActionId): void => {
@@ -746,6 +750,7 @@ const SectionEditorSession = forwardRef<
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (props.active === false) return
       if (!matchesShortcut(event, 'quickActions')) return
       if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
       event.preventDefault()
@@ -771,7 +776,7 @@ const SectionEditorSession = forwardRef<
     }
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [captureSelection, editor, props.onQuickActionError])
+  }, [captureSelection, editor, props.onQuickActionError, props.active])
 
   const resolveCitation = useCallback(
     (request: ReadableCitationActivation): void => {

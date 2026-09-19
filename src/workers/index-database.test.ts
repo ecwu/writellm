@@ -724,6 +724,96 @@ describe('IndexDatabase and deterministic chunking', () => {
     database.close()
   })
 
+  it('retrieves and excludes a source beyond 300 entries with FTS and vectors', async () => {
+    const fixtures = []
+    for (let index = 0; index < 301; index += 1) {
+      fixtures.push(
+        await createSource(false, {
+          knowledgeItemId: `019d0000-0000-7000-8000-${String(index).padStart(12, '0')}`,
+          parseRevisionId: randomUUID(),
+          normalizationRunId: randomUUID(),
+          heading: index === 300 ? 'Needlephrase' : 'Background',
+          atomicText: index === 300 ? 'Needlephrase' : 'Background',
+          largeAtomicCount: 1
+        })
+      )
+    }
+    const sources = fixtures.map((fixture) => fixture.source)
+    const target = sources[300]
+    const first = fixtures[0]
+    if (target === undefined || first === undefined) throw new Error('Missing source fixture')
+    const database = new IndexDatabase(join(first.root, 'index.sqlite'), getLoadablePath())
+    try {
+      const fingerprint = hashSourceSet(sources, INDEX_CHUNKER_VERSION)
+      const generationId = generationIdFor(fingerprint, INDEX_CHUNKER_VERSION)
+      await database.build({ generationId, chunkerVersion: INDEX_CHUNKER_VERSION, sources })
+      database.activate(generationId)
+      const inputs = database.embeddingInputs(generationId, 0, 1_000).values
+      const filters = {
+        knowledgeItemIds: sources.map((source) => source.knowledgeItemId),
+        fileExtensions: ['pdf'],
+        parseRevisionIds: [target.parseRevisionId],
+        pageFrom: 0,
+        pageTo: 0,
+        heading: 'Needlephrase'
+      }
+      const targets = database.hydrateCandidates(
+        inputs.map((input) => input.chunkId),
+        filters
+      )
+      expect(targets).toHaveLength(1)
+      const targetHit = targets[0]
+      if (targetHit === undefined) throw new Error('Missing target chunk')
+      const targetChunk = targetHit.chunkId
+      const embeddingGenerationId = 'embedding-many-sources'
+      const contractSha256 = 'd'.repeat(64)
+      database.beginEmbedding({
+        embeddingGenerationId,
+        indexGenerationId: generationId,
+        providerId: 'openai-compatible',
+        modelId: 'test',
+        modelRevision: '1',
+        dimension: 3,
+        metric: 'cosine',
+        normalization: 'l2',
+        chunkerVersion: INDEX_CHUNKER_VERSION,
+        contractSha256,
+        contentFingerprint: fingerprint
+      })
+      database.upsertVectors(
+        embeddingGenerationId,
+        inputs.map((input) => ({
+          chunkId: input.chunkId,
+          contentSha256: input.contentSha256,
+          vector: input.chunkId === targetChunk ? [1, 0, 0] : [0, 1, 0]
+        }))
+      )
+      database.activateEmbedding(embeddingGenerationId, contractSha256)
+      const allSources = {
+        knowledgeItemIds: filters.knowledgeItemIds,
+        fileExtensions: [],
+        parseRevisionIds: []
+      }
+      expect(
+        database.queryVectors(embeddingGenerationId, [1, 0, 0], 1, allSources)[0]?.chunkId
+      ).toBe(targetChunk)
+      expect(database.searchFts('Needlephrase', 10, filters).map((hit) => hit.chunkId)).toEqual([
+        targetChunk
+      ])
+      expect(database.queryVectors(embeddingGenerationId, [1, 0, 0], 1, filters)[0]?.chunkId).toBe(
+        targetChunk
+      )
+      const excluded = { ...filters, knowledgeItemIds: filters.knowledgeItemIds.slice(0, 300) }
+      expect(database.searchFts('Needlephrase', 10, excluded)).toEqual([])
+      expect(database.queryVectors(embeddingGenerationId, [1, 0, 0], 1, excluded)).toEqual([])
+      expect(database.expandCitations([targetHit.citationId])[0]?.knowledgeItemId).toBe(
+        target.knowledgeItemId
+      )
+    } finally {
+      database.close()
+    }
+  })
+
   it('keeps vector queries correct when an active generation exceeds sqlite-vec k limits', async () => {
     const bulk = await createSource(false, {
       knowledgeItemId: randomUUID(),
@@ -801,6 +891,7 @@ async function createSource(
     extension?: string
     heading?: string
     omitProvenance?: boolean
+    atomicText?: string
     largeAtomicCount?: number
   } = {}
 ): Promise<{
@@ -838,10 +929,15 @@ async function createSource(
           })
         ]
       : Array.from({ length: options.largeAtomicCount }, (_, ordinal) =>
-          block(ordinal, 'table', `<table><tr><td>Bulk ${ordinal}</td></tr></table>`, {
-            headingPath: [heading],
-            ...(options.omitProvenance ? {} : { page: ordinal })
-          })
+          block(
+            ordinal,
+            'table',
+            `<table><tr><td>${options.atomicText ?? 'Bulk'} ${ordinal}</td></tr></table>`,
+            {
+              headingPath: [heading],
+              ...(options.omitProvenance ? {} : { page: ordinal })
+            }
+          )
         )
   if (includeBilingual) {
     rawBlocks.push(

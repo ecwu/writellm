@@ -25,11 +25,23 @@ usable, with its controls kept non-overlapping and its resize handle working.
 
 The renderer uses the official shadcn/ui `new-york` language with neutral application surfaces,
 compact controls, clear typography, and Lucide icons. A global Menubar and the established
-`sidebar-09` workspace shell are persistent. New surfaces extend those components and Tailwind
+activity rail are persistent. Dockview React 8.3.1 supplies one central content tab group and
+dockable tools on the left, right, or bottom. New surfaces extend those components and Tailwind
 tokens; they do not introduce decorative gradients, bespoke cards, one-off shadows, or a parallel
 component system.
 
-## Current Delivery Boundary
+## Workspace Navigation
 
-Checkpoint 29 adds exact manuscript-wide literal Find and navigation. It reuses the current shell,
-secondary sidebar, and editor rather than creating a standalone search page.
+Sections retain one editor per open tab. Knowledge, Preview, Assets, and Checks are singleton
+content tabs; Notebooks are independently disposable in-memory tabs. Outline, Agent, Find,
+References, Writing Rules, and Comments are movable tools. Local layouts restore per project,
+excluding Notebook sessions. Delivery evidence belongs in docs/current-plan.md.
+The global Layout menu controls tool and content visibility, creates Notebooks, and restores
+default tool placement. Layout controls do not occupy a separate toolbar above the tabs.
+
+A fixed status bar spans the bottom of the active project, below the activity rail and all docked
+tools. It opens Knowledge from index readiness, lists live Agent work and every open Notebook,
+and navigates to the selected conversation or tab. It remains subscribed while tools are closed.
+The right side shows saved chapter/full-manuscript word counts and the shared Autocomplete menu;
+non-editor tabs show only manuscript counts. Character counts and detailed completion errors use
+tooltips. The bar follows the existing theme and does not participate in saved docking layouts.

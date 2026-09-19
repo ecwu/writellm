@@ -1,3 +1,6 @@
+import { WorkbenchStatusBar } from '../workbench/workbench-status-bar'
+import { RetainedEditors } from '../workbench/retained-editors'
+import { DockingWorkbench } from '../workbench/docking-workbench'
 import { shortcutLabel } from '@/lib/keyboard-shortcuts'
 import { AutocompleteMenu } from '../autocomplete/autocomplete-menu'
 import { useAutocompleteSession } from '../autocomplete/use-autocomplete-session'
@@ -43,7 +46,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
@@ -68,8 +70,14 @@ export function WritingWorkspaceView(input: {
 }): React.JSX.Element {
   const { props, controller } = input
   const autocomplete = useAutocompleteSession(props.projectSessionId)
+  const [agentSessionRequest, setAgentSessionRequest] = useState<{
+    requestId: string
+    agentSessionId: string
+  } | null>(null)
   const [autocompleteMenuOpen, setAutocompleteMenuOpen] = useState(false)
-  const [autocompleteStatus, setAutocompleteStatus] = useState<AutocompleteStatus>('idle')
+  const [autocompleteStatuses, setAutocompleteStatuses] = useState<
+    Record<string, AutocompleteStatus>
+  >({})
   const [commentThreads, setCommentThreads] = useState<CommentThreadSummary[]>([])
   const [commentHighlightThreads, setCommentHighlightThreads] = useState<CommentThreadSummary[]>([])
   const [selectedCommentThreadId, setSelectedCommentThreadId] = useState<string | null>(null)
@@ -81,6 +89,7 @@ export function WritingWorkspaceView(input: {
   } | null>(null)
   const [overlappingCommentThreadIds, setOverlappingCommentThreadIds] = useState<string[]>([])
   const {
+    workbench,
     alternateWorkspace,
     queryClient,
     workspaceKey,
@@ -102,9 +111,6 @@ export function WritingWorkspaceView(input: {
     importApplying,
     importError,
     publicationQuery,
-    wideAgentLayout,
-    sideChatGroupRef,
-    sideChatGroupElementRef,
     activeWorkspace,
     setActiveWorkspace,
     setCitationDraft,
@@ -197,7 +203,6 @@ export function WritingWorkspaceView(input: {
     openOutlineEditor,
     openChecksFromManuscript
   } = controller
-  if (alternateWorkspace !== null) return alternateWorkspace
 
   const openCommentThread = (thread: CommentThreadSummary): void => {
     setOverlappingCommentThreadIds([])
@@ -212,425 +217,419 @@ export function WritingWorkspaceView(input: {
     commentHighlightThreads.find((thread) => thread.threadId === threadId) ??
     commentThreads.find((thread) => thread.threadId === threadId)
 
+  const currentEditor =
+    editorQuery.data && activeSummary ? (
+      <SectionEditor
+        autocompleteMenuOpen={autocompleteMenuOpen}
+        autocompleteEnabled={autocomplete.session.enabled && autocomplete.session.available}
+        autocompleteVersion={autocomplete.change.version}
+        autocompleteChangeReason={autocomplete.change.reason}
+        onAutocompleteStatus={(status) => {
+          if (activeSectionId)
+            setAutocompleteStatuses((previous) =>
+              previous[activeSectionId] === status
+                ? previous
+                : { ...previous, [activeSectionId]: status }
+            )
+        }}
+        key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
+        projectSessionId={props.projectSessionId}
+        revision={editorQuery.data.revision}
+        citationNumberByTitle={citationNumberByTitle}
+        autoFocus={editorAutoFocus}
+        onRevision={updateRevision}
+        onCitationDocumentChange={(content) => {
+          setCitationDraft({
+            sectionId: editorQuery.data.revision.sectionId,
+            sectionRevisionId: editorQuery.data.revision.sectionRevisionId,
+            content
+          })
+        }}
+        onSaveStateChange={setEditorSaveState}
+        onSelectionContextChange={(context) => {
+          setSelectionContext({
+            sectionId: activeSummary.section.sectionId,
+            ...context
+          })
+        }}
+        onQuickActionRequest={(request, selection) => {
+          void startQuickAction(request, selection)
+        }}
+        onQuickActionError={props.onError}
+        onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
+        comments={commentHighlightThreads.filter(
+          (thread) => thread.sectionId === activeSummary.section.sectionId
+        )}
+        selectedCommentThreadId={selectedCommentThreadId}
+        onActivateComments={(threadIds) => {
+          if (threadIds.length > 1) {
+            setOverlappingCommentThreadIds([...threadIds])
+            setActiveWorkspace('comments')
+            return
+          }
+          const threadId = threadIds[0]
+          if (threadId === undefined) return
+          const thread = findCommentSummary(threadId)
+          if (thread !== undefined) openCommentThread(thread)
+          setActiveWorkspace('comments')
+        }}
+        onAddComment={(selection: EditorExactSelectionSnapshot) => {
+          void flushCurrent().then((saved) => {
+            if (!saved) return
+            const current = editorRef.current?.captureSelection()
+            if (
+              current === null ||
+              current === undefined ||
+              current.selectedText !== selection.selectedText
+            ) {
+              props.onError('The selected text changed while saving. Select it again and retry.')
+              return
+            }
+            setCommentDraftSelection({
+              sectionId: activeSummary.section.sectionId,
+              ...current
+            })
+            setSelectedCommentThreadId(null)
+            setActiveWorkspace('comments')
+          })
+        }}
+      />
+    ) : null
+
+  const sidebar = (
+    <AppSidebar
+      projectName={props.projectName}
+      workspace={workspace}
+      references={effectiveReferenceIndex}
+      referencesLoading={referencesQuery.isPending}
+      referencesError={referencesQuery.isError}
+      activeWorkspace={activeWorkspace}
+      activeSectionId={activeSectionId}
+      onSelectSection={(sectionId) => void selectSection(sectionId)}
+      onOpenBrief={() => setBriefOpen(true)}
+      onOpenOutlineEditor={() => void openOutlineEditor()}
+      onOpenPreview={() => void openPreviewWorkspace()}
+      onOpenKnowledge={() => {
+        setActiveWorkspace('knowledge')
+      }}
+      onOpenNotebook={() => {
+        setActiveWorkspace('notebook')
+      }}
+      onOpenChecks={() => void openChecksFromManuscript()}
+      onOpenAssets={() => {
+        setActiveWorkspace('assets')
+      }}
+      onOpenReferences={() => {
+        setActiveWorkspace('references')
+      }}
+      onOpenWritingRules={() => {
+        setActiveWorkspace('writing_rules')
+      }}
+      onOpenFind={openFind}
+      onOpenComments={() => setActiveWorkspace('comments')}
+      onCloseFind={closeFind}
+      onOpenReference={openReference}
+      onOpenManuscript={() => {
+        editorRef.current?.clearSearchTarget()
+        setSelectedFindMatchId(null)
+        setActiveWorkspace('manuscript')
+      }}
+      onOpenSettings={props.onOpenSettings}
+      findPanel={
+        <ManuscriptFindPanel
+          query={findQuery}
+          onQueryChange={changeFindQuery}
+          caseSensitive={findCaseSensitive}
+          onCaseSensitiveChange={changeFindCaseSensitive}
+          scope={findScope}
+          onScopeChange={changeFindScope}
+          statuses={findStatuses}
+          onStatusesChange={changeFindStatuses}
+          result={findResult}
+          loading={findLoading}
+          loadingMore={findLoadingMore}
+          error={findError}
+          selectedMatchId={selectedFindMatchId}
+          onActivate={(hit) => void activateFindHit(hit)}
+          onLoadMore={() => {
+            if (findResult?.nextCursor) void runFind(findResult.nextCursor)
+          }}
+          replaceOpen={replaceOpen}
+          onReplaceOpenChange={changeReplaceOpen}
+          replacement={replacement}
+          onReplacementChange={changeReplacement}
+          replacementPlan={replacementPlan}
+          replacementCandidates={replacementCandidates}
+          selectedCandidateIds={selectedReplacementIds}
+          onCandidatesChecked={(candidateIds, checked) =>
+            setSelectedReplacementIds((current) => {
+              const next = new Set(current)
+              for (const candidateId of candidateIds) {
+                if (checked) next.add(candidateId)
+                else next.delete(candidateId)
+              }
+              return next
+            })
+          }
+          onReviewReplacements={() => void reviewReplacements()}
+          onLoadMoreReplacements={() => void loadMoreReplacements()}
+          onApplyReplacements={() => void applyReplacements()}
+          onUndoReplacement={() => void undoReplacement()}
+          canUndoReplacement={replacementUndoCapabilities.length > 0}
+          checkpointAvailable={versionHistoryStatusQuery.data?.state === 'ready'}
+          createCheckpoint={createReplacementCheckpoint}
+          onCreateCheckpointChange={setCreateReplacementCheckpoint}
+          replacementLoading={replacementLoading}
+          replacementLoadingMore={replacementLoadingMore}
+          replacementApplying={replacementApplying}
+          replacementMessage={replacementMessage}
+        />
+      }
+      writingRulesPanel={
+        <WritingRulesPanel
+          projectSessionId={props.projectSessionId}
+          workspace={workspace}
+          onWorkspace={(next) => queryClient.setQueryData(workspaceKey, next)}
+          onError={props.onError}
+        />
+      }
+      commentsPanel={
+        <CommentsPanel
+          projectSessionId={props.projectSessionId}
+          activeSectionId={activeSectionId}
+          revisionKey={JSON.stringify(currentRevisionIds)}
+          visible={activeWorkspace === 'comments'}
+          draftSelection={commentDraftSelection}
+          selectedThreadId={selectedCommentThreadId}
+          onDraftConsumed={() => setCommentDraftSelection(null)}
+          onThreads={setCommentThreads}
+          onHighlightThreads={setCommentHighlightThreads}
+          onSelect={(thread) => {
+            if (thread === null) {
+              setSelectedCommentThreadId(null)
+              return
+            }
+            openCommentThread(thread)
+          }}
+          onDelegate={(threadIds) => {
+            setCommentPromptRequest({ requestId: crypto.randomUUID(), threadIds: [...threadIds] })
+            props.onAgentOpenChange(true)
+          }}
+          onReanchor={async (thread) => {
+            if (thread.sectionId !== activeSectionId)
+              throw new Error('Open the comment section before linking a selection')
+            const saved = await flushCurrent()
+            if (!saved) throw new Error('Manuscript selection could not be saved')
+            const selection = editorRef.current?.captureSelection()
+            if (selection === null || selection === undefined)
+              throw new Error('Select manuscript text before linking the comment')
+            await window.desktop.manuscript.reanchorComment({
+              projectSessionId: props.projectSessionId,
+              threadId: thread.threadId,
+              expectedVersion: thread.version,
+              revisionId: selection.capturedRevisionId,
+              contentHash: selection.capturedContentHash,
+              quote: selection.selectedText,
+              segments: selection.commentSegments
+            })
+          }}
+          onError={props.onError}
+        />
+      }
+    />
+  )
+  const manuscript = (
+    <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
+      <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+        <SidebarTrigger className='-ml-1' />
+        <Badge className='ml-auto' variant='secondary'>
+          {props.lifecycleState}
+        </Badge>
+      </header>
+      <main className='mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 p-4'>
+        {workspaceQuery.isError ? (
+          <Alert variant='destructive'>
+            <AlertCircle />
+            <AlertTitle>Workspace unavailable</AlertTitle>
+            <AlertDescription>
+              The manuscript workspace could not be loaded. Retry before editing.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {workspaceQuery.isPending || editorQuery.isPending ? (
+          <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
+            <Spinner /> Loading writing workspace…
+          </div>
+        ) : editorQuery.data && activeSummary ? (
+          <section className='flex flex-col gap-2'>
+            <div className='flex min-w-0 flex-col items-stretch gap-2'>
+              <Textarea
+                ref={sectionTitleRef}
+                id='section-title'
+                aria-label='Section title'
+                rows={1}
+                maxLength={SECTION_TITLE_MAX_LENGTH}
+                value={metadataTitle}
+                onBlur={() => void saveMetadata()}
+                onChange={(event) => {
+                  const title = normalizeSectionTitleDraft(event.target.value)
+                  metadataDraftRef.current.title = title
+                  setMetadataError(false)
+                  setMetadataTitle(title)
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+                  event.preventDefault()
+                  void saveMetadata().then((saved) => {
+                    if (saved) editorRef.current?.focus()
+                  })
+                }}
+                className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring'
+              />
+              <div className='order-first flex shrink-0 items-center justify-end gap-2'>
+                <Badge variant='outline' className='max-md:hidden'>
+                  {editorSaveStateLabels[editorSaveState]}
+                </Badge>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant='outline' size='icon-sm' aria-label='Section actions'>
+                      <MoreHorizontal />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align='end'>
+                    <DropdownMenuLabel>Section actions</DropdownMenuLabel>
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
+                        <FileCheck2 /> Publication preflight
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void openManuscriptImport()}>
+                        <Upload /> Import manuscript
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void openManuscriptImport('directory')}>
+                        <FolderOpen /> Import LaTeX project folder
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
+                        <Download /> Export Native JSON
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => void exportMarkdownForActiveSection()}>
+                        <Download /> Export Markdown
+                      </DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+            {metadataError ? (
+              <p className='text-sm text-destructive' role='alert'>
+                The title could not be saved. Press {shortcutLabel('save')} to retry.
+              </p>
+            ) : null}
+          </section>
+        ) : (
+          <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
+            <div className='flex flex-col gap-3'>
+              <FileText className='mx-auto size-8 text-muted-foreground' />
+              <p className='font-medium'>No section is available</p>
+              <Button onClick={() => void openOutlineEditor()}>Open outline editor</Button>
+            </div>
+          </div>
+        )}
+        <RetainedEditors
+          ref={editorRef}
+          scrollContainer={manuscriptScrollRef}
+          activeSectionId={activeSectionId}
+          openSectionIds={workbench.tabs.flatMap((tab) =>
+            tab.kind === 'section' ? [tab.sectionId] : []
+          )}
+          visible={workbench.activeId?.startsWith('section:') === true}
+        >
+          {currentEditor}
+        </RetainedEditors>
+        <div className='flex items-center justify-between text-xs text-muted-foreground'>
+          <span>
+            {shortcutLabel('save')} save · {shortcutLabel('quickActions')} quick actions ·{' '}
+            {shortcutLabel('previousSection')} / {shortcutLabel('nextSection')} navigate
+          </span>
+        </div>
+      </main>
+    </SidebarInset>
+  )
+  const agent = (
+    <AgentPanel
+      open
+      onOpenChange={props.onAgentOpenChange}
+      onOpenSettings={props.onOpenSettings}
+      projectSessionId={props.projectSessionId}
+      activeSectionId={activeSectionId}
+      sectionTitles={sectionTitles}
+      currentRevisionIds={currentRevisionIds}
+      selection={selectionContext}
+      quickActionRequest={quickActionRequest}
+      promptRequest={commentPromptRequest}
+      sessionRequest={agentSessionRequest}
+      onSessionRequestHandled={() => setAgentSessionRequest(null)}
+      onPromptHandled={(requestId, started) => {
+        if (!started) {
+          props.onError('The Agent could not start for the selected comments. Try again.')
+          return
+        }
+        setCommentPromptRequest((current) => (current?.requestId === requestId ? null : current))
+      }}
+      onQuickActionHandled={(requestId) => {
+        setQuickActionRequest((current) => (current?.requestId === requestId ? null : current))
+      }}
+      onFollowSection={followAgentSection}
+      flushCurrent={flushCurrent}
+      refreshManuscript={refreshAfterAgentMutation}
+      onError={props.onError}
+    />
+  )
   return (
-    <SidebarProvider className='min-h-0 flex-1' defaultSidebarWidth={360}>
-      <AppSidebar
-        projectName={props.projectName}
-        workspace={workspace}
-        references={effectiveReferenceIndex}
-        referencesLoading={referencesQuery.isPending}
-        referencesError={referencesQuery.isError}
+    <SidebarProvider className='min-h-0 min-w-0 flex-1 flex-col' defaultSidebarWidth={360}>
+      <DockingWorkbench
+        controller={workbench}
+        projectSessionId={props.projectSessionId}
         activeWorkspace={activeWorkspace}
         activeSectionId={activeSectionId}
-        onSelectSection={(sectionId) => void selectSection(sectionId)}
-        onOpenBrief={() => setBriefOpen(true)}
-        onOpenOutlineEditor={() => void openOutlineEditor()}
-        onOpenPreview={() => void openPreviewWorkspace()}
-        onOpenKnowledge={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('knowledge')
+        workspace={workspace}
+        sidebar={sidebar}
+        manuscript={manuscript}
+        alternateWorkspace={alternateWorkspace}
+        agent={agent}
+        agentOpen={props.agentOpen}
+        onAgentOpenChange={props.onAgentOpenChange}
+        onWorkspace={setActiveWorkspace}
+        onError={props.onError}
+      />
+
+      <WorkbenchStatusBar
+        projectSessionId={props.projectSessionId}
+        workspace={workspace}
+        workbench={workbench}
+        onKnowledge={() => setActiveWorkspace('knowledge')}
+        onAgent={(agentSessionId) => {
+          if (agentSessionId)
+            setAgentSessionRequest({ requestId: crypto.randomUUID(), agentSessionId })
+          workbench.requestTool('agent')
+          props.onAgentOpenChange(true)
         }}
-        onOpenNotebook={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('notebook')
-        }}
-        onOpenChecks={() => void openChecksFromManuscript()}
-        onOpenAssets={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('assets')
-        }}
-        onOpenReferences={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('references')
-        }}
-        onOpenWritingRules={() => {
-          props.onAgentOpenChange(false)
-          setActiveWorkspace('writing_rules')
-        }}
-        onOpenFind={openFind}
-        onOpenComments={() => setActiveWorkspace('comments')}
-        onCloseFind={closeFind}
-        onOpenReference={openReference}
-        onOpenManuscript={() => {
-          editorRef.current?.clearSearchTarget()
-          setSelectedFindMatchId(null)
-          setActiveWorkspace('manuscript')
-        }}
-        onOpenSettings={props.onOpenSettings}
-        findPanel={
-          <ManuscriptFindPanel
-            query={findQuery}
-            onQueryChange={changeFindQuery}
-            caseSensitive={findCaseSensitive}
-            onCaseSensitiveChange={changeFindCaseSensitive}
-            scope={findScope}
-            onScopeChange={changeFindScope}
-            statuses={findStatuses}
-            onStatusesChange={changeFindStatuses}
-            result={findResult}
-            loading={findLoading}
-            loadingMore={findLoadingMore}
-            error={findError}
-            selectedMatchId={selectedFindMatchId}
-            onActivate={(hit) => void activateFindHit(hit)}
-            onLoadMore={() => {
-              if (findResult?.nextCursor) void runFind(findResult.nextCursor)
-            }}
-            replaceOpen={replaceOpen}
-            onReplaceOpenChange={changeReplaceOpen}
-            replacement={replacement}
-            onReplacementChange={changeReplacement}
-            replacementPlan={replacementPlan}
-            replacementCandidates={replacementCandidates}
-            selectedCandidateIds={selectedReplacementIds}
-            onCandidatesChecked={(candidateIds, checked) =>
-              setSelectedReplacementIds((current) => {
-                const next = new Set(current)
-                for (const candidateId of candidateIds) {
-                  if (checked) next.add(candidateId)
-                  else next.delete(candidateId)
-                }
-                return next
-              })
+        autocomplete={
+          <AutocompleteMenu
+            status={
+              workbench.activeId?.startsWith('section:') && activeSectionId
+                ? autocompleteStatuses[activeSectionId]
+                : 'idle'
             }
-            onReviewReplacements={() => void reviewReplacements()}
-            onLoadMoreReplacements={() => void loadMoreReplacements()}
-            onApplyReplacements={() => void applyReplacements()}
-            onUndoReplacement={() => void undoReplacement()}
-            canUndoReplacement={replacementUndoCapabilities.length > 0}
-            checkpointAvailable={versionHistoryStatusQuery.data?.state === 'ready'}
-            createCheckpoint={createReplacementCheckpoint}
-            onCreateCheckpointChange={setCreateReplacementCheckpoint}
-            replacementLoading={replacementLoading}
-            replacementLoadingMore={replacementLoadingMore}
-            replacementApplying={replacementApplying}
-            replacementMessage={replacementMessage}
-          />
-        }
-        writingRulesPanel={
-          <WritingRulesPanel
-            projectSessionId={props.projectSessionId}
-            workspace={workspace}
-            onWorkspace={(next) => queryClient.setQueryData(workspaceKey, next)}
-            onError={props.onError}
-          />
-        }
-        commentsPanel={
-          <CommentsPanel
-            projectSessionId={props.projectSessionId}
-            activeSectionId={activeSectionId}
-            revisionKey={JSON.stringify(currentRevisionIds)}
-            visible={activeWorkspace === 'comments'}
-            draftSelection={commentDraftSelection}
-            selectedThreadId={selectedCommentThreadId}
-            onDraftConsumed={() => setCommentDraftSelection(null)}
-            onThreads={setCommentThreads}
-            onHighlightThreads={setCommentHighlightThreads}
-            onSelect={(thread) => {
-              if (thread === null) {
-                setSelectedCommentThreadId(null)
-                return
-              }
-              openCommentThread(thread)
-            }}
-            onDelegate={(threadIds) => {
-              setCommentPromptRequest({ requestId: crypto.randomUUID(), threadIds: [...threadIds] })
-              props.onAgentOpenChange(true)
-            }}
-            onReanchor={async (thread) => {
-              if (thread.sectionId !== activeSectionId)
-                throw new Error('Open the comment section before linking a selection')
-              const saved = await flushCurrent()
-              if (!saved) throw new Error('Manuscript selection could not be saved')
-              const selection = editorRef.current?.captureSelection()
-              if (selection === null || selection === undefined)
-                throw new Error('Select manuscript text before linking the comment')
-              await window.desktop.manuscript.reanchorComment({
-                projectSessionId: props.projectSessionId,
-                threadId: thread.threadId,
-                expectedVersion: thread.version,
-                revisionId: selection.capturedRevisionId,
-                contentHash: selection.capturedContentHash,
-                quote: selection.selectedText,
-                segments: selection.commentSegments
-              })
-            }}
-            onError={props.onError}
+            session={autocomplete.session}
+            busy={autocomplete.busy}
+            open={autocompleteMenuOpen}
+            onOpenChange={setAutocompleteMenuOpen}
+            onToggle={(enabled) => void autocomplete.toggle(enabled)}
+            onResetOverrides={() => void autocomplete.resetOverrides()}
+            onStyle={(style) => void autocomplete.setStyle(style)}
           />
         }
       />
-      <ResizablePanelGroup
-        orientation='horizontal'
-        className='min-w-0 flex-1'
-        disabled={!wideAgentLayout}
-        groupRef={sideChatGroupRef}
-        elementRef={sideChatGroupElementRef}
-      >
-        <ResizablePanel
-          id='manuscript'
-          className={props.agentOpen ? 'overflow-hidden max-xl:hidden' : 'overflow-hidden'}
-          defaultSize={props.agentOpen && !wideAgentLayout ? '0' : undefined}
-          minSize={props.agentOpen && wideAgentLayout ? 520 : 0}
-          collapsible={props.agentOpen}
-        >
-          <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
-            <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
-              <SidebarTrigger className='-ml-1' />
-              <AutocompleteMenu
-                session={autocomplete.session}
-                busy={autocomplete.busy}
-                open={autocompleteMenuOpen}
-                onOpenChange={setAutocompleteMenuOpen}
-                onToggle={(enabled) => void autocomplete.toggle(enabled)}
-                onResetOverrides={() => void autocomplete.resetOverrides()}
-                onStyle={(style) => void autocomplete.setStyle(style)}
-              />
-              {autocomplete.session.enabled && autocompleteStatus === 'loading' ? (
-                <Spinner aria-label='Loading autocomplete' />
-              ) : null}
-              {autocompleteStatus === 'paused' ? (
-                <span className='text-sm text-muted-foreground' role='status'>
-                  Autocomplete paused; check model settings
-                </span>
-              ) : null}
-              {autocomplete.session.enabled &&
-              ['cooldown', 'failed'].includes(autocompleteStatus) ? (
-                <span className='text-sm text-muted-foreground' role='status'>
-                  {autocompleteStatus === 'cooldown'
-                    ? 'Autocomplete cooling down'
-                    : 'Autocomplete unavailable; try typing again'}
-                </span>
-              ) : null}
-              <Badge className='ml-auto' variant='secondary'>
-                {props.lifecycleState}
-              </Badge>
-            </header>
-            <main className='mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 md:px-12 md:py-10 lg:px-20'>
-              {workspaceQuery.isError ? (
-                <Alert variant='destructive'>
-                  <AlertCircle />
-                  <AlertTitle>Workspace unavailable</AlertTitle>
-                  <AlertDescription>
-                    The manuscript workspace could not be loaded. Retry before editing.
-                  </AlertDescription>
-                </Alert>
-              ) : null}
-              {workspaceQuery.isPending || editorQuery.isPending ? (
-                <div className='flex min-h-96 items-center justify-center gap-2 text-muted-foreground'>
-                  <Spinner /> Loading writing workspace…
-                </div>
-              ) : editorQuery.data && activeSummary ? (
-                <section className='flex flex-col gap-2'>
-                  <div className='flex min-w-0 items-start gap-2'>
-                    <Textarea
-                      ref={sectionTitleRef}
-                      id='section-title'
-                      aria-label='Section title'
-                      rows={1}
-                      maxLength={SECTION_TITLE_MAX_LENGTH}
-                      value={metadataTitle}
-                      onBlur={() => void saveMetadata()}
-                      onChange={(event) => {
-                        const title = normalizeSectionTitleDraft(event.target.value)
-                        metadataDraftRef.current.title = title
-                        setMetadataError(false)
-                        setMetadataTitle(title)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
-                        event.preventDefault()
-                        void saveMetadata().then((saved) => {
-                          if (saved) editorRef.current?.focus()
-                        })
-                      }}
-                      className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-4xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring max-md:pl-[54px] md:text-5xl'
-                    />
-                    <div className='flex shrink-0 items-center gap-2 pt-1'>
-                      <Badge variant='outline' className='max-md:hidden'>
-                        {editorSaveStateLabels[editorSaveState]}
-                      </Badge>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant='outline' size='icon-sm' aria-label='Section actions'>
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align='end'>
-                          <DropdownMenuLabel>Section actions</DropdownMenuLabel>
-                          <DropdownMenuGroup>
-                            <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
-                              <FileCheck2 /> Publication preflight
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void openManuscriptImport()}>
-                              <Upload /> Import manuscript
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => void openManuscriptImport('directory')}
-                            >
-                              <FolderOpen /> Import LaTeX project folder
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => void exportNativeJsonForActiveSection()}
-                            >
-                              <Download /> Export Native JSON
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onSelect={() => void exportMarkdownForActiveSection()}
-                            >
-                              <Download /> Export Markdown
-                            </DropdownMenuItem>
-                          </DropdownMenuGroup>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                  {metadataError ? (
-                    <p className='text-sm text-destructive' role='alert'>
-                      The title could not be saved. Press {shortcutLabel('save')} to retry.
-                    </p>
-                  ) : null}
-                  <SectionEditor
-                    ref={editorRef}
-                    autocompleteMenuOpen={autocompleteMenuOpen}
-                    autocompleteEnabled={
-                      autocomplete.session.enabled && autocomplete.session.available
-                    }
-                    autocompleteVersion={autocomplete.change.version}
-                    autocompleteChangeReason={autocomplete.change.reason}
-                    onAutocompleteStatus={setAutocompleteStatus}
-                    key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
-                    projectSessionId={props.projectSessionId}
-                    revision={editorQuery.data.revision}
-                    citationNumberByTitle={citationNumberByTitle}
-                    autoFocus={editorAutoFocus}
-                    onRevision={updateRevision}
-                    onCitationDocumentChange={(content) => {
-                      setCitationDraft({
-                        sectionId: editorQuery.data.revision.sectionId,
-                        sectionRevisionId: editorQuery.data.revision.sectionRevisionId,
-                        content
-                      })
-                    }}
-                    onSaveStateChange={setEditorSaveState}
-                    onSelectionContextChange={(context) => {
-                      setSelectionContext({
-                        sectionId: activeSummary.section.sectionId,
-                        ...context
-                      })
-                    }}
-                    onQuickActionRequest={(request, selection) => {
-                      void startQuickAction(request, selection)
-                    }}
-                    onQuickActionError={props.onError}
-                    onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
-                    comments={commentHighlightThreads.filter(
-                      (thread) => thread.sectionId === activeSummary.section.sectionId
-                    )}
-                    selectedCommentThreadId={selectedCommentThreadId}
-                    onActivateComments={(threadIds) => {
-                      if (threadIds.length > 1) {
-                        setOverlappingCommentThreadIds([...threadIds])
-                        setActiveWorkspace('comments')
-                        return
-                      }
-                      const threadId = threadIds[0]
-                      if (threadId === undefined) return
-                      const thread = findCommentSummary(threadId)
-                      if (thread !== undefined) openCommentThread(thread)
-                      setActiveWorkspace('comments')
-                    }}
-                    onAddComment={(selection: EditorExactSelectionSnapshot) => {
-                      void flushCurrent().then((saved) => {
-                        if (!saved) return
-                        const current = editorRef.current?.captureSelection()
-                        if (
-                          current === null ||
-                          current === undefined ||
-                          current.selectedText !== selection.selectedText
-                        ) {
-                          props.onError(
-                            'The selected text changed while saving. Select it again and retry.'
-                          )
-                          return
-                        }
-                        setCommentDraftSelection({
-                          sectionId: activeSummary.section.sectionId,
-                          ...current
-                        })
-                        setSelectedCommentThreadId(null)
-                        setActiveWorkspace('comments')
-                      })
-                    }}
-                  />
-                </section>
-              ) : (
-                <div className='flex min-h-96 items-center justify-center rounded-lg border border-dashed text-center'>
-                  <div className='flex flex-col gap-3'>
-                    <FileText className='mx-auto size-8 text-muted-foreground' />
-                    <p className='font-medium'>No section is available</p>
-                    <Button onClick={() => void openOutlineEditor()}>Open outline editor</Button>
-                  </div>
-                </div>
-              )}
-              <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                <span>
-                  {shortcutLabel('save')} save · {shortcutLabel('quickActions')} quick actions ·{' '}
-                  {shortcutLabel('previousSection')} / {shortcutLabel('nextSection')} navigate
-                </span>
-              </div>
-            </main>
-          </SidebarInset>
-        </ResizablePanel>
-        {props.agentOpen ? (
-          <>
-            <ResizableHandle
-              withHandle
-              className={wideAgentLayout ? undefined : 'hidden'}
-              data-testid='agent-panel-resize-handle'
-            />
-            <ResizablePanel
-              id='agent'
-              className='overflow-hidden'
-              defaultSize={wideAgentLayout ? 480 : '100'}
-              minSize={wideAgentLayout ? 360 : 0}
-              maxSize={wideAgentLayout ? 640 : '100%'}
-              groupResizeBehavior='preserve-pixel-size'
-              disabled={!wideAgentLayout}
-            >
-              <AgentPanel
-                open
-                onOpenChange={props.onAgentOpenChange}
-                onOpenSettings={props.onOpenSettings}
-                projectSessionId={props.projectSessionId}
-                activeSectionId={activeSectionId}
-                sectionTitles={sectionTitles}
-                currentRevisionIds={currentRevisionIds}
-                selection={selectionContext}
-                quickActionRequest={quickActionRequest}
-                promptRequest={commentPromptRequest}
-                onPromptHandled={(requestId, started) => {
-                  if (!started) {
-                    props.onError('The Agent could not start for the selected comments. Try again.')
-                    return
-                  }
-                  setCommentPromptRequest((current) =>
-                    current?.requestId === requestId ? null : current
-                  )
-                }}
-                onQuickActionHandled={(requestId) => {
-                  setQuickActionRequest((current) =>
-                    current?.requestId === requestId ? null : current
-                  )
-                }}
-                onFollowSection={followAgentSection}
-                flushCurrent={flushCurrent}
-                refreshManuscript={refreshAfterAgentMutation}
-                onError={props.onError}
-              />
-            </ResizablePanel>
-          </>
-        ) : null}
-      </ResizablePanelGroup>
 
       <Dialog
         open={overlappingCommentThreadIds.length > 1}

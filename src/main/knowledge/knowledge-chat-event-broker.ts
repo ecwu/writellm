@@ -6,6 +6,7 @@ import { notebookChatEventSchema, type NotebookChatEvent } from '../../shared/co
 interface NotebookSubscription {
   sender: Pick<WebContents, 'id' | 'isDestroyed' | 'send'>
   projectSessionId: string
+  notebookId: string
 }
 
 export class KnowledgeChatEventBroker {
@@ -13,23 +14,39 @@ export class KnowledgeChatEventBroker {
 
   constructor(private readonly log: Pick<Logger, 'info' | 'warn'>) {}
 
-  subscribe(sender: NotebookSubscription['sender'], projectSessionId: string): void {
-    this.#subscriptions.set(subscriptionKey(sender.id, projectSessionId), {
+  subscribe(
+    sender: NotebookSubscription['sender'],
+    projectSessionId: string,
+    notebookId: string
+  ): void {
+    this.#subscriptions.set(subscriptionKey(sender.id, projectSessionId, notebookId), {
       sender,
-      projectSessionId
+      projectSessionId,
+      notebookId
     })
     this.log.info(
       {
         event: 'knowledge.notebook.subscription_started',
         projectSessionId,
+        notebookId,
         senderId: sender.id
       },
       'Notebook subscription started'
     )
   }
 
-  unsubscribe(senderId: number, projectSessionId: string): void {
-    this.#subscriptions.delete(subscriptionKey(senderId, projectSessionId))
+  unsubscribe(senderId: number, projectSessionId: string, notebookId: string): void {
+    this.#subscriptions.delete(subscriptionKey(senderId, projectSessionId, notebookId))
+  }
+
+  revokeNotebook(projectSessionId: string, notebookId: string): void {
+    for (const [key, subscription] of this.#subscriptions) {
+      if (
+        subscription.projectSessionId === projectSessionId &&
+        subscription.notebookId === notebookId
+      )
+        this.#subscriptions.delete(key)
+    }
   }
 
   revokeSession(projectSessionId: string): void {
@@ -45,7 +62,11 @@ export class KnowledgeChatEventBroker {
   publish(rawEvent: NotebookChatEvent): void {
     const event = notebookChatEventSchema.parse(rawEvent)
     for (const [key, subscription] of this.#subscriptions) {
-      if (subscription.projectSessionId !== event.projectSessionId) continue
+      if (
+        subscription.projectSessionId !== event.projectSessionId ||
+        subscription.notebookId !== event.notebookId
+      )
+        continue
       if (subscription.sender.isDestroyed()) {
         this.#subscriptions.delete(key)
         continue
@@ -68,6 +89,6 @@ export class KnowledgeChatEventBroker {
   }
 }
 
-function subscriptionKey(senderId: number, projectSessionId: string): string {
-  return `${senderId}:${projectSessionId}`
+function subscriptionKey(senderId: number, projectSessionId: string, notebookId: string): string {
+  return `${senderId}:${projectSessionId}:${notebookId}`
 }

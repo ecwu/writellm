@@ -291,7 +291,11 @@ test(
         planVersion: 2,
         plan: { steps: identity?.stepIds.map((stepId) => ({ stepId })) }
       })
-      await restarted.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await restarted.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await restarted.page.getByTestId('agent-menubar-trigger').click()
       const restoredTask = restarted.page.getByTestId('agent-writing-task')
       const restoredDetails = restoredTask.getByTestId('agent-writing-task-details')
       if (!(await restoredDetails.isVisible())) {
@@ -419,7 +423,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function selectAgentModel(page: Page): Promise<void> {
-  await page.getByTestId('agent-menubar-trigger').click()
+  if ((await page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !== 'true')
+    await page.getByTestId('agent-menubar-trigger').click()
   const panel = page.getByTestId('agent-panel')
   await panel.getByTestId('agent-conversation-menu').click()
   await page.getByRole('menuitem', { name: 'Details', exact: true }).click()

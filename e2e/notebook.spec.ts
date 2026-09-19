@@ -67,7 +67,7 @@ test(
         if (sessionId === undefined) throw new Error('Project session missing')
         return {
           sessionId,
-          snapshot: await window.desktop.notebook.snapshot({ projectSessionId: sessionId })
+          snapshot: await window.desktop.notebook.create({ projectSessionId: sessionId })
         }
       })
       expect(reopened.sessionId).not.toBe(firstSessionId)

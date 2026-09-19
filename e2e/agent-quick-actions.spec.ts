@@ -54,7 +54,11 @@ test(
       await editor.fill('This exact claim needs evidence.')
       await launched.page.keyboard.press('ControlOrMeta+s')
 
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -72,8 +76,8 @@ test(
           for (const key of ['b', 'j']) {
             await composer.press(`${modifier}+${extra}${key}`)
             await expect(
-              launched.page.locator('[data-slot="sidebar"][data-state]')
-            ).toHaveAttribute('data-state', 'expanded')
+              launched.page.getByRole('button', { name: 'Move Outline', exact: true })
+            ).toBeVisible()
             await expect(launched.page.getByTestId('agent-menubar-trigger')).toHaveAttribute(
               'aria-pressed',
               'true'

@@ -88,6 +88,7 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
     manuscriptAssets
   }
   const manager = {
+    snapshot: vi.fn(() => ({ activeProject: { projectSessionId, projectId: 'project-1' } })),
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
       return context
@@ -187,6 +188,15 @@ describe('editor IPC active-section final flush', () => {
         sectionRevisionId: 'revision-2'
       })
     )
+    expect(
+      registration.authorizeLayoutFlush(projectSessionId, authorization.closingToken, sender.id)
+    ).toBe('project-1')
+    expect(() =>
+      registration.authorizeLayoutFlush(projectSessionId, authorization.closingToken, 99)
+    ).toThrow('not authorized')
+    expect(() =>
+      registration.authorizeLayoutFlush('stale', authorization.closingToken, sender.id)
+    ).toThrow('not authorized')
     invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,
       closingToken: authorization.closingToken,
@@ -194,6 +204,9 @@ describe('editor IPC active-section final flush', () => {
       sectionRevisionId: 'revision-2'
     })
     await flush
+    expect(() =>
+      registration.authorizeLayoutFlush(projectSessionId, authorization.closingToken, sender.id)
+    ).toThrow('not authorized')
     await expect(
       registration.closeParticipants.verifyFinalEditorFlush(context as never, authorization)
     ).resolves.toBeUndefined()

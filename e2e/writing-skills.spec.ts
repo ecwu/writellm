@@ -126,7 +126,11 @@ test(
       await sectionEditor(launched.page).fill('Starting text.')
       await launched.page.keyboard.press('ControlOrMeta+s')
 
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

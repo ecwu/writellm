@@ -31,6 +31,53 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release `0.2026.9.8` is in local preparation, including the recent workbench, status bar,
+  Notebook, layout-menu and scrollbar changes. The frozen install passed, and complete
+  Electron-hosted tests passed 1,615 tests with three intentional benchmark skips in 25.2s.
+  Package acceptance, immutable tagging, hosted builds and publication remain pending.
+  Evidence: [release preparation](history/implementation-log.md#2026-09-19-release-0202698-preparation).
+
+- Notebook source capacity is locally verified under the [ADR 058 source capacity amendment](adrs/058-transient-notebook-knowledge-chat.md#2026-09-19-source-capacity-amendment).
+  All indexed Knowledge sources are selectable without a source-count cap; per-turn frozen scopes
+  and retrieval/evidence budgets remain enforced. Source filters use one bound JSON array, and
+  unavailable indexes no longer display as unindexed sources. Forty-seven distinct focused
+  Electron-hosted tests and three distinct real Electron scenarios have passing evidence with
+  one build, including 301-source selection, full-scope search and citation expansion. The final
+  large-source scenario passed in 45.0s with zero retries/skips after two fixture corrections.
+  Current `out/` includes the change; the packaged App is unchanged. Runtime evidence is macOS
+  arm64 only. Evidence: [Notebook source capacity](history/implementation-log.md#2026-09-19-notebook-source-capacity).
+
+- The fixed workbench status bar is locally verified. It combines index readiness, live Agent
+  and Notebook navigation, saved chapter/manuscript counts, and Autocomplete controls. Closing
+  the Agent tool does not stop status observation; project teardown clears subscriptions.
+  Static checks, 45 distinct focused Electron-hosted tests and four distinct real Electron
+  scenarios passed using one build, with one unit correction and one E2E fixture correction
+  rerun. Runtime evidence is macOS arm64 only. The requested local App rebuild is complete; native
+  packaged smoke passed, but the broader smoke stopped at the comment-write save barrier. Evidence:
+  [workbench status bar](history/implementation-log.md#2026-09-19-workbench-status-bar).
+
+- Workbench native scrollbar colors now follow the application light/dark theme, overriding
+  Dockview's nested default dark shell rather than only its outer wrapper. The rebuilt macOS
+  App includes this correction. Evidence:
+  [workbench scrollbar theme](history/implementation-log.md#2026-09-19-workbench-scrollbar-theme).
+
+- Layout controls now live in the global `Project / Edit / Layout / Tools` Menubar; the separate
+  reset toolbar is removed. Checked items derive from actual dock panels and content tabs;
+  content actions retain save barriers and project-session scoping. Static checks and three
+  affected real Electron scenarios have passing evidence, using one build. One fixture-only
+  rerun replaced an overlooked old reset-button locator. Evidence:
+  [Layout menu](history/implementation-log.md#2026-09-19-layout-menu).
+
+- The tabbed docking workbench is locally verified under [ADR 083](adrs/083-tabbed-docking-workbench.md).
+  Dockview React 8.3.1 provides a single retained content group and movable tool groups;
+  up to ten independent ephemeral Notebooks share three Agent/Notebook run slots.
+  Versioned app.sqlite layout preferences restore safe content tabs and tool geometry without
+  restoring Notebook state. Save barriers and project-session revocation remain enforced.
+  Static checks, 58 distinct focused Electron-hosted tests, and 11 distinct real Electron
+  scenarios have passing final-source evidence. One final focused rerun replaced a DOM-only
+  selection fixture with keyboard selection; runtime coverage is macOS arm64 only.
+  Evidence: [tabbed docking workbench](history/implementation-log.md#2026-09-19-tabbed-docking-workbench).
+
 - Keyboard shortcut separation is locally verified. Sidebar and Agent panel toggles now use
   their accessible buttons only; text-formatting keys no longer toggle panels. Application
   commands share exact modifier matching and display definitions, ignore consumed/composing

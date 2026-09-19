@@ -1,3 +1,4 @@
+import { workbenchApi } from './workbench-api'
 import { autocompleteApi } from './autocomplete-api'
 import { contextBridge } from 'electron'
 import type { DesktopApi } from './desktop-api'
@@ -28,6 +29,7 @@ const desktopApi: DesktopApi = {
   agent: agentApi,
   knowledge: knowledgeApi,
   notebook: notebookApi,
+  workbench: workbenchApi,
   providers: providersApi,
   diagnostics: diagnosticsApi
 }

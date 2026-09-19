@@ -36,6 +36,35 @@ afterEach(async () => {
 })
 
 describe('AppSettingsRepository', () => {
+  it('keeps layouts local to each project and recovers from invalid persisted data', async () => {
+    const database = await openTestDatabase()
+    try {
+      const settings = new AppSettingsRepository(database, log)
+      const first = '019d0000-0000-7000-8000-000000000421'
+      const second = '019d0000-0000-7000-8000-000000000422'
+      const layout = {
+        version: 1 as const,
+        tabs: [{ kind: 'knowledge' as const }],
+        activeTabId: 'knowledge',
+        tools: null
+      }
+      await settings.setWorkbenchLayout(first, layout)
+      expect(await new AppSettingsRepository(database, log).getWorkbenchLayout(first)).toEqual(
+        layout
+      )
+      expect(await settings.getWorkbenchLayout(second)).toBeNull()
+      await database.kysely
+        .updateTable('app_settings')
+        .set({ value_json: '{"version":999}' })
+        .where('key', '=', `workbench.layout.v1.${first}`)
+        .execute()
+      expect(await settings.getWorkbenchLayout(first)).toBeNull()
+      await settings.setWorkbenchLayout(first, null)
+      expect(await settings.getWorkbenchLayout(first)).toBeNull()
+    } finally {
+      database.close()
+    }
+  })
   it('persists an independent autocomplete default without changing the Agent selection', async () => {
     const database = await openTestDatabase()
     try {

@@ -334,6 +334,14 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     }
   }, [props.open, refreshSessions])
 
+  useEffect(() => {
+    if (loading || !props.sessionRequest) return
+    setActiveSessionId(props.sessionRequest.agentSessionId)
+    setSessionSwitcherOpen(false)
+    setContinuationFailure(null)
+    props.onSessionRequestHandled?.()
+  }, [loading, props.sessionRequest, props.onSessionRequestHandled])
+
   useLayoutEffect(() => {
     const nextCaret = pendingComposerCaretRef.current
     if (nextCaret === null) return
@@ -368,6 +376,19 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     }
   }, [props.open])
 
+  const activityCallbacks = useRef({
+    onError: props.onError,
+    onFollowSection: props.onFollowSection,
+    refreshSessions,
+    refreshSessionTruth
+  })
+  activityCallbacks.current = {
+    onError: props.onError,
+    onFollowSection: props.onFollowSection,
+    refreshSessions,
+    refreshSessionTruth
+  }
+
   useEffect(() => {
     if (!props.open) return
     let disposed = false
@@ -375,7 +396,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     const onActivity = (rendererEvent: AgentRendererEvent): void => {
       if (disposed) return
       const sectionId = sectionFollowTargetForAgentEvent(rendererEvent, activeSessionIdRef.current)
-      if (sectionId !== null) void props.onFollowSection(sectionId)
+      if (sectionId !== null) void activityCallbacks.current.onFollowSection(sectionId)
       if (rendererEvent.kind === 'activity') {
         setLiveRuns(rendererEvent.snapshot.runs)
         setActiveCompactions(rendererEvent.snapshot.compactions)
@@ -396,9 +417,9 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
           activeSessionIdRef.current === rendererEvent.agentSessionId &&
           skillRoutingPendingRef.current.delete(rendererEvent.agentRunId)
         ) {
-          void refreshSessionTruth(rendererEvent.agentSessionId).catch((cause) =>
-            props.onError(errorMessage(cause))
-          )
+          void activityCallbacks.current
+            .refreshSessionTruth(rendererEvent.agentSessionId)
+            .catch((cause) => activityCallbacks.current.onError(errorMessage(cause)))
         }
         return
       }
@@ -408,7 +429,9 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         rendererEvent.event.type === 'run_completed' ||
         rendererEvent.event.type === 'run_interrupted'
       ) {
-        void refreshSessions().catch((cause) => props.onError(errorMessage(cause)))
+        void activityCallbacks.current
+          .refreshSessions()
+          .catch((cause) => activityCallbacks.current.onError(errorMessage(cause)))
       }
     }
     void window.desktop.agent
@@ -431,22 +454,28 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         )
         await subscription.activate()
       })
-      .catch(() => {
-        if (!disposed) props.onError('Live Agent activity is unavailable.')
+      .catch(async (err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err))
+        window.desktop.diagnostics.reportRendererError({
+          event: 'renderer.unhandled_rejection',
+          message: error.message,
+          ...(error.stack ? { stack: error.stack } : {}),
+          source: 'agent.activity.subscribe'
+        })
+        if (disposed) return
+        const lifecycle = await window.desktop.projects.lifecycle()
+        if (
+          !disposed &&
+          lifecycle.state === 'open' &&
+          lifecycle.activeProject?.projectSessionId === props.projectSessionId
+        )
+          activityCallbacks.current.onError('Live Agent activity is unavailable.')
       })
     return () => {
       disposed = true
       unsubscribe?.()
     }
-  }, [
-    props.onError,
-    props.onFollowSection,
-    props.open,
-    props.projectSessionId,
-    refreshSessions,
-    refreshSessionTruth,
-    setStreamingBySession
-  ])
+  }, [props.open, props.projectSessionId, setStreamingBySession])
 
   useEffect(() => {
     if (!props.open || activeSessionId === null) return

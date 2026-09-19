@@ -31,6 +31,7 @@ import type {
 } from '../../shared/contracts/project-templates'
 import type { OnboardingState } from '../../shared/contracts/app'
 import { projectNameSchema } from '../../shared/contracts/projects'
+import { LayoutControlsProvider, useLayoutControls } from '@/features/workbench/layout-controls'
 import { AppMenubar } from '@/components/app-menubar'
 import { SettingsCommand } from '@/components/settings-command'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -115,6 +116,7 @@ const stateLabels: Record<ProjectLifecycleState, string> = {
 }
 
 function App(): React.JSX.Element {
+  const { controls: layoutControls } = useLayoutControls()
   const [snapshot, setSnapshot] = useState<ProjectLifecycleSnapshot>(closedSnapshot)
   const [recentProjects, setRecentProjects] = useState<RecentProjects>([])
   const [initialLoading, setInitialLoading] = useState(true)
@@ -605,6 +607,13 @@ function App(): React.JSX.Element {
   return (
     <div className='flex h-svh min-w-80 flex-col overflow-hidden bg-background'>
       <AppMenubar
+        layoutControls={
+          layoutControls?.projectSessionId === projectSessionId &&
+          snapshot.state === 'open' &&
+          !projectOpening
+            ? layoutControls
+            : null
+        }
         busy={isBusy}
         projectSelectionDisabled={projectSelectionDisabled}
         hasProject={Boolean(activeProject)}
@@ -660,6 +669,7 @@ function App(): React.JSX.Element {
         >
           {activeProject && projectSessionId ? (
             <WritingWorkspace
+              key={projectSessionId}
               projectSessionId={projectSessionId}
               projectName={activeProject.displayName}
               lifecycleState={stateLabels[snapshot.state]}
@@ -1141,4 +1151,10 @@ function App(): React.JSX.Element {
   )
 }
 
-export default App
+export default function AppWithLayoutControls(): React.JSX.Element {
+  return (
+    <LayoutControlsProvider>
+      <App />
+    </LayoutControlsProvider>
+  )
+}

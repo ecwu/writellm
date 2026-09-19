@@ -184,7 +184,9 @@ export async function expectActiveProject(page: Page, name: string): Promise<voi
 }
 
 export function sectionEditor(page: Page) {
-  return page.getByTestId('section-editor').locator('.bn-editor[role="textbox"]')
+  return page
+    .locator('[data-testid="section-editor"]:visible')
+    .locator('.bn-editor[role="textbox"]')
 }
 
 interface Fixtures {

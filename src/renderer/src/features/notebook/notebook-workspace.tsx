@@ -103,6 +103,8 @@ interface NotebookNavigationProps {
 export function NotebookWorkspace(
   props: NotebookNavigationProps & {
     projectSessionId: string
+    notebookId: string
+    onState?(snapshot: NotebookChatSnapshot | null, draft: string): void
     projectName: string
     onError(message: string): void
   }
@@ -112,6 +114,9 @@ export function NotebookWorkspace(
   const snapshotRef = useRef<NotebookChatSnapshot | null>(null)
   const pendingEventsRef = useRef<NotebookChatEvent[]>([])
   const [composer, setComposer] = useState('')
+  useEffect(() => {
+    props.onState?.(snapshot, composer)
+  }, [snapshot, composer, props.onState])
   const [commandBusy, setCommandBusy] = useState(false)
   const [connectionError, setConnectionError] = useState(false)
   const [citationDialog, setCitationDialog] = useState<{
@@ -198,7 +203,10 @@ export function NotebookWorkspace(
     setSnapshot(null)
     setConnectionError(false)
     void window.desktop.notebook
-      .subscribe({ projectSessionId: props.projectSessionId }, applyEvent)
+      .subscribe(
+        { projectSessionId: props.projectSessionId, notebookId: props.notebookId },
+        applyEvent
+      )
       .then((subscription) => {
         if (disposed) {
           subscription.unsubscribe()
@@ -217,14 +225,14 @@ export function NotebookWorkspace(
       pendingEventsRef.current = []
       unsubscribe?.()
     }
-  }, [applyEvent, applySnapshot, props.projectSessionId])
+  }, [applyEvent, applySnapshot, props.projectSessionId, props.notebookId])
 
   useEffect(() => {
     if (snapshot?.sourceReadiness !== 'preparing') return
     let disposed = false
     const refresh = (): void => {
       void window.desktop.notebook
-        .snapshot({ projectSessionId: props.projectSessionId })
+        .snapshot({ projectSessionId: props.projectSessionId, notebookId: props.notebookId })
         .then((candidate) => {
           if (!disposed) applySnapshot(candidate)
         })
@@ -237,7 +245,7 @@ export function NotebookWorkspace(
       disposed = true
       window.clearInterval(interval)
     }
-  }, [applySnapshot, props.projectSessionId, snapshot?.sourceReadiness])
+  }, [applySnapshot, props.projectSessionId, props.notebookId, snapshot?.sourceReadiness])
 
   const runCommand = async (
     operation: () => Promise<NotebookChatSnapshot>,
@@ -260,6 +268,7 @@ export function NotebookWorkspace(
     try {
       const result = await window.desktop.notebook.startTurn({
         projectSessionId: props.projectSessionId,
+        notebookId: props.notebookId,
         content
       })
       applySnapshot(result.snapshot)
@@ -276,6 +285,7 @@ export function NotebookWorkspace(
       () =>
         window.desktop.notebook.setSources({
           projectSessionId: props.projectSessionId,
+          notebookId: props.notebookId,
           sourceScope
         }),
       'Notebook sources could not be changed.'
@@ -384,6 +394,7 @@ export function NotebookWorkspace(
                   () =>
                     window.desktop.notebook.setModel({
                       projectSessionId: props.projectSessionId,
+                      notebookId: props.notebookId,
                       modelSelection
                     }),
                   'Notebook model could not be changed.'
@@ -394,6 +405,7 @@ export function NotebookWorkspace(
                   () =>
                     window.desktop.notebook.setThinkingLevel({
                       projectSessionId: props.projectSessionId,
+                      notebookId: props.notebookId,
                       level
                     }),
                   'Notebook Thinking level could not be changed.'
@@ -407,7 +419,11 @@ export function NotebookWorkspace(
               disabled={snapshot === null || snapshot.messages.length === 0 || commandBusy}
               onClick={() =>
                 void runCommand(
-                  () => window.desktop.notebook.clear({ projectSessionId: props.projectSessionId }),
+                  () =>
+                    window.desktop.notebook.clear({
+                      projectSessionId: props.projectSessionId,
+                      notebookId: props.notebookId
+                    }),
                   'Notebook chat could not be cleared.'
                 )
               }
@@ -473,7 +489,8 @@ export function NotebookWorkspace(
                         void runCommand(
                           () =>
                             window.desktop.notebook.stopTurn({
-                              projectSessionId: props.projectSessionId
+                              projectSessionId: props.projectSessionId,
+                              notebookId: props.notebookId
                             }),
                           'Notebook answer could not be stopped.'
                         )
@@ -599,7 +616,7 @@ function NotebookSourcesSidebar(props: {
           />
           <FieldContent>
             <FieldLabel htmlFor='notebook-select-all'>Select all indexed sources</FieldLabel>
-            <FieldDescription>Up to 50 sources per answer</FieldDescription>
+            <FieldDescription>Search across selected sources</FieldDescription>
           </FieldContent>
         </Field>
       </SidebarHeader>
@@ -801,6 +818,8 @@ function sourceStatus(
   if (available) return 'Indexed'
   if (item.state === 'failed' || item.normalizationState === 'failed') return 'Failed'
   if (item.state === 'importing' || item.activeParseRevisionId === null) return 'Processing'
+  if (readiness === undefined) return 'Checking index'
   if (readiness === 'preparing') return 'Indexing'
+  if (readiness === 'unavailable') return 'Index unavailable'
   return 'Not indexed'
 }

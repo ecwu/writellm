@@ -8,7 +8,6 @@ import {
   NOTEBOOK_MAX_CHAT_BYTES,
   NOTEBOOK_MAX_CITATIONS,
   NOTEBOOK_MAX_MESSAGES,
-  NOTEBOOK_MAX_SOURCES,
   notebookChatEventSchema,
   notebookChatSnapshotSchema,
   notebookChatStartTurnInputSchema,
@@ -85,6 +84,7 @@ interface ActiveNotebookTurn {
 }
 
 export interface KnowledgeChatServiceOptions {
+  notebookId?: string
   projectId: string
   projectSessionId: string
   database: ProjectDatabase
@@ -108,6 +108,8 @@ export class NotebookChatCapacityError extends Error {
 }
 
 export class KnowledgeChatService {
+  readonly notebookId: string
+  readonly #instances = new Map<string, KnowledgeChatService>()
   readonly #now: () => Date
   readonly #createId: () => string
   #revision = 0
@@ -128,9 +130,40 @@ export class KnowledgeChatService {
   #closed = false
 
   constructor(private readonly options: KnowledgeChatServiceOptions) {
+    this.notebookId = options.notebookId ?? randomUUID()
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
     this.#agentSessionId = this.#createId()
+  }
+
+  createInstance(): KnowledgeChatService {
+    this.#assertOpen()
+    if (this.#instances.size >= 10) throw new Error('Up to 10 Notebooks may be open')
+    const notebookId = randomUUID()
+    const instance = new KnowledgeChatService({ ...this.options, notebookId })
+    this.#instances.set(notebookId, instance)
+    this.options.log.info(
+      {
+        event: 'knowledge.notebook.created',
+        notebookId,
+        projectSessionId: this.options.projectSessionId
+      },
+      'Notebook instance created'
+    )
+    return instance
+  }
+
+  instance(notebookId: string): KnowledgeChatService {
+    this.#assertOpen()
+    const instance = this.#instances.get(notebookId)
+    if (!instance) throw new Error('Notebook is closed or unavailable')
+    return instance
+  }
+
+  async destroyInstance(notebookId: string): Promise<void> {
+    const instance = this.instance(notebookId)
+    this.#instances.delete(notebookId)
+    await instance.close()
   }
 
   async snapshot(): Promise<NotebookChatSnapshot> {
@@ -213,13 +246,19 @@ export class KnowledgeChatService {
       throw new Error('Configure and select an Agent model before asking a Notebook question')
     }
     const question = notebookChatStartTurnInputSchema.parse({
+      notebookId: this.notebookId,
       projectSessionId: this.options.projectSessionId,
       content
     }).content
     const sourceIds = this.#resolveEffectiveSourceIds()
     if (sourceIds.length === 0) throw new Error('Select at least one indexed Knowledge source')
     this.#assertCapacityFor(question)
+    const contextEpoch = this.#contextEpoch
     const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+    this.#assertOpen()
+    if (this.#activeTurn !== null) throw new Error('A Notebook answer is already in progress')
+    if (contextEpoch !== this.#contextEpoch)
+      throw new Error('Notebook sources changed. Retry the question.')
     const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, this.#thinkingLevel)
     const config = agentProviderConfigFromResolved(resolved)
 
@@ -304,8 +343,10 @@ export class KnowledgeChatService {
 
   async close(): Promise<void> {
     if (this.#closed) return
-    await this.#cancelActive('project_close', false)
     this.#closed = true
+    await Promise.all([...this.#instances.values()].map((instance) => instance.close()))
+    this.#instances.clear()
+    await this.#cancelActive('project_close', false)
     this.#messages = []
     this.#sourceScope = { mode: 'all', knowledgeItemIds: [] }
     this.#availableKnowledgeItemIds = []
@@ -317,6 +358,7 @@ export class KnowledgeChatService {
     this.options.log.info(
       {
         event: 'knowledge.notebook.closed',
+        notebookId: this.notebookId,
         projectId: this.options.projectId,
         projectSessionId: this.options.projectSessionId
       },
@@ -358,13 +400,20 @@ export class KnowledgeChatService {
       this.#effectiveSourceIds = effective
       return
     }
-    if (sameStrings(previous, effective)) return
+    const previousScope = this.#sourceScope
     if (this.#sourceScope.mode === 'selected' && this.#sourceReadiness === 'ready') {
       const available = new Set(this.#availableKnowledgeItemIds)
       this.#sourceScope = {
         mode: 'selected',
         knowledgeItemIds: this.#sourceScope.knowledgeItemIds.filter((id) => available.has(id))
       }
+    }
+    if (sameStrings(previous, effective)) {
+      if (!sameScope(previousScope, this.#sourceScope)) {
+        this.#bumpRevision()
+        await this.#publishSnapshot()
+      }
+      return
     }
     this.#effectiveSourceIds = effective
     this.#appendSourceBoundary()
@@ -394,7 +443,6 @@ export class KnowledgeChatService {
     this.#availableKnowledgeItemIds = indexed.sources
       .map((source) => source.knowledgeItemId)
       .filter((id) => existing.has(id))
-      .slice(0, NOTEBOOK_MAX_SOURCES)
       .sort()
   }
 
@@ -827,6 +875,7 @@ export class KnowledgeChatService {
     this.#bumpRevision()
     void this.#publish(
       notebookChatEventSchema.parse({
+        notebookId: this.notebookId,
         kind: 'delta',
         projectSessionId: this.options.projectSessionId,
         revision: this.#revision,
@@ -968,6 +1017,7 @@ export class KnowledgeChatService {
 
   #snapshot(): NotebookChatSnapshot {
     return notebookChatSnapshotSchema.parse({
+      notebookId: this.notebookId,
       projectSessionId: this.options.projectSessionId,
       revision: this.#revision,
       phase: this.#phase,
@@ -987,6 +1037,7 @@ export class KnowledgeChatService {
     const snapshot = this.#snapshot()
     await this.#publish(
       notebookChatEventSchema.parse({
+        notebookId: this.notebookId,
         kind: 'snapshot',
         projectSessionId: this.options.projectSessionId,
         revision: this.#revision,

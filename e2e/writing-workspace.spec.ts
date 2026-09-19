@@ -257,6 +257,13 @@ test(
     })
     try {
       await createProject(launched.page, 'Save race')
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await expect(launched.page.getByTestId('workspace-tab-knowledge')).toBeVisible()
+      await launched.page
+        .getByTestId(/^workspace-tab-section:/)
+        .locator('.dv-default-tab-content')
+        .click()
+      await expect(sectionEditor(launched.page)).toBeVisible()
       await saveEditorText(launched.page, 'Base ')
       const editor = sectionEditor(launched.page)
       await placeCaret(editor.locator('.bn-inline-content').first())
@@ -328,6 +335,17 @@ test(
       expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
         external.sections[0].sectionRevisionId
       )
+      await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await expect(editor).toContainText('Base ABC')
+      await expect(launched.page.getByTestId('workspace-tab-knowledge')).toHaveCount(1)
+      await launched.page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
+      await launched.page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true }).click()
+      await expect(editor).toContainText('Base ABC')
+      await launched.page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
+      await expect(
+        launched.page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true })
+      ).toBeChecked()
+      await launched.page.keyboard.press('Escape')
       await launched.page.getByRole('button', { name: 'Reload canonical version' }).click()
       await expect(editor).toContainText('External authority')
       await editor.click()
@@ -596,16 +614,18 @@ test(
       await expectActiveProject(page, 'Keyboard separation')
 
       const editor = sectionEditor(page)
-      const sidebar = page.locator('[data-slot="sidebar"][data-state]')
+      const sidebar = page.getByRole('button', { name: 'Move Outline', exact: true })
       const agent = page.getByTestId('agent-menubar-trigger')
-      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await expect(agent).toHaveAttribute('aria-pressed', 'true')
+      await agent.click()
+      await expect(sidebar).toBeVisible()
       await expect(agent).toHaveAttribute('aria-pressed', 'false')
       await editor.fill('Formatting survives shortcuts')
       await editor.selectText()
       await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeVisible()
       await page.keyboard.press('ControlOrMeta+b')
       await expect(editor.locator('strong')).toContainText('Formatting survives shortcuts')
-      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await expect(sidebar).toBeVisible()
 
       for (const target of [editor, page.getByLabel('Section title')]) {
         await target.focus()
@@ -613,7 +633,7 @@ test(
           for (const extra of ['', 'Shift+', 'Alt+', 'Alt+Shift+']) {
             for (const key of ['b', 'j']) {
               await target.press(`${modifier}+${extra}${key}`)
-              await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+              await expect(sidebar).toBeVisible()
               await expect(agent).toHaveAttribute('aria-pressed', 'false')
             }
           }
@@ -627,13 +647,13 @@ test(
       const sidebarToggle = page.locator('[data-slot="sidebar-trigger"]')
       await sidebarToggle.focus()
       await sidebarToggle.press('Enter')
-      await expect(sidebar).toHaveAttribute('data-state', 'collapsed')
+      await expect(sidebar).not.toBeVisible()
       await sidebarToggle.press('Space')
-      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await expect(sidebar).toBeVisible()
       await sidebarToggle.click()
-      await expect(sidebar).toHaveAttribute('data-state', 'collapsed')
+      await expect(sidebar).not.toBeVisible()
       await sidebarToggle.click()
-      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await expect(sidebar).toBeVisible()
 
       await editor.focus()
       await page.keyboard.press('ControlOrMeta+Alt+f')
@@ -675,37 +695,32 @@ test(
     })
     try {
       await createProject(launched.page, 'Resizable project sidebar')
-      const handle = launched.page.getByRole('separator', { name: 'Resize sidebar' })
-      const sidebarGap = launched.page.locator('[data-slot="sidebar-gap"]')
-
-      await expect(handle).toBeVisible()
-      await expect(handle).toHaveAttribute('aria-valuenow', '360')
-
-      await handle.focus()
-      await handle.press('ArrowRight')
-      await expect(handle).toHaveAttribute('aria-valuenow', '376')
-      await expect
-        .poll(() => sidebarGap.evaluate((element) => element.getBoundingClientRect().width))
-        .toBe(376)
-
-      const bounds = await handle.boundingBox()
-      if (bounds === null) throw new Error('Sidebar resize handle has no bounds')
-      await launched.page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
-      await launched.page.mouse.down()
-      await launched.page.mouse.move(bounds.x + bounds.width / 2 + 80, bounds.y + bounds.height / 2)
-      await launched.page.mouse.up()
-      await expect(handle).toHaveAttribute('aria-valuenow', '456')
-
-      await handle.press('End')
-      await expect(handle).toHaveAttribute('aria-valuenow', '480')
-      await handle.press('ArrowRight')
-      await expect(handle).toHaveAttribute('aria-valuenow', '480')
-
-      await handle.dblclick()
-      await expect(handle).toHaveAttribute('aria-valuenow', '360')
-      await expect
-        .poll(() => sidebarGap.evaluate((element) => element.getBoundingClientRect().width))
-        .toBe(360)
+      const page = launched.page
+      // Free enough room to verify growth without hitting the central document minimum.
+      await page.getByTestId('agent-menubar-trigger').click()
+      const tool = page.getByTestId('workbench-tool-outline')
+      const width = () => tool.evaluate((element) => element.getBoundingClientRect().width)
+      const initial = await width()
+      const menu = page.getByRole('button', { name: 'Move Outline', exact: true })
+      await menu.focus()
+      await menu.press('Enter')
+      await page.getByRole('menuitem', { name: 'Increase panel width' }).focus()
+      await page.keyboard.press('Enter')
+      await expect.poll(width).toBeGreaterThan(initial + 30)
+      const bounds = await tool.boundingBox()
+      if (!bounds) throw new Error('Outline bounds missing')
+      const prior = await width()
+      await page.mouse.move(bounds.x + bounds.width, bounds.y + bounds.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(bounds.x + bounds.width + 60, bounds.y + bounds.height / 2, {
+        steps: 10
+      })
+      await page.mouse.up()
+      await expect.poll(width).toBeGreaterThan(prior + 30)
+      await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Reset layout', exact: true }).click()
+      await expect(tool).toBeVisible()
+      await expect(page.getByTestId('agent-panel')).toBeVisible()
     } finally {
       await launched.app.close()
     }

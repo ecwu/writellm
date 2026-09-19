@@ -3333,3 +3333,235 @@ after they complete, without altering the immutable release tag.
 - Runtime: macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
   the declared Node 24 range. Physical IME and Windows/Linux runtime behavior were not tested.
   No packaged App, installer, release, or remote changes were produced.
+
+## 2026-09-19 Tabbed docking workbench
+
+- Implemented the user-approved plan under ADR 083. Dockview React is pinned to MIT version
+  8.3.1; shadcn controls and the global Menubar remain. The activity rail opens unique content
+  tabs or dockable tools. Sections retain lazy editor instances, undo history, selection and
+  scroll state; content cannot split or mix with tool groups. Tools support left/right/bottom
+  placement, grouping, stacking, resizing and default-layout reset. Reset keeps open tabs and
+  live Notebooks. Section deletion removes its tab; closing the final tab shows an empty state.
+- Knowledge, Preview, Assets and Checks are singleton content tabs. Notebook instances have
+  independent sources, model/Thinking settings, drafts, messages, citations and background runs.
+  Main limits projects to ten instances and one turn per instance, including asynchronous start
+  races. Closing an instance cancels only its run; project revocation destroys all instances.
+  Every command, snapshot and event carries both projectSessionId and notebookId. Shared Main
+  admission restores the explicitly approved three-run Agent/Notebook limit, superseding
+  ADR 074's removal; overflow rejects immediately without queuing. Worker startup failure also
+  releases its admission slot.
+- Versioned layout settings live in app.sqlite by projectId, with strict shared schemas and
+  sender/session authorization. They contain only section IDs, functional tab kinds/order,
+  active content and tool geometry. Notebook state, paths, document bodies and runtime IDs do
+  not persist. Corrupt settings recover with diagnostics. Debounced saves and the existing
+  sender-bound final-flush capability cover project/application closure; no project migration.
+  Navigation flushes retained editors and title metadata before leaving, preserving failed
+  drafts and focus. Knowledge insertion returns to the latest section. Structured lifecycle
+  logs cover layouts, content tabs and Notebook creation/destruction without private content.
+- Verification scope: shared contracts, application settings, layout/final-flush authorization,
+  Notebook isolation/revocation and Agent admission warranted focused Electron-hosted tests;
+  retained editor and docking interactions warranted real Electron E2E. No native dependency
+  or packaging boundary changed, so no packaged gate was selected.
+- 58 distinct focused tests have passing final-source evidence. The initial nine-file set
+  passed 57 tests in 3.4s (`.cache/verification/1789804948293-45493-d32757dc/`). Subsequent affected
+  checks passed 15 Notebook/layout tests in 3.2s after the start-race/reset changes
+  (`.cache/verification/1789805684065-51941-d971f94e/`), and 15 model-client tests in 1.3s after
+  adding startup-failure admission coverage (`.cache/verification/1789806007712-54521-d1b9e776/`).
+  These are overlapping focused runs, not 87 distinct tests.
+- Final composite `check:e2e` passed Biome, Main/Renderer typechecks, native load preparation
+  and one production build. Ten of eleven scenarios passed in 27.5s; the workbench scenario
+  exposed a DOM-selection fixture race under concurrent E2E execution. Switching that fixture
+  to real keyboard selection and verifying its initial range passed the focused scenario in
+  9.3s (9.6s gate), reusing the same build. Reports:
+  `.cache/verification/1789806038775-54825-5ea9ba43/` (50.9s composite), and
+  `.cache/verification/1789806123196-55730-8caebb13/` (focused rerun).
+- Combined final-source E2E evidence covers eleven distinct scenarios: section tab uniqueness,
+  reorder, bulk close, empty state, deletion, retained editor/undo/selection/scroll, Knowledge
+  insertion, two Notebook drafts and close cancellation, tool placement/reset, project and
+  application restart restoration, transient Notebook lifecycle, Agent quick actions/proposal
+  refresh, save continuity/conflict blocking, keyboard commands, pointer/keyboard resizing,
+  find navigation, checkpoint restore and citation rendering/export. Earlier focused iterations
+  repaired final-layout authorization, Find reopening, docking sash/menu stacking and central
+  reorder guards; fixture updates account for the default-open Agent and retained editors.
+  Builds were repeated only after relevant product changes, then reused for focused reruns.
+  All invocations used zero automatic retries; explicit debugging reruns are not hidden.
+- Runtime: macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
+  the declared Node 24 range. No Windows/Linux runtime, packaged App, installer, physical IME,
+  or live-provider validation was performed. Final desktop screenshot:
+  `.cache/verification/workbench-preview/workbench.png`. No commit, push or release was made.
+
+## 2026-09-19 Layout menu
+
+- Moved reset and visibility controls into the existing global shadcn Menubar in
+  `Project / Edit / Layout / Tools` order, removing the dedicated 32px reset toolbar.
+  Six tool checkboxes, four singleton content checkboxes, New Notebook and Reset layout
+  reuse the workbench operations. Activity rail, tab close and Agent shortcut stay available.
+- A Renderer-only, project-session-bound bridge publishes actual Dockview panel membership
+  and registered content tabs. Inactive grouped tools still count as open; no independent
+  visibility preference or IPC/schema change was added. Unmounted callbacks are revoked and
+  unavailable/project-transition controls are disabled. Content close/open keeps the existing
+  save barrier; reset preserves content/Notebook instances and restores Outline/Agent placement,
+  including when Agent was closed before reset.
+- Verification scope was static checks and three affected real Electron scenarios for menu
+  interaction, save conflicts and resizing. `check:fast` passed in 12.0s, report
+  `.cache/verification/1789811008549-66738-80cca9dd/`. One build passed in 13.5s, report
+  `.cache/verification/1789811049625-67045-a022e91f/`, and was reused for both E2E invocations.
+- The first E2E run passed workbench/menu coverage and save-conflict preservation; resizing
+  passed its pointer/keyboard assertions but failed at an overlooked old reset-button locator.
+  Report `.cache/verification/1789811076268-67387-1727b7ad/` (36.5s gate). Updating only that
+  locator to Layout > Reset layout passed the focused rerun in 2.9s, report
+  `.cache/verification/1789811128847-67780-197a8794/`. Three distinct scenarios have passing
+  evidence, with zero automatic retries/skips and one explicit fixture-only rerun.
+- Coverage includes disabled controls without a project, keyboard menu entry, Agent shortcut
+  synchronization, tool/content checkbox state, content close, Notebook creation, reset retaining
+  two Notebooks, save failure retaining a checked content tab, project/application restart,
+  tab reorder/deletion, and tool resize/reset. Desktop screenshot inspection confirms the removed
+  toolbar and unchanged usable Agent controls. Screenshot:
+  `.cache/verification/workbench-preview/workbench.png`.
+- Runtime is macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0; host Node 26.8.2 still emits the
+  existing declared-Node-24-range warning. No Windows/Linux or packaged validation, migration,
+  new dependencies, commits or remote changes were made.
+
+## 2026-09-19 Workbench scrollbar theme
+
+- Corrected the black native scrollbar on the light workbench. Dockview's internal
+  `dv-shell dockview-theme-abyss` owns a dark color-scheme and renders content in sibling
+  portals; setting the external React wrapper alone did not reach the scrolling editor.
+  A workbench-scoped shell rule now selects light native controls, with the existing `.dark`
+  application theme selecting dark controls. No scroll geometry or persistence changes.
+- Static checks passed in 11.7s (`1789811471239-72434-78ac12b3`); final formatting/diff checks
+  passed. Initial visual verification showed the wrapper-only correction was insufficient;
+  a diagnostic run inspected computed ancestor styles, then the final selector was verified
+  with an actual scroll-container color-scheme assertion and desktop screenshot. The existing
+  workbench E2E passed in 11.9s with zero retries/skips
+  (`.cache/verification/1789811622906-74548-7eb333d8/`). No new test scenario was added.
+- Rebuilt `dist/macos-arm64/mac-arm64/WriteLLM.app`; final build, signature policy and package
+  inventory passed in 32.9s (`.cache/verification/1789811603014-74079-9a3f20e1/`). One earlier
+  package preceded discovery of the nested shell. Final E2E reused the final package build's
+  source output. macOS arm64 only; no packaged functional suite or dark-mode visual acceptance.
+
+## 2026-09-19 Workbench status bar
+
+- Implemented the approved fixed 28px project status bar below the activity rail and Dockview.
+  Index readiness opens Knowledge; the AI menu summarizes live Agent work and open Notebooks,
+  prioritizes requests for input, and navigates to the corresponding conversation or retained tab.
+  Agent activity remains observed when its dockable panel is closed. Subscription failures are
+  reported through existing diagnostics and shown as unavailable, with teardown guards against
+  late snapshots/events. Knowledge job observation now belongs to the shell and updates the
+  existing query cache without a second Knowledge-panel subscription.
+- Moved Autocomplete controls and compact activity/error hints from the manuscript header to
+  the status bar. The existing settings, temporary overrides, focus behavior and completion
+  semantics remain; status is tracked per section and hidden outside section tabs. Saved chapter
+  and manuscript word counts appear on editor tabs, manuscript counts elsewhere, and character
+  counts in a keyboard-accessible tooltip. Removed the duplicate Outline footer counts while
+  preserving per-section counts and completion totals. No dependency, migration or IPC change.
+- Verification: `check:fast` passed in 11.5s; subsequent focused Biome and diff checks cover the
+  test-only cleanup. Seven status/lifecycle tests passed in 1.3s after one focused failure exposed
+  a stale snapshot on activation failure; the fix clears that snapshot. Existing autocomplete
+  and Knowledge-model coverage added 38 passing tests in 1.2s: 45 distinct passing tests total.
+  Reports: `.cache/verification/1789812809656-84018-c690e0e1/`,
+  `1789812795416-83863-4058f712/`, and `1789812884889-84779-f287fcb4/`.
+- One production build passed in 11.9s (`1789812842485-84279-706957aa`). Four distinct real
+  Electron scenarios have passing final-source evidence: workbench docking/restoration,
+  autocomplete, Agent concurrency and Agent clarification. The initial 52.6s run passed the
+  first two; both Agent fixtures still assumed a closed panel and toggled the now-default-open
+  panel off. Correcting those fixtures to use the status menu passed both plus a workbench
+  screenshot confirmation in 15.9s, with zero automatic retries/skips and the same build.
+  Reports: `1789812879569-84692-bec6fc94/` and `1789812980858-85529-cbd90ba6/`.
+- Light/dark screenshots are under `.cache/verification/workbench-preview/`; the workbench
+  scenario verifies upward menus, saved word counts, bottom docking geometry, Notebook navigation,
+  and close/reopen cleanup. The mechanical UI detector reported no findings. Runtime verification
+  is macOS arm64, Electron 43.4.1 / ABI 148. Host pnpm 11.17.0 matches the manifest; host Node
+  26.8.2 produces the existing declared-Node-range warning. The host toolchain was preserved.
+  No package/release, commit or push was performed.
+
+
+## 2026-09-19 Status-bar App rebuild
+
+- The user requested a runnable App containing the status bar. `pnpm package:unpack` produced
+  `dist/macos-arm64/mac-arm64/WriteLLM.app` with release metadata 0.2026.9.7 from the current
+  dirty working tree. The no-Team-ID signature policy and ASAR/resource/native inventory passed
+  (34,023 ASAR entries, arm64 better-sqlite3/sqlite-vec, Electron 43.4.1 / ABI 148).
+- The initial build reached packaging but sandbox DNS blocked github.com; it was interrupted
+  after 57.2s. The identical command outside the sandbox passed all four build stages in 33.2s.
+  Successful report: `.cache/verification/1789813222772-87547-4e2554ec/`.
+- Additional packaged runtime smoke verified native hybrid FTS/vector loading. The first attempt
+  then hit sandbox loopback EPERM; the same smoke outside the sandbox also passed the credential
+  backend check but failed during comment creation with
+  `Manuscript mutation editor flush revision was not acknowledged` (3.4s).
+  Report: `.cache/verification/1789813277935-88308-10e3476a/`.
+  This is a build-only App with partial runtime evidence, not a passed complete package gate.
+  No installer, release publication, commit or push was performed.
+
+## 2026-09-19 Notebook source capacity
+
+The user authorized implementing the plan to remove Notebook's fifty-source restriction rather
+than raising it to another arbitrary count. ADR 058 and the architecture now distinguish selectable
+source capacity from bounded retrieval results, citations, evidence, and model context.
+
+Removed the available-source truncation and source-count caps from Notebook selection/snapshot
+contracts and shared Knowledge search filters. SQL source membership uses one JSON-array binding
+with `json_each`, shared by FTS and vector filtering, avoiding per-source SQL variables. Notebook
+retains explicit frozen per-turn source IDs and Main authorization; the Agent's twenty-ID explicit
+tool subset bound remains separate from its ability to search the entire selected set.
+
+Sources show index availability independently of selection. Removed the fifty-source caption and
+added checking/unavailable index labels. A regression test exposed stale explicit selections after
+an unavailable index recovered without changing the effective empty scope; reconciliation now
+prunes and publishes that selection change. Existing lifecycle logging remains in use. No schema
+migration, dependency changes, reparse, embedding rebuild, or new persistence was introduced.
+
+Verification:
+
+- Forty-seven distinct focused Electron-hosted tests passed across Notebook contracts/service,
+  Notebook IPC, retrieval service, SQL filters, and the real index database. Source selection and
+  search scopes cover 51, 201, 301 and 1,000 entries; SQL parameter cardinality covers 40,000 IDs.
+  A real 301-source SQLite/sqlite-vec fixture retrieves the last source, combines source/revision/
+  extension/page/heading filters, excludes it when deselected, and expands its citation. Lifecycle
+  coverage includes all-source refresh, explicit-selection preservation and pruning, empty scope,
+  frozen active-turn scope, forbidden search/citation access, project teardown, and independent
+  Notebook instances.
+- The initial 41-test invocation took 4.0s and exposed the stale-selection bug plus a vector-fixture
+  error: identical text reused the same embedding cache entry. After fixing reconciliation and
+  making target text distinct, 38 related tests passed in 4.0s; eight already-passing contract/SQL
+  tests remained applicable. One additional frozen-scope test passed in 2.2s (19 others intentionally
+  excluded by the test-name filter). No automatic test retries ran.
+- `pnpm check:e2e e2e/notebook.spec.ts e2e/parsed-knowledge.spec.ts --grep 'Notebook|parses, normalizes'`
+  passed Biome over 832 files, both typechecks, native verification and one production build. The
+  existing transient-session and parse/search/citation scenarios passed in 3.4s and 9.4s. The new
+  large-source scenario was deliberately interrupted when its polling helper was found to inspect
+  only 100 recent jobs. It now counts published sources via the existing Knowledge list API.
+- The first focused rerun reached 301/301 and verified deselection/reselection, then failed because
+  its resize locator expected the pre-Dockview sidebar handle (75.8s). The final test uses a normal
+  1440x900 desktop window and drags the actual Dockview divider, asserting a changed content width.
+  Reusing the same build, `pnpm test:e2e e2e/parsed-knowledge.spec.ts --grep 'more than 300'` passed in
+  45.0s with zero retries/skips. It imports/parses/indexes 301 distinct local PDF fixtures through
+  a loopback MinerU service, selects the lexicographically last ID, completes scoped search →
+  citation read → answer, opens the citation, clears chat, and completes another question with
+  all 301 source IDs passed through the real retrieval chain. Loopback model responses are
+  deterministic; no external provider calls are part of this evidence.
+- Final affected-file Biome, Node typecheck and diff whitespace checks passed. The Impeccable
+  mechanical check reported no findings. SQLite JSON-array syntax was verified through Context7.
+  Host pnpm 11.17.0 matches the manifest; host Node 26.8.2 remains outside declared 24.x. Tests and
+  native checks use Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9 on macOS
+  arm64. Other platforms and packaged runtime were not rerun; existing packaged App is unchanged.
+
+Final large-source report: `.cache/verification/1789815186865-3314-0b05c3e8`.
+No commit, push, package/release, or publication was performed.
+
+## 2026-09-19 Release 0.2026.9.8 preparation
+
+The user authorized building the App, committing recent changes, tagging the next September
+version, and publishing a Release. Remote tags/releases confirmed 0.2026.9.8 was unused.
+The candidate includes ADR 083's Dockview shell and independent Notebooks, layout menus,
+status bar, scrollbar theme, and the Notebook source-capacity amendment, plus the earlier
+keyboard shortcut and HTTP endpoint changes already on main since 0.2026.9.7.
+
+- `release.version` is 0.2026.9.8; the package base remains 0.2026.9.
+- Host pnpm 11.17.0 matches the manifest; explicit frozen install passed. Host Node 26.8.2
+  remains outside the declared 24.x range. Native verification uses Electron 43.4.1 ABI 148.
+- Complete `pnpm test` passed 261 files / 1,615 tests, with three intentional benchmark
+  skips, in 25.2s and without retries. Report: `.cache/verification/1789815391769-4916-3acc3a9d`.
+- This preparation records the source candidate only. Local packaged runtime acceptance,
+  four-platform tag builds, installer verification and public publication are recorded later
+  from their actual results. Existing tags and releases remain unchanged.

@@ -1,3 +1,4 @@
+import { useEmbeddedWorkspace } from '@/features/workbench/embedded-workspace'
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { PanelLeftIcon } from 'lucide-react'
@@ -166,6 +167,21 @@ function Sidebar({
   resizable?: boolean
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+
+  const embedded = useEmbeddedWorkspace()
+  if (embedded && collapsible !== 'none') {
+    return (
+      <div
+        data-slot='sidebar'
+        className={cn(
+          'relative h-full w-2/5 max-w-(--sidebar-width) shrink-0 flex-col overflow-hidden border-r bg-sidebar',
+          state === 'expanded' ? 'flex' : 'hidden'
+        )}
+      >
+        {children}
+      </div>
+    )
+  }
 
   if (collapsible === 'none') {
     return (

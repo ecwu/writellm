@@ -172,7 +172,8 @@ test(
         if (target === undefined) throw new Error('Background Agent target missing')
         return target.section.sectionId
       })
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await launched.page.getByRole('button', { name: /^AI tasks:/ }).click()
+      await launched.page.getByRole('menuitem', { name: 'Open Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -194,6 +195,19 @@ test(
       await panel.getByLabel('Agent message').fill('Run the second conversation independently.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect.poll(() => pendingAgentResponses.length).toBe(2)
+      const status = launched.page.getByTestId('workbench-status-bar')
+      await expect(
+        status.getByRole('button', { name: 'AI tasks: 2 running', exact: true })
+      ).toBeVisible()
+      await launched.page.getByTestId('agent-menubar-trigger').click()
+      await expect(panel).toHaveCount(0)
+      await expect(
+        status.getByRole('button', { name: 'AI tasks: 2 running', exact: true })
+      ).toBeVisible()
+      await status.getByRole('button', { name: 'AI tasks: 2 running', exact: true }).click()
+      await launched.page.getByRole('menuitem', { name: /Agent 1 ·/ }).click()
+      await expect(panel).toBeVisible()
+      await expect(panel).toContainText('Keep the first conversation running.')
 
       await panel.getByTestId('agent-conversation-switcher').click()
       await expect(launched.page.getByRole('option').filter({ hasText: 'Working' })).toHaveCount(2)

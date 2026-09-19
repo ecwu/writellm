@@ -91,6 +91,7 @@ export function registerEditorIpc(options: {
     signal?: AbortSignal
   }) => Promise<LatexImportWorkerResult>
 }): {
+  authorizeLayoutFlush(projectSessionId: string, closingToken: string, senderId: number): string
   closeParticipants: ProjectCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
   flushForMutation(
@@ -559,6 +560,19 @@ export function registerEditorIpc(options: {
   }
 
   return {
+    authorizeLayoutFlush(projectSessionId, closingToken, senderId) {
+      const request = pending.get(closingToken)
+      const active = options.manager.snapshot().activeProject
+      if (
+        !request ||
+        request.acknowledgedRevision !== null ||
+        request.senderId !== senderId ||
+        request.authorization.projectSessionId !== projectSessionId ||
+        active?.projectSessionId !== projectSessionId
+      )
+        throw new Error('Layout flush is not authorized')
+      return active.projectId
+    },
     closeParticipants,
     snapshotParticipants,
     flushForMutation,

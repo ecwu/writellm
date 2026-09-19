@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { registerNotebookChatIpc } from './notebook-chat-ipc'
 
+const notebookId = '019d0000-0000-7000-8000-000000000499'
 const projectSessionId = '019d0000-0000-7000-8000-000000000420'
 const snapshot = {
   projectSessionId,
+  notebookId,
   revision: 0,
   phase: 'idle',
   activeTurnId: null,
@@ -37,7 +39,14 @@ describe('Notebook chat IPC', () => {
     const manager = {
       assertActiveSession: vi.fn((sessionId: string) => {
         if (sessionId !== projectSessionId) throw new Error('stale project session')
-        return { knowledgeChat: service }
+        return {
+          knowledgeChat: {
+            instance: (id: string) => {
+              if (id !== notebookId) throw new Error('Notebook is closed or unavailable')
+              return service
+            }
+          }
+        }
       })
     }
     const broker = {
@@ -64,23 +73,29 @@ describe('Notebook chat IPC', () => {
     const invoke = (channel: string, input: unknown) =>
       handlers.get(channel)?.(trusted as never, input as never)
 
-    await expect(invoke(IPC_CHANNELS.notebookChatSubscribe, { projectSessionId })).resolves.toEqual(
-      { snapshot }
-    )
-    expect(broker.subscribe).toHaveBeenCalledWith(sender, projectSessionId)
     await expect(
-      invoke(IPC_CHANNELS.notebookChatStartTurn, { projectSessionId, content: 'Question' })
+      invoke(IPC_CHANNELS.notebookChatSubscribe, { projectSessionId, notebookId })
+    ).resolves.toEqual({ snapshot })
+    expect(broker.subscribe).toHaveBeenCalledWith(sender, projectSessionId, notebookId)
+    await expect(
+      invoke(IPC_CHANNELS.notebookChatStartTurn, {
+        projectSessionId,
+        notebookId,
+        content: 'Question'
+      })
     ).resolves.toMatchObject({ snapshot })
     expect(service.startTurn).toHaveBeenCalledWith('Question')
     await expect(
       invoke(IPC_CHANNELS.notebookChatSetSources, {
         projectSessionId,
+        notebookId,
         sourceScope: { mode: 'selected', knowledgeItemIds: [] }
       })
     ).resolves.toEqual(snapshot)
     await expect(
       invoke(IPC_CHANNELS.notebookChatSetThinkingLevel, {
         projectSessionId,
+        notebookId,
         level: 'high'
       })
     ).resolves.toEqual(snapshot)
@@ -93,12 +108,13 @@ describe('Notebook chat IPC', () => {
     expect(() =>
       handlers.get(IPC_CHANNELS.notebookChatSnapshot)?.(
         untrusted as never,
-        { projectSessionId } as never
+        { projectSessionId, notebookId } as never
       )
     ).toThrow('Unauthorized IPC sender')
     expect(() =>
       invoke(IPC_CHANNELS.notebookChatStartTurn, {
         projectSessionId,
+        notebookId,
         content: 'x'.repeat(20_000)
       })
     ).toThrow()

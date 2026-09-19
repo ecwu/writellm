@@ -253,7 +253,11 @@ test(
         baseUrl: `http://127.0.0.1:${port}/v1`,
         model: 'writer-model'
       })
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-model-selector').click()
       const picker = launched.page.getByTestId('agent-model-picker')
@@ -644,7 +648,11 @@ test(
       })
       await createProject(launched.page, projectName)
 
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       const setupPanel = launched.page.getByTestId('agent-panel')
       await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
       await setupPanel.getByTestId('agent-model-selector').click()
@@ -771,7 +779,7 @@ test(
       const agentTrigger = launched.page.getByTestId('agent-menubar-trigger')
       await expect(agentTrigger).toBeVisible()
       await expect(launched.page.getByRole('button', { name: 'Agent', exact: true })).toHaveCount(1)
-      await agentTrigger.click()
+      if ((await agentTrigger.getAttribute('aria-pressed')) !== 'true') await agentTrigger.click()
       const panel = launched.page.getByTestId('agent-panel')
       await expect(panel).toBeVisible()
       await expect(panel.getByTestId('agent-model-recovery')).toBeVisible()

@@ -18,6 +18,8 @@ export interface AgentPanelPromptRequest {
 }
 
 export interface AgentPanelProps {
+  sessionRequest?: { requestId: string; agentSessionId: string } | null
+  onSessionRequestHandled?(): void
   open: boolean
   onOpenChange(open: boolean): void
   onOpenSettings(): void

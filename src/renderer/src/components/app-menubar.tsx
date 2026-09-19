@@ -1,3 +1,10 @@
+import {
+  layoutTools,
+  layoutPages,
+  type LayoutControls,
+  type LayoutPage
+} from '@/features/workbench/layout-controls'
+import type { WorkbenchTool } from '../../../shared/contracts/workbench'
 import { shortcutLabel } from '@/lib/keyboard-shortcuts'
 import {
   ArchiveRestore,
@@ -22,6 +29,7 @@ import { Button } from '@/components/ui/button'
 import {
   Menubar,
   MenubarContent,
+  MenubarCheckboxItem,
   MenubarGroup,
   MenubarItem,
   MenubarLabel,
@@ -32,6 +40,7 @@ import {
 } from '@/components/ui/menubar'
 
 interface AppMenubarProps {
+  layoutControls: LayoutControls | null
   busy: boolean
   projectSelectionDisabled: boolean
   hasProject: boolean
@@ -63,6 +72,7 @@ interface AppMenubarProps {
 }
 
 export function AppMenubar({
+  layoutControls,
   busy,
   projectSelectionDisabled,
   hasProject,
@@ -182,6 +192,53 @@ export function AppMenubar({
               <Search /> Find in manuscript
               <MenubarShortcut>{shortcutLabel('find')}</MenubarShortcut>
             </MenubarItem>
+          </MenubarContent>
+        </MenubarMenu>
+        <MenubarMenu>
+          <MenubarTrigger>Layout</MenubarTrigger>
+          <MenubarContent>
+            <MenubarLabel>Tool panels</MenubarLabel>
+            <MenubarGroup>
+              {Object.entries(layoutTools).map(([kind, label]) => (
+                <MenubarCheckboxItem
+                  key={kind}
+                  disabled={busy || !layoutControls}
+                  checked={layoutControls?.tools.includes(kind as WorkbenchTool) ?? false}
+                  onCheckedChange={(open) => layoutControls?.setTool(kind as WorkbenchTool, open)}
+                >
+                  {label}
+                </MenubarCheckboxItem>
+              ))}
+            </MenubarGroup>
+            <MenubarSeparator />
+            <MenubarLabel>Content pages</MenubarLabel>
+            <MenubarGroup>
+              {Object.entries(layoutPages).map(([kind, label]) => (
+                <MenubarCheckboxItem
+                  key={kind}
+                  disabled={busy || !layoutControls}
+                  checked={layoutControls?.pages.includes(kind as LayoutPage) ?? false}
+                  onCheckedChange={(open) => layoutControls?.setPage(kind as LayoutPage, open)}
+                >
+                  {label}
+                </MenubarCheckboxItem>
+              ))}
+              <MenubarItem
+                disabled={busy || !layoutControls?.canCreateNotebook}
+                onSelect={() => layoutControls?.newNotebook()}
+              >
+                New Notebook
+              </MenubarItem>
+            </MenubarGroup>
+            <MenubarSeparator />
+            <MenubarGroup>
+              <MenubarItem
+                disabled={busy || !layoutControls}
+                onSelect={() => layoutControls?.reset()}
+              >
+                Reset layout
+              </MenubarItem>
+            </MenubarGroup>
           </MenubarContent>
         </MenubarMenu>
         <MenubarMenu>

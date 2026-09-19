@@ -49,6 +49,7 @@ import { agentToolProfileAllows } from '../../shared/agent-tool-specs'
 
 export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime {
   readonly #worker: PersistentUtilityProcess
+  readonly #activeSessionRequests = new Set<string>()
 
   constructor(
     modulePath: string,
@@ -135,6 +136,21 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       ...input,
       modelLimits: input.modelLimits ?? legacyLimits(config.contextWindowTokens)
     })
+    if (this.#activeSessionRequests.size >= 3) {
+      this.log.info(
+        {
+          event: 'agent.admission.rejected',
+          projectSessionId: request.projectSessionId,
+          activeCount: this.#activeSessionRequests.size
+        },
+        'Agent and Notebook concurrency limit reached'
+      )
+      return rejectedSessionHandle(
+        new Error(
+          'Three Agent or Notebook answers are already running. Wait for one to finish or stop an answer.'
+        )
+      )
+    }
     const { port1, port2 } = this.createMessageChannel()
     const traceRequestIds = new Set([request.modelRequestId])
     const toolBridge = this.#attachToolBridge(port1, request, signal, onToolRequest)
@@ -155,23 +171,40 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       pendingQueueActions.delete(event.actionId)
       pending.resolve(event.outcome)
     }
-    const workerCompletion = this.#worker.request<AgentSessionRunResult>({
-      requestId,
-      payload: request,
-      signal,
-      rejectOnAbort: abortError(),
-      cancelPayload: {
-        operation: 'cancel',
+    this.#activeSessionRequests.add(requestId)
+    let workerCompletion: Promise<AgentSessionRunResult>
+    try {
+      workerCompletion = this.#worker.request<AgentSessionRunResult>({
         requestId,
-        projectSessionId: request.projectSessionId,
-        agentSessionId: request.agentSessionId,
-        agentRunId: request.agentRunId
-      },
-      transfer: [port2],
-      onMessage: (raw) =>
-        this.#handleSessionMessage(raw, request, deliverSessionEvent, traceRequestIds)
-    })
+        payload: request,
+        signal,
+        rejectOnAbort: abortError(),
+        cancelPayload: {
+          operation: 'cancel',
+          requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId
+        },
+        transfer: [port2],
+        onMessage: (raw) =>
+          this.#handleSessionMessage(raw, request, deliverSessionEvent, traceRequestIds)
+      })
+    } catch (err) {
+      this.log.error(
+        {
+          event: 'agent.admission.start_failed',
+          err,
+          requestId,
+          projectSessionId: request.projectSessionId
+        },
+        'Agent worker could not start'
+      )
+      workerCompletion = Promise.reject(err)
+    }
+
     const completion = workerCompletion.finally(async () => {
+      this.#activeSessionRequests.delete(requestId)
       const error = new Error('Agent run ended before a queue action completed')
       for (const pending of pendingQueueActions.values()) pending.reject(error)
       pendingQueueActions.clear()

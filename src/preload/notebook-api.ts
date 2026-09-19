@@ -1,6 +1,8 @@
 import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
+  notebookCreateInputSchema,
+  notebookDestroyInputSchema,
   notebookChatClearInputSchema,
   notebookChatCommandResultSchema,
   notebookChatEventSchema,
@@ -19,6 +21,14 @@ import {
 import type { DesktopApi } from './desktop-api'
 
 export const notebookApi: DesktopApi['notebook'] = {
+  async create(input) {
+    return notebookChatSnapshotSchema.parse(
+      await ipcRenderer.invoke(IPC_CHANNELS.notebookCreate, notebookCreateInputSchema.parse(input))
+    )
+  },
+  async destroy(input) {
+    await ipcRenderer.invoke(IPC_CHANNELS.notebookDestroy, notebookDestroyInputSchema.parse(input))
+  },
   async snapshot(input) {
     return notebookChatSnapshotSchema.parse(
       await ipcRenderer.invoke(
@@ -79,7 +89,10 @@ export const notebookApi: DesktopApi['notebook'] = {
     const parsedInput = notebookChatSubscribeInputSchema.parse(input)
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
       const notebookEvent = notebookChatEventSchema.parse(value)
-      if (notebookEvent.projectSessionId === parsedInput.projectSessionId) {
+      if (
+        notebookEvent.projectSessionId === parsedInput.projectSessionId &&
+        notebookEvent.notebookId === parsedInput.notebookId
+      ) {
         listener(notebookEvent)
       }
     }

@@ -279,7 +279,11 @@ test(
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('First original')
 
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      if (
+        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
+        'true'
+      )
+        await launched.page.getByTestId('agent-menubar-trigger').click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

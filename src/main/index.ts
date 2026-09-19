@@ -1,3 +1,4 @@
+import { registerWorkbenchIpc } from './ipc/workbench-ipc'
 import { autocompleteChangeSchema } from '../shared/contracts/autocomplete'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import { AutocompleteService } from './providers/autocomplete-service'
@@ -791,6 +792,13 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      const workbenchIpc = registerWorkbenchIpc({
+        authorizeLayoutFlush: editorIpc.authorizeLayoutFlush,
+        manager: projectManager,
+        settings: appSettings,
+        log: loggerSystem.createModuleLogger('app', 'workbench'),
+        developmentUrl
+      })
       const notebookIpc = registerNotebookChatIpc({
         manager: projectManager,
         broker: notebookEvents,
@@ -867,6 +875,7 @@ if (!hasSingleInstanceLock) {
           autocompleteIpc.unregister()
           unregisterProviderIpc()
           unregisterSearchIpc()
+          workbenchIpc.unregister()
           notebookIpc.unregister()
           unregisterKnowledgeIpc()
           unregisterManuscriptIpc.unregister()
