@@ -102,6 +102,8 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
     }
   }
   const page = await app.firstWindow()
+  const browserWindow = await app.browserWindow(page)
+  await browserWindow.evaluate((window) => window.setContentSize(1440, 900))
   const rendererErrors = rendererErrorsForCurrentTest()
   page.on('pageerror', (error) => {
     const details = {
@@ -186,7 +188,7 @@ export async function expectActiveProject(page: Page, name: string): Promise<voi
 export function sectionEditor(page: Page) {
   return page
     .locator('[data-testid="section-editor"]:visible')
-    .locator('.bn-editor[role="textbox"]')
+    .locator('.bn-editor[role="textbox"]:visible')
 }
 
 interface Fixtures {

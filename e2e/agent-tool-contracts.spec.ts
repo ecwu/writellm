@@ -201,7 +201,8 @@ test(
     try {
       await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
       await createProject(launched.page, projectName)
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      if (!(await launched.page.getByTestId('agent-panel').isVisible()))
+        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

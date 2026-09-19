@@ -166,7 +166,8 @@ test(
       await create.getByRole('button', { name: 'Choose location' }).click()
       await expectActiveProject(page, 'Message editing')
       await page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-      await page.getByRole('button', { name: 'Agent', exact: true }).click()
+      if (!(await page.getByTestId('agent-panel').isVisible()))
+        await page.getByRole('button', { name: 'Agent', exact: true }).click()
       const panel = page.getByTestId('agent-panel')
       const timeline = panel.getByTestId('agent-event-timeline')
       const send = async (text: string) => {
@@ -231,7 +232,11 @@ test(
       await expect(timeline.getByText('Original answer', { exact: true })).toBeVisible()
       await edit.click()
       await editor.fill('copy-revised\nNew second line')
-      const resizeHandle = page.locator('[data-separator]').last()
+      const resizeHandle = page
+        .locator(
+          '.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash.dv-enabled'
+        )
+        .last()
       await expect(resizeHandle).toBeVisible()
       const initialWidth = await panel.evaluate((node) => node.clientWidth)
       const handleBox = await resizeHandle.boundingBox()

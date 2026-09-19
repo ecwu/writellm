@@ -223,7 +223,8 @@ test(
         return ordered.map((item) => item.section.sectionId)
       })
 
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      if (!(await launched.page.getByTestId('agent-panel').isVisible()))
+        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByLabel('Agent message').fill('Read RQ1, RQ2, and RQ3 in order, then report.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()

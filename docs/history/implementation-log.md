@@ -3573,3 +3573,22 @@ section ID to its retained editor; when that section was never mounted, the cont
 its existing revision acknowledgement path. Main still validates the token, sender and exact
 requested revision. The smoke scenario remains unchanged as regression coverage. A fresh
 clean-source package gate is required after this repair; no tag was pushed from the failed build.
+
+The second clean-source package gate passed runtime smoke (38.7s), including the unchanged
+comment scenario. Its packaged E2E reported 31/41 passing in 226.6s with zero retries, exposing
+stale single-editor/closed-Agent/default-window test assumptions after Dockview and a genuine
+activity-delivery defect. Tests now use a 1440x900 desktop fixture, the visible retained editor,
+Dockview resize handles, scoped alerts, restored active-section expectations, and wait for the
+selected section before editing. Existing explicit-size scenarios retain their dimensions.
+Two focused reruns against that same App resolved nine of the ten original scenarios; their
+reports retain the intermediate failures rather than claiming a clean first pass.
+
+The remaining streaming-copy scenario identified duplicate deltas: status bar and Agent panel
+subscribe independently, but each Main delivery was consumed by both preload listeners. Activity
+delivery now carries its subscription ID in a strict shared Zod envelope and preload routes only
+the matching lease. Project capability checks, bounded snapshot queues, cancellation and logging
+remain intact. A regression test connects the real broker to two preload subscribers, verifying
+one delivery each across delayed activation, live delivery and independent unsubscribe. All 33
+focused broker/preload/IPC/content/status tests passed in 1.4s without retries. Report:
+`.cache/verification/1789816413918-13771-742fc535`. The final source requires a fresh full package
+gate before tagging; no failed candidate was pushed.

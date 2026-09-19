@@ -399,7 +399,8 @@ test(
           'Portable no key',
           'Portable no key'
         )
-        await first.page.getByRole('button', { name: 'Agent', exact: true }).click()
+        if (!(await first.page.getByTestId('agent-panel').isVisible()))
+          await first.page.getByRole('button', { name: 'Agent', exact: true }).click()
         const panel = first.page.getByTestId('agent-panel')
         await panel.getByTestId('agent-conversation-menu').click()
         await first.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

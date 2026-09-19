@@ -1225,8 +1225,9 @@ Continue only the original user request that remains unresolved after this appro
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
-      await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
+      if (!(await launched.page.getByTestId('agent-panel').isVisible()))
+        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
         'Grounded evidence proposal'
       )
@@ -1270,7 +1271,7 @@ Continue only the original user request that remains unresolved after this appro
       await expect(
         panel.getByText('AI-generated context checkpoint, not manuscript authority.')
       ).toBeVisible()
-      await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
+      await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       expect(compactionCall).toBe(1)
 
       await panel.getByRole('button', { name: 'Undo', exact: true }).click()

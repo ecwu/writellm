@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 import type { Logger } from 'pino'
 import {
   agentRendererEventSchema,
+  agentActivityDeliverySchema,
   type AgentEventRecord,
   type AgentProjectActivitySnapshot,
   type AgentRendererEvent,
@@ -231,7 +232,10 @@ export class AgentEventBroker {
       return false
     }
     try {
-      subscription.sender.send(IPC_CHANNELS.agentActivity, event)
+      subscription.sender.send(
+        IPC_CHANNELS.agentActivity,
+        agentActivityDeliverySchema.parse({ subscriptionId: subscription.subscriptionId, event })
+      )
       return true
     } catch (err) {
       this.#activitySubscriptions.delete(key)

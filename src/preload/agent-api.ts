@@ -26,6 +26,7 @@ import {
   agentPendingMessageActionInputSchema,
   agentQueueInputSchema,
   agentRendererEventSchema,
+  agentActivityDeliverySchema,
   agentRestoreSessionInputSchema,
   agentRestoreSessionResultSchema,
   agentRunInputSchema,
@@ -312,7 +313,9 @@ export const agentApi: DesktopApi['agent'] = {
     let disposed = false
     const queued: AgentRendererEvent[] = []
     const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
-      const parsed = agentRendererEventSchema.parse(value)
+      const delivery = agentActivityDeliverySchema.parse(value)
+      if (delivery.subscriptionId !== subscription.subscriptionId) return
+      const parsed = delivery.event
       if (parsed.projectSessionId !== subscription.projectSessionId || disposed) return
       if (replaying) queued.push(parsed)
       else listener(parsed)

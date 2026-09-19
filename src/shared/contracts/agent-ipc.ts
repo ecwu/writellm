@@ -521,6 +521,11 @@ export const agentRendererEventSchema = z.discriminatedUnion('kind', [
   agentActivityRendererEventSchema
 ])
 
+export const agentActivityDeliverySchema = strictObject({
+  subscriptionId: z.uuid(),
+  event: agentRendererEventSchema
+})
+
 export type AgentSessionRecord = z.infer<typeof agentSessionRecordSchema>
 export type AgentSessionWorkflowState = z.infer<typeof agentSessionWorkflowStateSchema>
 export type AgentRunRecord = z.infer<typeof agentRunRecordSchema>

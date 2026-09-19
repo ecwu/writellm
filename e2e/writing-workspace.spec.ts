@@ -999,11 +999,11 @@ test(
 
       await launched.page.getByRole('button', { name: 'Apply 2 replacements in 1 section' }).click()
       await expect(launched.page.getByText('Applied 2 replacements in 1 sections.')).toBeVisible()
-      await expect(launched.page.getByRole('alert')).toBeFocused()
+      await expect(
+        launched.page.getByRole('alert').filter({ hasText: 'Applied 2 replacements' })
+      ).toBeFocused()
       await launched.page.getByRole('button', { name: 'Close Find' }).click()
-      await expect(launched.page.locator('.bn-editor')).toContainText(
-        'Beta evidence and Beta conclusion.'
-      )
+      await expect(sectionEditor(launched.page)).toContainText('Beta evidence and Beta conclusion.')
     } finally {
       await launched.app.close()
     }
@@ -1107,7 +1107,7 @@ Hello \textbf{reviewed} import with $x^2$.
       })
       await expect(evidence).toBeVisible()
       await evidence.click()
-      await expect(launched.page.locator('.bn-editor')).toContainText('\\cite{missing-key}')
+      await expect(sectionEditor(launched.page)).toContainText('\\cite{missing-key}')
 
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
@@ -1121,7 +1121,7 @@ Hello \textbf{reviewed} import with $x^2$.
         hasText: 'Imported evidence'
       })
       await reopenedEvidence.click()
-      await expect(launched.page.locator('.bn-editor')).toContainText('\\cite{missing-key}')
+      await expect(sectionEditor(launched.page)).toContainText('\\cite{missing-key}')
     } finally {
       await launched.app.close()
     }
@@ -1181,9 +1181,9 @@ Evidence from \cite{garcia2025}.
         hasText: 'Imported project results'
       })
       await imported.click()
-      await expect(launched.page.locator('.bn-editor')).toContainText('García, 2025')
-      await expect(launched.page.locator('.bn-editor img')).toHaveCount(1)
-      await expect(launched.page.locator('.bn-editor')).toContainText('Alpha')
+      await expect(sectionEditor(launched.page)).toContainText('García, 2025')
+      await expect(sectionEditor(launched.page).locator('img')).toHaveCount(1)
+      await expect(sectionEditor(launched.page)).toContainText('Alpha')
     } finally {
       await launched.app.close()
     }
@@ -1528,6 +1528,7 @@ test(
         .filter({ hasText: 'Introduction' })
         .click()
       const cachedEditor = sectionEditor(launched.page)
+      await expect(cachedEditor).toContainText('Opening evidence')
       await cachedEditor.click()
       await launched.page.keyboard.type(' Final flush draft')
       await closeProject(launched.page)

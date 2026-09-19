@@ -72,7 +72,8 @@ test(
       })
 
       await createProject(launched.page, 'Thinking Alpha')
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      if (!(await launched.page.getByTestId('agent-panel').isVisible()))
+        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -125,7 +126,8 @@ test(
       await panel.getByLabel('Close writing agent').click()
       await closeProject(launched.page)
       await createProject(launched.page, 'Thinking Beta')
-      await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+      if (!(await launched.page.getByTestId('agent-panel').isVisible()))
+        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
       await expect(

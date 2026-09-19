@@ -68,14 +68,20 @@ describe('AgentEventBroker', () => {
     expect(sent).toEqual([
       expect.objectContaining({
         channel: 'agent:activity',
-        value: expect.objectContaining({ kind: 'delta', delta: 'snapshot-race' })
+        value: {
+          subscriptionId,
+          event: expect.objectContaining({ kind: 'delta', delta: 'snapshot-race' })
+        }
       }),
       expect.objectContaining({
         channel: 'agent:activity',
-        value: expect.objectContaining({
-          kind: 'activity',
-          snapshot: { activeCount: 0, runs: [], compactions: [] }
-        })
+        value: {
+          subscriptionId,
+          event: expect.objectContaining({
+            kind: 'activity',
+            snapshot: { activeCount: 0, runs: [], compactions: [] }
+          })
+        }
       })
     ])
   })
