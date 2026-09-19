@@ -31,6 +31,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Section editor titles now retain the intended 30px semibold typography at desktop widths,
+  overriding the shared Textarea's default 14px desktop size. Static verification passed;
+  no build or packaged runtime verification was needed for this style-only correction.
+  Existing `out/` and the local App predate this change.
+  Evidence: [section title typography](history/implementation-log.md#2026-09-19-section-title-typography).
+
 - Source candidate `v0.2026.9.9` records the verified sidebar layout and empty-workbench navigation
   changes as a local annotated tag. Release metadata is 0.2026.9.9; no remote push or GitHub Release
   is part of this tag-only checkpoint. The previously built local App remains 0.2026.9.8 and

@@ -3737,3 +3737,16 @@ This documentation follow-up does not move or rebuild the immutable release tag.
 - Tag preparation checks: frozen install passed without lockfile changes; package metadata
   resolution, Biome and diff checks passed. Existing functional verification was reused because
   this step changes only release metadata and documentation.
+
+## 2026-09-19 Section title typography
+
+- Corrected the section title Textarea's desktop font override: shared `md:text-sm` had
+  overridden its existing `text-3xl`. The title now uses `md:text-3xl` too, retaining 30px
+  semibold typography, content-driven wrapping, and the existing editing/save behavior.
+- `pnpm check:fast` passed all three stages in 12.0s (833 files checked; both typechecks),
+  with zero retries. The typography detector returned no findings; a direct tailwind-merge
+  check confirmed that the title classes remove the shared 14px desktop default.
+  Report: `.cache/verification/1789826932529-84765-83201381/`.
+- pnpm 11.17.0 matches the project pin; host Node 26.8.2 emitted the existing engine-range
+  warning. This style-only change required no interaction tests, build, or packaged gate;
+  rendered runtime appearance was not inspected. Existing `out/` and the local App predate it.

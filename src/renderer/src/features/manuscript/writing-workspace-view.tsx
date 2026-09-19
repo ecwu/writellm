@@ -484,7 +484,7 @@ export function WritingWorkspaceView(input: {
                     if (saved) editorRef.current?.focus()
                   })
                 }}
-                className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring'
+                className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring md:text-3xl'
               />
               <div className='order-first flex shrink-0 items-center justify-end gap-2'>
                 <Badge variant='outline' className='max-md:hidden'>
