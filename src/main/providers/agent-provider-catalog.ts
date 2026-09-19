@@ -1084,7 +1084,7 @@ async function fetchCustomModels(
     } else if (preset.api === 'azure-openai-responses') headers.set('api-key', apiKey)
     else headers.set('authorization', `Bearer ${apiKey}`)
   }
-  const response = await fetchConfiguredEndpoint(url, { headers, signal })
+  const response = await fetchConfiguredEndpoint(url, { headers, signal }, fetch, 'model-service')
   if (!response.ok) throw new Error(`Model discovery returned HTTP ${response.status}`)
   const text = await readBoundedText(response, MAX_CATALOG_BYTES)
   const parsed = JSON.parse(text) as unknown

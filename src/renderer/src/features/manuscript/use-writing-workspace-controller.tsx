@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import type {
   BlockNoteDocument,
   ManuscriptReferenceEntry,
@@ -1134,21 +1135,16 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         } else closeFind()
         return
       }
-      const modifier = event.metaKey || event.ctrlKey
-      if (!modifier) return
-      if (event.key.toLowerCase() === 'f') {
+      if (matchesShortcut(event, 'find')) {
         event.preventDefault()
         openFind()
-      } else if (event.key.toLowerCase() === 'j') {
-        event.preventDefault()
-        props.onAgentOpenChange(!props.agentOpen)
-      } else if (event.key.toLowerCase() === 's') {
+      } else if (matchesShortcut(event, 'save')) {
         event.preventDefault()
         void flushCurrent()
-      } else if (event.altKey && event.key === 'ArrowUp' && activeIndex > 0) {
+      } else if (matchesShortcut(event, 'previousSection') && activeIndex > 0) {
         event.preventDefault()
         void selectSection(orderedIds[activeIndex - 1] as string)
-      } else if (event.altKey && event.key === 'ArrowDown' && activeIndex < orderedIds.length - 1) {
+      } else if (matchesShortcut(event, 'nextSection') && activeIndex < orderedIds.length - 1) {
         event.preventDefault()
         void selectSection(orderedIds[activeIndex + 1] as string)
       }
@@ -1168,8 +1164,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     activeWorkspace,
     flushCurrent,
     orderedIds,
-    props.agentOpen,
-    props.onAgentOpenChange,
     selectSection,
     closeFind,
     changeReplaceOpen,

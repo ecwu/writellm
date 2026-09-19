@@ -315,82 +315,91 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
-  it('discovers and caches a custom endpoint only on explicit refresh', async () => {
-    const { database, catalog } = await createHarness()
-    const saved = await catalog.saveCustomPreset({
-      presetId: 'custom:loopback',
-      name: 'Loopback',
-      baseUrl: 'https://models.example.test/v1',
-      api: 'openai-responses',
-      authMode: 'api_key',
-      timeoutMs: 30_000,
-      apiKey: 'catalog-secret'
-    })
-    expect(saved.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject({
-      authConfigured: true,
-      catalogStatus: 'empty',
-      models: []
-    })
+  it.each(['https://models.example.test/v1', 'http://models.example.test:8080/v1'])(
+    'discovers and caches %s only on explicit refresh',
+    async (baseUrl) => {
+      const { database, catalog } = await createHarness()
+      const saved = await catalog.saveCustomPreset({
+        presetId: 'custom:loopback',
+        name: 'Loopback',
+        baseUrl,
+        api: 'openai-responses',
+        authMode: 'api_key',
+        timeoutMs: 30_000,
+        apiKey: 'catalog-secret'
+      })
+      expect(saved.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject({
+        authConfigured: true,
+        catalogStatus: 'empty',
+        models: []
+      })
 
-    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer catalog-secret')
-      return new Response(
-        JSON.stringify({ data: [{ id: 'writer-1' }, { id: 'writer-2', displayName: 'Writer 2' }] }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      )
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const refreshed = await catalog.refreshPreset('custom:loopback', new AbortController().signal)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(refreshed.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject(
-      {
+      const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+        expect(String(_input)).toBe(`${baseUrl}/models`)
+        expect(init?.redirect).toBe('error')
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer catalog-secret')
+        return new Response(
+          JSON.stringify({
+            data: [{ id: 'writer-1' }, { id: 'writer-2', displayName: 'Writer 2' }]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      const refreshed = await catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(
+        refreshed.presets.find((preset) => preset.presetId === 'custom:loopback')
+      ).toMatchObject({
         catalogStatus: 'current',
         models: [
           { id: 'writer-1', api: 'openai-responses' },
           { id: 'writer-2', name: 'Writer 2', api: 'openai-responses' }
         ]
-      }
-    )
-    const renamed = await catalog.saveCustomPreset({
-      presetId: 'custom:loopback',
-      name: 'Loopback Renamed',
-      baseUrl: 'https://models.example.test/v1',
-      api: 'openai-responses',
-      authMode: 'api_key',
-      timeoutMs: 30_000
-    })
-    expect(renamed.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject({
-      name: 'Loopback Renamed',
-      catalogStatus: 'current',
-      models: [{ id: 'writer-1' }, { id: 'writer-2' }]
-    })
+      })
+      const renamed = await catalog.saveCustomPreset({
+        presetId: 'custom:loopback',
+        name: 'Loopback Renamed',
+        baseUrl,
+        api: 'openai-responses',
+        authMode: 'api_key',
+        timeoutMs: 30_000
+      })
+      expect(renamed.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject(
+        {
+          name: 'Loopback Renamed',
+          catalogStatus: 'current',
+          models: [{ id: 'writer-1' }, { id: 'writer-2' }]
+        }
+      )
 
-    await catalog.setDefaultSelection({ presetId: 'custom:loopback', modelId: 'writer-2' })
-    const resolved = await catalog.resolve({
-      presetId: 'custom:loopback',
-      modelId: 'writer-2'
-    })
-    expect(resolved).toMatchObject({
-      presetId: 'custom:loopback',
-      providerId: 'writellm-custom:loopback',
-      auth: { auth: { apiKey: 'catalog-secret' } }
-    })
-    expect(JSON.stringify(await catalog.snapshot())).not.toContain('catalog-secret')
-    const disabled = await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
-    expect(disabled.defaultSelection).toBeNull()
-    await expect(
-      catalog.resolve({ presetId: 'custom:loopback', modelId: 'writer-2' })
-    ).rejects.toThrow('Agent model is disabled')
+      await catalog.setDefaultSelection({ presetId: 'custom:loopback', modelId: 'writer-2' })
+      const resolved = await catalog.resolve({
+        presetId: 'custom:loopback',
+        modelId: 'writer-2'
+      })
+      expect(resolved).toMatchObject({
+        presetId: 'custom:loopback',
+        providerId: 'writellm-custom:loopback',
+        auth: { auth: { apiKey: 'catalog-secret' } }
+      })
+      expect(JSON.stringify(await catalog.snapshot())).not.toContain('catalog-secret')
+      const disabled = await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
+      expect(disabled.defaultSelection).toBeNull()
+      await expect(
+        catalog.resolve({ presetId: 'custom:loopback', modelId: 'writer-2' })
+      ).rejects.toThrow('Agent model is disabled')
 
-    fetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
-    await expect(
-      catalog.refreshPreset('custom:loopback', new AbortController().signal)
-    ).rejects.toThrow('Agent model catalog refresh failed')
-    expect(
-      (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:loopback')
-    ).toMatchObject({ catalogStatus: 'stale', models: [{ id: 'writer-1' }, { id: 'writer-2' }] })
-    database.close()
-  })
+      fetchMock.mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+      await expect(
+        catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      ).rejects.toThrow('Agent model catalog refresh failed')
+      expect(
+        (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:loopback')
+      ).toMatchObject({ catalogStatus: 'stale', models: [{ id: 'writer-1' }, { id: 'writer-2' }] })
+      database.close()
+    }
+  )
 
   it('keeps manual model overlays, reasoning metadata, and rejects disabled selections', async () => {
     const { database, catalog } = await createHarness()
@@ -479,91 +488,96 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
-  it('invalidates custom endpoint credentials and catalogs when the security identity changes', async () => {
-    const { database, credentials, catalog } = await createHarness()
-    await catalog.saveCustomPreset({
-      presetId: 'custom:bound',
-      name: 'Bound',
-      baseUrl: 'https://models.example.test/v1',
-      api: 'openai-responses',
-      authMode: 'api_key',
-      timeoutMs: 30_000,
-      apiKey: 'first-secret'
-    })
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>(async () =>
-        Promise.resolve(
-          new Response(JSON.stringify({ data: [{ id: 'writer-1' }] }), {
-            status: 200,
-            headers: { 'content-type': 'application/json' }
-          })
+  it.each(['http://models.example.test/v2', 'https://other.example.test/v2'])(
+    'invalidates custom endpoint credentials and catalogs when changing to %s',
+    async (baseUrl) => {
+      const { database, credentials, catalog } = await createHarness()
+      await catalog.saveCustomPreset({
+        presetId: 'custom:bound',
+        name: 'Bound',
+        baseUrl: 'https://models.example.test/v1',
+        api: 'openai-responses',
+        authMode: 'api_key',
+        timeoutMs: 30_000,
+        apiKey: 'first-secret'
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(async () =>
+          Promise.resolve(
+            new Response(JSON.stringify({ data: [{ id: 'writer-1' }] }), {
+              status: 200,
+              headers: { 'content-type': 'application/json' }
+            })
+          )
         )
       )
-    )
-    await catalog.refreshPreset('custom:bound', new AbortController().signal)
+      await catalog.refreshPreset('custom:bound', new AbortController().signal)
 
-    const sameOrigin = await catalog.saveCustomPreset({
-      presetId: 'custom:bound',
-      name: 'Bound renamed',
-      baseUrl: 'https://models.example.test/v2',
-      api: 'openai-responses',
-      authMode: 'api_key'
-    })
-    expect(sameOrigin.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
-      authConfigured: true,
-      catalogStatus: 'current',
-      models: [{ id: 'writer-1' }]
-    })
-    expect(
-      JSON.parse(
-        (
-          await database.kysely
-            .selectFrom('provider_configs')
-            .select('config_json')
-            .where('id', '=', 'agent:custom:bound')
-            .executeTakeFirstOrThrow()
-        ).config_json
+      const sameOrigin = await catalog.saveCustomPreset({
+        presetId: 'custom:bound',
+        name: 'Bound renamed',
+        baseUrl: 'https://models.example.test/v2',
+        api: 'openai-responses',
+        authMode: 'api_key'
+      })
+      expect(sameOrigin.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject(
+        {
+          authConfigured: true,
+          catalogStatus: 'current',
+          models: [{ id: 'writer-1' }]
+        }
       )
-    ).toMatchObject({ timeoutMs: 30_000 })
+      expect(
+        JSON.parse(
+          (
+            await database.kysely
+              .selectFrom('provider_configs')
+              .select('config_json')
+              .where('id', '=', 'agent:custom:bound')
+              .executeTakeFirstOrThrow()
+          ).config_json
+        )
+      ).toMatchObject({ timeoutMs: 30_000 })
 
-    const changedOrigin = await catalog.saveCustomPreset({
-      presetId: 'custom:bound',
-      name: 'Bound renamed',
-      baseUrl: 'https://other.example.test/v2',
-      api: 'openai-responses',
-      authMode: 'api_key',
-      timeoutMs: 45_000
-    })
-    expect(
-      changedOrigin.presets.find((preset) => preset.presetId === 'custom:bound')
-    ).toMatchObject({
-      authConfigured: false,
-      catalogStatus: 'empty',
-      models: []
-    })
-    await expect(
-      credentials.withCredential('agent:custom:bound', async (value) => value)
-    ).rejects.toThrow('missing')
+      const changedOrigin = await catalog.saveCustomPreset({
+        presetId: 'custom:bound',
+        name: 'Bound renamed',
+        baseUrl,
+        api: 'openai-responses',
+        authMode: 'api_key',
+        timeoutMs: 45_000
+      })
+      expect(
+        changedOrigin.presets.find((preset) => preset.presetId === 'custom:bound')
+      ).toMatchObject({
+        authConfigured: false,
+        catalogStatus: 'empty',
+        models: []
+      })
+      await expect(
+        credentials.withCredential('agent:custom:bound', async (value) => value)
+      ).rejects.toThrow('missing')
 
-    const replaced = await catalog.saveCustomPreset({
-      presetId: 'custom:bound',
-      name: 'Bound renamed',
-      baseUrl: 'https://other.example.test/v2',
-      api: 'anthropic-messages',
-      authMode: 'api_key',
-      timeoutMs: 45_000,
-      apiKey: 'replacement-secret'
-    })
-    expect(replaced.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
-      authConfigured: true,
-      catalogStatus: 'empty'
-    })
-    await expect(
-      credentials.withCredential('agent:custom:bound', async (value) => value)
-    ).resolves.toBe(JSON.stringify({ type: 'api_key', key: 'replacement-secret' }))
-    database.close()
-  })
+      const replaced = await catalog.saveCustomPreset({
+        presetId: 'custom:bound',
+        name: 'Bound renamed',
+        baseUrl,
+        api: 'anthropic-messages',
+        authMode: 'api_key',
+        timeoutMs: 45_000,
+        apiKey: 'replacement-secret'
+      })
+      expect(replaced.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
+        authConfigured: true,
+        catalogStatus: 'empty'
+      })
+      await expect(
+        credentials.withCredential('agent:custom:bound', async (value) => value)
+      ).resolves.toBe(JSON.stringify({ type: 'api_key', key: 'replacement-secret' }))
+      database.close()
+    }
+  )
 
   it('rejects a streamed custom model catalog above 2 MiB before JSON parsing', async () => {
     const { database, catalog } = await createHarness()

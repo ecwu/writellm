@@ -138,23 +138,54 @@ describe('outbound HTTP policy', () => {
     ).rejects.toMatchObject({ code: 'redirect_limit' })
   })
 
-  it('never follows redirects for an explicitly configured credential-bearing endpoint', async () => {
-    const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
-      expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret')
-      expect(init?.redirect).toBe('error')
-      return new Response(null, {
-        status: 302,
-        headers: { location: 'https://attacker.example/collect' }
-      })
+  it.each([
+    'http://models.example.test:8080/v1/models',
+    'http://8.8.8.8/models',
+    'http://172.16.0.2/models',
+    'http://[2001:db8::1]/models'
+  ])('allows model-service HTTP but preserves the default policy for %s', async (url) => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () => new Response('{}'))
+    await expect(fetchConfiguredEndpoint(url, {}, fetchImplementation)).rejects.toMatchObject({
+      code: 'configured_url_invalid'
     })
-
-    await expect(
-      fetchConfiguredEndpoint(
-        'https://configured.example/v1/models',
-        { headers: { authorization: 'Bearer secret' } },
-        fetchImplementation
-      )
-    ).rejects.toMatchObject({ code: 'redirect_invalid' })
-    expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    expect(fetchImplementation).not.toHaveBeenCalled()
+    await fetchConfiguredEndpoint(url, {}, fetchImplementation, 'model-service')
+    expect(fetchImplementation).toHaveBeenCalledWith(new URL(url), { redirect: 'error' })
   })
+
+  it.each([
+    'ftp://models.example.test/models',
+    'http://key:secret@models.example.test/models',
+    'http://models.example.test/models#fragment'
+  ])('rejects unsafe model-service URL %s before fetch', async (url) => {
+    const fetchImplementation = vi.fn<typeof fetch>()
+    await expect(
+      fetchConfiguredEndpoint(url, {}, fetchImplementation, 'model-service')
+    ).rejects.toMatchObject({ code: 'configured_url_invalid' })
+    expect(fetchImplementation).not.toHaveBeenCalled()
+  })
+
+  it.each(['https://configured.example/v1/models', 'http://configured.example/v1/models'])(
+    'never follows redirects for credential-bearing endpoint %s',
+    async (url) => {
+      const fetchImplementation = vi.fn<typeof fetch>(async (_input, init) => {
+        expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret')
+        expect(init?.redirect).toBe('error')
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://attacker.example/collect' }
+        })
+      })
+
+      await expect(
+        fetchConfiguredEndpoint(
+          url,
+          { headers: { authorization: 'Bearer secret' } },
+          fetchImplementation,
+          'model-service'
+        )
+      ).rejects.toMatchObject({ code: 'redirect_invalid' })
+      expect(fetchImplementation).toHaveBeenCalledTimes(1)
+    }
+  )
 })

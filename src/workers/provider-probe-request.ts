@@ -32,7 +32,8 @@ export async function runProviderProbeRequest(
         headers: { Authorization: `Bearer ${request.credential}`, Accept: 'application/json' },
         signal
       },
-      fetchImplementation
+      fetchImplementation,
+      request.config.role === 'mineru' ? 'loopback-only' : 'model-service'
     )
     if (request.config.role !== 'mineru') {
       return {

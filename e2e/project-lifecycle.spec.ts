@@ -422,6 +422,18 @@ test(
         await expect(modelPicker).toHaveCount(0)
         await first.page.keyboard.press('Escape')
         await panel.getByLabel('Close writing agent').click()
+
+        await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
+        await dialog.getByRole('option', { name: /^Agent API/ }).click()
+        await dialog.getByRole('button', { name: 'Add provider' }).click()
+        await addProvider.getByLabel('Provider name').fill('Remote HTTP Agent')
+        await addProvider.getByRole('button', { name: 'Continue' }).click()
+        await dialog.getByLabel('Base URL').fill('http://model.example.test:8080/v1')
+        await expect(dialog.getByText('Use HTTP or HTTPS.', { exact: true })).toBeVisible()
+        await dialog.getByRole('button', { name: 'Save provider' }).click()
+        await expect(
+          dialog.getByRole('heading', { name: 'Remote HTTP Agent', exact: true })
+        ).toBeVisible()
       } finally {
         await closeApp(first.app)
       }
@@ -431,6 +443,9 @@ test(
         await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
         const dialog = restarted.page.getByRole('dialog', { name: 'Settings' })
         await dialog.getByRole('option', { name: /^Agent API/ }).click()
+        await dialog.getByRole('button', { name: /Remote HTTP Agent/ }).click()
+        await expect(dialog.getByLabel('Base URL')).toHaveValue('http://model.example.test:8080/v1')
+        await dialog.getByRole('button', { name: 'Back to providers' }).click()
         await dialog.getByRole('button', { name: /Loopback Agent Renamed/ }).click()
         const providerHeading = dialog.getByRole('heading', { name: 'Loopback Agent Renamed' })
         await expect(providerHeading).toBeVisible()

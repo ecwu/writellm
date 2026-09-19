@@ -1,3 +1,4 @@
+import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertCircle,
@@ -574,17 +575,15 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.metaKey || event.ctrlKey)) return
-
-      if (event.key === ',') {
+      if (matchesShortcut(event, 'settings')) {
         event.preventDefault()
         setSettingsSection('general')
         setSettingsOpen(true)
-      } else if (event.key.toLowerCase() === 'n' && !isBusy && !projectSelectionDisabled) {
+      } else if (matchesShortcut(event, 'newProject') && !isBusy && !projectSelectionDisabled) {
         event.preventDefault()
         setProjectNameError(null)
         setCreateDialogOpen(true)
-      } else if (event.key.toLowerCase() === 'o' && !isBusy && !projectSelectionDisabled) {
+      } else if (matchesShortcut(event, 'openProject') && !isBusy && !projectSelectionDisabled) {
         event.preventDefault()
         void openProject()
       }

@@ -3221,3 +3221,115 @@ after they complete, without altering the immutable release tag.
 - Evidence, original downloaded artifacts, checksums, notes, CI results and publication
   responses live in `.cache/releases/0.2026.9.7/`. This documentation follow-up records
   the observed outcome without modifying the tag or rebuilding the accepted App.
+
+
+## 2026-09-17 Model-service HTTP endpoints
+
+- User-authorized maintenance allows Agent, Embedding, and Rerank Base URLs to use HTTP or
+  HTTPS with domains, IPv4, or IPv6. MinerU retains its existing HTTP host restrictions and
+  artifact URL policy. URL length, normalization, embedded-credential/query/fragment rejection,
+  encrypted credential origin binding, and existing structured configuration lifecycle logs remain.
+  The Agent form now says `Use HTTP or HTTPS.` No migration, dependency, packaging, or release change.
+- Final-source focused coverage is 66 passing tests across provider contracts, provider service,
+  Agent catalog, and provider IPC. The first invocation took 3.9s and exposed one obsolete IPC
+  HTTP-rejection expectation; its corrected eight-test IPC rerun passed in 0.8s. The other 58
+  passing tests remain applicable. Coverage includes HTTP save/reload, all three model roles,
+  MinerU policy preservation, and credential invalidation on protocol or host changes.
+- The targeted `check:e2e` invocation passed formatting/lint, both typechecks, native loading,
+  and one production build. Two E2E attempts exposed mistakes in the added test flow (a check
+  before preset creation, then an unnecessary Back action after reopening Settings). After test-only
+  corrections, the same built App passed `app.provider-settings-persist-without-secret` in 10.7s
+  (11.3s wrapper), zero retries/skips. It saves a reserved `.test` HTTP domain in the UI and verifies
+  it after app restart without contacting that domain. The user-supplied endpoint is only a schema
+  fixture and was not contacted. Updated test formatting and Main typechecking also passed.
+- Reports: `.cache/verification/1789681428027-42972-6b138c16/` (initial focused tests),
+  `.cache/verification/1789681457046-43244-3a8c7f4b/` (IPC rerun),
+  `.cache/verification/1789681443143-43189-ce0d7d8a/` (static/build and initial E2E),
+  `.cache/verification/1789681515034-43544-75735ba2/` (second E2E), and
+  `.cache/verification/1789681568512-43666-bcc9c5b7/` (passing E2E).
+  Runtime evidence is macOS arm64, Electron 43.4.1 ABI 148; pnpm 11.17.0 matches the manifest.
+  Host Node 26.8.2 remains outside the declared Node 24 range. Other platforms and packaged
+  artifacts were not tested; the existing packaged App has not been updated.
+
+
+## 2026-09-17 HTTP endpoint App build
+
+- User requested an App build after the endpoint change. `pnpm package:unpack` produced
+  `dist/macos-arm64/mac-arm64/WriteLLM.app` with the HTTP endpoint implementation, retaining
+  release metadata `0.2026.9.7`. No installers, publication, or version change were requested.
+- The first sandboxed packaging attempt encountered `github.com` DNS denial and was stopped.
+  The same command outside the sandbox passed in 30.0s: production build, App packaging,
+  no-Team-ID ad-hoc/linker signature policy, and ASAR/resource/native inventory (arm64
+  better-sqlite3 and sqlite-vec). Report:
+  `.cache/verification/1789681661580-44238-15946026/`.
+- This was a build-only invocation; prior focused source tests remain the functional evidence.
+  No packaged runtime tests or installers were run, and the App remains unnotarized.
+
+
+## 2026-09-17 Model-service HTTP request policy correction
+
+- Real App logs showed `agent.model_catalog.refresh_failed` with `configured_url_invalid`:
+  configuration validation allowed HTTP, but `fetchConfiguredEndpoint` still rejected remote HTTP
+  before sending a request. The earlier save/restart E2E did not cover this network boundary.
+- Added an explicit model-service request policy for custom Agent catalog refresh and
+  Agent/Embedding/Rerank probes. The default remains loopback-only HTTP for existing MinerU
+  callers. Redirect rejection, URL credential/fragment checks, bounded bodies, and existing
+  structured error logging remain intact. No credential, migration, or artifact policy changes.
+- Focused Electron tests pass 48 cases across outbound policy, catalog discovery/cache,
+  provider probes, and MinerU requests. These assert fetch invocation and model parsing for
+  remote HTTP rather than configuration acceptance alone. Initial tests took 4.1s and caught
+  an invalid MinerU model in the new fixture; after correcting that fixture, all 14 probe
+  tests passed in 0.8s, reusing the other 34 passing cases. No real user endpoint was contacted.
+- `check:fast` passed in 11.1s; final fixture formatting passed separately. `package:unpack`
+  rebuilt the macOS arm64 App in 31.7s with native inventory and signature-policy checks,
+  preserving release metadata `0.2026.9.7`. Reports:
+  `.cache/verification/1789682702208-45713-91c9e34f/`,
+  `.cache/verification/1789682726256-45959-4af0adb2/`,
+  `.cache/verification/1789682714946-45923-04ddc6f6/`, and
+  `.cache/verification/1789682730494-46018-a9121848/`.
+- The same App passed all 12 packaged runtime smoke categories in 39.5s without retries,
+  including native modules, all worker roles, credential storage, HTTP provider fallback,
+  security boundaries, logging redaction, and database integrity. Report:
+  `.cache/verification/1789682774866-46444-2218e3c4/`.
+  Artifact: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Runtime coverage is macOS arm64 with
+  Electron 43.4.1 ABI 148; host Node 26.8.2 remains outside the declared Node 24 range.
+  No installers, release publication, other-platform tests, or real endpoint validation.
+
+
+## 2026-09-19 Keyboard shortcut separation
+
+- User-authorized maintenance removes the shared SidebarProvider Mod+B binding and writing
+  workspace Mod+J binding across all consumers. Pointer controls, keyboard-accessible buttons,
+  and sidebar resizing remain available. BlockNote formatting and local Agent/completion
+  interactions keep their existing behavior.
+- A Renderer-local command definition now supplies matching and labels to application/editor
+  listeners, Settings, menus, and workspace hints. Ctrl or Meta is accepted individually;
+  unexpected Shift/Alt or simultaneous Ctrl+Meta is rejected. Matching normalizes letter case,
+  ignores consumed/composing events (including keyCode 229), and suppresses repeats except
+  previous/next section navigation. Comment matching handles macOS Option-letter symbols.
+  Editor commands require focus and a nonempty selection. The guide adds comment, formatting,
+  autocomplete, and Agent input entries with their scopes. Existing command handlers and
+  lifecycle diagnostics are reused; no IPC, persistence, dependency, or migration changes.
+- Verification: 30 focused Electron-hosted tests passed across shortcut matching, Settings,
+  and shadcn composition in 2.7s (Vitest 0.836s). Report:
+  `.cache/verification/1789800704982-13516-05856090/`.
+- One `check:e2e` invocation passed Biome, both typechecks, native preparation and production
+  compilation, then passed five of seven selected scenarios in a 43.8s total gate. The two
+  failures were test assumptions: directly selecting editor text is required for the bold
+  assertion, and an unhandled modified editor key can change selection before the subsequent
+  quick-action assertion. Report: `.cache/verification/1789800733797-13762-3393525f/`.
+- The first focused rerun (12.9s) passed quick actions and reached the next new-fixture issue:
+  an unconfigured Agent correctly has no composer. Composer shortcut checks moved to the
+  existing configured-provider scenario. The final two-scenario rerun passed in 5.2s, with
+  zero automatic retries/skips. Both reruns reused the same build; no product-source repair
+  was needed. Reports: `.cache/verification/1789800861116-14876-fcdc199e/` and
+  `.cache/verification/1789800924284-15366-8951c13b/`.
+- Combined final-source evidence covers seven distinct scenarios: Settings accessibility,
+  selection quick actions, comment threads, keyboard separation, sidebar resizing, BlockNote
+  controls, and manuscript find/navigation. It includes bold text, Ctrl/Meta B/J with Shift/Alt
+  variants in manuscript/title/Agent inputs, button Enter/Space and clicks, precise command
+  modifiers, saving, and section navigation. All invocations had zero automatic retries/skips;
+  the two explicit focused reruns above are retained as part of the evidence.
+- Runtime: macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
+  the declared Node 24 range. Physical IME and Windows/Linux runtime behavior were not tested.
+  No packaged App, installer, release, or remote changes were produced.

@@ -159,14 +159,18 @@ export async function fetchPublicHttps(
 export async function fetchConfiguredEndpoint(
   input: string | URL,
   init: RequestInit,
-  fetchImplementation: typeof fetch = fetch
+  fetchImplementation: typeof fetch = fetch,
+  httpPolicy: 'loopback-only' | 'model-service' = 'loopback-only'
 ): Promise<Response> {
   const url = new URL(input)
-  const loopbackHttp =
+  const allowedHttp =
     url.protocol === 'http:' &&
-    (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]')
+    (httpPolicy === 'model-service' ||
+      url.hostname === 'localhost' ||
+      url.hostname === '127.0.0.1' ||
+      url.hostname === '[::1]')
   if (
-    (url.protocol !== 'https:' && !loopbackHttp) ||
+    (url.protocol !== 'https:' && !allowedHttp) ||
     url.username !== '' ||
     url.password !== '' ||
     url.hash !== ''

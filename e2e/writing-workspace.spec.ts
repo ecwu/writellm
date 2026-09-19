@@ -483,7 +483,9 @@ test(
         })
       const addComment = launched.page.getByRole('button', { name: 'Add comment', exact: true })
       await expect(addComment).toBeVisible()
-      await addComment.click()
+      await launched.page.keyboard.press('ControlOrMeta+Alt+Shift+m')
+      await expect(launched.page.getByPlaceholder('Add a comment…')).toHaveCount(0)
+      await launched.page.keyboard.press('ControlOrMeta+Alt+m')
 
       const draft = launched.page.getByPlaceholder('Add a comment…')
       await expect(draft).toBeVisible()
@@ -568,6 +570,95 @@ test(
       await expect(launched.page.getByText('Author follow up.', { exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Resolve', exact: true }).click()
       await expect(launched.page.getByText('resolved', { exact: true })).toBeVisible()
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
+
+test(
+  'keeps text shortcuts separate from panels and matches application modifiers exactly',
+  scenario('manuscript.keyboard-shortcuts'),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    const page = launched.page
+    try {
+      await page.keyboard.press('ControlOrMeta+Shift+n')
+      await expect(page.getByRole('dialog', { name: 'Create project' })).toHaveCount(0)
+      await page.keyboard.press('ControlOrMeta+n')
+      const create = page.getByRole('dialog', { name: 'Create project' })
+      await expect(create).toBeVisible()
+      await create.getByLabel('Project name').fill('Keyboard separation')
+      await create.getByRole('button', { name: 'Choose location' }).click()
+      await expectActiveProject(page, 'Keyboard separation')
+
+      const editor = sectionEditor(page)
+      const sidebar = page.locator('[data-slot="sidebar"][data-state]')
+      const agent = page.getByTestId('agent-menubar-trigger')
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await expect(agent).toHaveAttribute('aria-pressed', 'false')
+      await editor.fill('Formatting survives shortcuts')
+      await editor.selectText()
+      await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeVisible()
+      await page.keyboard.press('ControlOrMeta+b')
+      await expect(editor.locator('strong')).toContainText('Formatting survives shortcuts')
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+
+      for (const target of [editor, page.getByLabel('Section title')]) {
+        await target.focus()
+        for (const modifier of ['Control', 'Meta']) {
+          for (const extra of ['', 'Shift+', 'Alt+', 'Alt+Shift+']) {
+            for (const key of ['b', 'j']) {
+              await target.press(`${modifier}+${extra}${key}`)
+              await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+              await expect(agent).toHaveAttribute('aria-pressed', 'false')
+            }
+          }
+        }
+      }
+      await agent.focus()
+      await agent.press('Enter')
+      await expect(agent).toHaveAttribute('aria-pressed', 'true')
+      await agent.press('Space')
+      await expect(agent).toHaveAttribute('aria-pressed', 'false')
+      const sidebarToggle = page.locator('[data-slot="sidebar-trigger"]')
+      await sidebarToggle.focus()
+      await sidebarToggle.press('Enter')
+      await expect(sidebar).toHaveAttribute('data-state', 'collapsed')
+      await sidebarToggle.press('Space')
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+      await sidebarToggle.click()
+      await expect(sidebar).toHaveAttribute('data-state', 'collapsed')
+      await sidebarToggle.click()
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded')
+
+      await editor.focus()
+      await page.keyboard.press('ControlOrMeta+Alt+f')
+      await expect(page.getByTestId('manuscript-find-input')).toHaveCount(0)
+      await page.keyboard.press('ControlOrMeta+f')
+      await expect(page.getByTestId('manuscript-find-input')).toBeVisible()
+      await page.getByRole('button', { name: 'Close Find' }).click()
+      await page.keyboard.press('ControlOrMeta+Alt+,')
+      await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0)
+      await page.keyboard.press('ControlOrMeta+,')
+      await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+      await page.keyboard.press('Escape')
+
+      const firstTitle = await page.getByLabel('Section title').inputValue()
+      await createSection(page, 'Second keyboard section')
+      await editor.focus()
+      await page.keyboard.press('ControlOrMeta+Alt+Shift+ArrowUp')
+      await expect(page.getByLabel('Section title')).toHaveValue('Second keyboard section')
+      await page.keyboard.press('ControlOrMeta+Alt+ArrowUp')
+      await expect(page.getByLabel('Section title')).toHaveValue(firstTitle)
+      await page.keyboard.press('ControlOrMeta+Alt+ArrowDown')
+      await expect(page.getByLabel('Section title')).toHaveValue('Second keyboard section')
+      await editor.fill('Saved by exact shortcut')
+      await page.keyboard.press('ControlOrMeta+s')
+      await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
     } finally {
       await launched.app.close()
     }

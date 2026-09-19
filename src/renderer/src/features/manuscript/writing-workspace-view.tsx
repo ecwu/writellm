@@ -1,3 +1,4 @@
+import { shortcutLabel } from '@/lib/keyboard-shortcuts'
 import { AutocompleteMenu } from '../autocomplete/autocomplete-menu'
 import { useAutocompleteSession } from '../autocomplete/use-autocomplete-session'
 import type { AutocompleteStatus } from '../autocomplete/autocomplete-extension'
@@ -485,7 +486,7 @@ export function WritingWorkspaceView(input: {
                   </div>
                   {metadataError ? (
                     <p className='text-sm text-destructive' role='alert'>
-                      The title could not be saved. Press ⌘/Ctrl+S to retry.
+                      The title could not be saved. Press {shortcutLabel('save')} to retry.
                     </p>
                   ) : null}
                   <SectionEditor
@@ -572,8 +573,10 @@ export function WritingWorkspaceView(input: {
                 </div>
               )}
               <div className='flex items-center justify-between text-xs text-muted-foreground'>
-                <span>⌘/Ctrl+S save · ⇧⌘/Ctrl+K quick actions · ⌘/Ctrl+Alt+↑/↓ navigate</span>
-                <span>⌘/Ctrl+J toggles the agent panel</span>
+                <span>
+                  {shortcutLabel('save')} save · {shortcutLabel('quickActions')} quick actions ·{' '}
+                  {shortcutLabel('previousSection')} / {shortcutLabel('nextSection')} navigate
+                </span>
               </div>
             </main>
           </SidebarInset>

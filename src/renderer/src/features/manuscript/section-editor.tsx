@@ -1,3 +1,4 @@
+import { matchesShortcut, shortcutLabel } from '@/lib/keyboard-shortcuts'
 import {
   autocompleteExtension,
   refreshAutocomplete,
@@ -577,15 +578,14 @@ const SectionEditorSession = forwardRef<
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.metaKey || event.ctrlKey) || !event.altKey || event.key.toLowerCase() !== 'm')
-        return
-      if (!editor.prosemirrorView.hasFocus()) return
+      if (!matchesShortcut(event, 'comment') || !props.onAddComment) return
+      if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
       event.preventDefault()
       requestAddComment()
     }
     window.addEventListener('keydown', onKeyDown, { capture: true })
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [editor, requestAddComment])
+  }, [editor, requestAddComment, props.onAddComment])
 
   const requestQuickAction = useCallback(
     (action: AgentQuickActionId): void => {
@@ -746,9 +746,8 @@ const SectionEditorSession = forwardRef<
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.key.toLowerCase() !== 'k')
-        return
-      if (!editor.prosemirrorView.hasFocus()) return
+      if (!matchesShortcut(event, 'quickActions')) return
+      if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
       event.preventDefault()
       event.stopPropagation()
       const proseMirrorSelection = editor.prosemirrorView.state.selection
@@ -1400,7 +1399,7 @@ function QuickActionFormattingToolbar(props: {
                 <span>Custom instruction</span>
                 <span className='text-xs text-muted-foreground'>Tell the Agent what to do</span>
               </span>
-              <DropdownMenuShortcut>⇧⌘K</DropdownMenuShortcut>
+              <DropdownMenuShortcut>{shortcutLabel('quickActions')}</DropdownMenuShortcut>
             </DropdownMenuItem>
           </DropdownMenuGroup>
         </DropdownMenuContent>

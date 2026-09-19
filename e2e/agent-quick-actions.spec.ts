@@ -64,6 +64,24 @@ test(
       await modelPicker.getByRole('option', { name: /Quick action Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Quick Writer/ }).click()
       await details.getByRole('button', { name: 'Close', exact: true }).click()
+      const composer = panel.locator('#agent-message')
+      await expect(composer).toBeVisible()
+      await composer.focus()
+      for (const modifier of ['Control', 'Meta']) {
+        for (const extra of ['', 'Shift+', 'Alt+', 'Alt+Shift+']) {
+          for (const key of ['b', 'j']) {
+            await composer.press(`${modifier}+${extra}${key}`)
+            await expect(
+              launched.page.locator('[data-slot="sidebar"][data-state]')
+            ).toHaveAttribute('data-state', 'expanded')
+            await expect(launched.page.getByTestId('agent-menubar-trigger')).toHaveAttribute(
+              'aria-pressed',
+              'true'
+            )
+          }
+        }
+      }
+      await composer.fill('')
       await panel.getByRole('button', { name: 'Close writing agent' }).click()
 
       await editor.click()
@@ -71,6 +89,9 @@ test(
       await expect(
         launched.page.getByRole('button', { name: 'Open Agent quick actions' })
       ).toBeVisible()
+      await launched.page.keyboard.press('ControlOrMeta+Alt+Shift+k')
+      await expect(launched.page.getByRole('menuitem', { name: /Check evidence/ })).toHaveCount(0)
+      await editor.selectText()
       await launched.page.keyboard.press('ControlOrMeta+Shift+k')
       await expect(
         launched.page.getByRole('menu', { name: 'Open Agent quick actions' })

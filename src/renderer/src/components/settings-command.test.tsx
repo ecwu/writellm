@@ -71,7 +71,11 @@ describe('SettingsCommand', () => {
       <KeyboardShortcutsSettings closeAction={<button type='button'>Close</button>} />
     )
 
-    expect(keyboardShortcuts).toHaveLength(10)
+    expect(html).not.toContain('Toggle project sidebar')
+    expect(html).not.toContain('Toggle writing Agent')
+    expect(html).toContain('Accept autocomplete')
+    expect(html).toContain('Add comment')
+    expect(html).toContain('Agent input')
     for (const shortcut of keyboardShortcuts) {
       expect(html).toContain(shortcut.action)
       expect(html).toContain(shortcut.shortcut)

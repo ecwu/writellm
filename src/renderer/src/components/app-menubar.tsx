@@ -1,3 +1,4 @@
+import { shortcutLabel } from '@/lib/keyboard-shortcuts'
 import {
   ArchiveRestore,
   Bot,
@@ -101,18 +102,18 @@ export function AppMenubar({
             <MenubarGroup>
               <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onCreate}>
                 <FilePlus2 /> New project
-                <MenubarShortcut>⌘N</MenubarShortcut>
+                <MenubarShortcut>{shortcutLabel('newProject')}</MenubarShortcut>
               </MenubarItem>
               <MenubarItem disabled={busy || projectSelectionDisabled} onSelect={onOpen}>
                 <FolderOpen /> Open project
-                <MenubarShortcut>⌘O</MenubarShortcut>
+                <MenubarShortcut>{shortcutLabel('openProject')}</MenubarShortcut>
               </MenubarItem>
             </MenubarGroup>
             <MenubarSeparator />
             <MenubarGroup>
               <MenubarItem disabled={busy || !hasProject} onSelect={onSave}>
                 <Save /> Save
-                <MenubarShortcut>⌘S</MenubarShortcut>
+                <MenubarShortcut>{shortcutLabel('save')}</MenubarShortcut>
               </MenubarItem>
               <MenubarItem disabled={busy || !hasProject} onSelect={onClone}>
                 <CopyPlus /> Save As independent copy…
@@ -179,7 +180,7 @@ export function AppMenubar({
           <MenubarContent>
             <MenubarItem disabled={busy || !hasProject} onSelect={onOpenFind}>
               <Search /> Find in manuscript
-              <MenubarShortcut>⌘F</MenubarShortcut>
+              <MenubarShortcut>{shortcutLabel('find')}</MenubarShortcut>
             </MenubarItem>
           </MenubarContent>
         </MenubarMenu>
@@ -189,7 +190,7 @@ export function AppMenubar({
             <MenubarGroup>
               <MenubarItem onSelect={onOpenSettings}>
                 <Settings2 /> Settings
-                <MenubarShortcut>⌘,</MenubarShortcut>
+                <MenubarShortcut>{shortcutLabel('settings')}</MenubarShortcut>
               </MenubarItem>
             </MenubarGroup>
             <MenubarSeparator />
@@ -210,7 +211,7 @@ export function AppMenubar({
         aria-label='Agent'
         aria-pressed={agentOpen}
         data-testid='agent-menubar-trigger'
-        title='Toggle writing agent (⌘/Ctrl+J)'
+        title='Toggle writing agent'
         onClick={onToggleAgent}
       >
         <Bot />

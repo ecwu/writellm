@@ -197,6 +197,13 @@ describe('provider IPC', () => {
     expect(JSON.stringify(result)).not.toContain('renderer-secret')
   })
 
+  it('accepts remote HTTP endpoints through the save contract', async () => {
+    const { invoke, providers } = harness()
+    const config = { ...snapshot.providers[0]?.config, baseUrl: 'http://remote.invalid:8080/v1' }
+    await invoke(IPC_CHANNELS.providersSave, { config, apiKey: 'secret' })
+    expect(providers.save).toHaveBeenCalledWith(config, 'secret')
+  })
+
   it('authorizes the sender before reading status', async () => {
     const { handlers, providers, unauthorized } = harness()
     await expect(
@@ -210,7 +217,7 @@ describe('provider IPC', () => {
     await expect(invoke(IPC_CHANNELS.providersRemove, { role: 'unknown' })).rejects.toThrow()
     await expect(
       invoke(IPC_CHANNELS.providersSave, {
-        config: { ...snapshot.providers[0]?.config, baseUrl: 'http://remote.invalid' },
+        config: { ...snapshot.providers[0]?.config, baseUrl: 'ftp://remote.invalid' },
         apiKey: 'secret'
       })
     ).rejects.toThrow()

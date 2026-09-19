@@ -101,6 +101,41 @@ describe('provider utility probe request', () => {
     })
   })
 
+  it.each(['agent', 'embedding', 'rerank', 'mineru'] as const)(
+    'applies the correct HTTP request policy to %s probes',
+    async (role) => {
+      const config = providerProbeRequestSchema.parse({
+        ...request,
+        config: {
+          ...request.config,
+          role,
+          model: role === 'mineru' ? 'vlm' : 'writer',
+          providerId:
+            role === 'mineru'
+              ? 'mineru'
+              : role === 'rerank'
+                ? 'cohere-compatible'
+                : 'openai-compatible',
+          baseUrl: role === 'mineru' ? 'http://10.0.0.8' : 'http://models.example.test:8080/v1',
+          embeddingDimension: role === 'embedding' ? 8 : null,
+          fileSizeLimitMb: role === 'mineru' ? 100 : null
+        }
+      })
+      const fetchImplementation = vi.fn<typeof fetch>(async () => new Response('{}'))
+      const result = await runProviderProbeRequest(config, fetchImplementation)
+      if (role === 'mineru') {
+        expect(result).toMatchObject({ type: 'error', error: { name: 'OutboundHttpPolicyError' } })
+        expect(fetchImplementation).not.toHaveBeenCalled()
+      } else {
+        expect(result).toMatchObject({ type: 'result', status: 200 })
+        expect(fetchImplementation).toHaveBeenCalledWith(
+          new URL('http://models.example.test:8080/v1/models'),
+          expect.objectContaining({ redirect: 'error' })
+        )
+      }
+    }
+  )
+
   it('returns only MinerU authentication codes from the bounded response body', async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
       expect(String(input)).toBe('https://mineru.net/api/v4/extract/task/__writellm_probe__')

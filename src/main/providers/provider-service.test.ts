@@ -152,6 +152,36 @@ describe('ProviderService', () => {
     appDatabase.close()
   })
 
+  it.each(['agent', 'embedding', 'rerank'] as const)(
+    'persists HTTP %s endpoints and invalidates credentials on protocol changes',
+    async (role) => {
+      const appDatabase = await database()
+      const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+      const service = providerService(appDatabase, credentials)
+      const config = {
+        ...agentConfig,
+        role,
+        providerId: role === 'rerank' ? 'cohere-compatible' : 'openai-compatible',
+        embeddingDimension: role === 'embedding' ? 8 : null
+      } as ProviderConfig
+      await service.save(config, 'https-secret')
+      const httpConfig = { ...config, baseUrl: 'http://api.example.test/v1' }
+      await service.save(httpConfig)
+      await expect(credentials.withCredential(role, async (value) => value)).rejects.toThrow(
+        'missing'
+      )
+      await service.save(httpConfig, 'http-secret')
+      const reloaded = providerService(appDatabase, credentials)
+      expect(
+        (await reloaded.snapshot()).providers.find((provider) => provider.role === role)
+      ).toMatchObject({ config: httpConfig, configured: true })
+      await expect(credentials.withCredential(role, async (value) => value)).resolves.toBe(
+        'http-secret'
+      )
+      appDatabase.close()
+    }
+  )
+
   it('reports a missing key before attempting the network request', async () => {
     const appDatabase = await database()
     const probe = vi.fn<ConnectionProbe>()

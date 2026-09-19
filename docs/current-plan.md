@@ -31,6 +31,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Keyboard shortcut separation is locally verified. Sidebar and Agent panel toggles now use
+  their accessible buttons only; text-formatting keys no longer toggle panels. Application
+  commands share exact modifier matching and display definitions, ignore consumed/composing
+  events, and permit key repeat only for section navigation. Settings documents application,
+  editor, autocomplete, and Agent input commands. Thirty focused tests and seven distinct real
+  Electron scenarios passed, reusing one source build; two focused reruns corrected test
+  selection/setup assumptions. Runtime evidence is macOS arm64, with synthetic IME guards
+  only; the packaged App is unchanged. Evidence:
+  [keyboard shortcut separation](history/implementation-log.md#2026-09-19-keyboard-shortcut-separation).
+
 - [Release `0.2026.9.7`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
   is published as Latest from immutable tag `v0.2026.9.7`, source
   `553511063698ca2afb847af40c76f9af9943e8e9`. It includes DeepSeek autocomplete,
@@ -254,7 +264,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 - Project sidebar resizing maintenance is complete. Every expanded desktop project workspace now
   exposes the same bounded pointer and keyboard resize handle while retaining the fixed icon rail,
-  collapse shortcut, and each workspace's established default width. Focused component coverage,
+  collapse button, and each workspace's established default width. Focused component coverage,
   static checks, a final production build, and the real Electron resize scenario passed. A
   replacement macOS arm64 App then passed the four-stage build-only package gate in 31.8 seconds.
   Evidence:
@@ -712,8 +722,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Studio run to generate 370 empty `read_section` calls.
 - The current dirty macOS arm64 maintenance build passed the complete no-identity package gate and
   produced a verified App, DMG, and ZIP under `dist/macos-arm64`.
-- Provider Base URLs now permit explicit HTTP access to localhost and numeric IPv4 endpoints whose
-  first octet is `10`, `100`, `127`, or `192`; HTTPS remains required for all other remote hosts.
+- Agent, Embedding, and Rerank Base URLs accept HTTP or HTTPS for any valid host, including
+  domains, IPv4, and IPv6. Model discovery and connection probes now use the matching explicit
+  model-service request policy. MinerU retains its existing Base URL validation, stricter
+  loopback-only HTTP request policy, and public-HTTPS artifact policy. URL credentials,
+  query parameters, and fragments remain prohibited in configured Base URLs; authenticated
+  requests still reject redirects.
+  Initial configuration coverage passed 66 tests and a source Electron save/restart scenario;
+  the subsequent request-policy correction passed 48 focused tests and static checks. The local
+  macOS arm64 App includes that correction and passed all 12 packaged runtime smoke categories.
+  Evidence: [HTTP endpoint maintenance](history/implementation-log.md#2026-09-17-model-service-http-endpoints)
+  and [request policy correction](history/implementation-log.md#2026-09-17-model-service-http-request-policy-correction).
 - Checkpoint 75 is complete. It adds Protocol v12 short layered descriptions, explicit
   run-local writing capability groups, exact active-envelope budgeting, and provider-neutral
   object-root tool schemas without changing outer profile authority or persistence.

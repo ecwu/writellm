@@ -10,6 +10,7 @@ import {
   GOOGLE_GEMINI_IMAGE_MODELS,
   GOOGLE_VERTEX_IMAGE_MODELS,
   imageProviderCatalogSchema,
+  providerBaseUrlSchema,
   providerConfigSchema,
   providerSaveInputSchema
 } from './providers'
@@ -115,54 +116,88 @@ describe('provider contracts', () => {
     ).toBe(false)
   })
 
-  it('accepts HTTPS and configured local-network HTTP prefixes', () => {
+  it.each([
+    'https://api.example.test/v1',
+    'http://luoluo.ucd.ie:8080',
+    'http://api.example.test/v1',
+    'http://100-api.example.test',
+    'http://8.8.8.8:8080/v1',
+    'http://172.16.0.2:1234/v1',
+    'http://localhost:8080/v1',
+    'http://127.0.0.1:1234/v1',
+    'http://192.168.1.20:1234/v1',
+    'http://100.96.1.104:1234/v1',
+    'http://10.0.0.8:1234/v1',
+    'http://[::1]:8080/v1',
+    'http://[2001:db8::1]:8080/v1'
+  ])('accepts and normalizes model-service endpoint %s', (baseUrl) => {
     const base = {
-      role: 'agent' as const,
-      providerId: 'openai-compatible' as const,
       model: 'writer',
       modelRevision: 'writer-rev-1',
       timeoutMs: 30_000,
-      embeddingDimension: null,
       batchLimit: 1,
-      fileSizeLimitMb: null
+      embeddingDimension: null,
+      fileSizeLimitMb: null,
+      baseUrl: `${baseUrl}/`
+    }
+    for (const config of [
+      { ...base, role: 'agent', providerId: 'openai-compatible' },
+      { ...base, role: 'embedding', providerId: 'openai-compatible', embeddingDimension: 8 },
+      { ...base, role: 'rerank', providerId: 'cohere-compatible' }
+    ]) {
+      expect(providerConfigSchema.parse(config)).toMatchObject({ baseUrl })
     }
     expect(
-      providerConfigSchema.parse({ ...base, baseUrl: 'https://api.example.test/v1/' }).baseUrl
-    ).toBe('https://api.example.test/v1')
-    for (const baseUrl of [
-      'http://localhost:8080/v1',
-      'http://127.0.0.1:1234/v1',
-      'http://192.168.1.20:1234/v1',
-      'http://100.96.1.104:1234/v1',
-      'http://10.0.0.8:1234/v1'
-    ]) {
-      expect(providerConfigSchema.safeParse({ ...base, baseUrl }).success).toBe(true)
-    }
+      agentCustomPresetInputSchema.parse({
+        name: 'HTTP model',
+        baseUrl: `${baseUrl}/`,
+        api: 'openai-completions',
+        authMode: 'none'
+      })
+    ).toMatchObject({ baseUrl })
   })
 
-  it('rejects other remote HTTP endpoints and embedded credentials', () => {
+  it.each([
+    'ftp://api.example.test',
+    'file:///tmp/model',
+    'not a URL',
+    'http://key:secret@example.test',
+    'https://key@example.test',
+    'http://example.test?key=secret',
+    'https://example.test#fragment',
+    `http://example.test/${'x'.repeat(2_048)}`
+  ])('rejects invalid model-service endpoint %s', (baseUrl) => {
+    expect(providerBaseUrlSchema.safeParse(baseUrl).success).toBe(false)
+  })
+
+  it('retains the MinerU HTTP host restrictions', () => {
     const base = {
-      role: 'agent' as const,
-      providerId: 'openai-compatible' as const,
-      model: 'writer',
-      modelRevision: 'writer-rev-1',
+      role: 'mineru',
+      providerId: 'mineru',
+      model: 'vlm',
       timeoutMs: 30_000,
-      embeddingDimension: null,
       batchLimit: 1,
-      fileSizeLimitMb: null
+      embeddingDimension: null,
+      fileSizeLimitMb: 100
     }
-    expect(
-      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://api.example.test' }).success
-    ).toBe(false)
-    expect(
-      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://100-api.example.test' }).success
-    ).toBe(false)
-    expect(
-      providerConfigSchema.safeParse({ ...base, baseUrl: 'http://172.16.0.2:1234/v1' }).success
-    ).toBe(false)
-    expect(
-      providerConfigSchema.safeParse({ ...base, baseUrl: 'https://key@example.test' }).success
-    ).toBe(false)
+    for (const baseUrl of [
+      'https://mineru.example.test',
+      'http://localhost:8080',
+      'http://[::1]:8080',
+      'http://10.0.0.8',
+      'http://100.96.1.104',
+      'http://127.0.0.1',
+      'http://192.168.1.20'
+    ])
+      expect(providerConfigSchema.safeParse({ ...base, baseUrl }).success).toBe(true)
+    for (const baseUrl of [
+      'http://mineru.example.test',
+      'http://8.8.8.8',
+      'http://172.16.0.2',
+      'http://100-api.example.test',
+      'http://[2001:db8::1]'
+    ])
+      expect(providerConfigSchema.safeParse({ ...base, baseUrl }).success).toBe(false)
   })
 
   it('enforces embedding and MinerU role-specific capabilities', () => {

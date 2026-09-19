@@ -1,3 +1,5 @@
+import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
+export { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -102,31 +104,6 @@ export const settingsSections: Array<{
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
   { id: 'about', label: 'About & Diagnostics', icon: Info }
 ]
-
-export const keyboardShortcuts = [
-  { action: 'New project', shortcut: '⌘ / Ctrl + N', context: 'No project open' },
-  { action: 'Open project', shortcut: '⌘ / Ctrl + O', context: 'No project open' },
-  { action: 'Save current section', shortcut: '⌘ / Ctrl + S', context: 'Active project' },
-  { action: 'Open Settings', shortcut: '⌘ / Ctrl + ,', context: 'Anywhere' },
-  { action: 'Find in manuscript', shortcut: '⌘ / Ctrl + F', context: 'Active project' },
-  { action: 'Toggle project sidebar', shortcut: '⌘ / Ctrl + B', context: 'Active project' },
-  { action: 'Toggle writing Agent', shortcut: '⌘ / Ctrl + J', context: 'Active project' },
-  {
-    action: 'Open selection quick actions',
-    shortcut: '⇧ + ⌘ / Ctrl + K',
-    context: 'Selected editor text'
-  },
-  {
-    action: 'Go to previous section',
-    shortcut: '⌘ / Ctrl + ⌥ / Alt + ↑',
-    context: 'Active project'
-  },
-  {
-    action: 'Go to next section',
-    shortcut: '⌘ / Ctrl + ⌥ / Alt + ↓',
-    context: 'Active project'
-  }
-] as const
 
 export function SettingsCommand({
   open,
@@ -561,12 +538,17 @@ export function KeyboardShortcutsSettings({
           <div className='min-w-0 flex-1'>
             <h2 className='text-xl font-semibold'>Keyboard Shortcuts</h2>
             <p className='text-sm text-muted-foreground'>
-              Current application commands. Shortcuts are fixed and cannot be customized.
+              Application, editor, and Agent input commands. Shortcuts are fixed and cannot be
+              customized.
             </p>
           </div>
           {closeAction}
         </header>
 
+        <p className='text-sm text-muted-foreground'>
+          Use the sidebar and Agent buttons to show or hide panels. Text formatting shortcuts do not
+          toggle panels.
+        </p>
         <div className='border-y'>
           <Table>
             <TableHeader>
@@ -580,7 +562,9 @@ export function KeyboardShortcutsSettings({
                 <TableRow key={shortcut.action}>
                   <TableCell>
                     <div className='font-medium'>{shortcut.action}</div>
-                    <div className='text-xs text-muted-foreground'>{shortcut.context}</div>
+                    <div className='text-xs text-muted-foreground'>
+                      {shortcut.group} · {shortcut.context}
+                    </div>
                   </TableCell>
                   <TableCell className='text-right font-medium whitespace-normal tabular-nums sm:whitespace-nowrap'>
                     {shortcut.shortcut}

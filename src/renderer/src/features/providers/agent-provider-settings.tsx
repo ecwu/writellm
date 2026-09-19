@@ -586,10 +586,7 @@ export function AgentProviderWorkspace({
                           onValueChange={(logoOverrideId) => setDraft({ ...draft, logoOverrideId })}
                         />
                       </ConfigField>
-                      <ConfigField
-                        label='Base URL'
-                        description='Use HTTPS, or HTTP for localhost and 10.*, 100.*, 127.*, or 192.* IPv4 endpoints.'
-                      >
+                      <ConfigField label='Base URL' description='Use HTTP or HTTPS.'>
                         <Input
                           value={draft.baseUrl}
                           autoComplete='url'
