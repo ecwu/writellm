@@ -31,11 +31,24 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Release `0.2026.9.8` is in local preparation, including the recent workbench, status bar,
-  Notebook, layout-menu and scrollbar changes. The frozen install passed, and complete
-  Electron-hosted tests passed 1,615 tests with three intentional benchmark skips in 25.2s.
-  Package acceptance, immutable tagging, hosted builds and publication remain pending.
-  Evidence: [release preparation](history/implementation-log.md#2026-09-19-release-0202698-preparation).
+- [Release `0.2026.9.8`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8)
+  is published as Latest from immutable tag `v0.2026.9.8`, source
+  `65a380b7c406ef633c7bc5e2a858ee4b1d9f49d2`. It includes the recent workbench, status bar,
+  Notebook source-capacity, layout-menu, scrollbar, shortcut and HTTP endpoint changes.
+  Release acceptance repaired retained-editor save-barrier routing and duplicate activity
+  delivery when the status bar and Agent panel subscribe simultaneously.
+  The complete Electron test run passed 1,615 tests with three intentional benchmark skips;
+  subsequent repairs passed 13 focused editor tests and 33 focused activity/IPC tests.
+  Final clean-source macOS arm64 package acceptance passed all ten stages in 241.8s,
+  including runtime smoke and 41/41 packaged scenarios with zero retries/skips, then made
+  DMG/ZIP from that same App. Earlier failures and their focused fixes remain in the history.
+  [CI run 35440017115](https://github.com/ecwu/writellm/actions/runs/35440017115) passed
+  static/fixtures and all four platform builds. Seven installers and four evidence JSONs are
+  public; all 11 asset sizes and SHA-256 digests were verified before and after publication.
+  Current App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.8`.
+  Distribution remains unsigned/unnotarized. Hosted CI is build-only; runtime evidence is
+  local macOS arm64, and physical system-IME candidate selection remains unverified.
+  Evidence: [release publication](history/implementation-log.md#2026-09-19-release-0202698-publication).
 
 - Notebook source capacity is locally verified under the [ADR 058 source capacity amendment](adrs/058-transient-notebook-knowledge-chat.md#2026-09-19-source-capacity-amendment).
   All indexed Knowledge sources are selectable without a source-count cap; per-turn frozen scopes
@@ -44,16 +57,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Electron-hosted tests and three distinct real Electron scenarios have passing evidence with
   one build, including 301-source selection, full-scope search and citation expansion. The final
   large-source scenario passed in 45.0s with zero retries/skips after two fixture corrections.
-  Current `out/` includes the change; the packaged App is unchanged. Runtime evidence is macOS
-  arm64 only. Evidence: [Notebook source capacity](history/implementation-log.md#2026-09-19-notebook-source-capacity).
+  Current `out/` and the 0.2026.9.8 packaged App include the change; the release gate also
+  passed the 301-source scenario. Runtime evidence is macOS arm64 only. Evidence: [Notebook source capacity](history/implementation-log.md#2026-09-19-notebook-source-capacity).
 
 - The fixed workbench status bar is locally verified. It combines index readiness, live Agent
   and Notebook navigation, saved chapter/manuscript counts, and Autocomplete controls. Closing
   the Agent tool does not stop status observation; project teardown clears subscriptions.
   Static checks, 45 distinct focused Electron-hosted tests and four distinct real Electron
   scenarios passed using one build, with one unit correction and one E2E fixture correction
-  rerun. Runtime evidence is macOS arm64 only. The requested local App rebuild is complete; native
-  packaged smoke passed, but the broader smoke stopped at the comment-write save barrier. Evidence:
+  rerun. Runtime evidence is macOS arm64 only. The initial rebuild passed native smoke,
+  while broader runtime smoke stopped at the comment-write save barrier. Release 0.2026.9.8
+  repaired that routing and duplicate activity delivery, then passed complete package acceptance. Evidence:
   [workbench status bar](history/implementation-log.md#2026-09-19-workbench-status-bar).
 
 - Workbench native scrollbar colors now follow the application light/dark theme, overriding
@@ -85,11 +99,11 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   editor, autocomplete, and Agent input commands. Thirty focused tests and seven distinct real
   Electron scenarios passed, reusing one source build; two focused reruns corrected test
   selection/setup assumptions. Runtime evidence is macOS arm64, with synthetic IME guards
-  only; the packaged App is unchanged. Evidence:
+  only; the 0.2026.9.8 packaged App includes the change. Evidence:
   [keyboard shortcut separation](history/implementation-log.md#2026-09-19-keyboard-shortcut-separation).
 
 - [Release `0.2026.9.7`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
-  is published as Latest from immutable tag `v0.2026.9.7`, source
+  remains a previous published release from immutable tag `v0.2026.9.7`, source
   `553511063698ca2afb847af40c76f9af9943e8e9`. It includes DeepSeek autocomplete,
   application defaults/temporary overrides and Brief/Outline previews. 1,530 distinct
   Electron tests have passing evidence; three benchmark tests are intentionally skipped.
@@ -99,8 +113,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   produced DMG/ZIP. [CI run 34851835641](https://github.com/ecwu/writellm/actions/runs/34851835641)
   passed static/fixtures and all four build/upload targets. Seven installers and four
   original platform evidence files are public; all 11 asset sizes and SHA-256 digests
-  were verified before and after publication. Local App:
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.7`.
+  were verified before and after publication. That acceptance used native build `2026.9.7`;
+  the current local App is 0.2026.9.8 as recorded above.
   Builds remain unsigned/unnotarized; hosted CI is build-only, runtime coverage is local
   macOS arm64, and physical IME candidate selection remains unverified.
   Evidence: [release publication](history/implementation-log.md#2026-09-14-release-0202697-publication).
@@ -135,7 +149,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 - Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local
   annotated source tag, retained locally without its own remote publication. Its release
   metadata was `0.2026.9.6`; the September 13 App also included subsequent Brief/Outline
-  preview changes. Current release metadata and App are now `0.2026.9.7` as recorded above.
+  preview changes. Current release metadata and App are now `0.2026.9.8` as recorded above.
 
 - DeepSeek editor autocomplete, its style dropdown and continuous completion are locally
   verified under [ADR 082](adrs/082-deepseek-autocomplete.md). Tab schedules another request

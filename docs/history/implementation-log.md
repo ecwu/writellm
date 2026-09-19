@@ -3602,3 +3602,48 @@ The test-only correction is verified against the same App before rebuilding the 
 Report: `.cache/verification/1789816462931-14175-ac28164b`.
 Focused import lifecycle rerun passed in 8.5s without retries/skips:
 `.cache/verification/1789816715525-16521-148e3aac`.
+
+## 2026-09-19 Release 0.2026.9.8 publication
+
+- Completed the authorized recent-change commits, App build, next September tag and public
+  Release. Immutable annotated tag `v0.2026.9.8` identifies
+  `65a380b7c406ef633c7bc5e2a858ee4b1d9f49d2`; main and the tag were pushed atomically.
+  Tag/source verification confirmed matching versions, revision and clean checkout. The initial
+  verification invocation preceded tag creation and therefore could not resolve it; the check
+  passed after creation. Existing tags and releases were not altered.
+- The candidate contains Dockview content/tool groups, independent transient Notebooks,
+  unrestricted indexed-source selection, global Layout controls, status bar, themed scrollbars,
+  keyboard shortcut separation and HTTP endpoint policy changes. Release acceptance additionally
+  fixed retained-editor flush routing and isolated simultaneous Agent activity subscriptions.
+- The initial full Electron-hosted run passed 1,615 tests in 261 files, with three intentional
+  benchmark skips (25.2s). Subsequent source fixes passed 13 focused editor tests (1.7s) and
+  33 focused broker/preload/IPC/content/status tests (1.4s), including one new regression.
+  Earlier package/scenario failures and corrections are recorded in the preparation entry.
+- Final clean-source `pnpm check:package` passed all ten stages in 241.8s: static checks,
+  recovery inventory, native preparation/build, App assembly, signature/resource inventory,
+  packaged runtime smoke (38.6s), 41/41 packaged E2E (136.4s wrapper, zero retries/skips),
+  and DMG/ZIP from the same tested App. The large-source scenario passed with 301 PDFs.
+  Report: `.cache/verification/1789816749028-16799-a556b08c`.
+  App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.8`.
+  Local DMG SHA-256: `e2a80f63bbb73ece53038b164d566987ae6b08272f3ef5faa05a8ad218b4d3f7`;
+  ZIP: `d4abcd454f475ec97cd44737c3b7a0ba5ae4ae8660dbaa41c0b486aabe9545f1`.
+- [Actions run 35440017115](https://github.com/ecwu/writellm/actions/runs/35440017115)
+  passed all six jobs: static/fixtures 44s, Windows x64 339s, Linux x64 322s,
+  macOS arm64 252s, macOS x64 513s, and timing summary 14s. Hosted Node 24.15.0 /
+  pnpm 11.17.0 performs native builds/inventory rather than runtime acceptance.
+- Downloaded and verified the exact source revision, versions, native architecture,
+  successful stages, formats, sizes and SHA-256 of seven installers (1,355,394,111 bytes).
+  Original platform evidence is preserved. Windows/Intel Mac retain generated-native-resource
+  dirty-source markers, as in earlier releases; their source revisions match the immutable tag.
+  Uploaded seven installers and four evidence JSONs to a draft without overwriting assets,
+  then verified all 11 GitHub asset sizes and SHA-256 digests before publication.
+- [WriteLLM 0.2026.9.8](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8)
+  was published at 2026-09-19T11:38:43Z and verified as Latest, non-draft and non-prerelease.
+  Public asset sizes and digests passed verification again. Notes identify unsigned/unnotarized
+  distribution, local macOS arm64 runtime coverage, loopback Notebook fixtures and unverified
+  physical system-IME candidate selection. Host pnpm 11.17.0 matches the manifest; local Node
+  26.8.2 remains outside declared 24.x. Native tests use Electron 43.4.1 ABI 148.
+
+Local release evidence: `.cache/releases/0.2026.9.8/` (notes, local package evidence, Actions
+result, platform artifacts, checksum validation and draft/public asset verification).
+This documentation follow-up does not move or rebuild the immutable release tag.
