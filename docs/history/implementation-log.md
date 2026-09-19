@@ -3592,3 +3592,13 @@ one delivery each across delayed activation, live delivery and independent unsub
 focused broker/preload/IPC/content/status tests passed in 1.4s without retries. Report:
 `.cache/verification/1789816413918-13771-742fc535`. The final source requires a fresh full package
 gate before tagging; no failed candidate was pushed.
+
+The third package gate passed clean App assembly, inventory, runtime smoke (39.9s), and 40/41
+packaged scenarios (138.2s, zero retries), including streaming copy and 301-source retrieval.
+The remaining Knowledge lifecycle fixture cancelled before its first remote batch request on
+this run, while its final assertion assumed three remote batches. It now waits for the first
+batch request before cancellation, preserving the intended remote cancellation/retry coverage.
+The test-only correction is verified against the same App before rebuilding the tagged source.
+Report: `.cache/verification/1789816462931-14175-ac28164b`.
+Focused import lifecycle rerun passed in 8.5s without retries/skips:
+`.cache/verification/1789816715525-16521-148e3aac`.

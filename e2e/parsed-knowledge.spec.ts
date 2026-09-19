@@ -925,6 +925,7 @@ test(
       })
       await expect(knowledge.getByText(/Current stage: /)).toBeVisible()
 
+      await expect.poll(() => batchCounter).toBe(1)
       await knowledge.getByRole('button', { name: 'Stop parsing', exact: true }).click()
       await expect(knowledge.getByText('Not parsed yet', { exact: true })).toBeVisible({
         timeout: 20_000
