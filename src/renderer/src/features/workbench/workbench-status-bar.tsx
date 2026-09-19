@@ -97,7 +97,13 @@ export function WorkbenchStatusBar(props: {
           </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
-      <div className='ml-auto flex min-w-0 items-center gap-2'>
+      <div className='ml-auto flex min-w-0 items-center gap-3'>
+        {props.workspace ? (
+          <span className='shrink-0 tabular-nums' data-testid='workbench-section-progress'>
+            {props.workspace.sections.filter((item) => item.section.status === 'completed').length}/
+            {props.workspace.sections.length} sections completed
+          </span>
+        ) : null}
         <Tooltip>
           <TooltipTrigger data-testid='workbench-word-count' className='truncate tabular-nums'>
             {props.workspace ? (

@@ -34,6 +34,26 @@ test(
       const status = page.getByTestId('workbench-status-bar')
       await expect(status).toBeVisible()
       await expect(status).toHaveCSS('height', '28px')
+      await expect(status.getByTestId('workbench-section-progress')).toHaveText(
+        '0/1 sections completed'
+      )
+      await expect(page.getByText('Active', { exact: true })).toHaveCount(0)
+      for (const [tool, title] of [
+        ['find', 'Find'],
+        ['comments', 'Comments'],
+        ['writing_rules', 'Writing rules']
+      ] as const) {
+        await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
+        await page.getByRole('menuitemcheckbox', { name: title, exact: true }).click()
+        const panel = page.getByTestId(`workbench-tool-${tool}`)
+        await expect(panel).toBeVisible()
+        await expect(panel.getByText('Tabbed writing', { exact: true })).toHaveCount(0)
+        await expect(panel.getByRole('button', { name: /^Close / })).toHaveCount(0)
+        await expect(page.getByText('0/1 sections completed', { exact: true })).toHaveCount(1)
+        await page.getByRole('button', { name: `Close ${title}`, exact: true }).click()
+        await expect(panel).toHaveCount(0)
+      }
+
       await expect(status.getByTestId('workbench-word-count')).toContainText(
         'Section 0 / Manuscript 0 words'
       )
@@ -327,12 +347,57 @@ test(
       await secondTab.getByRole('button', { name: 'Tab actions Chapter Two' }).click()
       await reopened.getByRole('menuitem', { name: 'Close', exact: true }).click()
       await expect(reopened.getByText('No open tabs', { exact: true })).toBeVisible()
+      await reopened.getByRole('menuitem', { name: 'Layout', exact: true }).click()
+      await reopened.getByRole('menuitemcheckbox', { name: 'Outline', exact: true }).click()
+      await expect(reopened.getByTestId(/^outline-section-/)).toHaveCount(0)
+      await reopened.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await expect(reopened.getByText('No open tabs', { exact: true })).toBeVisible()
       await expect(reopened.getByTestId(/^outline-section-/)).toHaveCount(2)
+      await expect(reopened.getByText('Action failed', { exact: true })).toHaveCount(0)
+
+      // Insertion requires an open section; it must not linger until a later navigation.
+      await reopened.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      const reopenedKnowledge = reopened.getByTestId('knowledge-workspace')
+      await reopenedKnowledge.locator('[data-reference-id]').first().click()
+      await reopenedKnowledge.getByRole('button', { name: 'Insert in editor', exact: true }).click()
+      const missingSection = reopened.getByText(
+        'Choose a section from Outline before inserting a reference.',
+        { exact: true }
+      )
+      await expect(missingSection).toBeVisible()
+      await expect(reopened.getByTestId(/^workspace-tab-section:/)).toHaveCount(0)
+      await reopened
+        .locator('[data-sonner-toast]')
+        .filter({ has: missingSection })
+        .getByRole('button')
+        .click()
+      await expect(missingSection).toHaveCount(0)
+      await reopened
+        .getByTestId(/^outline-section-/)
+        .filter({ hasText: 'Chapter One' })
+        .click()
+      await expect(sectionEditor(reopened)).toContainText('Retained first chapter')
+      await expect(sectionEditor(reopened)).not.toContainText('workbench2026')
       await reopened
         .getByTestId(/^outline-section-/)
         .filter({ hasText: 'Chapter Two' })
         .click()
       await expect(reopened.getByLabel('Section title', { exact: true })).toHaveValue('Chapter Two')
+      await reopened
+        .getByTestId(/^outline-section-/)
+        .filter({ hasText: 'Chapter One' })
+        .click()
+      await reopened
+        .getByTestId(/^outline-section-/)
+        .filter({ hasText: 'Chapter Two' })
+        .click()
+      await expect(reopened.getByTestId(/^workspace-tab-section:/)).toHaveCount(2)
+      // The earlier insertion replaces the retained selection in Chapter Two.
+      await expect(sectionEditor(reopened)).toContainText('[@workbench2026]')
+      await reopened.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await reopened.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await expect(reopened.getByLabel('Section title', { exact: true })).toHaveValue('Chapter Two')
+      await expect(reopened.getByText('Action failed', { exact: true })).toHaveCount(0)
       await reopened.getByRole('button', { name: 'Edit outline', exact: true }).click()
       const edit = reopened.getByRole('dialog', { name: 'Outline editor' })
       await edit.getByRole('button', { name: 'Delete', exact: true }).click()

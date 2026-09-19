@@ -196,7 +196,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   } | null>(null)
   const [editorAutoFocus, setEditorAutoFocus] = useState(true)
   const editorRef = useRef<SectionEditorHandle>(null)
-  const [pendingCitationInsert, setPendingCitationInsert] = useState<string | null>(null)
+  const [pendingCitationInsert, setPendingCitationInsert] = useState<{
+    citationKey: string
+    sectionId: string
+  } | null>(null)
   const manuscriptScrollRef = useRef<HTMLElement>(null)
   const activeSectionIdRef = useRef<string | null>(null)
   const pendingScrollSectionIdRef = useRef<string | null>(null)
@@ -1480,13 +1483,16 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   }
 
   useEffect(() => {
-    if (
-      activeWorkspace !== 'manuscript' ||
-      pendingCitationInsert === null ||
-      editorQuery.data === undefined
-    ) {
+    if (pendingCitationInsert === null) return
+    if (workbench.activeId !== `section:${pendingCitationInsert.sectionId}`) {
+      setPendingCitationInsert(null)
       return
     }
+    if (
+      activeWorkspace !== 'manuscript' ||
+      editorQuery.data?.revision.sectionId !== pendingCitationInsert.sectionId
+    )
+      return
     const frame = requestAnimationFrame(() => {
       const editor = editorRef.current
       if (editor === null) {
@@ -1494,11 +1500,11 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         setPendingCitationInsert(null)
         return
       }
-      editor.insertText(`[@${pendingCitationInsert}]`)
+      editor.insertText(`[@${pendingCitationInsert.citationKey}]`)
       setPendingCitationInsert(null)
     })
     return () => cancelAnimationFrame(frame)
-  }, [activeWorkspace, editorQuery.data, pendingCitationInsert, props])
+  }, [activeWorkspace, editorQuery.data, pendingCitationInsert, props, workbench.activeId])
 
   let alternateWorkspace: React.JSX.Element | null = null
   if (activeWorkspace === 'knowledge') {
@@ -1508,9 +1514,14 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         projectSessionId={props.projectSessionId}
         projectName={props.projectName}
         onOpenManuscript={closeFind}
-        onInsertCitation={(citationKey) => {
-          setPendingCitationInsert(citationKey)
-          setActiveWorkspace('manuscript')
+        onInsertCitation={async (citationKey) => {
+          setPendingCitationInsert(null)
+          const result = await workbench.openRecentSection()
+          if (result?.status === 'activated') {
+            setPendingCitationInsert({ citationKey, sectionId: result.sectionId })
+          } else if (result?.status === 'missing') {
+            props.onError('Choose a section from Outline before inserting a reference.')
+          }
         }}
         onOpenNotebook={() => setActiveWorkspace('notebook')}
         onOpenPreview={() => setActiveWorkspace('preview')}
@@ -1568,7 +1579,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         onOpenSettings={props.onOpenSettings}
         onError={props.onError}
         onNavigate={(sectionId, blockId) => {
-          setActiveWorkspace('manuscript')
           void selectSection(sectionId).then((selected) => {
             if (!selected) return
             requestAnimationFrame(() => editorRef.current?.revealBlock(blockId))

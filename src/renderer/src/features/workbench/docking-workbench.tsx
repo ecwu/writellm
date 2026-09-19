@@ -19,7 +19,7 @@ import {
   type IDockviewPanelHeaderProps,
   type SerializedDockview
 } from 'dockview-react'
-import { MoreHorizontal, Plus } from 'lucide-react'
+import { MoreHorizontal, Plus, X } from 'lucide-react'
 import { type AppSidebar, WorkspaceRail, type WorkspaceKind } from '@/components/app-sidebar'
 import { Button } from '@/components/ui/button'
 import { useSidebar } from '@/components/ui/sidebar'
@@ -181,15 +181,22 @@ function ToolTabHeader(props: IDockviewPanelHeaderProps): React.JSX.Element {
   const { setOpen } = useSidebar()
   return (
     <div className='flex h-full min-w-0 items-center'>
-      <DockviewDefaultTab
-        {...props}
-        closeActionOverride={() => {
+      <DockviewDefaultTab {...props} hideClose />
+      <Button
+        variant='ghost'
+        size='icon-sm'
+        aria-label={props.api.id === 'agent' ? 'Close writing agent' : `Close ${props.api.title}`}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation()
           props.api.close()
           if (props.api.id === 'agent') owner.onAgentOpenChange(false)
           if (props.api.id === 'outline') setOpen(false)
           if (props.api.id === 'find') owner.sidebar.props.onCloseFind()
         }}
-      />
+      >
+        <X />
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant='ghost' size='icon-sm' aria-label={`Move ${props.api.title}`}>

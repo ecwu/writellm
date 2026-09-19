@@ -123,7 +123,7 @@ test(
         .toEqual({ first: 'high', newest: 'low' })
 
       await launched.page.keyboard.press('Escape')
-      await panel.getByLabel('Close writing agent').click()
+      await launched.page.getByLabel('Close writing agent').click()
       await closeProject(launched.page)
       await createProject(launched.page, 'Thinking Beta')
       if (!(await launched.page.getByTestId('agent-panel').isVisible()))

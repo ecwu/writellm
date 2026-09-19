@@ -422,7 +422,7 @@ test(
         await modelSearch.press('Enter')
         await expect(modelPicker).toHaveCount(0)
         await first.page.keyboard.press('Escape')
-        await panel.getByLabel('Close writing agent').click()
+        await first.page.getByLabel('Close writing agent').click()
 
         await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
         await dialog.getByRole('option', { name: /^Agent API/ }).click()

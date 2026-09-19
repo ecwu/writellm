@@ -21,11 +21,9 @@ import {
   MessagesSquare,
   Pencil,
   Search,
-  Settings2,
-  X
+  Settings2
 } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import {
@@ -35,7 +33,6 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarHeader,
-  SidebarFooter,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -139,30 +136,11 @@ export function AppSidebar({
 
   const content = (
     <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
-      <SidebarHeader className='min-w-0 gap-3.5 overflow-hidden border-b p-4'>
-        <div className='flex w-full min-w-0 items-center gap-2 overflow-hidden'>
-          <div className='min-w-0 flex-1 truncate text-base font-medium text-foreground'>
+      {activeWorkspace === 'manuscript' || (!toolOnly && activeWorkspace === 'references') ? (
+        <SidebarHeader className='min-w-0 gap-3 border-b p-3'>
+          <div className='truncate text-sm font-medium' title={projectName}>
             {projectName}
           </div>
-          <Badge className='shrink-0 max-md:hidden' variant='success'>
-            Active
-          </Badge>
-          {activeWorkspace === 'find' ? (
-            <Button
-              aria-label='Close Find'
-              className='shrink-0'
-              size='icon-sm'
-              variant='ghost'
-              onClick={() => {
-                setOpenMobile(false)
-                onCloseFind()
-              }}
-            >
-              <X />
-            </Button>
-          ) : null}
-        </div>
-        {activeWorkspace === 'manuscript' || (!toolOnly && activeWorkspace === 'references') ? (
           <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
             <Button
               className='w-full min-w-0 overflow-hidden px-2'
@@ -181,8 +159,8 @@ export function AppSidebar({
               <Pencil /> <span className='truncate'>Edit outline</span>
             </Button>
           </div>
-        ) : null}
-      </SidebarHeader>
+        </SidebarHeader>
+      ) : null}
       <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
         {activeWorkspace === 'comments' ? (
           <div className='flex min-h-0 flex-1'>{commentsPanel}</div>
@@ -247,17 +225,6 @@ export function AppSidebar({
           </SidebarGroup>
         )}
       </SidebarContent>
-      <SidebarFooter className='shrink-0 border-t p-4'>
-        <section
-          className='flex flex-col gap-1 text-xs text-muted-foreground'
-          aria-label='Manuscript statistics'
-        >
-          <p>
-            {workspace?.sections.filter((item) => item.section.status === 'completed').length ?? 0}/
-            {workspace?.sections.length ?? 0} sections completed
-          </p>
-        </section>
-      </SidebarFooter>
     </Sidebar>
   )
   if (toolOnly) return content

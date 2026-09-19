@@ -122,9 +122,9 @@ export function useWorkbench(
   }, [])
   const activate = useCallback(
     async (tab: ContentTab, flushed = false) => {
-      if ((!flushed && !(await actions.current.flush())) || !live.current) return
+      if ((!flushed && !(await actions.current.flush())) || !live.current) return false
       if (tab.kind === 'section') await actions.current.activateSection(tab.sectionId)
-      if (!live.current) return
+      if (!live.current) return false
       if (tab.kind !== 'section') actions.current.clearSelection()
       actions.current.setWorkspace(tab.kind === 'section' ? 'manuscript' : tab.kind)
       const current = state.current
@@ -134,6 +134,7 @@ export function useWorkbench(
           : [...current.tabs, tab],
         tabId(tab)
       )
+      return true
     },
     [actions, commit]
   )
@@ -277,14 +278,18 @@ export function useWorkbench(
     },
     enqueue,
     openRecentSection() {
-      const tab = recent.current.flatMap((id) =>
-        state.current.tabs.filter((item) => item.kind === 'section' && tabId(item) === id)
-      )[0]
-      if (tab) return open(tab)
-      errorRef.current(
-        'Choose a section from Outline before inserting a reference or returning to the manuscript.'
-      )
-      return Promise.resolve()
+      return enqueue(async () => {
+        const tab = recent.current.flatMap((id) =>
+          state.current.tabs.filter((item) => item.kind === 'section' && tabId(item) === id)
+        )[0]
+        if (tab?.kind !== 'section') {
+          requestTool('outline')
+          return { status: 'missing' } as const
+        }
+        return (await activate(tab))
+          ? ({ status: 'activated', sectionId: tab.sectionId } as const)
+          : ({ status: 'blocked' } as const)
+      })
     },
     open,
     close,

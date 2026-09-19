@@ -12,8 +12,7 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
-  TriangleAlert,
-  X
+  TriangleAlert
 } from 'lucide-react'
 import {
   AlertDialog,
@@ -237,14 +236,6 @@ export function AgentPanelView({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button
-            variant='ghost'
-            size='icon-sm'
-            aria-label='Close writing agent'
-            onClick={() => props.onOpenChange(false)}
-          >
-            <X />
-          </Button>
         </header>
         {activeSession?.fork ? (
           <Button

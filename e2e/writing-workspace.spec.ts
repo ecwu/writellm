@@ -1264,7 +1264,7 @@ test(
         exact: true
       })
       await expect(outlineButton).toBeVisible()
-      await expect(launched.page.getByText('Active', { exact: true }).first()).toBeVisible()
+      await expect(launched.page.getByTestId('workbench-status-bar')).toBeVisible()
 
       await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
       const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })

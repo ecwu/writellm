@@ -86,7 +86,7 @@ test(
         }
       }
       await composer.fill('')
-      await panel.getByRole('button', { name: 'Close writing agent' }).click()
+      await launched.page.getByRole('button', { name: 'Close writing agent' }).click()
 
       await editor.click()
       await editor.selectText()

@@ -31,6 +31,28 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Source candidate `v0.2026.9.9` records the verified sidebar layout and empty-workbench navigation
+  changes as a local annotated tag. Release metadata is 0.2026.9.9; no remote push or GitHub Release
+  is part of this tag-only checkpoint. The previously built local App remains 0.2026.9.8 and
+  includes these functional changes; no 0.2026.9.9 binary is claimed.
+  Evidence: [tag-only candidate](history/implementation-log.md#2026-09-19-tag-only-0202699).
+
+- Docked tool chrome is unified: close buttons live in tool tabs, project context appears only
+  in Outline, and the redundant Active badge and per-tool completion footers are removed.
+  Section completion appears once in the global status bar. Static checks and three distinct
+  real Electron scenarios passed after fixture corrections; light/dark screenshots were inspected.
+  Current `out/` and the local macOS arm64 App include this change. The requested unpacked
+  build passed all four build-only stages in 32.5s after a sandbox DNS retry; packaged runtime
+  tests were not repeated. Runtime evidence remains the source macOS arm64 scenarios above.
+  Evidence: [tool sidebar layout](history/implementation-log.md#2026-09-19-tool-sidebar-layout).
+
+- Empty-workbench manuscript navigation now opens Outline without an action error when no
+  section tab is available. Reference insertion separately requires successful section activation
+  and clears abandoned insertion state. Static checks and three distinct real Electron scenarios
+  passed with one build and one test-expectation correction rerun; runtime evidence is macOS arm64.
+  Current `out/` and the rebuilt local App include the fix; the published 0.2026.9.8 App does not. Evidence:
+  [empty-workbench navigation](history/implementation-log.md#2026-09-19-empty-workbench-navigation).
+
 - [Release `0.2026.9.8`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8)
   is published as Latest from immutable tag `v0.2026.9.8`, source
   `65a380b7c406ef633c7bc5e2a858ee4b1d9f49d2`. It includes the recent workbench, status bar,

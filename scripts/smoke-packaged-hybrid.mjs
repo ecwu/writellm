@@ -420,7 +420,7 @@ async function runPackagedAppScenarios(resources) {
     await page
       .locator('[data-slot="sidebar-header"]')
       .filter({ hasText: projectName })
-      .getByText('Active', { exact: true })
+      .getByText(projectName, { exact: true })
       .waitFor({ timeout: 60_000 })
 
     // Leave the editor before mutating the manuscript through IPC. On slower

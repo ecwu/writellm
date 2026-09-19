@@ -176,13 +176,12 @@ async function closeInvalidLinuxApp(app: ElectronApplication): Promise<void> {
 }
 
 /**
- * Asserts that a project is open by checking the workspace sidebar header, which
- * renders the project name as plain text next to an `Active` badge (not a heading).
+ * Asserts that a project is open using its Outline context and global status bar.
  */
 export async function expectActiveProject(page: Page, name: string): Promise<void> {
   const header = page.locator('[data-slot="sidebar-header"]').filter({ hasText: name })
   await expect(header.getByText(name, { exact: true })).toBeVisible()
-  await expect(header.getByText('Active', { exact: true })).toBeVisible()
+  await expect(page.getByTestId('workbench-status-bar')).toBeVisible()
 }
 
 export function sectionEditor(page: Page) {

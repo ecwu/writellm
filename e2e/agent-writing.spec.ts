@@ -675,7 +675,7 @@ test(
         launched.page.getByTestId('agent-model-picker').getByRole('option', { name: /E2E Agent/ })
       ).toBeVisible()
       await launched.page.keyboard.press('Escape')
-      await setupPanel.getByLabel('Close writing agent').click()
+      await launched.page.getByLabel('Close writing agent').click()
 
       await launched.page.getByRole('button', { name: 'Brief', exact: true }).click()
       const brief = launched.page.getByRole('dialog', { name: 'Manuscript brief' })
@@ -1220,7 +1220,7 @@ Continue only the original user request that remains unresolved after this appro
         )
       ).toBe(true)
 
-      await panel.getByRole('button', { name: 'Close writing agent', exact: true }).click()
+      await launched.page.getByRole('button', { name: 'Close writing agent', exact: true }).click()
 
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()

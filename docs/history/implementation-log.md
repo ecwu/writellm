@@ -3647,3 +3647,93 @@ Focused import lifecycle rerun passed in 8.5s without retries/skips:
 Local release evidence: `.cache/releases/0.2026.9.8/` (notes, local package evidence, Actions
 result, platform artifacts, checksum validation and draft/public asset verification).
 This documentation follow-up does not move or rebuild the immutable release tag.
+
+
+## 2026-09-19 Empty-workbench navigation
+
+- Fixed ordinary manuscript navigation from an empty content group: absence of a recent open
+  section now opens Outline without an error or arbitrary section selection. Recent-section
+  lookup runs inside the existing navigation queue and reports activated, missing or blocked;
+  activation still respects the existing save barrier and diagnostic error path.
+- Knowledge citation insertion creates pending state only after successful section activation.
+  A missing section produces a citation-specific message; pending insertion is bound to its
+  target section and discarded on navigation away. Asset block navigation directly selects its
+  specified section instead of first attempting unrelated recent-section navigation.
+- Extended the existing real Electron workbench scenario to close all content tabs, hide and
+  reopen Outline through Manuscript, reject insertion without a section, reopen multiple
+  sections without duplicate tabs or stray citation insertion, and return to the recent section.
+  Existing layout restoration, retained editor and successful citation insertion coverage stays
+  in the same scenario. No IPC, migration, dependency or packaging changes were needed.
+- Verification scope: Renderer interaction changes selected static checks, one source build,
+  the workbench scenario and the existing editor save-continuity/save-race scenarios.
+  `pnpm check:e2e e2e/workbench.spec.ts e2e/writing-workspace.spec.ts --grep
+  'retains section editors|preserves editor selection and undo history|retains input and serializes saves'`
+  passed Biome and both typechecks, built once, and passed the two save scenarios (8.4s/2.8s).
+  The added workbench assertion initially expected original text even though the earlier test
+  intentionally replaced its retained selection with a citation. Correcting that expectation
+  and running `pnpm test:e2e e2e/workbench.spec.ts` passed in 11.1s (11.7s wrapper) against the
+  same build. Three distinct scenarios now have passing final-source evidence, with zero
+  automatic retries/skips and one explicit test-only correction rerun. Initial gate: 49.2s,
+  `.cache/verification/1789821108360-45772-3b250c14/`; focused rerun:
+  `.cache/verification/1789821186118-46466-b02af0d9/`. Final test formatting and diff checks passed.
+- Runtime evidence is macOS arm64, Electron 43.4.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.2
+  remains outside the declared 24.x range. Windows/Linux and packaged runtime were not tested.
+  Current source output contains this fix; the existing published App remains unchanged.
+
+
+## 2026-09-19 Tool sidebar layout
+
+- Unified dockable tool close controls in their tab headers using shadcn buttons with explicit
+  accessible names. Removed Find and Agent interior close buttons; existing close callbacks,
+  Find cleanup and Agent visibility synchronization remain in the docking owner.
+- Removed repeated project headers from Find, Comments, References and Writing Rules and removed
+  the ambiguous Active badge. Outline retains compact project context and Brief/Edit outline actions.
+  All shared tool completion footers are removed; the fixed global status bar now shows one saved
+  completed/total section count next to manuscript counts. No IPC, persistence or dependency change.
+- Updated E2E and packaged-smoke locators that depended on Active or interior Agent close controls.
+  The workbench scenario verifies single progress text, absent Active badges, and tab-only closing
+  for Find, Comments and Writing Rules, alongside existing docking, restore and resize coverage.
+- Verification scope: Renderer layout/close interactions warranted static checks, one matching
+  source build per source revision, and focused real Electron scenarios, with no package gate.
+  Initial static/build gate passed but both scenarios stopped at the obsolete Active fixture
+  (36.6s total). Restoring project context only in Outline and updating fixtures required a second
+  build: static checks passed, workbench and Find navigation passed, while Agent exposed a fixture
+  variable-name error (35.6s total, 12.3s E2E). The corrected Agent fixture passed using that same
+  build in 4.7s (4.1s scenario). Three distinct scenarios have passing final-source evidence;
+  zero automatic retries/skips. Final fixture/script Biome and diff checks passed.
+- Reports: `.cache/verification/1789821708698-50863-9b68f918/`,
+  `1789821781654-51577-f92006d5/`, and `1789821846372-52221-88370841/`.
+  Inspected light/dark screenshots under `.cache/verification/workbench-preview/`; controls and
+  bottom statistics remain separated. The UI detector returned no findings. Runtime evidence is
+  macOS arm64 / Electron 43.4.1 ABI 148 only. pnpm 11.17.0 matches the pin; host Node 26.8.2 retains
+  the existing declared-range warning. Current `out/` includes the change; the packaged App has
+  not been rebuilt, and the updated packaged-smoke locator has static verification only.
+
+
+## 2026-09-19 Sidebar layout App build
+
+- Built the current working tree, including tool sidebar layout and empty-workbench navigation,
+  with the user-requested `pnpm package:unpack`. Output:
+  `dist/macos-arm64/mac-arm64/WriteLLM.app`, version 0.2026.9.8 / build 2026.9.8.
+- The sandbox attempt compiled successfully but packaging failed on `ENOTFOUND github.com`
+  after 55.2s. Retrying the same command outside the sandbox passed all four build-only stages
+  in 32.5s: production build, App packaging, signature policy and package inventory. Electron
+  43.4.1 ABI 148 and both native libraries were confirmed arm64; the App has the permitted
+  no-Team-ID ad-hoc/linker signature and is not notarized. No installers or publication requested.
+- Report: `.cache/verification/1789822544928-56798-fe66f983/`; failed sandbox report:
+  `1789822477951-56146-a610fe6f/`. This was build-only, with no repeated application tests or
+  packaged runtime smoke. Prior source runtime evidence remains recorded above.
+
+
+## 2026-09-19 Tag-only 0.2026.9.9
+
+- The user requested a new version tag without a Release. Recorded current sidebar-layout and
+  empty-workbench navigation changes in source, advanced only `package.json#release.version`
+  to 0.2026.9.9 (package base stays 0.2026.9), and created local annotated tag `v0.2026.9.9`.
+  No remote push, hosted build, installer publication or GitHub Release is included.
+- Reused the source static/Electron evidence and macOS arm64 App-build evidence above. The existing
+  App includes these functional changes under 0.2026.9.8 metadata; this source-only tag does not
+  claim a 0.2026.9.9 binary or new packaged runtime acceptance.
+- Tag preparation checks: frozen install passed without lockfile changes; package metadata
+  resolution, Biome and diff checks passed. Existing functional verification was reused because
+  this step changes only release metadata and documentation.
