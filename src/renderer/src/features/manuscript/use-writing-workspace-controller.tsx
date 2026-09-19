@@ -976,7 +976,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
               return
             }
           }
-          if (editorRef.current && editorRef.current.hasActiveEditor?.() !== false) {
+          if (
+            editorRef.current &&
+            editorRef.current.hasActiveEditor?.(request.sectionId) !== false
+          ) {
             await editorRef.current.finalFlush(request)
             return
           }

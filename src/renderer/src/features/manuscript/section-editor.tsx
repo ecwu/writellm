@@ -129,7 +129,7 @@ export interface EditorExactSelectionSnapshot extends EditorSelectionContext {
 }
 
 export interface SectionEditorHandle {
-  hasActiveEditor?(): boolean
+  hasActiveEditor?(sectionId?: string): boolean
   focus(): void
   insertText(text: string): void
   flush(): Promise<void>
@@ -137,6 +137,7 @@ export interface SectionEditorHandle {
     projectSessionId: string
     closingToken: string
     purpose?: 'close' | 'snapshot' | 'export' | 'mutation'
+    sectionId?: string
     bodyRequired: boolean
   }): Promise<void>
   releaseMutationBarrier(): void

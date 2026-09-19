@@ -57,13 +57,21 @@ export const RetainedEditors = forwardRef<
       return handle
     }
     return {
-      hasActiveEditor: () => currentId.current !== null && handles.current.has(currentId.current),
+      hasActiveEditor: (sectionId) => {
+        const id = sectionId ?? currentId.current
+        return id !== null && handles.current.has(id)
+      },
       focus: () => current().focus(),
       insertText: (text) => current().insertText(text),
       flush: async () => {
         for (const handle of handles.current.values()) await handle.flush()
       },
-      finalFlush: (request) => current().finalFlush(request),
+      finalFlush: (request) => {
+        if (request.sectionId === undefined) return current().finalFlush(request)
+        const handle = handles.current.get(request.sectionId)
+        if (!handle) throw new Error('The requested section editor is not open.')
+        return handle.finalFlush(request)
+      },
       releaseMutationBarrier: () => {
         for (const handle of handles.current.values()) handle.releaseMutationBarrier()
       },

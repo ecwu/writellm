@@ -3565,3 +3565,11 @@ keyboard shortcut and HTTP endpoint changes already on main since 0.2026.9.7.
 - This preparation records the source candidate only. Local packaged runtime acceptance,
   four-platform tag builds, installer verification and public publication are recorded later
   from their actual results. Existing tags and releases remain unchanged.
+
+The first clean-source package attempt completed static/native/build/inventory checks, then
+failed packaged smoke at comment creation: the retained editor dispatcher acknowledged its
+current section instead of Main's requested section. The dispatcher now resolves an explicit
+section ID to its retained editor; when that section was never mounted, the controller uses
+its existing revision acknowledgement path. Main still validates the token, sender and exact
+requested revision. The smoke scenario remains unchanged as regression coverage. A fresh
+clean-source package gate is required after this repair; no tag was pushed from the failed build.
