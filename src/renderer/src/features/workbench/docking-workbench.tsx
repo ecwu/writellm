@@ -611,6 +611,10 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
       >
         <WorkspaceRail
           {...props.sidebar.props}
+          agentOpen={props.agentOpen}
+          onToggleAgent={
+            window.desktop.menu.native ? () => props.onAgentOpenChange(!props.agentOpen) : undefined
+          }
           onOpenComments={() => {
             if (api) addTool(api, 'comments')
             props.onWorkspace('comments')

@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { agentToggle } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -52,13 +54,10 @@ test(
       await launched.page.getByLabel('Section title').press('Tab')
       const editor = sectionEditor(launched.page)
       await editor.fill('This exact claim needs evidence.')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
 
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -78,10 +77,7 @@ test(
             await expect(
               launched.page.getByRole('button', { name: 'Move Outline', exact: true })
             ).toBeVisible()
-            await expect(launched.page.getByTestId('agent-menubar-trigger')).toHaveAttribute(
-              'aria-pressed',
-              'true'
-            )
+            await expect(agentToggle(launched.page)).toHaveAttribute('aria-pressed', 'true')
           }
         }
       }

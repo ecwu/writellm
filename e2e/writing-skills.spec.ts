@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { mkdir } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -124,13 +126,10 @@ test(
       await launched.page.getByLabel('Section title').fill('Draft')
       await launched.page.getByLabel('Section title').press('Tab')
       await sectionEditor(launched.page).fill('Starting text.')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
 
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
@@ -431,8 +430,6 @@ async function createProject(page: import('@playwright/test').Page, name: string
 }
 
 async function closeProject(page: import('@playwright/test').Page) {
-  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page
-    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-    .click()
+  await openAppMenu(page, 'Project')
+  await clickAppMenuItem(page, 'Close project and return to chooser', false)
 }

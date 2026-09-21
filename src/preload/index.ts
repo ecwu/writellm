@@ -1,3 +1,4 @@
+import { applicationMenuApi } from './application-menu-api'
 import { workbenchApi } from './workbench-api'
 import { autocompleteApi } from './autocomplete-api'
 import { contextBridge } from 'electron'
@@ -18,6 +19,7 @@ import { diagnosticsApi } from './diagnostics-api'
 export type { DesktopApi } from './desktop-api'
 
 const desktopApi: DesktopApi = {
+  menu: applicationMenuApi,
   autocomplete: autocompleteApi,
   app: appApi,
   skills: skillsApi,

@@ -2,6 +2,7 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "app.native-menu", "tiers": ["packaged"] },
     { "id": "workbench.tabs-docking-restore", "tiers": ["packaged"] },
     { "id": "manuscript.autocomplete", "tiers": ["packaged"] },
     { "id": "agent.conversation-fork", "tiers": ["packaged"] },

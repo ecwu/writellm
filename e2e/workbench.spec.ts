@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { agentToggle, openAppMenu, clickAppMenuItem, expectAppMenuItem } from './application-menu'
 import { join } from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
@@ -19,11 +21,9 @@ test(
     let relaunched: typeof launched | undefined
     const { page } = launched
     try {
-      await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await expect(page.getByRole('menuitem', { name: 'Reset layout', exact: true })).toBeDisabled()
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true })
-      ).toBeDisabled()
+      await openAppMenu(page, 'Layout')
+      await expectAppMenuItem(page, 'Reset layout', { enabled: false }, false)
+      await expectAppMenuItem(page, 'Knowledge', { enabled: false }, true)
       await page.keyboard.press('Escape')
       await page.getByRole('button', { name: 'Create project', exact: true }).click()
       const create = page.getByRole('dialog', { name: 'Create project' })
@@ -43,8 +43,8 @@ test(
         ['comments', 'Comments'],
         ['writing_rules', 'Writing rules']
       ] as const) {
-        await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-        await page.getByRole('menuitemcheckbox', { name: title, exact: true }).click()
+        await openAppMenu(page, 'Layout')
+        await clickAppMenuItem(page, title, true)
         const panel = page.getByTestId(`workbench-tool-${tool}`)
         await expect(panel).toBeVisible()
         await expect(panel.getByText('Tabbed writing', { exact: true })).toHaveCount(0)
@@ -66,36 +66,33 @@ test(
       await expect(status.getByRole('button', { name: /Autocomplete:.*Paragraph/ })).toBeVisible()
 
       await expect(page.getByRole('button', { name: 'Reset layout', exact: true })).toHaveCount(0)
-      const layout = page.getByRole('menuitem', { name: 'Layout', exact: true })
-      await layout.focus()
-      await page.keyboard.press('ArrowDown')
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'Outline', exact: true })
-      ).toBeChecked()
-      await expect(page.getByRole('menuitemcheckbox', { name: 'Agent', exact: true })).toBeChecked()
-      await page.getByRole('menuitemcheckbox', { name: 'Agent', exact: true }).click()
-      await expect(page.getByTestId('agent-menubar-trigger')).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      )
-      await page.getByTestId('agent-menubar-trigger').click()
+      const layout = {
+        click: () => openAppMenu(page, 'Layout'),
+        focus: () => page.getByRole('menuitem', { name: 'Layout', exact: true }).focus()
+      }
+      if (process.platform === 'darwin') await layout.click()
+      else {
+        await layout.focus()
+        await page.keyboard.press('ArrowDown')
+      }
+      await expectAppMenuItem(page, 'Outline', { checked: true }, true)
+      await expectAppMenuItem(page, 'Agent', { checked: true }, true)
+      await clickAppMenuItem(page, 'Agent', true)
+      await expect(agentToggle(page)).toHaveAttribute('aria-pressed', 'false')
+      await agentToggle(page).click()
       await layout.click()
-      await expect(page.getByRole('menuitemcheckbox', { name: 'Agent', exact: true })).toBeChecked()
-      await page.getByRole('menuitemcheckbox', { name: 'References', exact: true }).click()
+      await expectAppMenuItem(page, 'Agent', { checked: true }, true)
+      await clickAppMenuItem(page, 'References', true)
       await expect(page.getByRole('button', { name: 'Move References', exact: true })).toBeVisible()
       await layout.click()
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'References', exact: true })
-      ).toBeChecked()
-      await page.getByRole('menuitemcheckbox', { name: 'References', exact: true }).click()
+      await expectAppMenuItem(page, 'References', { checked: true }, true)
+      await clickAppMenuItem(page, 'References', true)
       await layout.click()
-      await page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true }).click()
+      await clickAppMenuItem(page, 'Knowledge', true)
       await expect(page.getByTestId('workspace-tab-knowledge')).toBeVisible()
       await layout.click()
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true })
-      ).toBeChecked()
-      await page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true }).click()
+      await expectAppMenuItem(page, 'Knowledge', { checked: true }, true)
+      await clickAppMenuItem(page, 'Knowledge', true)
       await expect(page.getByTestId('workspace-tab-knowledge')).toHaveCount(0)
       await expect(sectionEditor(page)).toBeVisible()
       await page.getByLabel('Section title', { exact: true }).fill('Chapter One')
@@ -106,7 +103,7 @@ test(
         await page.keyboard.press('Enter')
         await page.keyboard.type(`Retained paragraph ${index}`)
       }
-      await page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(page, 'ControlOrMeta+s')
       await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
       const counts = await page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -197,7 +194,7 @@ test(
       await knowledge.locator('[data-reference-id]').first().click()
       await knowledge.getByRole('button', { name: 'Insert in editor', exact: true }).click()
       await expect(page.getByLabel('Section title', { exact: true })).toHaveValue('Chapter Two')
-      await page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(page, 'ControlOrMeta+s')
       await expect
         .poll(() =>
           page.evaluate(async () => {
@@ -226,8 +223,8 @@ test(
       await status.getByRole('button', { name: /^Index:/ }).click()
       await expect(page.getByTestId('workspace-tab-knowledge')).toHaveCount(1)
 
-      await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'New Notebook', exact: true }).click()
+      await openAppMenu(page, 'Layout')
+      await clickAppMenuItem(page, 'New Notebook', false)
       await expect(page.getByTestId(/^workspace-tab-notebook:/)).toHaveCount(1)
       await page
         .getByRole('textbox', { name: 'Ask selected Knowledge sources' })
@@ -271,21 +268,17 @@ test(
           })
         )
         .toBe(true)
-      await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Reset layout', exact: true }).click()
+      await openAppMenu(page, 'Layout')
+      await clickAppMenuItem(page, 'Reset layout', false)
       await expect(page.getByTestId(/^workspace-tab-notebook:/)).toHaveCount(2)
       await layout.click()
-      await expect(
-        page.getByRole('menuitemcheckbox', { name: 'Outline', exact: true })
-      ).toBeChecked()
-      await expect(page.getByRole('menuitemcheckbox', { name: 'Agent', exact: true })).toBeChecked()
+      await expectAppMenuItem(page, 'Outline', { checked: true }, true)
+      await expectAppMenuItem(page, 'Agent', { checked: true }, true)
       await page.keyboard.press('Escape')
       await chapterOne.getByText('Chapter One', { exact: true }).click()
       await expect(sectionEditor(page)).toContainText('Retained first chapter')
-      await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await page
-        .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-        .click()
+      await openAppMenu(page, 'Project')
+      await clickAppMenuItem(page, 'Close project and return to chooser', false)
       await expect
         .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
         .toBe('closed')
@@ -298,8 +291,8 @@ test(
       await mkdir('.cache/verification/workbench-preview', { recursive: true })
       await expect(scroll).toHaveCSS('color-scheme', 'light')
       await page.screenshot({ path: '.cache/verification/workbench-preview/workbench.png' })
-      await page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
-      await page.getByRole('menuitem', { name: /Settings/u }).click()
+      await openAppMenu(page, 'Tools')
+      await clickAppMenuItem(page, 'Settings')
       const settings = page.getByRole('dialog', { name: 'Settings' })
       await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
@@ -311,8 +304,8 @@ test(
         path: '.cache/verification/workbench-preview/workbench-dark.png',
         animations: 'disabled'
       })
-      await page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
-      await page.getByRole('menuitem', { name: /Settings/u }).click()
+      await openAppMenu(page, 'Tools')
+      await clickAppMenuItem(page, 'Settings')
       await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Light', exact: true }).click()
       await page.keyboard.press('Escape')
@@ -329,7 +322,7 @@ test(
       await expect(reopened.getByTestId('workspace-tab-knowledge')).toBeVisible()
       await expect(reopened.getByTestId(/^workspace-tab-notebook:/)).toHaveCount(0)
       await expect(sectionEditor(reopened)).toContainText('Retained first chapter')
-      await reopened.getByTestId('agent-menubar-trigger').click()
+      await agentToggle(reopened).click()
       const firstTab = reopened
         .getByTestId(/^workspace-tab-section:/)
         .filter({ hasText: 'Chapter One' })
@@ -347,8 +340,8 @@ test(
       await secondTab.getByRole('button', { name: 'Tab actions Chapter Two' }).click()
       await reopened.getByRole('menuitem', { name: 'Close', exact: true }).click()
       await expect(reopened.getByText('No open tabs', { exact: true })).toBeVisible()
-      await reopened.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await reopened.getByRole('menuitemcheckbox', { name: 'Outline', exact: true }).click()
+      await openAppMenu(reopened, 'Layout')
+      await clickAppMenuItem(reopened, 'Outline', true)
       await expect(reopened.getByTestId(/^outline-section-/)).toHaveCount(0)
       await reopened.getByRole('button', { name: 'Manuscript', exact: true }).click()
       await expect(reopened.getByText('No open tabs', { exact: true })).toBeVisible()

@@ -31,16 +31,28 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- macOS now uses the native `WriteLLM / Project / Edit / Layout / Tools / Window` menu under
+  [ADR 084](adrs/084-macos-native-menu.md). The in-window Menubar is removed only on macOS;
+  the native title shows the project name and the Agent toggle is available in the activity rail.
+  Windows/Linux retain their existing Menubar. Bounded menu state, sender/session checks, modal
+  gating, native shortcut dispatch and window recreation reuse the existing action/flush paths.
+  Final macOS arm64 package smoke passed (83.6s, 12 smoke scenarios), and seven focused scenarios
+  passed against that same App (20.8s, zero retries). Focused Electron unit coverage totals 37
+  passing tests, reusing unchanged boundary results. Windows/Linux were not run on this host.
+  The local App uses release metadata 0.2026.9.9 and includes this uncommitted maintenance;
+  no tag was moved and nothing was published.
+  Evidence: [macOS native menu](history/implementation-log.md#2026-09-21-macos-native-menu).
+
 - Section editor titles now retain the intended 30px semibold typography at desktop widths,
   overriding the shared Textarea's default 14px desktop size. Static verification passed;
   no build or packaged runtime verification was needed for this style-only correction.
-  Existing `out/` and the local App predate this change.
+  Current `out/` and the local App include this change through the macOS menu rebuild above.
   Evidence: [section title typography](history/implementation-log.md#2026-09-19-section-title-typography).
 
 - Source candidate `v0.2026.9.9` records the verified sidebar layout and empty-workbench navigation
   changes as a local annotated tag. Release metadata is 0.2026.9.9; no remote push or GitHub Release
-  is part of this tag-only checkpoint. The previously built local App remains 0.2026.9.8 and
-  includes these functional changes; no 0.2026.9.9 binary is claimed.
+  is part of this tag-only checkpoint. The local App has since been rebuilt with 0.2026.9.9 metadata for the macOS menu maintenance
+  above; the tag remains the earlier source checkpoint.
   Evidence: [tag-only candidate](history/implementation-log.md#2026-09-19-tag-only-0202699).
 
 - Docked tool chrome is unified: close buttons live in tool tabs, project context appears only
@@ -103,7 +115,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   App includes this correction. Evidence:
   [workbench scrollbar theme](history/implementation-log.md#2026-09-19-workbench-scrollbar-theme).
 
-- Layout controls now live in the global `Project / Edit / Layout / Tools` Menubar; the separate
+- Layout controls live in the global `Project / Edit / Layout / Tools` menu (native on macOS,
+  shadcn Menubar on Windows/Linux); the separate
   reset toolbar is removed. Checked items derive from actual dock panels and content tabs;
   content actions retain save barriers and project-session scoping. Static checks and three
   affected real Electron scenarios have passing evidence, using one build. One fixture-only
@@ -142,7 +155,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   passed static/fixtures and all four build/upload targets. Seven installers and four
   original platform evidence files are public; all 11 asset sizes and SHA-256 digests
   were verified before and after publication. That acceptance used native build `2026.9.7`;
-  the current local App is 0.2026.9.8 as recorded above.
+  the current local App uses 0.2026.9.9 metadata after the macOS menu rebuild above.
   Builds remain unsigned/unnotarized; hosted CI is build-only, runtime coverage is local
   macOS arm64, and physical IME candidate selection remains unverified.
   Evidence: [release publication](history/implementation-log.md#2026-09-14-release-0202697-publication).

@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -90,10 +92,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function closeProject(page: Page): Promise<void> {
-  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page
-    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-    .click()
+  await openAppMenu(page, 'Project')
+  await clickAppMenuItem(page, 'Close project and return to chooser', false)
 }
 
 function sendToolCall(
@@ -253,11 +253,8 @@ test(
         baseUrl: `http://127.0.0.1:${port}/v1`,
         model: 'writer-model'
       })
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-model-selector').click()
       const picker = launched.page.getByTestId('agent-model-picker')
@@ -648,11 +645,8 @@ test(
       })
       await createProject(launched.page, projectName)
 
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       const setupPanel = launched.page.getByTestId('agent-panel')
       await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
       await setupPanel.getByTestId('agent-model-selector').click()
@@ -692,7 +686,7 @@ test(
       const editor = sectionEditor(launched.page)
       await editor.click()
       await launched.page.keyboard.type('Initial draft with a durable claim.')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
 
       await launched.page.getByRole('button', { name: 'Edit outline', exact: true }).click()
@@ -712,7 +706,7 @@ test(
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       await editor.click()
       await launched.page.keyboard.type('Target section baseline.')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await launched.page
         .getByTestId(/^outline-section-/)
@@ -776,7 +770,7 @@ test(
         window.setContentSize(1680, 900)
       })
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
-      const agentTrigger = launched.page.getByTestId('agent-menubar-trigger')
+      const agentTrigger = agentToggle(launched.page)
       await expect(agentTrigger).toBeVisible()
       await expect(launched.page.getByRole('button', { name: 'Agent', exact: true })).toHaveCount(1)
       if ((await agentTrigger.getAttribute('aria-pressed')) !== 'true') await agentTrigger.click()

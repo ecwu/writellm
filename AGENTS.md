@@ -276,7 +276,8 @@ remain usable: its controls must not overlap, and its resize handle must continu
 - Use the official shadcn/ui `new-york` preset and its generated components as the renderer design system. Do not create a parallel visual system or hand-write replacements for components available from shadcn/ui.
 - Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives. Compose them with standard Tailwind layout utilities; do not add product-specific CSS unless an interaction or platform constraint cannot be expressed by the preset and utilities.
 - Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts for the configured desktop surfaces.
-- Keep a global shadcn `Menubar` at the top of every application state. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
+- Keep a global command surface in every application state: the native application menu on macOS
+  (ADR 084), and the shadcn `Menubar` on Windows and Linux. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
 - Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
 - Follow ADR 083 for the active-project shell: retain the shadcn activity rail and controls, with one Dockview content tab group and independently dockable tool groups. Contextual sidebars stay inside their owning content or tool surface. Do not restore the fixed sidebar-09 composition.
 - Extend the established shell and official component language for future screens. Do not introduce bespoke gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.

@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { openAppMenu, clickAppMenuItem } from './application-menu'
 import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import type { AutocompleteRequest } from '../src/shared/contracts/autocomplete'
@@ -95,9 +97,7 @@ test(
       const toggle = page.getByRole('button', { name: /^Autocomplete:/ })
       const toggleEnabled = async () => {
         await toggle.click()
-        await page
-          .getByRole('menuitemcheckbox', { name: 'Enable autocomplete', exact: true })
-          .click()
+        await clickAppMenuItem(page, 'Enable autocomplete', true)
       }
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Words')
       await toggleEnabled()
@@ -173,7 +173,7 @@ test(
       await page.keyboard.type('First block.')
       await page.keyboard.press('Enter')
       await page.keyboard.type('Later block.')
-      await page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(page, 'ControlOrMeta+s')
       await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await toggleEnabled()
       await expect(toggle).toHaveAttribute('aria-label', /^Autocomplete: On/)
@@ -339,10 +339,8 @@ test(
       await expect(page.getByText('Heading 1', { exact: true }).last()).toBeVisible()
       await expect(ghost).toHaveCount(0)
       await page.keyboard.press('Escape')
-      await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await page
-        .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-        .click()
+      await openAppMenu(page, 'Project')
+      await clickAppMenuItem(page, 'Close project and return to chooser', false)
       await expect(page.getByRole('button', { name: 'Create project', exact: true })).toBeVisible()
       await page.getByRole('button', { name: 'Open Autocomplete proof', exact: true }).click()
       await expectActiveProject(page, 'Autocomplete proof')
@@ -353,10 +351,8 @@ test(
       })
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
       await page.screenshot({ path: testInfo.outputPath('autocomplete-editor.png') })
-      await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await page
-        .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-        .click()
+      await openAppMenu(page, 'Project')
+      await clickAppMenuItem(page, 'Close project and return to chooser', false)
       await page.getByRole('button', { name: 'Create project', exact: true }).click()
       await create.getByLabel('Project name').fill('Another autocomplete project')
       await create.getByRole('button', { name: 'Choose location' }).click()

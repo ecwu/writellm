@@ -1,4 +1,6 @@
 export const IPC_CHANNELS = {
+  menuUpdate: 'app:menu:update',
+  menuCommand: 'app:menu:command',
   notebookCreate: 'notebook:create',
   notebookDestroy: 'notebook:destroy',
   workbenchLayoutRead: 'workbench:layout-read',

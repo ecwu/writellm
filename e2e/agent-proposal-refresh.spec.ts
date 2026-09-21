@@ -1,3 +1,4 @@
+import { agentToggle } from './application-menu'
 import { createHash } from 'node:crypto'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -279,11 +280,8 @@ test(
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('First original')
 
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-conversation-menu').click()
       await launched.page.getByRole('menuitem', { name: 'Details', exact: true }).click()

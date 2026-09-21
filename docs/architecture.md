@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 083
-Recorded: 2026-07-31; amended through 2026-09-19
+Status: accepted implementation baseline, amended through accepted ADR 084
+Recorded: 2026-07-31; amended through 2026-09-21
 
 This document is the accepted WriteLLM v2 baseline around the clarified product model: WriteLLM opens exactly one self-contained project folder at a time. The project folder owns the manuscript, knowledge sources, parsed artifacts, embeddings, project databases, BlockNote materializations, and durable work state.
 
@@ -260,6 +260,13 @@ ADR 083 replaces the fixed sidebar-09 composition with one content tab group and
 tool groups using Dockview React 8.3.1 (MIT). shadcn remains the design system. Local per-project
 layout preferences belong to app.sqlite, never project content. Notebook supports independent
 in-memory instances; project teardown revokes all of them. See [ADR 083](adrs/083-tabbed-docking-workbench.md).
+
+## macOS Menu Amendment
+
+[ADR 084](adrs/084-macos-native-menu.md) moves the macOS global command surface to the native
+application menu. Other platforms retain the shadcn Menubar. Main owns the menu template and
+validates bounded state projections and project-scoped commands; existing action and shutdown
+paths remain authoritative. Native window controls are preserved.
 
 ## Product Scope And Invariants
 

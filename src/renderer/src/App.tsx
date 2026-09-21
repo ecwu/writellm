@@ -577,6 +577,7 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (window.desktop.menu.native) return
       if (matchesShortcut(event, 'settings')) {
         event.preventDefault()
         setSettingsSection('general')
@@ -607,6 +608,8 @@ function App(): React.JSX.Element {
   return (
     <div className='flex h-svh min-w-80 flex-col overflow-hidden bg-background'>
       <AppMenubar
+        projectSessionId={projectSessionId ?? null}
+        ready={!initialLoading}
         layoutControls={
           layoutControls?.projectSessionId === projectSessionId &&
           snapshot.state === 'open' &&

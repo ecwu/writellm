@@ -1,3 +1,4 @@
+import { openAppMenu, clickAppMenuItem, expectAppMenuItem, expectAppMenu } from './application-menu'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -29,10 +30,8 @@ async function clickAndExpectProject(
 }
 
 async function closeProject(page: Page): Promise<void> {
-  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page
-    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-    .click()
+  await openAppMenu(page, 'Project')
+  await clickAppMenuItem(page, 'Close project and return to chooser', false)
 }
 
 async function clickRecentAndExpectProject(page: Page, displayName: string): Promise<void> {
@@ -546,7 +545,7 @@ test(
     })
     const firstProcess = first.app.process()
     try {
-      await expect(first.page.getByRole('menubar')).toBeVisible()
+      await expectAppMenu(first.page)
       await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
       await expect(first.page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
       await expect(first.page.getByRole('heading', { name: 'General' })).toBeVisible()
@@ -556,7 +555,7 @@ test(
       await manuallyRestoreWindow(first.app)
       await clickAndExpectProject(first.page, 'Create project', 'Alpha project', 'Alpha project')
       await expectWindowMaximized(first.app, false)
-      await expect(first.page.getByRole('menubar')).toBeVisible()
+      await expectAppMenu(first.page)
       await first.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
       await expect(first.page.getByText('Untitled Section', { exact: true }).first()).toBeVisible()
       const editor = sectionEditor(first.page)
@@ -592,10 +591,8 @@ test(
       ).resolves.toBe(true)
       await expectActiveProject(first.page, 'Alpha project')
       await expect(sectionEditor(first.page)).toContainText('Close flush persistence')
-      await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await expect(
-        first.page.getByRole('menuitem', { name: 'Switch project', exact: true })
-      ).toHaveCount(0)
+      await openAppMenu(first.page, 'Project')
+      await expectAppMenuItem(first.page, 'Switch project', { visible: false }, false)
       await first.page.keyboard.press('Escape')
       await closeProject(first.page)
       await clickRecentAndExpectProject(first.page, 'Beta project')
@@ -612,10 +609,10 @@ test(
         first.page.getByRole('button', { name: 'Create project', exact: true })
       ).toBeEnabled()
       await first.page.screenshot({ path: testInfo.outputPath('project-chooser.png') })
-      await first.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(first.page, 'Project')
       await first.page.screenshot({ path: testInfo.outputPath('project-menu.png') })
       const exited = first.app.waitForEvent('close')
-      await first.page.getByRole('menuitem', { name: 'Quit WriteLLM', exact: true }).click()
+      await clickAppMenuItem(first.page, 'Quit WriteLLM', false)
       await exited
     } finally {
       if (firstProcess.exitCode === null) await closeApp(first.app)
@@ -643,9 +640,9 @@ test(
       await expectWindowMaximized(restarted.app, false)
       await sectionEditor(restarted.page).click()
       await restarted.page.keyboard.type('Quit flush persistence')
-      await restarted.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(restarted.page, 'Project')
       const exited = restarted.app.waitForEvent('close')
-      await restarted.page.getByRole('menuitem', { name: 'Quit WriteLLM', exact: true }).click()
+      await clickAppMenuItem(restarted.page, 'Quit WriteLLM', false)
       await exited
     } finally {
       if (restartedProcess.exitCode === null) await closeApp(restarted.app)
@@ -680,20 +677,16 @@ test(
       await editor.click()
       await launched.page.keyboard.type('Export final flush')
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page
-        .getByRole('menuitem', { name: 'Export native manuscript…', exact: true })
-        .click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Export native manuscript…', false)
       const nativeCompletion = launched.page.getByRole('dialog', {
         name: 'Manuscript exported'
       })
       await expect(nativeCompletion).toContainText('Native manuscript')
       await nativeCompletion.getByRole('button', { name: 'Done', exact: true }).click()
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page
-        .getByRole('menuitem', { name: 'Export Markdown manuscript…', exact: true })
-        .click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Export Markdown manuscript…', false)
       const markdownCompletion = launched.page.getByRole('dialog', {
         name: 'Manuscript exported'
       })

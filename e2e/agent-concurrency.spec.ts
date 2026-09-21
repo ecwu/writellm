@@ -1,3 +1,4 @@
+import { agentToggle } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -199,7 +200,7 @@ test(
       await expect(
         status.getByRole('button', { name: 'AI tasks: 2 running', exact: true })
       ).toBeVisible()
-      await launched.page.getByTestId('agent-menubar-trigger').click()
+      await agentToggle(launched.page).click()
       await expect(panel).toHaveCount(0)
       await expect(
         status.getByRole('button', { name: 'AI tasks: 2 running', exact: true })

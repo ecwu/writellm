@@ -1,3 +1,4 @@
+import type { ApplicationMenuApi } from '../shared/contracts/application-menu'
 import type { WorkbenchApi } from '../shared/contracts/workbench'
 import type { AutocompleteApi } from '../shared/contracts/autocomplete'
 import type {
@@ -207,6 +208,7 @@ import type {
 } from '../shared/contracts/references'
 
 export interface DesktopApi {
+  menu: ApplicationMenuApi
   autocomplete: AutocompleteApi
   app: {
     quit(): Promise<void>

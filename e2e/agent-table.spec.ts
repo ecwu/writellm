@@ -1,3 +1,4 @@
+import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { readFile } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -31,8 +32,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function openAgentForSection(page: Page): Promise<ReturnType<Page['getByTestId']>> {
-  if ((await page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !== 'true')
-    await page.getByTestId('agent-menubar-trigger').click()
+  if ((await agentToggle(page).getAttribute('aria-pressed')) !== 'true')
+    await agentToggle(page).click()
   const panel = page.getByTestId('agent-panel')
   if (await panel.getByTestId('agent-model-recovery').isVisible()) {
     await panel.getByTestId('agent-model-selector').click()
@@ -450,11 +451,8 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('Accuracy')
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       await startNewConversation(launched.page)
       await panel.getByLabel('Agent message').fill('Update the score and add the latency row.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -468,11 +466,8 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('0.95')
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       await startNewConversation(launched.page)
       await panel.getByLabel('Agent message').fill('Change the accuracy once more.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
@@ -508,21 +503,16 @@ test(
       await launched.page.reload()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('manual value')
-      if (
-        (await launched.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await launched.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(launched.page).click()
       await expect(
         panel.getByRole('button', { name: 'Refresh proposal', exact: true })
       ).toBeVisible()
       await panel.getByRole('button', { name: 'Refresh proposal', exact: true }).click()
       await expect(panel.getByText('conflicted', { exact: true })).toBeVisible()
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page
-        .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-        .click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Close project and return to chooser', false)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('manual value')

@@ -1,3 +1,4 @@
+import { openAppMenu, clickAppMenuItem } from './application-menu'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
@@ -11,10 +12,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function closeProject(page: Page): Promise<void> {
-  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page
-    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-    .click()
+  await openAppMenu(page, 'Project')
+  await clickAppMenuItem(page, 'Close project and return to chooser', false)
   await expect
     .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
     .toBe('closed')

@@ -1,3 +1,4 @@
+import { registerMenuApplication } from './application-menu'
 import { mkdtemp, mkdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -156,6 +157,7 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       )
       .toEqual({ visible: false, focused: false, backgroundThrottling: false })
   }
+  registerMenuApplication(page, app)
   return { app, page }
 }
 

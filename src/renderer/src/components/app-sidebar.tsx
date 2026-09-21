@@ -6,6 +6,7 @@ import type {
   SectionStatus
 } from '../../../shared/contracts/manuscript'
 import {
+  Bot,
   BookOpen,
   BookOpenText,
   BookMarked,
@@ -349,6 +350,8 @@ function SidebarStatusIcon({ status }: { status: SectionStatus }): React.JSX.Ele
 }
 
 export function WorkspaceRail(props: {
+  agentOpen?: boolean
+  onToggleAgent?(): void
   activeWorkspace: WorkspaceKind
   onOpenPreview(): void
   onOpenKnowledge(): void
@@ -385,6 +388,22 @@ export function WorkspaceRail(props: {
         <SidebarGroup>
           <SidebarGroupContent className='px-1.5 md:px-0'>
             <SidebarMenu>
+              {props.onToggleAgent ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    aria-label='Agent'
+                    aria-pressed={props.agentOpen}
+                    data-testid='agent-rail-trigger'
+                    tooltip={{ children: 'Agent', hidden: false }}
+                    isActive={props.agentOpen}
+                    className='px-2.5 md:px-2'
+                    onClick={props.onToggleAgent}
+                  >
+                    <Bot />
+                    <span>Agent</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ) : null}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   aria-label='Manuscript'

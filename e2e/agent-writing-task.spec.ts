@@ -1,3 +1,4 @@
+import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import { mkdir } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
@@ -149,8 +150,8 @@ test(
           path: join(screenshotDirectory, 'cp73-agent-task-open-640.png'),
           animations: 'disabled'
         })
-        await first.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
-        await first.page.getByRole('menuitem', { name: /Settings/u }).click()
+        await openAppMenu(first.page, 'Tools')
+        await clickAppMenuItem(first.page, 'Settings')
         const settings = first.page.getByRole('dialog', { name: 'Settings' })
         await settings.getByRole('option', { name: 'General', exact: true }).click()
         await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
@@ -291,11 +292,8 @@ test(
         planVersion: 2,
         plan: { steps: identity?.stepIds.map((stepId) => ({ stepId })) }
       })
-      if (
-        (await restarted.page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !==
-        'true'
-      )
-        await restarted.page.getByTestId('agent-menubar-trigger').click()
+      if ((await agentToggle(restarted.page).getAttribute('aria-pressed')) !== 'true')
+        await agentToggle(restarted.page).click()
       const restoredTask = restarted.page.getByTestId('agent-writing-task')
       const restoredDetails = restoredTask.getByTestId('agent-writing-task-details')
       if (!(await restoredDetails.isVisible())) {
@@ -423,8 +421,8 @@ async function createProject(page: Page, name: string): Promise<void> {
 }
 
 async function selectAgentModel(page: Page): Promise<void> {
-  if ((await page.getByTestId('agent-menubar-trigger').getAttribute('aria-pressed')) !== 'true')
-    await page.getByTestId('agent-menubar-trigger').click()
+  if ((await agentToggle(page).getAttribute('aria-pressed')) !== 'true')
+    await agentToggle(page).click()
   const panel = page.getByTestId('agent-panel')
   await panel.getByTestId('agent-conversation-menu').click()
   await page.getByRole('menuitem', { name: 'Details', exact: true }).click()

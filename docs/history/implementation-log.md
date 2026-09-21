@@ -3750,3 +3750,46 @@ This documentation follow-up does not move or rebuild the immutable release tag.
 - pnpm 11.17.0 matches the project pin; host Node 26.8.2 emitted the existing engine-range
   warning. This style-only change required no interaction tests, build, or packaged gate;
   rendered runtime appearance was not inspected. Existing `out/` and the local App predate it.
+
+
+## 2026-09-21 macOS native menu
+
+Implemented the user-approved macOS-only menu consolidation under ADR 084. Main owns fixed native
+menus, validated state/command contracts, current-window and session authorization, and window
+recreation. Renderer callbacks remain responsible for the existing project, settings, export,
+layout and flush workflows. Modal state blocks menu commands and is rechecked on receipt.
+Native shortcuts share the Main command dispatcher; before-input handling prevents a second
+accelerator dispatch and ignores composition, repeats and extra modifiers. The native title uses
+Main project display names; the activity rail retains an Agent toggle. Other platforms retain
+their in-window shadcn menu and existing shortcut handlers. No dependencies or schemas changed.
+
+Verification on macOS arm64 (host Node 26.8.2, pnpm 11.17.0; Electron 43.4.1 / ABI 148):
+
+- Final `check:package:smoke` passed in 83.6s, including static checks, one matching build, native
+  inventory and all 12 packaged smoke scenarios (38.8s). Report:
+  `.cache/verification/1790028994521-89262-f6734ea5/`.
+- Seven focused E2E scenarios passed against that same packaged executable in 20.8s with seven
+  attempts and zero retries: native menu, keyboard shortcuts, accessible Settings, project
+  lifecycle/restart, stale-lock recovery, durable exports and docking/layout restoration.
+  Report: `.cache/verification/1790029146071-90874-27a427b5/`.
+- Source native-menu and keyboard scenarios passed in 3.8s with zero retries. Earlier source
+  lifecycle and workbench results passed; the final packaged run supersedes their runtime evidence.
+- Focused Electron tests total 37 passing cases: 9 Main menu, 1 preload subscription, 5 window,
+  2 sender authorization and 20 keyboard cases. Final menu/preload run: 10 cases, 0.8s wrapper
+  (391ms Vitest execution); unchanged window/sender/keyboard results were reused.
+- Final Biome verification passed (841 files); Main typechecking was repeated after adding test
+  coverage. Renderer checks are covered by the successful package gate.
+- Visual inspection of the runtime workspace confirmed removal of the duplicate top row and a
+  usable Agent rail/button and docked surface. Native menu items, titles and states were inspected
+  through the actual Electron Menu and BrowserWindow objects in E2E.
+
+Initial verification found and repaired a destroyed-window cleanup error; a regression now models
+Electron's throwing webContents getter after closure. Test adaptations also fixed an obsolete DOM
+menu focus step and post-exit process lookup. Chromium CDP key events bypass native menu handling;
+macOS shortcut fixtures now use Electron sendInputEvent. These were deliberate repair reruns,
+not hidden retries. The final package and selected E2E runs contain no failures or retries.
+
+The host Node version differs from the manifest's 24.x range; the installed host toolchain was
+retained and Electron hosted all native tests. Windows/Linux and signed release acceptance were
+not run. The resulting local App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, with 0.2026.9.9
+release metadata; there was no commit, tag movement, push, signing or publication.

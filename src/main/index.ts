@@ -1,3 +1,4 @@
+import { ApplicationMenu } from './bootstrap/application-menu'
 import { registerWorkbenchIpc } from './ipc/workbench-ipc'
 import { autocompleteChangeSchema } from '../shared/contracts/autocomplete'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
@@ -674,7 +675,21 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      const nativeMenu =
+        process.platform === 'darwin'
+          ? new ApplicationMenu({
+              ipc,
+              logger: loggerSystem.createModuleLogger('app', 'application-menu'),
+              developmentUrl,
+              snapshot: () => projectManager.snapshot(),
+              createWindow: () => {
+                mainWindow = createWindow(developmentUrl, appLog, windowPresentation)
+                return mainWindow
+              }
+            })
+          : null
       mainWindow = createWindow(developmentUrl, appLog, windowPresentation)
+      nativeMenu?.attach(mainWindow)
       const projectIpcLog = loggerSystem.createModuleLogger('ipc', 'project')
       const projectDialogSelection = createProjectDialogTestSelection(projectIpcLog)
       const unregisterProjectIpc = registerProjectIpc({
@@ -862,6 +877,7 @@ if (!hasSingleInstanceLock) {
         // dock icon is clicked and there are no other windows open.
         if (BrowserWindow.getAllWindows().length === 0) {
           mainWindow = createWindow(developmentUrl, appLog, windowPresentation)
+          nativeMenu?.attach(mainWindow)
         }
       })
 
@@ -871,6 +887,7 @@ if (!hasSingleInstanceLock) {
           for (const window of BrowserWindow.getAllWindows()) window.destroy()
         },
         unregisterProjectIpc: () => {
+          nativeMenu?.dispose()
           unregisterSkillIpc()
           autocompleteIpc.unregister()
           unregisterProviderIpc()

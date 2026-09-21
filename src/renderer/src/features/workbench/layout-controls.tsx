@@ -9,20 +9,7 @@ import {
 import type { WorkbenchTool, WorkbenchContent } from '../../../../shared/contracts/workbench'
 
 export type LayoutPage = Exclude<WorkbenchContent['kind'], 'section'>
-export const layoutTools: Record<WorkbenchTool, string> = {
-  outline: 'Outline',
-  agent: 'Agent',
-  find: 'Find',
-  references: 'References',
-  writing_rules: 'Writing rules',
-  comments: 'Comments'
-}
-export const layoutPages: Record<LayoutPage, string> = {
-  knowledge: 'Knowledge',
-  preview: 'Preview',
-  assets: 'Assets',
-  checks: 'Checks'
-}
+export { layoutTools, layoutPages } from '../../../../shared/contracts/application-menu'
 export interface LayoutControls {
   projectSessionId: string
   tools: WorkbenchTool[]

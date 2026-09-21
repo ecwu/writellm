@@ -1167,10 +1167,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         } else closeFind()
         return
       }
-      if (matchesShortcut(event, 'find')) {
+      if (!window.desktop.menu.native && matchesShortcut(event, 'find')) {
         event.preventDefault()
         openFind()
-      } else if (matchesShortcut(event, 'save')) {
+      } else if (!window.desktop.menu.native && matchesShortcut(event, 'save')) {
         event.preventDefault()
         void flushCurrent()
       } else if (matchesShortcut(event, 'previousSection') && activeIndex > 0) {

@@ -1,3 +1,5 @@
+import { pressAppShortcut } from './application-menu'
+import { agentToggle, openAppMenu, clickAppMenuItem, expectAppMenuItem } from './application-menu'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
@@ -50,7 +52,7 @@ async function saveEditorText(page: Page, text: string): Promise<void> {
   await expect(editor).toBeVisible()
   await editor.click()
   await page.keyboard.type(text)
-  await page.keyboard.press('ControlOrMeta+s')
+  await pressAppShortcut(page, 'ControlOrMeta+s')
   await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
 }
 
@@ -87,10 +89,8 @@ async function moveSectionUp(page: Page, sourceTitle: string): Promise<void> {
 }
 
 async function closeProject(page: Page): Promise<void> {
-  await page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-  await page
-    .getByRole('menuitem', { name: 'Close project and return to chooser', exact: true })
-    .click()
+  await openAppMenu(page, 'Project')
+  await clickAppMenuItem(page, 'Close project and return to chooser', false)
   await expect
     .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
     .toBe('closed')
@@ -169,13 +169,13 @@ test(
       ).toEqual(scroll)
       await launched.page.keyboard.type('Y')
       await launched.page.keyboard.press('Shift+ArrowLeft')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await expect(third).toContainText('Third paragrapXYh')
       expect(await editor.evaluate(() => window.getSelection()?.toString())).toBe('Y')
       await launched.page.keyboard.press('ControlOrMeta+z')
       await expect(third).toContainText('Third paragrapXh')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await launched.page.keyboard.press('ControlOrMeta+Shift+z')
       await expect(third).toContainText('Third paragrapXYh')
@@ -270,11 +270,11 @@ test(
       const instance = await editor.elementHandle()
       await holdEditorSaveReply(launched.app)
       await launched.page.keyboard.type('A')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect.poll(() => saveGateState(launched.app)).toEqual({ entered: true, calls: 1 })
       await launched.page.keyboard.type('B')
-      await launched.page.keyboard.press('ControlOrMeta+s')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(editor).toContainText('Base AB')
       expect((await saveGateState(launched.app)).calls).toBe(1)
       await releaseSaveReply(launched.app)
@@ -289,7 +289,7 @@ test(
       await placeCaret(editor.locator('.bn-inline-content').first())
       await holdEditorSaveReply(launched.app)
       await launched.page.keyboard.type('C')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect.poll(() => saveGateState(launched.app)).toEqual({ entered: true, calls: 1 })
       const external = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -330,7 +330,7 @@ test(
       await expect(editor).toContainText('Base ABC')
       await releaseSaveReply(launched.app)
       // Wait for the pending reply's continuation before checking conflict preservation.
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText(/This section changed elsewhere/)).toBeVisible()
       expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
         external.sections[0].sectionRevisionId
@@ -338,13 +338,11 @@ test(
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       await expect(editor).toContainText('Base ABC')
       await expect(launched.page.getByTestId('workspace-tab-knowledge')).toHaveCount(1)
-      await launched.page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await launched.page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true }).click()
+      await openAppMenu(launched.page, 'Layout')
+      await clickAppMenuItem(launched.page, 'Knowledge', true)
       await expect(editor).toContainText('Base ABC')
-      await launched.page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await expect(
-        launched.page.getByRole('menuitemcheckbox', { name: 'Knowledge', exact: true })
-      ).toBeChecked()
+      await openAppMenu(launched.page, 'Layout')
+      await expectAppMenuItem(launched.page, 'Knowledge', { checked: true }, true)
       await launched.page.keyboard.press('Escape')
       await launched.page.getByRole('button', { name: 'Reload canonical version' }).click()
       await expect(editor).toContainText('External authority')
@@ -381,7 +379,7 @@ test(
       expect((await currentEditorRevision(launched.page)).sectionRevisionId).toBe(
         before.sectionRevisionId
       )
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(
         launched.page.getByText('Finish choosing the input-method text, then retry the operation.')
       ).toBeVisible()
@@ -448,7 +446,7 @@ test(
         'Before 中文'
       )
       await launched.page.keyboard.insertText('继续')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await expect(editor).toContainText('Before 中文继续')
     } finally {
@@ -470,7 +468,7 @@ test(
       const editor = sectionEditor(launched.page)
       await editor.click()
       await launched.page.keyboard.type('Alpha review sentence')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await editor
         .locator('.bn-inline-content', { hasText: 'Alpha review sentence' })
@@ -581,7 +579,7 @@ test(
           document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
         })
       await launched.page.keyboard.type(' Updated.')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Anchor Rebased', { exact: true })).toBeVisible()
       await launched.page.getByPlaceholder('Follow up…').fill('Author follow up.')
       await launched.page.getByRole('button', { name: 'Reply', exact: true }).click()
@@ -604,9 +602,9 @@ test(
     })
     const page = launched.page
     try {
-      await page.keyboard.press('ControlOrMeta+Shift+n')
+      await pressAppShortcut(page, 'ControlOrMeta+Shift+n')
       await expect(page.getByRole('dialog', { name: 'Create project' })).toHaveCount(0)
-      await page.keyboard.press('ControlOrMeta+n')
+      await pressAppShortcut(page, 'ControlOrMeta+n')
       const create = page.getByRole('dialog', { name: 'Create project' })
       await expect(create).toBeVisible()
       await create.getByLabel('Project name').fill('Keyboard separation')
@@ -615,7 +613,7 @@ test(
 
       const editor = sectionEditor(page)
       const sidebar = page.getByRole('button', { name: 'Move Outline', exact: true })
-      const agent = page.getByTestId('agent-menubar-trigger')
+      const agent = agentToggle(page)
       await expect(agent).toHaveAttribute('aria-pressed', 'true')
       await agent.click()
       await expect(sidebar).toBeVisible()
@@ -656,14 +654,14 @@ test(
       await expect(sidebar).toBeVisible()
 
       await editor.focus()
-      await page.keyboard.press('ControlOrMeta+Alt+f')
+      await pressAppShortcut(page, 'ControlOrMeta+Alt+f')
       await expect(page.getByTestId('manuscript-find-input')).toHaveCount(0)
-      await page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(page, 'ControlOrMeta+f')
       await expect(page.getByTestId('manuscript-find-input')).toBeVisible()
       await page.getByRole('button', { name: 'Close Find' }).click()
-      await page.keyboard.press('ControlOrMeta+Alt+,')
+      await pressAppShortcut(page, 'ControlOrMeta+Alt+,')
       await expect(page.getByRole('dialog', { name: 'Settings' })).toHaveCount(0)
-      await page.keyboard.press('ControlOrMeta+,')
+      await pressAppShortcut(page, 'ControlOrMeta+,')
       await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
       await page.keyboard.press('Escape')
 
@@ -677,7 +675,7 @@ test(
       await page.keyboard.press('ControlOrMeta+Alt+ArrowDown')
       await expect(page.getByLabel('Section title')).toHaveValue('Second keyboard section')
       await editor.fill('Saved by exact shortcut')
-      await page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(page, 'ControlOrMeta+s')
       await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible()
     } finally {
       await launched.app.close()
@@ -697,7 +695,7 @@ test(
       await createProject(launched.page, 'Resizable project sidebar')
       const page = launched.page
       // Free enough room to verify growth without hitting the central document minimum.
-      await page.getByTestId('agent-menubar-trigger').click()
+      await agentToggle(page).click()
       const tool = page.getByTestId('workbench-tool-outline')
       const width = () => tool.evaluate((element) => element.getBoundingClientRect().width)
       const initial = await width()
@@ -717,8 +715,8 @@ test(
       })
       await page.mouse.up()
       await expect.poll(width).toBeGreaterThan(prior + 30)
-      await page.getByRole('menuitem', { name: 'Layout', exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Reset layout', exact: true }).click()
+      await openAppMenu(page, 'Layout')
+      await clickAppMenuItem(page, 'Reset layout', false)
       await expect(tool).toBeVisible()
       await expect(page.getByTestId('agent-panel')).toBeVisible()
     } finally {
@@ -768,7 +766,7 @@ test(
       )
       await launched.page.getByRole('button', { name: 'OK', exact: true }).dispatchEvent('click')
       await expect(launched.page.getByRole('img', { name: 'Mermaid diagram' })).toBeVisible()
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
     } finally {
       await launched.app.close()
@@ -865,10 +863,10 @@ test(
       await launched.page.keyboard.press('Enter')
       await expect(invalidFormula).not.toBeVisible()
 
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
 
-      await launched.page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+f')
       await launched.page.getByTestId('manuscript-find-input').fill('E=mc^2')
       await expect(launched.page.getByText('0 results', { exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Close Find' }).click()
@@ -878,8 +876,8 @@ test(
       await expectActiveProject(launched.page, projectName)
       await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(4)
 
-      await launched.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: /Settings/u }).click()
+      await openAppMenu(launched.page, 'Tools')
+      await clickAppMenuItem(launched.page, 'Settings')
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
       await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Dark', exact: true }).click()
@@ -912,7 +910,7 @@ test(
       await launched.page.getByLabel('Section title').press('Tab')
       await saveEditorText(launched.page, 'Before the exact needle phrase after it.')
 
-      await launched.page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+f')
       const input = launched.page.getByTestId('manuscript-find-input')
       await expect(input).toBeVisible()
       await input.fill('needle phrase')
@@ -938,7 +936,7 @@ test(
       await expect(input).not.toBeVisible()
       await expect(launched.page.locator('.writellm-search-match')).toHaveCount(0)
 
-      await launched.page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+f')
       await expect(input).toBeVisible()
       await launched.page.getByRole('button', { name: 'Replace', exact: true }).click()
       const replacementInput = launched.page.getByLabel('Replace with')
@@ -949,7 +947,7 @@ test(
       await launched.page.keyboard.press('Escape')
       await expect(input).not.toBeVisible()
 
-      await launched.page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+f')
       await expect(input).toBeVisible()
       await launched.page.getByRole('button', { name: 'Close Find' }).click()
       await expect(input).not.toBeVisible()
@@ -970,7 +968,7 @@ test(
     try {
       await createProject(launched.page, 'Safe replacement')
       await saveEditorText(launched.page, 'Alpha evidence and Alpha conclusion.')
-      await launched.page.keyboard.press('ControlOrMeta+f')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+f')
       await launched.page.getByTestId('manuscript-find-input').fill('Alpha')
       await expect(launched.page.getByText('2 results', { exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Replace', exact: true }).click()
@@ -1671,7 +1669,7 @@ test(
       const editor = sectionEditor(launched.page)
       await editor.click()
       await launched.page.keyboard.type('Local stale draft')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText(/This section changed elsewhere/)).toBeVisible()
       await expect(editor).toContainText('Local stale draft')
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
@@ -1773,8 +1771,8 @@ test(
       await createProject(launched.page, projectName)
       await saveEditorText(launched.page, 'Snapshot content')
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Create snapshot', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Create snapshot', false)
       await expect
         .poll(
           async () =>
@@ -1786,8 +1784,8 @@ test(
         .toBe(true)
 
       await closeProject(launched.page)
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Restore snapshot', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Restore snapshot', false)
       await expectActiveProject(launched.page, 'Snapshot backup')
       await expect(readdir(restoredRoot)).resolves.toContain('writellm.project.json')
       await expect(sectionEditor(launched.page)).toContainText('Snapshot content')
@@ -1815,10 +1813,8 @@ test(
         await readFile(join(sourceRoot, 'writellm.project.json'), 'utf8')
       ) as { projectId: string }
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page
-        .getByRole('menuitem', { name: 'Save As independent copy…', exact: true })
-        .click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Save As independent copy…', false)
       await expectActiveProject(launched.page, '克隆副本')
       await expect(sectionEditor(launched.page)).toContainText('Independent clone content')
       const cloneManifest = JSON.parse(
@@ -1832,7 +1828,7 @@ test(
         name: 'Enable version history?'
       })
       await historyPrompt.getByRole('button', { name: 'Not now', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
       await expect(
         launched.page.getByRole('menuitem', { name: 'Enable version history…', exact: true })
       ).toBeVisible()
@@ -1892,10 +1888,8 @@ test(
         await readFile(join(sourceRoot, 'writellm.project.json'), 'utf8')
       ) as { projectId: string }
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
-      await launched.page
-        .getByRole('menuitem', { name: 'Save as reusable template…', exact: true })
-        .click()
+      await openAppMenu(launched.page, 'Project')
+      await clickAppMenuItem(launched.page, 'Save as reusable template…', false)
       const save = launched.page.getByRole('dialog', { name: 'Save reusable project template' })
       await expect(save.getByText('Manuscript bodies and citations', { exact: true })).toBeVisible()
       await save.getByLabel('Template name').fill('My reusable template')
@@ -1937,7 +1931,7 @@ test(
       await createProject(launched.page, projectName)
       await saveEditorText(launched.page, 'Checkpoint one')
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
       await launched.page.getByRole('menuitem', { name: 'Create checkpoint…' }).click()
       const create = launched.page.getByRole('dialog', { name: 'Create checkpoint' })
       await create.getByLabel('Name').fill('First draft')
@@ -1946,7 +1940,7 @@ test(
       await expect(create).not.toBeVisible()
 
       await saveEditorText(launched.page, ' after checkpoint')
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
       await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
       const history = launched.page.getByRole('dialog', { name: 'Version history' })
       await expect(history.getByText('Uncheckpointed changes', { exact: true })).toBeVisible()
@@ -1961,7 +1955,7 @@ test(
       await expect(sectionEditor(launched.page)).toContainText('Checkpoint one')
       await expect(sectionEditor(launched.page)).not.toContainText('after checkpoint')
 
-      await launched.page.getByRole('menuitem', { name: 'Project', exact: true }).click()
+      await openAppMenu(launched.page, 'Project')
       await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
       const restoredHistory = launched.page.getByRole('dialog', { name: 'Version history' })
       await expect(restoredHistory.getByText('Restored First draft', { exact: true })).toBeVisible()
@@ -2388,7 +2382,7 @@ test(
       await expect(editor).not.toContainText('[@unified2026]')
       await launched.page.keyboard.press('ControlOrMeta+Shift+z')
       await expect(editor).toContainText('Cancelled [@unified2026]')
-      await launched.page.keyboard.press('ControlOrMeta+s')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
       await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
     } finally {
       await launched.app.close()
@@ -2548,8 +2542,8 @@ test(
         }, mermaidPreview)
       ).toEqual({ activeElements: 0, eventAttributes: 0, remoteLinks: 0 })
 
-      await launched.page.getByRole('menuitem', { name: 'Tools', exact: true }).click()
-      await launched.page.getByRole('menuitem', { name: /Settings/u }).click()
+      await openAppMenu(launched.page, 'Tools')
+      await clickAppMenuItem(launched.page, 'Settings')
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
       await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Dark', exact: true }).click()

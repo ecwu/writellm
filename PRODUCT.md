@@ -24,7 +24,7 @@ usable, with its controls kept non-overlapping and its resize handle working.
 ## Visual World
 
 The renderer uses the official shadcn/ui `new-york` language with neutral application surfaces,
-compact controls, clear typography, and Lucide icons. A global Menubar and the established
+compact controls, clear typography, and Lucide icons. A global command menu (native on macOS, shadcn Menubar on Windows/Linux) and the established
 activity rail are persistent. Dockview React 8.3.1 supplies one central content tab group and
 dockable tools on the left, right, or bottom. New surfaces extend those components and Tailwind
 tokens; they do not introduce decorative gradients, bespoke cards, one-off shadows, or a parallel
