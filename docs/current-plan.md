@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-10
+Recorded: 2026-09-25
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,18 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- The curated Writing Skill catalog now includes the Chinese and English Anti-Defensive Writing
+  entrypoints from [Adkid-Zephyr/anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill),
+  both pinned to `102c8b2` with verified Git blob hashes. The catalog now has nine entries;
+  third-party bodies remain unbundled and require installation in the app. Folded YAML
+  descriptions now load through Pi without changing the exposed normalized metadata. Final
+  static checks and 14 focused Electron tests passed on macOS arm64; both exact upstream
+  entrypoints passed a local content/hash/loader probe. The rebuilt App at
+  `dist/macos-arm64/mac-arm64/WriteLLM.app` passed the six-stage package smoke gate in 86.2s,
+  including 12/12 packaged scenarios. Its ASAR contains both entries and the reviewed pin.
+  Evidence: [catalog implementation](history/implementation-log.md#2026-09-25-anti-defensive-writing-catalog)
+  and [App build](history/implementation-log.md#2026-09-25-anti-defensive-writing-app-build).
 
 - macOS now uses the native `WriteLLM / Project / Edit / Layout / Tools / Window` menu under
   [ADR 084](adrs/084-macos-native-menu.md). The in-window Menubar is removed only on macOS;
@@ -275,7 +287,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   release `0.2026.9.4` with packaged verification above.
   Detailed timings and rerun evidence are in the maintenance history log.
 
-- All seven curated Writing Skills now use reviewed September 6 upstream pins: Nature
+- The seven previously curated Writing Skills use reviewed September 6 upstream pins: Nature
   `28150f3` and CCFA `217f687`. The catalog verifies 61 text files, including seven newly
   allowlisted references. Static checks, 26 existing focused tests, and a real-upstream-content
   installation/read/integrity probe passed. The macOS arm64 App now includes this catalog;

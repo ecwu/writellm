@@ -15,7 +15,9 @@ describe('curated writing skill catalog', () => {
       'ccf-visual-composer',
       'ccf-paper-reviewer',
       'ccf-integrity-auditor',
-      'nature-statistics'
+      'nature-statistics',
+      'anti-defensive-writing',
+      'anti-defensive-writing-en'
     ])
     for (const entry of CURATED_SKILL_CATALOG) {
       expect(entry.commit).toMatch(/^[a-f0-9]{40}$/)
@@ -40,7 +42,9 @@ describe('curated writing skill catalog', () => {
           'ccf-visual-composer',
           'ccf-paper-reviewer',
           'ccf-integrity-auditor',
-          'nature-statistics'
+          'nature-statistics',
+          'anti-defensive-writing',
+          'anti-defensive-writing-en'
         ].includes(entry.skillId)
       ).every((entry) => entry.dependencies.length === 0)
     ).toBe(true)

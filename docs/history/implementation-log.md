@@ -3793,3 +3793,47 @@ The host Node version differs from the manifest's 24.x range; the installed host
 retained and Electron hosted all native tests. Windows/Linux and signed release acceptance were
 not run. The resulting local App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, with 0.2026.9.9
 release metadata; there was no commit, tag movement, push, signing or publication.
+
+## 2026-09-25 Anti-Defensive Writing catalog
+
+- Added the Chinese `anti-defensive-writing` and English `anti-defensive-writing-en` entrypoints
+  from [Adkid-Zephyr/anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill)
+  to the curated metadata catalog. Both use reviewed commit
+  [`102c8b2`](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill/commit/102c8b21acf5eda3a0aef3d9779a65db646c8980),
+  MIT attribution, exact byte sizes and Git blob hashes. The upstream skill directories contain
+  only their `SKILL.md` entrypoints; no third-party bodies were bundled. Users install either
+  language on demand through the existing Main-owned downloader.
+- Reviewed both entrypoints. They focus on claim and evidence alignment but also advise against
+  highlighting unfavorable results. Application safety, truthfulness, citation, and evidence
+  rules remain higher priority; the catalog descriptions reflect evidence-backed use. The
+  upstream folded YAML descriptions exposed a trailing-newline difference between the local YAML
+  parser and Pi. The comparison now trims Pi's description at that boundary; a permanent
+  folded-description installation test covers it.
+- Verification: `pnpm check:fast` passed Biome and both typechecks in 11.7s, after correcting
+  one catalog formatting issue (report `.cache/verification/1790349520027-26346-1f437f5a`).
+  Four focused Electron test files passed 14 tests in 1.4s with zero retries (report
+  `.cache/verification/1790349505414-26269-26b594a2`). A temporary test checked both exact
+  upstream byte counts and blob hashes and compared local/Pi parsing. Its first run identified
+  the folded-description mismatch; after the comparison was normalized, it passed for both
+  entrypoints in 0.9s. The temporary test was removed. Host Node 26.10.0 remains outside the
+  declared Node 24 range; pnpm 11.17.0 matches the pin. No E2E, package build, live GitHub
+  install, or other-platform verification was run for this catalog and parser change.
+
+## 2026-09-25 Anti-Defensive Writing App build
+
+- At the user's request, rebuilt the macOS arm64 unpacked App at
+  `dist/macos-arm64/mac-arm64/WriteLLM.app` using `pnpm check:package:smoke`. The completed gate
+  passed static checks, native preparation, production compilation, unpacked packaging,
+  permitted no-Team-ID ad-hoc/linker signature verification, resource/native inventory and all
+  12 packaged runtime smoke scenarios. It took 86.2s across six stages; report:
+  `.cache/verification/1790349868040-27054-f93fa0d9`.
+- Directly inspected `out/main/index.js` inside the resulting ASAR and confirmed both
+  Anti-Defensive Writing catalog IDs and the exact upstream commit pin. The App uses release
+  metadata `0.2026.9.9`, Electron 43.4.1 / ABI 148, arm64 `better-sqlite3` and `sqlite-vec`.
+  No installer, signed release or publication was requested. The installed Writing Skills in a
+  user's app data remain separate from this bundled catalog.
+- The first sandbox invocation passed static checks and compiled but hit `ENOTFOUND github.com`
+  while electron-builder fetched packaging resources. That attempt was stopped after the clear
+  DNS failure; the same gate passed once with host network and GUI authority. No test scenario
+  retries occurred in the completed gate. Host Node 26.10.0 is outside the project's declared
+  Node 24 range; pnpm 11.17.0 matches the pin. Windows/Linux were not run.

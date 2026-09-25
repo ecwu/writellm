@@ -635,7 +635,7 @@ export class SkillService {
     })
     if (
       native.name !== parsed.name ||
-      native.description !== parsed.description ||
+      native.description.trim() !== parsed.description ||
       native.content !== parsed.body
     ) {
       throw new SkillServiceError('skill_manifest_invalid', 'Pi parsed inconsistent skill metadata')

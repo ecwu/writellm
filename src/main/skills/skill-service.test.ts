@@ -17,6 +17,33 @@ afterEach(async () => {
 })
 
 describe('SkillService', () => {
+  it('loads a skill with a folded YAML description', async () => {
+    const fixture = await createFixture()
+    const service = new SkillService(fixture.database, fixture.skillRoot, log, fixture.fetch)
+    await service.initialize()
+    await service.installE2eFixture({
+      repository: fixture.repository,
+      directory: fixture.directory,
+      commit: fixture.commit,
+      license: 'MIT',
+      files: [
+        {
+          path: 'SKILL.md',
+          bytes: Buffer.from(
+            '---\nname: demo-skill\ndescription: >\n  Draft evidence-backed prose.\n  Revise the structure.\n---\nUse direct claims.'
+          )
+        }
+      ]
+    })
+
+    const skillId = service.snapshot().installed[0]?.skillId ?? ''
+    await expect(service.loadVersion(skillId, fixture.commit)).resolves.toMatchObject({
+      description: 'Draft evidence-backed prose. Revise the structure.',
+      content: 'Use direct claims.'
+    })
+    fixture.database.close()
+  })
+
   it('installs the silent-E2E text fixture through the same bounded atomic publisher', async () => {
     const fixture = await createFixture()
     const service = new SkillService(fixture.database, fixture.skillRoot, log, fixture.fetch)

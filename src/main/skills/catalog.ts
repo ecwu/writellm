@@ -241,6 +241,29 @@ export const CURATED_SKILL_CATALOG = [
       file('references/source-basis.md', 3638, '5be35af49549928883041ffd9754724c324e2451'),
       file('references/statistical-reporting.md', 4037, '47aec2e06c48c4313a80a3a26aabbc3fd886d2f8')
     ]
+  },
+  {
+    skillId: 'anti-defensive-writing',
+    displayName: 'Anti-Defensive Writing (中文)',
+    description: '围绕有证据支持的核心贡献组织论文，修改摘要、引言、实验和结论中的防御性表述。',
+    repository: 'Adkid-Zephyr/anti-defensive-writing-Skill',
+    directory: 'skills/anti-defensive-writing',
+    commit: '102c8b21acf5eda3a0aef3d9779a65db646c8980',
+    license: 'MIT',
+    dependencies: [],
+    files: [file('SKILL.md', 5523, '59879391d4e7eda0d0017cff89f1ecf0b2566b8c')]
+  },
+  {
+    skillId: 'anti-defensive-writing-en',
+    displayName: 'Anti-Defensive Writing (English)',
+    description:
+      'Organize a research paper around its evidence-backed contribution and revise defensive prose in its abstract, introduction, experiments, and conclusion.',
+    repository: 'Adkid-Zephyr/anti-defensive-writing-Skill',
+    directory: 'skills/anti-defensive-writing-en',
+    commit: '102c8b21acf5eda3a0aef3d9779a65db646c8980',
+    license: 'MIT',
+    dependencies: [],
+    files: [file('SKILL.md', 6419, '87a163642daa5674a7fed82eb9112ae703ee0e73')]
   }
 ] as const satisfies readonly CuratedSkillCatalogEntry[]
 
