@@ -3927,3 +3927,24 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   host Node 26.10.0 remains outside the declared Node 24 range. Windows/Linux/macOS x64 runtime
   and physical system-IME candidate selection were not validated. Distribution is unsigned and
   macOS is not notarized; hosted rows verify native builds/inventory, not runtime acceptance.
+
+
+## 2026-09-26 Server-side four-package publication
+
+- The user explicitly replaced the local download/re-upload release step with GitHub-hosted
+  publication, so delivery no longer requires a local computer to remain online. This supersedes
+  the manual-publication policy recorded earlier today. No existing tag is moved or rebuilt.
+- Added `publish-release.yml`: successful tag-build completion triggers publication; manual
+  dispatch accepts a successful build run ID plus its existing tag for continuation. `ci.yml`
+  remains tag-only and read-only. The separate publisher alone receives `contents: write`.
+- Publishing executes trusted default-branch code, validates same-repository fixed-workflow
+  provenance, tag SHA/version/default-branch ancestry, successful four-platform jobs and selected
+  artifact metadata/hashes. Artifact data is isolated under runner temporary storage and never
+  executed. A draft gets exactly four packages (Windows EXE, both macOS DMGs, Linux AppImage),
+  is checked against uploaded digests, then becomes a normal non-prerelease release. Existing
+  mismatched assets fail closed; matching drafts can resume without clobbering files.
+- Release 0.2026.9.10 notes retain actual local test results, the native-menu fix, initial failure
+  history and platform/signing limits. JSON evidence and alternative archives remain in CI.
+  Implementation validation is limited to script syntax/style, workflow YAML/trigger/permission
+  checks and read-only source-run validation; no application tests or platform builds are rerun.
+  Deployment and remote publication are recorded separately after they occur.

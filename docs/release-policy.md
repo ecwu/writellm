@@ -1,11 +1,12 @@
 # WriteLLM Release Policy
 
-## Active distribution policy (clarified 2026-09-26)
+## Active distribution policy (updated 2026-09-26)
 
 The current distribution path is the unsigned four-platform tag build defined in
 [the workflow policy](../.github/workflows/README.md) and recorded in the
 [0.2026.9.8 publication evidence](history/implementation-log.md#2026-09-19-release-0202698-publication).
-This supersedes the older macOS-only promotion and workflow-trigger provisions below.
+The user authorized server-side automatic publication on 2026-09-26. This supersedes the older
+macOS-only promotion, manual upload and workflow-trigger provisions below.
 
 - Keep the four-component release identifier and platform metadata mapping described below.
 - Local release acceptance uses the complete Electron-hosted tests and `pnpm check:package`:
@@ -14,9 +15,17 @@ This supersedes the older macOS-only promotion and workflow-trigger provisions b
 - An immutable version tag on reviewed source triggers `ci.yml`: static/fixture checks followed
   by Windows x64, macOS arm64, macOS x64 and Linux x64 native builds. Hosted rows perform build
   and inventory checks, not runtime acceptance. Branch pushes and manual dispatch do not trigger CI.
-- After all four rows succeed, verify each downloaded artifact's source revision, version,
-  architecture, inventory, size and SHA-256 against its original platform evidence. Explicitly
-  authorized GitHub Release publication is manual; verify uploaded assets before publishing.
+- After all four rows and the build run succeed, `publish-release.yml` automatically publishes
+  from that run. Manual dispatch accepts the exact existing run ID and tag for recovery or initial
+  rollout; it never rebuilds or moves the tag. Only the publication job receives `contents: write`.
+- Trusted default-branch code checks same-repository `ci.yml` provenance, successful jobs, tag SHA,
+  source version, default-branch ancestry and artifact identities. It verifies the four selected
+  packages against original platform evidence (revision, architecture, size and SHA-256), then
+  checks uploaded digests before publishing a non-prerelease Release. Artifacts are data only.
+- Attach exactly Windows x64 EXE, macOS arm64 DMG, macOS x64 DMG and Linux x64 AppImage. JSON,
+  ZIP and DEB remain in CI/local evidence. No local computer or repeated runtime tests are needed
+  for publication. Existing mismatched releases/assets fail closed; matching completed releases
+  are idempotent. See the workflow policy for the full source and retry contract.
 - Ordinary releases disclose unsigned/unnotarized distribution and the actual runtime platforms
   tested. A normal, non-prerelease GitHub Release does not imply Developer ID signing or notarization.
 - `release-candidate.yml.disabled` stays disabled. `pnpm check:release` and the historical protected
