@@ -45,8 +45,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   record the pre-commit dirty tree and are runtime evidence, not the intended public assets.
   The user subsequently authorized automatic server-side publication of four packages after
   successful tag builds. The new publisher supports a manual continuation of this exact run,
-  without tag movement, rebuilding or local download/re-upload. Workflow deployment and actual
-  server-side publication are pending; the signed workflow remains disabled.
+  without tag movement, rebuilding or local download/re-upload. The workflow is deployed and all four source build jobs passed. Its first automatic run
+  failed before artifact download or release writes because of a repository-root API trailing
+  slash; that URL is corrected and the complete source check passes in read-only mode. Server-side
+  continuation/publication is pending; the signed workflow remains disabled.
   Evidence: [release preparation](history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
 
 - Tool closing now preserves surviving sidebar widths and gives released horizontal space to

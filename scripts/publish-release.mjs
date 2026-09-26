@@ -15,7 +15,7 @@ assert(runId && /^\d+$/.test(runId), 'Expected a numeric source run ID')
 assert(tag && /^v\d+\.\d{4}\.\d+\.\d+$/.test(tag), 'Expected a release tag')
 const version = tag.slice(1)
 const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
-const api = (path) => JSON.parse(gh('api', `repos/${repo}/${path}`))
+const api = (path) => JSON.parse(gh('api', `repos/${repo}${path ? `/${path}` : ''}`))
 async function sha256(path) {
   const hash = createHash('sha256')
   for await (const chunk of createReadStream(path)) hash.update(chunk)

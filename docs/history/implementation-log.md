@@ -3948,3 +3948,16 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   Implementation validation is limited to script syntax/style, workflow YAML/trigger/permission
   checks and read-only source-run validation; no application tests or platform builds are rerun.
   Deployment and remote publication are recorded separately after they occur.
+
+
+## 2026-09-26 Publisher source-check correction
+
+- Source CI [36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256) completed
+  successfully on all four native platforms. Deployed publisher run
+  [36231883009](https://github.com/ecwu/writellm/actions/runs/36231883009) then failed before
+  artifact download or Release writes: the repository-root API helper emitted a trailing slash,
+  and GitHub returned HTTP 404. The original log is retained locally.
+- Removed the extra slash for empty API paths. Node syntax and Biome checks pass; the complete
+  read-only `--plan` now verifies the actual successful run, tag SHA/version/default-branch
+  ancestry, platform jobs and artifact identities. Server-side continuation reuses that same
+  successful run and immutable tag; no application test or platform build is repeated.
