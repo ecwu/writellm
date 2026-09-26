@@ -47,8 +47,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   successful tag builds. The new publisher supports a manual continuation of this exact run,
   without tag movement, rebuilding or local download/re-upload. The workflow is deployed and all four source build jobs passed. Its first automatic run
   failed before artifact download or release writes because of a repository-root API trailing
-  slash; that URL is corrected and the complete source check passes in read-only mode. Server-side
-  continuation/publication is pending; the signed workflow remains disabled.
+  slash; that URL is corrected and the complete source check passes in read-only mode. A second continuation passed source and the first three package checks, then exposed
+  an AppImage naming mismatch (`x64` versus the existing `x86_64` filename); that suffix is now
+  corrected against original evidence. Server-side continuation/publication is pending; the signed workflow remains disabled.
   Evidence: [release preparation](history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
 
 - Tool closing now preserves surviving sidebar widths and gives released horizontal space to

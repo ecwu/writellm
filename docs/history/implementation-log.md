@@ -3961,3 +3961,15 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   read-only `--plan` now verifies the actual successful run, tag SHA/version/default-branch
   ancestry, platform jobs and artifact identities. Server-side continuation reuses that same
   successful run and immutable tag; no application test or platform build is repeated.
+
+
+## 2026-09-26 Publisher AppImage filename correction
+
+- Continuation [36231968251](https://github.com/ecwu/writellm/actions/runs/36231968251) passed
+  the full source check and the first three package checks, then stopped before Release writes
+  because the Linux selection expected `x64.AppImage`. The established package inventory and
+  original Linux evidence use `x86_64.AppImage` (while the native target remains `linux-x64`).
+- Corrected only that filename suffix. All four selected naming conventions were compared with
+  retained native build evidence; Node syntax, Biome and diff checks pass. No artifact was newly
+  downloaded locally and no application test or platform build was repeated. The continuation
+  still reuses source run 36231039256 and immutable tag v0.2026.9.10.

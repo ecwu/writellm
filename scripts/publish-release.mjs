@@ -66,7 +66,7 @@ const targets = [
   ['windows-x64', 'win32-x64', 'x64', 'pe', 'NSIS', `WriteLLM-${version}-x64-setup.exe`],
   ['macos-arm64', 'darwin-arm64', 'arm64', 'mach-o', 'DMG', `WriteLLM-${version}-arm64.dmg`],
   ['macos-x64', 'darwin-x64', 'x64', 'mach-o', 'DMG', `WriteLLM-${version}-x64.dmg`],
-  ['linux-x64', 'linux-x64', 'x64', 'elf', 'AppImage', `WriteLLM-${version}-x64.AppImage`]
+  ['linux-x64', 'linux-x64', 'x64', 'elf', 'AppImage', `WriteLLM-${version}-x86_64.AppImage`]
 ]
 const artifacts = api(`actions/runs/${runId}/artifacts?per_page=100`).artifacts
 for (const [target] of targets) {
