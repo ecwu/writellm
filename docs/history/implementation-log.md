@@ -3837,3 +3837,49 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   DNS failure; the same gate passed once with host network and GUI authority. No test scenario
   retries occurred in the completed gate. Host Node 26.10.0 is outside the project's declared
   Node 24 range; pnpm 11.17.0 matches the pin. Windows/Linux were not run.
+
+## 2026-09-26 Tool-close sizing
+
+- Reproduced the reported geometry regression in real Electron before changing product code:
+  closing Outline increased the surviving Agent sidebar by 276 CSS pixels. Dockview 8.3.1's
+  split-view removal calls `relayout()` without priority indexes and redistributes space by
+  grid sibling order. Application minimum widths alone do not express a content-first policy.
+- Added one shared tool-removal path for tab close buttons, Find cleanup, activity toggles,
+  controller requests and Layout menu commands. It snapshots the current widths of surviving
+  groups horizontally beside the content, temporarily caps those groups during synchronous
+  removal, and restores their prior maximum constraints in `finally`. Bottom groups spanning
+  the content remain free to expand. No persistent width lock, dependency, IPC or schema change.
+  The existing retained outer content panel already provides the final-tab empty surface.
+- Added the `workbench.close-sizing` packaged-eligible E2E scenario and manifest entry. It
+  checks default and reordered groups, tab/menu/activity close routes, user-dragged widths,
+  keyboard growth after temporary constraint release, bottom-group expansion and final-tab
+  closure. Existing workbench restoration and pointer/keyboard resize scenarios also pass.
+- Verification on macOS arm64: baseline build passed in 12.7s; the pre-fix scenario failed in
+  12.9s with the expected 276px mismatch, zero retries
+  (`.cache/verification/1790409561130-40149-bacb7863/`). Final-source `pnpm check:e2e
+  e2e/workbench-sizing.spec.ts e2e/workbench.spec.ts` passed all six stages in 38.6s,
+  including Biome, Main/Renderer typechecks, build and two scenarios in 12.9s
+  (`.cache/verification/1790409639380-40313-e5465f74/`). The expanded sizing scenario and
+  existing sidebar-resize scenario then passed against the same build in 3.5s (3.8s gate)
+  with zero retries/skips (`.cache/verification/1790409706159-40471-64f3ecd4/`).
+  This is three distinct passing scenarios, not four. Light/dark desktop screenshots were
+  inspected in `.cache/verification/workbench-preview/`; the design hook reported no findings.
+- Work was performed in an isolated worktree moved from an obsolete baseline to current
+  `main` (`a5a20ab`), without changing the main checkout. Verification reused the host's
+  installed dependencies via a temporary link, removed afterwards. pnpm 11.17.0 matches the
+  manifest; host Node 26.10.0 remains outside the declared Node 24 range. Electron 43.4.1
+  ABI 148 native load checks passed. No Windows/Linux, packaged App or installer verification
+  was performed. No commit, push or release was made.
+
+## 2026-09-26 Tool-close sizing build and local integration
+
+- The user subsequently authorized a final build, commit and merge into the local main branch,
+  superseding the earlier no-commit scope; remote publication remains outside scope.
+- `pnpm build` passed native load preparation and production compilation in 11.8s against the
+  final implementation. Report: `.cache/verification/1790409834516-41051-2feb4c31/`.
+  The renderer output hash matches the previously tested build (`index-wdGvyRhV.js`);
+  static checks and the three passing Electron scenarios above still cover the final source.
+- Main checkout inspection found a clean `main` at `a5a20ab`, the fix's exact base, permitting
+  a fast-forward integration without reconciling or replacing other work. Delivery uses the
+  scoped `codex/preserve-sidebar-widths` branch. No packaged App, installer or remote push is
+  part of this source-build and local-integration request. Host/runtime limits remain as above.

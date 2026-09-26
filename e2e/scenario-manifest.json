@@ -4,6 +4,7 @@
   "scenarios": [
     { "id": "app.native-menu", "tiers": ["packaged"] },
     { "id": "workbench.tabs-docking-restore", "tiers": ["packaged"] },
+    { "id": "workbench.close-sizing", "tiers": ["packaged"] },
     { "id": "manuscript.autocomplete", "tiers": ["packaged"] },
     { "id": "agent.conversation-fork", "tiers": ["packaged"] },
     { "id": "agent.message-copy-edit", "tiers": ["packaged"] },

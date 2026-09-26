@@ -106,7 +106,7 @@ function Slot(props: IDockviewPanelProps): React.JSX.Element {
         toolOnly: true,
         activeWorkspace: tool === 'outline' ? 'manuscript' : (tool as WorkspaceKind),
         onCloseFind: () => {
-          props.api.close()
+          removeTool(props.containerApi, props.api.id)
           owner.sidebar.props.onCloseFind()
         }
       })}
@@ -189,7 +189,7 @@ function ToolTabHeader(props: IDockviewPanelHeaderProps): React.JSX.Element {
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => {
           event.stopPropagation()
-          props.api.close()
+          removeTool(props.containerApi, props.api.id)
           if (props.api.id === 'agent') owner.onAgentOpenChange(false)
           if (props.api.id === 'outline') setOpen(false)
           if (props.api.id === 'find') owner.sidebar.props.onCloseFind()
@@ -407,6 +407,35 @@ function addTool(dock: DockviewApi, tool: WorkbenchTool): void {
   })
 }
 
+function removeTool(dock: DockviewApi, id: string): void {
+  const panel = dock.getPanel(id)
+  const content = dock.getPanel('content')
+  if (!panel || !content || panel === content) return
+  const center = content.group.api.boundingBox
+  // Dockview gives removed space to the last grid sibling. Cap surviving side
+  // groups for this synchronous removal so the content absorbs that space.
+  // Bottom groups may span the content and must remain free to grow with it.
+  const sidebars = dock.groups.flatMap((group) => {
+    const bounds = group.api.boundingBox
+    if (
+      group === panel.group ||
+      group === content.group ||
+      !center ||
+      !bounds ||
+      bounds.width <= 0 ||
+      (bounds.left + bounds.width > center.left + 1 && bounds.left < center.left + center.width - 1)
+    )
+      return []
+    return [{ group, width: bounds.width, maximumWidth: group.maximumWidth }]
+  })
+  try {
+    for (const { group, width } of sidebars) group.api.setConstraints({ maximumWidth: width })
+    dock.removePanel(panel)
+  } finally {
+    for (const { group, maximumWidth } of sidebars) group.api.setConstraints({ maximumWidth })
+  }
+}
+
 export function DockingWorkbench(props: Props): React.JSX.Element {
   const [api, setApi] = useState<DockviewApi | null>(null)
   const { setControls } = useLayoutControls()
@@ -516,27 +545,18 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
     if (initialVisibility.current && props.agentOpen !== initialVisibility.current.agent) return
     initialVisibility.current = null
     if (props.agentOpen) addTool(api, 'agent')
-    else {
-      const panel = api.getPanel('agent')
-      if (panel) api.removePanel(panel)
-    }
+    else removeTool(api, 'agent')
   }, [api, props.agentOpen])
   useEffect(() => {
     const request = props.controller.toolRequest
     if (!api || !request) return
     if (request.open) addTool(api, request.kind)
-    else {
-      const panel = api.getPanel(request.kind)
-      if (panel) api.removePanel(panel)
-    }
+    else removeTool(api, request.kind)
   }, [api, props.controller.toolRequest])
   useEffect(() => {
     if (!api || initialVisibility.current) return
     if (outlineOpen) addTool(api, 'outline')
-    else {
-      const panel = api.getPanel('outline')
-      if (panel) api.removePanel(panel)
-    }
+    else removeTool(api, 'outline')
   }, [api, outlineOpen])
   const reset = (): void => {
     if (!api) return
@@ -576,8 +596,7 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
         if (tool === 'outline') setOutlineOpen(open)
         if (open) addTool(api, tool)
         else {
-          const panel = api.getPanel(tool)
-          if (panel) api.removePanel(panel)
+          removeTool(api, tool)
           if (tool === 'find') current.current.sidebar.props.onCloseFind()
         }
       },

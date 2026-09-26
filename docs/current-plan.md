@@ -31,6 +31,14 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Tool closing now preserves surviving sidebar widths and gives released horizontal space to
+  the retained content area, including its empty state. Pointer/keyboard resizing and bottom
+  docking remain available under the [ADR 083 sizing clarification](adrs/083-tabbed-docking-workbench.md#2026-09-26-tool-close-sizing-clarification).
+  Static checks and three distinct real Electron scenarios passed on macOS arm64 with zero
+  retries. The final source build passed again in 11.8s for the user-authorized local-main
+  integration; the packaged App has not been rebuilt.
+  Evidence: [tool-close sizing](history/implementation-log.md#2026-09-26-tool-close-sizing).
+
 - The curated Writing Skill catalog now includes the Chinese and English Anti-Defensive Writing
   entrypoints from [Adkid-Zephyr/anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill),
   both pinned to `102c8b2` with verified Git blob hashes. The catalog now has nine entries;

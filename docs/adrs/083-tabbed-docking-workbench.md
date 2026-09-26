@@ -34,3 +34,11 @@ All content navigation shares open-or-activate semantics.
 Alternatives were continuing bespoke resizable panels (requires implementing docking),
 FlexLayout and Golden Layout. Dockview was selected for current npm adoption and sustained releases.
 No project schema migration or portable layout files are needed.
+
+## 2026-09-26 Tool-close sizing clarification
+
+Closing a docked tool gives released horizontal space to the retained content area while
+preserving the current widths of surviving side groups where the grid permits it. User-resized
+widths take precedence over defaults. This is a close-operation policy, not a permanent width
+lock: pointer and keyboard resizing remain available. Bottom groups that span the content may
+grow with it. Closing the final content tab retains the existing empty content surface.
