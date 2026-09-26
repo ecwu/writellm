@@ -1829,9 +1829,7 @@ test(
       })
       await historyPrompt.getByRole('button', { name: 'Not now', exact: true }).click()
       await openAppMenu(launched.page, 'Project')
-      await expect(
-        launched.page.getByRole('menuitem', { name: 'Enable version history…', exact: true })
-      ).toBeVisible()
+      await expectAppMenuItem(launched.page, 'Enable version history…', { visible: true })
       await launched.page.keyboard.press('Escape')
 
       await closeProject(launched.page)
@@ -1932,7 +1930,7 @@ test(
       await saveEditorText(launched.page, 'Checkpoint one')
 
       await openAppMenu(launched.page, 'Project')
-      await launched.page.getByRole('menuitem', { name: 'Create checkpoint…' }).click()
+      await clickAppMenuItem(launched.page, 'Create checkpoint…')
       const create = launched.page.getByRole('dialog', { name: 'Create checkpoint' })
       await create.getByLabel('Name').fill('First draft')
       await create.getByLabel('Note (optional)').fill('E2E checkpoint')
@@ -1941,7 +1939,7 @@ test(
 
       await saveEditorText(launched.page, ' after checkpoint')
       await openAppMenu(launched.page, 'Project')
-      await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
+      await clickAppMenuItem(launched.page, 'Version history…')
       const history = launched.page.getByRole('dialog', { name: 'Version history' })
       await expect(history.getByText('Uncheckpointed changes', { exact: true })).toBeVisible()
       const firstDraft = history.locator('[data-slot=item]').filter({ hasText: 'First draft' })
@@ -1956,7 +1954,7 @@ test(
       await expect(sectionEditor(launched.page)).not.toContainText('after checkpoint')
 
       await openAppMenu(launched.page, 'Project')
-      await launched.page.getByRole('menuitem', { name: 'Version history…' }).click()
+      await clickAppMenuItem(launched.page, 'Version history…')
       const restoredHistory = launched.page.getByRole('dialog', { name: 'Version history' })
       await expect(restoredHistory.getByText('Restored First draft', { exact: true })).toBeVisible()
       await expect(

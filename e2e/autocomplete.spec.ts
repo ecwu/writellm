@@ -97,7 +97,9 @@ test(
       const toggle = page.getByRole('button', { name: /^Autocomplete:/ })
       const toggleEnabled = async () => {
         await toggle.click()
-        await clickAppMenuItem(page, 'Enable autocomplete', true)
+        await page
+          .getByRole('menuitemcheckbox', { name: 'Enable autocomplete', exact: true })
+          .click()
       }
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Words')
       await toggleEnabled()

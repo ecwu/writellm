@@ -3883,3 +3883,47 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   a fast-forward integration without reconciling or replacing other work. Delivery uses the
   scoped `codex/preserve-sidebar-widths` branch. No packaged App, installer or remote push is
   part of this source-build and local-integration request. Host/runtime limits remain as above.
+
+
+## 2026-09-26 Release 0.2026.9.10 local acceptance
+
+- The user authorized normal public release preparation. `release.version` advances from
+  0.2026.9.9 to 0.2026.9.10; package base remains 0.2026.9. The active distribution policy now
+  explicitly records the already-established unsigned four-platform tag-only build and manual
+  publication path. The dormant signed workflow and signing gates remain unchanged.
+- Full Electron-hosted tests passed 1,627 tests across 264 files with three intentional benchmark
+  skips (29.8s, 30.6s wrapper; `.cache/verification/1790411731312-45343-90d1dc61`).
+  Frozen pnpm installation passed without lockfile changes.
+- The first full package gate passed static checks, native/build/package inventory and all 12
+  smoke cases, then failed five of 43 packaged E2E scenarios (38 passed, zero retries; 272.8s;
+  `.cache/verification/1790411779602-46061-bddd5371`). Failure screenshots/traces are preserved
+  in `.cache/releases/0.2026.9.10/first-package-test-results/`.
+- One failure exposed a native-menu product defect: Electron toggles checkbox state before the
+  callback, but a Renderer save barrier can reject closing a page without changing its projection.
+  Native Layout items now retain the last confirmed state until the Renderer supplies a successful
+  change. The existing save-conflict E2E still requires retained draft content and a checked
+  Knowledge item. Added a regression test for both tool/page checkboxes and subsequent updates.
+- Three failures were fixture omissions from the macOS native-menu migration: autocomplete's
+  contextual checkbox incorrectly used the native helper, while version-history visibility and
+  checkpoint commands still used DOM-only locators. The message-edit test now explicitly moves
+  focus away before focusing the unavailable action, exercising its keyboard tooltip even when
+  an earlier editor restored focus there. No assertion was removed or weakened. All four focused
+  scenarios passed on the same pre-fix App in 19.4s with zero retries
+  (`.cache/verification/1790412226864-47701-aecf6c48`).
+- The final affected Electron-hosted menu suite passed all 10 tests (1.2s wrapper;
+  `.cache/verification/1790412313598-48073-c99363fe`). Two intervening package attempts stopped
+  during static checks on the new mock's TypeScript casts; the mock typing was corrected before
+  rebuilding. The final `pnpm check:package` passed all 10 stages in 258.2s
+  (`.cache/verification/1790412299363-47972-640c93e2`): static/recovery inventory, native build,
+  unpacked App/signature/resource inventory, 12 smoke cases (39.9s), all 43 packaged E2E scenarios
+  (146.6s, zero retries/skips), and DMG/ZIP generation, inspection and SHA-256 checks.
+- Local artifacts in `dist/macos-arm64/` carry 0.2026.9.10 / build 2026.9.10. Their original
+  evidence correctly records base revision `83766e0` plus dirty source, since validation preceded
+  the release-preparation commit. They establish local runtime acceptance; public assets must be
+  independently built from the exact immutable release tag and verified against hosted evidence.
+  Release notes and artifact/upload verification helpers are staged locally under
+  `.cache/releases/0.2026.9.10/`. No tag or publication is claimed here.
+- Runtime validation is macOS arm64 only, Electron 43.4.1 / ABI 148. pnpm 11.17.0 matches the pin;
+  host Node 26.10.0 remains outside the declared Node 24 range. Windows/Linux/macOS x64 runtime
+  and physical system-IME candidate selection were not validated. Distribution is unsigned and
+  macOS is not notarized; hosted rows verify native builds/inventory, not runtime acceptance.

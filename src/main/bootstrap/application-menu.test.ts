@@ -87,7 +87,8 @@ function harness() {
   const click = (id: string) => {
     const entry = item(id)
     if (!entry) throw new Error(`Missing menu item ${id}`)
-    ;(entry.click as () => void)()
+    if (entry.type === 'checkbox') entry.checked = !entry.checked
+    entry.click?.(entry as unknown as Electron.MenuItem, undefined, {} as Electron.KeyboardEvent)
   }
   return {
     menu,
@@ -192,6 +193,31 @@ describe('native application menu', () => {
     expect(h.item('onCreateCheckpoint')).toBeDefined()
     expect(h.item('onEnableVersionHistory')).toBeUndefined()
     expect(h.item('newNotebook')?.enabled).toBe(false)
+  })
+  it('keeps checkbox state until Renderer confirms a layout change', () => {
+    const h = harness()
+    const id = randomUUID()
+    h.setSnapshot({
+      state: 'open',
+      activeProject: { projectSessionId: id, displayName: 'Project' }
+    } as ProjectLifecycleSnapshot)
+    const state: MenuState = {
+      ...closedState,
+      projectSessionId: id,
+      hasProject: true,
+      layout: { tools: ['agent'], pages: ['knowledge'], canCreateNotebook: false }
+    }
+    h.update(state)
+    for (const id of ['tool:agent', 'page:knowledge']) {
+      h.click(id)
+      expect(h.item(id)?.checked).toBe(true)
+    }
+    expect(h.window.webContents.send).toHaveBeenCalledTimes(2)
+    h.update({ ...state, layout: { tools: [], pages: [], canCreateNotebook: false } })
+    expect(h.item('tool:agent')?.checked).toBe(false)
+    expect(h.item('page:knowledge')?.checked).toBe(false)
+    h.click('page:knowledge')
+    expect(h.item('page:knowledge')?.checked).toBe(false)
   })
   it('invalidates state on reload/crash, restores a windowless command once, and unsubscribes', () => {
     const h = harness()

@@ -31,12 +31,25 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release 0.2026.9.10 has passed local release acceptance. The release counter advances from 0.2026.9.9;
+  package base remains 0.2026.9. The candidate includes sidebar width preservation, tool chrome
+  and empty-workbench navigation, section title typography, native macOS menus and the new
+  Anti-Defensive Writing catalog entries since the public 0.2026.9.8 release. It also fixes native
+  Layout checks after a save barrier rejects closing a page. The full Electron-hosted suite passed
+  1,627 tests before this fix; the affected final-source menu suite passed all 10 tests. The final
+  macOS arm64 package gate passed in 258.2s, including 12 smoke scenarios, all 43 packaged E2E
+  scenarios (zero retries/skips), and DMG/ZIP inspection. No new tag or GitHub Release has been
+  created; hosted four-platform builds and artifact verification remain pending. Local artifacts
+  record the pre-commit dirty tree and are runtime evidence, not the intended public assets.
+  The existing unsigned tag-build and explicit publication policy remains in effect.
+  Evidence: [release preparation](history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
+
 - Tool closing now preserves surviving sidebar widths and gives released horizontal space to
   the retained content area, including its empty state. Pointer/keyboard resizing and bottom
   docking remain available under the [ADR 083 sizing clarification](adrs/083-tabbed-docking-workbench.md#2026-09-26-tool-close-sizing-clarification).
   Static checks and three distinct real Electron scenarios passed on macOS arm64 with zero
   retries. The final source build passed again in 11.8s for the user-authorized local-main
-  integration; the packaged App has not been rebuilt.
+  integration; the subsequent 0.2026.9.10 package gate above also covers this change.
   Evidence: [tool-close sizing](history/implementation-log.md#2026-09-26-tool-close-sizing).
 
 - The curated Writing Skill catalog now includes the Chinese and English Anti-Defensive Writing

@@ -1,5 +1,31 @@
 # WriteLLM Release Policy
 
+## Active distribution policy (clarified 2026-09-26)
+
+The current distribution path is the unsigned four-platform tag build defined in
+[the workflow policy](../.github/workflows/README.md) and recorded in the
+[0.2026.9.8 publication evidence](history/implementation-log.md#2026-09-19-release-0202698-publication).
+This supersedes the older macOS-only promotion and workflow-trigger provisions below.
+
+- Keep the four-component release identifier and platform metadata mapping described below.
+- Local release acceptance uses the complete Electron-hosted tests and `pnpm check:package`:
+  static checks, recovery inventory, native/resource checks, packaged smoke, packaged E2E and
+  installers produced from the same tested App. Report actual failures, reruns and platform limits.
+- An immutable version tag on reviewed source triggers `ci.yml`: static/fixture checks followed
+  by Windows x64, macOS arm64, macOS x64 and Linux x64 native builds. Hosted rows perform build
+  and inventory checks, not runtime acceptance. Branch pushes and manual dispatch do not trigger CI.
+- After all four rows succeed, verify each downloaded artifact's source revision, version,
+  architecture, inventory, size and SHA-256 against its original platform evidence. Explicitly
+  authorized GitHub Release publication is manual; verify uploaded assets before publishing.
+- Ordinary releases disclose unsigned/unnotarized distribution and the actual runtime platforms
+  tested. A normal, non-prerelease GitHub Release does not imply Developer ID signing or notarization.
+- `release-candidate.yml.disabled` stays disabled. `pnpm check:release` and the historical protected
+  promotion verifier remain fail-closed for an explicitly requested signed distribution; this
+  policy does not relax their signing checks or authorize enabling their workflow.
+
+The remaining macOS-only scope, workflow trust/trigger and promotion sections document the
+superseded signed-distribution design. They do not authorize changing the active workflow.
+
 ## Release version
 
 WriteLLM release candidates use a four-component calendar/build identifier. For

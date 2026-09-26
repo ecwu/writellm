@@ -219,7 +219,16 @@ export class ApplicationMenu {
         ? command.kind === 'action' &&
           ['onCreate', 'onOpen', 'onOpenSettings', 'onQuit'].includes(command.action)
         : !!state && menuCommandEnabled(command, state),
-      click: () => this.dispatch(command)
+      click: (menuItem) => {
+        // Electron toggles checkboxes before this callback. Keep the last confirmed
+        // projection until Renderer completes the action (which a save barrier may reject).
+        if (command.kind === 'tool') {
+          menuItem.checked = this.state?.layout?.tools.includes(command.tool) ?? false
+        } else if (command.kind === 'page') {
+          menuItem.checked = this.state?.layout?.pages.includes(command.page) ?? false
+        }
+        this.dispatch(command)
+      }
     })
     const action = (id: MenuAction): MenuItemConstructorOptions => {
       const definition = menuActions[id]

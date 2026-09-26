@@ -303,6 +303,8 @@ test(
         })
       })
       await expect(edit).toHaveAttribute('aria-disabled', 'true')
+      // The previous editor can return focus here; start a new keyboard focus transition.
+      await panel.getByLabel('Agent message').focus()
       await edit.focus()
       await expect(page.getByRole('tooltip')).toContainText('changed project content')
       await panel.screenshot({ path: testInfo.outputPath('agent-message-actions.png') })
