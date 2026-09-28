@@ -49,7 +49,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   failed before artifact download or release writes because of a repository-root API trailing
   slash; that URL is corrected and the complete source check passes in read-only mode. A second continuation passed source and the first three package checks, then exposed
   an AppImage naming mismatch (`x64` versus the existing `x86_64` filename); that suffix is now
-  corrected against original evidence. Server-side continuation/publication is pending; the signed workflow remains disabled.
+  corrected against original evidence. The third continuation passed all four package checks and
+  created a draft, then failed because GitHub gave that draft an `untagged-…` API name while the
+  publisher searched only for the final tag. The draft has no uploaded packages. A local publisher
+  fix now finds the exact draft by title and notes, uploads through its current API name, and sets
+  the final tag when publishing. Deployment and server-side continuation/publication are pending;
+  the signed workflow remains disabled.
   Evidence: [release preparation](history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
 
 - Tool closing now preserves surviving sidebar widths and gives released horizontal space to

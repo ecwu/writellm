@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict'
+
+export function selectRelease(releases, tag, title, notes) {
+  const matches = releases.filter(
+    (release) => release.tag_name === tag || (release.draft && release.name === title)
+  )
+  assert(matches.length <= 1, 'Multiple releases match the requested tag or draft title')
+  const release = matches[0]
+  if (release?.draft) {
+    assert(
+      release.tag_name === tag || /^untagged-[a-f0-9]+$/u.test(release.tag_name),
+      'Draft has an unexpected tag name'
+    )
+    assert.equal(release.name, title, 'Draft title changed')
+    assert.equal(release.body?.trimEnd(), notes.trimEnd(), 'Draft notes changed')
+  }
+  return release
+}

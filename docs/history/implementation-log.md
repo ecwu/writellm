@@ -3973,3 +3973,15 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   retained native build evidence; Node syntax, Biome and diff checks pass. No artifact was newly
   downloaded locally and no application test or platform build was repeated. The continuation
   still reuses source run 36231039256 and immutable tag v0.2026.9.10.
+
+## 2026-09-28 Publisher draft recovery correction
+
+- Continuation [36232094160](https://github.com/ecwu/writellm/actions/runs/36232094160)
+  passed source provenance and all four package checks. It created the `WriteLLM 0.2026.9.10`
+  draft, then failed before uploading any package: GitHub exposed the draft under an
+  `untagged-…` API name, while the publisher searched only for `v0.2026.9.10`.
+- The publisher now finds a single matching draft by exact title and notes, refuses modified or
+  ambiguous drafts, uploads by the draft's current API name, and explicitly sets the verified
+  release tag when publishing. Three focused state tests, script syntax, Biome, and diff checks
+  validate the local correction. The immutable source build and tag remain unchanged. Deployment,
+  continuation and publication are recorded when they occur.

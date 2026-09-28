@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs'
 import { appendFile, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { selectRelease } from './publish-release-state.mjs'
 
 const repo = process.env.GITHUB_REPOSITORY
 const runId = process.env.SOURCE_RUN_ID
@@ -148,10 +149,14 @@ if (!planOnly) {
   const notesPath = join(root, 'notes.md')
   await writeFile(notesPath, notes)
   // A failed upload leaves a draft. Retry only adds missing matching assets; never replaces them.
+  const title = `WriteLLM ${version}`
   const findRelease = () =>
-    JSON.parse(gh('api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`))
-      .flat()
-      .find((r) => r.tag_name === tag)
+    selectRelease(
+      JSON.parse(gh('api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`)).flat(),
+      tag,
+      title,
+      notes
+    )
   let release = findRelease()
   if (!release) {
     gh(
@@ -163,7 +168,7 @@ if (!planOnly) {
       '--verify-tag',
       '--draft',
       '--title',
-      `WriteLLM ${version}`,
+      title,
       '--notes-file',
       notesPath
     )
@@ -189,7 +194,7 @@ if (!planOnly) {
   if (release.draft) {
     for (const asset of assets) {
       if (!release.assets.some((a) => a.name === asset.name)) {
-        gh('release', 'upload', tag, asset.path, '--repo', repo)
+        gh('release', 'upload', release.tag_name, asset.path, '--repo', repo)
       }
     }
     checkAssets(api(`releases/${release.id}`).assets, true)
@@ -197,9 +202,12 @@ if (!planOnly) {
     gh(
       'release',
       'edit',
-      tag,
+      release.tag_name,
       '--repo',
       repo,
+      '--tag',
+      tag,
+      '--verify-tag',
       '--draft=false',
       '--prerelease=false',
       '--latest',
