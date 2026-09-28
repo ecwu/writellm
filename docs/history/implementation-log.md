@@ -3985,3 +3985,18 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   release tag when publishing. Three focused state tests, script syntax, Biome, and diff checks
   validate the local correction. The immutable source build and tag remain unchanged. Deployment,
   continuation and publication are recorded when they occur.
+
+## 2026-09-28 Release 0.2026.9.10 publication
+
+- Deployed publisher repair commit `634b0ebf504dc30d156d5e90d0337ecbf585a2f0` to `main`.
+  Manual continuation [36407814763](https://github.com/ecwu/writellm/actions/runs/36407814763)
+  succeeded in 1m 13s using successful source run 36231039256 and immutable
+  `v0.2026.9.10` at `7bd202bcef9193180a83edf65cdcb7eb282361d0`. No source rebuild or
+  tag movement occurred.
+- [WriteLLM 0.2026.9.10](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.10)
+  was published at 2026-09-28 10:09:03 UTC as a normal Latest Release. GitHub reports exactly
+  four uploaded packages: Windows x64 EXE, macOS arm64 DMG, macOS x64 DMG, and Linux x64
+  AppImage. The publisher compared all four uploaded sizes and SHA-256 digests with the original
+  package evidence before making the draft public; a read-only public API check independently
+  confirmed those four uploaded assets, non-draft/non-prerelease state, and Latest status.
+  Distribution remains unsigned and macOS packages are not notarized.

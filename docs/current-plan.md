@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-25
+Recorded: 2026-09-28
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -40,8 +40,9 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   macOS arm64 package gate passed in 258.2s, including 12 smoke scenarios, all 43 packaged E2E
   scenarios (zero retries/skips), and DMG/ZIP inspection. Tag `v0.2026.9.10` points to
   `7bd202bcef9193180a83edf65cdcb7eb282361d0`; its hosted build is
-  [run 36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256). Public release
-  remains pending. Local artifacts
+  [run 36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256). The public
+  [0.2026.9.10 Release](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.10) is now
+  Latest with four verified packages. Local artifacts
   record the pre-commit dirty tree and are runtime evidence, not the intended public assets.
   The user subsequently authorized automatic server-side publication of four packages after
   successful tag builds. The new publisher supports a manual continuation of this exact run,
@@ -52,9 +53,10 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   corrected against original evidence. The third continuation passed all four package checks and
   created a draft, then failed because GitHub gave that draft an `untagged-…` API name while the
   publisher searched only for the final tag. The draft has no uploaded packages. A local publisher
-  fix now finds the exact draft by title and notes, uploads through its current API name, and sets
-  the final tag when publishing. Deployment and server-side continuation/publication are pending;
-  the signed workflow remains disabled.
+  fix finds the exact draft by title and notes, uploads through its current API name, and sets
+  the final tag when publishing. The fix was deployed as `634b0eb`; continuation
+  [36407814763](https://github.com/ecwu/writellm/actions/runs/36407814763) succeeded on 2026-09-28,
+  publishing four packages from the original build. The signed workflow remains disabled.
   Evidence: [release preparation](history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
 
 - Tool closing now preserves surviving sidebar widths and gives released horizontal space to
