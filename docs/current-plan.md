@@ -31,18 +31,20 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
-- Release 0.2026.10.1 preparation is authorized after dependency maintenance.
-  Package base is 0.2026.10. The version-specific macOS arm64 package gate passes all ten stages in 253.8s.
-  All 12 runtime checks and 43 packaged E2E scenarios pass with zero retries or skips.
-  The DMG and ZIP use the same tested App and pass structure and checksum inspection.
-  Existing Electron test and dependency audit evidence still cover the application source.
-  Tag v0.2026.10.1 points to 1eb808e and is pushed.
-  The four-platform build passes under run 37022616070.
-  workflow_run automatically starts publisher run 37023943063, which fails after draft creation because the release list does not return the draft immediately.
-  The publisher now uses the creation response directly and retains existing-draft recovery.
-  Public release confirmation remains pending.
-  The publisher requires all four build jobs and package checks to pass.
-  Distribution uses the existing unsigned publication policy.
+- [Release 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is published and is Latest.
+  Tag v0.2026.10.1 points to 1eb808e1c241cd101ca1701ae8b933fabc60a0f8. Package base is 0.2026.10.
+  Local macOS arm64 acceptance passes all ten stages in 253.8s, including 12 runtime checks and 43 packaged E2E scenarios with zero retries or skips.
+  The unchanged application source retains its 1,644-test acceptance result.
+  [Build 37022616070](https://github.com/ecwu/writellm/actions/runs/37022616070) passes all four native platforms on attempt 1 in 11m 6s.
+  The workflow_run event automatically starts [publisher 37023943063](https://github.com/ecwu/writellm/actions/runs/37023943063).
+  Its first attempt creates a draft but fails when the immediate release-list read omits it.
+  Commit 8b273fa uses the structured creation response directly and retains matching-draft recovery.
+  The same publication task succeeds on attempt 2 in 77s, using the original tag and four-platform artifacts.
+  The public Release contains Windows x64 EXE, macOS arm64 DMG, macOS x64 DMG, and Linux x64 AppImage with verified SHA-256 digests.
+  Distribution follows the accepted unsigned policy; the signed workflow remains disabled.
+  Both macOS architectures require macOS 13 or later.
+  Hosted builds and package checks pass on every platform; runtime acceptance remains macOS arm64 only.
+  Evidence: [release preparation](history/implementation-log.md#2026-10-02-release-02026101-preparation).
 
 - Issue 2 independent migrations are implemented under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment).
   TypeScript is 7.0.2, Mermaid is 12.1.0, better-sqlite3 is 13.0.3, and Electron is 44.5.1.
@@ -57,7 +59,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   All 43 packaged E2E scenarios pass in 152.5s with zero retries or skips.
   The matching DMG and ZIP pass structure and checksum inspection.
   App metadata declares LSMinimumSystemVersion 13.0. Release metadata remains 0.2026.9.10.
-  Other platforms remain unverified.
+  Release 0.2026.10.1 verifies native builds on all four platforms; other-platform runtime acceptance remains pending.
   Independent changes and the previous second-stage changes are included in the 0.2026.10.1 release source.
   Evidence: [independent migrations](history/implementation-log.md#2026-10-02-issue-2-independent-typescript-migration).
 

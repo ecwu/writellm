@@ -4469,3 +4469,16 @@ Reports: `.cache/verification/1790953524910-59152-99bb6978` and `.cache/verifica
 The read-only publisher plan verifies the unchanged tag, exact revision, successful build, and four artifact identities.
 The default-branch publisher correction is authorized by the current release request.
 The existing workflow_run publication task will be retried against its original source build.
+
+Publisher correction 8b273fa is pushed to main.
+The original workflow_run task succeeds on attempt 2 in 77s, after one publication retry.
+The four-platform source build succeeds on attempt 1 in 11m 6s.
+[WriteLLM 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is public, non-prerelease, and Latest.
+All four expected assets are uploaded and expose SHA-256 digests.
+The server-side publisher checks those digests against the original build evidence before publication.
+No artifact is downloaded locally or rebuilt for the publication retry.
+The tag remains 1eb808e1c241cd101ca1701ae8b933fabc60a0f8.
+The public artifacts use that tag, while the trusted default branch supplies the corrected publisher.
+Evidence: `.cache/verification/release-02026101-ci.json`, `release-02026101-ci-run.json`, `release-02026101-publisher.json`, `release-02026101-publisher-run.json`, and `release-02026101-github.json`.
+Final readback confirms public status, Latest, and exactly four complete assets.
+Current delivery records are synchronized. Other-platform runtime tests remain outside this hosted build.
