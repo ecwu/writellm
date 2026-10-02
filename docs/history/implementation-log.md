@@ -4000,3 +4000,62 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   package evidence before making the draft public; a read-only public API check independently
   confirmed those four uploaded assets, non-draft/non-prerelease state, and Latest status.
   Distribution remains unsigned and macOS packages are not notarized.
+
+
+## 2026-10-02 Pi 1.0.0 upgrade
+
+- [Issue 1](https://github.com/ecwu/writellm/issues/1) authorizes the Pi 1.0 upgrade within the existing Agent architecture.
+  Both direct Pi dependencies, the lockfile, and `AGENT_RUNTIME_VERSION` now use exactly `1.0.0`.
+  An explicit frozen install passed after the dependency update.
+  The package-age exceptions include the reviewed Pi 1.0 packages.
+- WriteLLM owns the former Skill shape and compatible catalog and invocation text.
+  The existing YAML parser reads verified documents after UTF-8, size, manifest, SHA-256, and Git blob checks.
+  The removed virtual `ExecutionEnv` loader no longer adds a second parser or filesystem abstraction.
+  Virtual URIs, provenance, progressive reads, disabled invocation, and historical snapshot compatibility remain covered.
+- Worker `prepareRequest` applies selected steering and follow-up instructions before each provider call.
+  Main retains request authorization and persistence. Tool continuations consume one authorization, and physical retries retain their logical request ID.
+  System messages carry instructions and tool declarations. Context pruning counts the reserved prompt and tool overhead once.
+  Diagnostic traces include these system messages for Agent and auxiliary calls.
+- `finishTurn` ends output-limit responses with the existing failure result.
+  Approval pauses, cancellation, error propagation, and recovery retain their existing behavior.
+  Catalog adapters accept chat models, including older cached models without a type.
+  Mixed caches exclude image, classifier, and unknown model types without discarding valid chat entries.
+- Architecture and ADRs 008, 013, 053, 074, and 076 record the amended ownership and lifecycle decisions.
+  Reusing the verified YAML parser avoids new loading capabilities and preserves existing normalization.
+  The alternative durable runtime remains outside scope. No database migration, login redesign, image-generation migration, or checkpoint advancement occurs.
+  CP77 remains paused, and release metadata remains `0.2026.9.10`.
+- The first full gate stopped because a publisher test used `node:test` in the Vitest suite.
+  That test now uses Vitest with the same three assertions.
+  The next full gate passed 1,637 tests but exposed seven outdated E2E fixtures.
+  Their corrections cover scoped provider controls, the Pi legacy provider label, settled replies, actual selections, save barriers, retained filters, and Dockview controls.
+  Quick-action execution uses its visible menu control. Sidebar resizing remains covered by its dedicated real Electron scenarios.
+
+  Initial failures and focused manual reruns remain in `.cache/verification/`.
+  They are not reported as successful full gates.
+- Final `pnpm check:full` passed in 233.6s with one production build.
+  Electron-hosted Vitest passed 1,637 tests in 28.1s, with three opt-in benchmark skips and zero retries or unhandled errors.
+  All 62 source E2E scenarios passed in 181.9s with zero retries or skips.
+  Evidence: [full gate](../../.cache/verification/1790937143801-18018-2843817b/stages-1790937143801-18018-2843817b.json),
+  [Vitest](../../.cache/verification/1790937143801-18018-2843817b/vitest-1790937156083-18171-159a778c.json),
+  and [source E2E](../../.cache/verification/1790937143801-18018-2843817b/e2e-1790937195489-19336-05e1e8d3.json).
+- Final `pnpm check:package` passed all 10 stages in 262.1s on macOS arm64.
+  The gate used one App build, 32 recovery fixtures, 12 runtime smoke scenarios, and all 43 packaged E2E scenarios.
+  Packaged E2E took 140.9s with zero retries or skips. DMG and ZIP structural inspection and checksums passed.
+  The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+  The gate permits the existing no-Team-ID ad-hoc/linker signature and does not perform notarization or publication.
+  Evidence: [package gate](../../.cache/verification/1790937391542-22572-1b7e2224/stages-1790937391542-22572-1b7e2224.json)
+  and [packaged E2E](../../.cache/verification/1790937391542-22572-1b7e2224/e2e-1790937486323-25203-d0f7be66.json).
+- The host uses pnpm `11.17.0` and Node `26.10.0` from its existing installation.
+  Node exceeds the declared `>=24.15.0 <25` range, so the gates record an engine warning.
+  Native tests and packaged execution use Electron `43.4.1`, ABI `148`, with `better-sqlite3 12.11.1` and `sqlite-vec 0.1.9`.
+  Windows, Linux, macOS x64, live-provider requests, signing, and notarization remain unverified for this change.
+  No commit, push, tag movement, or remote release write occurs.
+
+
+## 2026-10-02 Pi 1.0 integration authorization
+
+- The user authorized committing and pushing the accepted Pi 1.0 change to remote `main`, then closing Issue 1.
+  Local `main` and fetched `origin/main` share the same starting commit, `a7450ac`.
+  The final source retains the full and package acceptance results recorded above.
+  Only documentation changed after those gates, and final Biome, diff, and local evidence-link checks passed.
+  This integration does not publish a release or change CP77.

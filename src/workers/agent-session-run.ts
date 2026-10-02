@@ -1,5 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { Api, AssistantMessage, UserMessage } from '@earendil-works/pi-ai'
+import {
+  createInitialSystemMessage,
+  getCurrentSystemMessage,
+  toToolDeclaration,
+  type Api,
+  type AssistantMessage,
+  type UserMessage
+} from '@earendil-works/pi-ai'
 import type { Agent } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import { piApiSchema } from '../shared/contracts/providers'
@@ -106,6 +113,7 @@ export async function runAgentSession(
   ])
   const authorizedContinuationRequestIds = new Set<string>()
   const systemPromptByModelRequestId = new Map<string, string>()
+  let currentSystemPrompt = request.systemPrompt
   interface QueueEntry {
     pendingMessageId: string | null
     modelRequestId: string
@@ -185,8 +193,14 @@ export async function runAgentSession(
     },
     getApiKey: (providerId) =>
       apiKeyForProvider(runtimeCredential, request.config.providerId, providerId),
-    transformContext: (messages) => Promise.resolve(contextBudget.transform(messages)),
-    shouldStopAfterTurn: ({ message }) => {
+    transformContext: (messages) => {
+      const system = getCurrentSystemMessage(messages)
+      const bounded = contextBudget.transform(
+        messages.filter((message) => message.role !== 'system')
+      )
+      return Promise.resolve(system === undefined ? bounded : [system, ...bounded])
+    },
+    finishTurn: ({ message }) => {
       if (message.stopReason === 'length') {
         outputLimitError = new AgentOutputLimitError(request.maxOutputTokens)
         log?.(
@@ -196,76 +210,58 @@ export async function runAgentSession(
           { maxOutputTokens: request.maxOutputTokens },
           outputLimitError
         )
-        return true
+        return { action: 'end' }
       }
-      return false
+      return undefined
     },
-    prepareNextTurnWithContext: async ({ context, toolResults }) => {
-      if (toolResults.some((result) => pausesForReview(result.details))) return undefined
-      const queuedModelRequestId = modelRequestIds[0]
-      if (queuedModelRequestId !== undefined) {
-        const systemPrompt = systemPromptByModelRequestId.get(queuedModelRequestId)
-        if (systemPrompt !== undefined) {
-          systemPromptByModelRequestId.delete(queuedModelRequestId)
-          setRuntimeMessageBudget(
+    prepareRequest: async ({ context }) => {
+      let modelRequestId = modelRequestIds[0]
+      if (modelRequestId === undefined) {
+        const authorization = await requestModelCallAuthorization(
+          onEvent,
+          pendingModelCallAuthorizations
+        )
+        if (authorization.interactionMode !== interactionMode) {
+          throw new Error('Agent model-call authorization changed the immutable interaction mode')
+        }
+        modelRequestId = authorization.modelRequestId
+        modelRequestIds.push(modelRequestId)
+        modelRequestPurposes.set(modelRequestId, 'tool_continuation')
+        authorizedContinuationRequestIds.add(modelRequestId)
+        activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
+        currentSystemPrompt = authorization.systemPrompt
+        setRuntimeMessageBudget(
+          authorization.runtimeMessageBudgetTokens ??
             agentRuntimeMessageBudget({
               maxOutputTokens: request.maxOutputTokens,
               limits: modelLimits,
-              systemPrompt,
+              systemPrompt: currentSystemPrompt,
               advertisedTools: agentToolEnvelope(
                 agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
               )
             })
-          )
-          return { context: { ...context, systemPrompt } }
-        }
+        )
       }
-      if (toolResults.length === 0) {
-        const followUp = followUpEntries[0]
-        if (followUp !== undefined) {
-          setRuntimeMessageBudget(
-            agentRuntimeMessageBudget({
-              maxOutputTokens: request.maxOutputTokens,
-              limits: modelLimits,
-              systemPrompt: followUp.systemPrompt,
-              advertisedTools: agentToolEnvelope(
-                agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
-              )
-            })
-          )
-        }
-        return followUp === undefined
-          ? undefined
-          : { context: { ...context, systemPrompt: followUp.systemPrompt } }
-      }
-      const authorization = await requestModelCallAuthorization(
-        onEvent,
-        pendingModelCallAuthorizations
-      )
-      if (authorization.interactionMode !== interactionMode) {
-        throw new Error('Agent model-call authorization changed the immutable interaction mode')
-      }
-      modelRequestIds.push(authorization.modelRequestId)
-      modelRequestPurposes.set(authorization.modelRequestId, 'tool_continuation')
-      authorizedContinuationRequestIds.add(authorization.modelRequestId)
-      activeToolGroups = authorization.activeToolGroups ?? activeToolGroups
-      setRuntimeMessageBudget(
-        authorization.runtimeMessageBudgetTokens ??
+      const updatedPrompt = systemPromptByModelRequestId.get(modelRequestId)
+      if (updatedPrompt !== undefined) {
+        systemPromptByModelRequestId.delete(modelRequestId)
+        currentSystemPrompt = updatedPrompt
+        setRuntimeMessageBudget(
           agentRuntimeMessageBudget({
             maxOutputTokens: request.maxOutputTokens,
             limits: modelLimits,
-            systemPrompt: authorization.systemPrompt,
+            systemPrompt: currentSystemPrompt,
             advertisedTools: agentToolEnvelope(
               agentModelVisibleToolSpecs(toolProfile, activeToolGroups, interactionMode)
             )
           })
-      )
+        )
+      }
+      const tools = toolBridge.tools(activeToolGroups)
+      const system = createInitialSystemMessage(currentSystemPrompt, tools.map(toToolDeclaration))
+      const messages = context.messages.filter((message) => message.role !== 'system')
       return {
-        context: {
-          ...context,
-          systemPrompt: authorization.systemPrompt,
-          tools: toolBridge.tools(activeToolGroups)
-        }
+        context: { messages: system === undefined ? messages : [system, ...messages], tools }
       }
     },
     beforeToolCall: async ({ assistantMessage, toolCall }) => {
@@ -346,7 +342,9 @@ export async function runAgentSession(
       if (modelRequestId === undefined) {
         throw new Error('Agent provider call has no authorized model request')
       }
-      const advertisedToolNames = new Set(context.tools.map((tool) => tool.name))
+      const advertisedToolNames = new Set(
+        (getCurrentSystemMessage(context.messages)?.toolsAdded ?? []).map((tool) => tool.name)
+      )
       modelVisibleToolsByRequestId.set(
         modelRequestId,
         new Map(
@@ -538,6 +536,7 @@ export async function runAgentSession(
         followUp.modelRequestId
       )
       modelRequestIds.push(authorization.modelRequestId)
+      systemPromptByModelRequestId.set(authorization.modelRequestId, followUp.systemPrompt)
       loadFollowUpHead()
       return
     }
@@ -1240,20 +1239,8 @@ function reportTraceCaptureFailure(
   }
 }
 
-function serializableHarnessContext(context: {
-  systemPrompt?: string
-  messages?: unknown[]
-  tools?: Array<{ name: string; description: string; parameters: unknown }>
-}): JSONType {
-  return jsonValue({
-    ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
-    messages: context.messages ?? [],
-    tools: (context.tools ?? []).map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }))
-  })
+function serializableHarnessContext(context: { messages: unknown[] }): JSONType {
+  return jsonValue({ messages: context.messages })
 }
 
 function jsonValue(value: unknown): JSONType {

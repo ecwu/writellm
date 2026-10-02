@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { selectRelease } from './publish-release-state.mjs'
 
 const tag = 'v0.2026.9.10'

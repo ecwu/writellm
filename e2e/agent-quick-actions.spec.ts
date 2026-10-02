@@ -85,14 +85,28 @@ test(
       await launched.page.getByRole('button', { name: 'Close writing agent' }).click()
 
       await editor.click()
-      await editor.selectText()
+      await editor.locator('p').first().click()
+      await launched.page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
+      await launched.page.keyboard.press(
+        process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End'
+      )
+      await expect
+        .poll(() => launched.page.evaluate(() => window.getSelection()?.toString()))
+        .toBe('This exact claim needs evidence.')
       await expect(
         launched.page.getByRole('button', { name: 'Open Agent quick actions' })
       ).toBeVisible()
       await launched.page.keyboard.press('ControlOrMeta+Alt+Shift+k')
       await expect(launched.page.getByRole('menuitem', { name: /Check evidence/ })).toHaveCount(0)
-      await editor.selectText()
-      await launched.page.keyboard.press('ControlOrMeta+Shift+k')
+      await editor.locator('p').first().click()
+      await launched.page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
+      await launched.page.keyboard.press(
+        process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End'
+      )
+      await expect
+        .poll(() => launched.page.evaluate(() => window.getSelection()?.toString()))
+        .toBe('This exact claim needs evidence.')
+      await launched.page.getByRole('button', { name: 'Open Agent quick actions' }).click()
       await expect(
         launched.page.getByRole('menu', { name: 'Open Agent quick actions' })
       ).toBeVisible()

@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-09-28
+Recorded: 2026-10-02
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -71,7 +71,8 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   entrypoints from [Adkid-Zephyr/anti-defensive-writing-Skill](https://github.com/Adkid-Zephyr/anti-defensive-writing-Skill),
   both pinned to `102c8b2` with verified Git blob hashes. The catalog now has nine entries;
   third-party bodies remain unbundled and require installation in the app. Folded YAML
-  descriptions now load through Pi without changing the exposed normalized metadata. Final
+  descriptions now load through the application parser without changing the exposed normalized metadata.
+  Final
   static checks and 14 focused Electron tests passed on macOS arm64; both exact upstream
   entrypoints passed a local content/hash/loader probe. The rebuilt App at
   `dist/macos-arm64/mac-arm64/WriteLLM.app` passed the six-stage package smoke gate in 86.2s,
@@ -332,11 +333,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   update. Evidence: [catalog review](history/implementation-log.md#2026-09-06-curated-writing-skill-refresh)
   and [App build](history/implementation-log.md#2026-09-06-writing-skill-app-build).
 
-- Pi AI and Agent Core are pinned to 0.85.1. GPT-6 Astra appears in both OpenAI API and
-  Codex subscription catalogs through the existing provider adapter. All 93 focused tests and
-  static checks passed; the macOS arm64 App was rebuilt and passed 12 packaged smoke scenarios
-  in an 84.6-second gate without retries. Live Astra requests remain unverified. Evidence:
-  [`history/implementation-log.md`](history/implementation-log.md#2026-09-06-pi-0851-astra-update).
+- Pi AI and Agent Core are pinned to exactly 1.0.0 under [Issue 1](https://github.com/ecwu/writellm/issues/1).
+  WriteLLM owns compatible Skill parsing and formatting. Worker request preparation uses the new
+  hooks and system-message transcript. Main retains authorization and persistence ownership.
+  Legacy caches remain readable, and Agent and Notebook selectors accept only chat models.
+  `pnpm check:full` passed in 233.6s: 1,637 Electron tests and 62 source E2E scenarios passed without retries.
+  Three opt-in benchmark tests were skipped. `pnpm check:package` passed in 262.1s on macOS arm64.
+  All 12 packaged runtime smoke scenarios and 43 packaged E2E scenarios passed without retries or skips.
+  The tested App, DMG, and ZIP include Pi 1.0 and retain release metadata `0.2026.9.10`.
+  Live-provider requests and other native platforms remain unverified.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-02-pi-100-upgrade).
 
 - The requested macOS arm64 App rebuild includes the Reference / Knowledge sidebar redesign
   and Notebook citation fixes at `dist/macos-arm64/mac-arm64/WriteLLM.app`.
@@ -379,15 +385,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Live-provider end-to-end approval continuation and other platforms remain unverified. Evidence:
   [`implementation-todo/phase-33.md`](implementation-todo/phase-33.md).
 
-- The user-requested macOS arm64 App rebuild with Pi 0.85.0 is complete at
+- The earlier macOS arm64 App rebuild with Pi 0.85.0 is superseded by the Pi 1.0 acceptance above.
+  Its artifact was built at
   `dist/macos-arm64/mac-arm64/WriteLLM.app`. `package:unpack` passed all four build-only stages
-  in 32.3 seconds without retries. Existing Pi functional coverage remains applicable. Evidence:
+  in 32.3 seconds without retries. Historical evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-app-build).
 
-- The earlier Pi AI and Agent Core 0.85.0 maintenance is superseded by 0.85.1 above, including
+- The earlier Pi AI and Agent Core 0.85.0 maintenance is superseded by Pi 1.0 above. It covered
   runtime metadata and the new explicit context argument for the read-only Skill loader.
   Verification covers 189 distinct focused tests, static checks, and all 12 packaged runtime
-  smoke scenarios. The macOS arm64 App now contains this update; the package smoke gate passed
+  smoke scenarios. That macOS arm64 App contained this update; the package smoke gate passed
   in 81.9 seconds. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-04-pi-0850-dependency-update).
 

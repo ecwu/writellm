@@ -203,3 +203,13 @@ CI, packaging, release, push, or promotion.
 Checkpoint 27.3 is already locally complete with the global-policy-only scope this ADR permits; it
 added no skill catalog, downloader, selector, persistence migration, or Pi harness migration.
 Implementing this ADR requires explicit acceptance and a new dedicated checkpoint scoped as above.
+
+## 2026-10-02 Pi 1.0 amendment
+
+Pi 1.0 removes the Skill and loader exports described above.
+WriteLLM now owns the existing in-memory Skill shape and compatible catalog and invocation wrappers.
+The existing YAML parser enforces metadata rules after manifest and file integrity checks.
+The virtual execution environment is removed because loading needs only the verified document.
+Main still owns installation, progressive reads, provenance, and virtual URI authorization.
+Historical snapshots remain readable without a database migration.
+Adopting `pi-durable` or replacing SQLite ownership remains outside Issue 1.

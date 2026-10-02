@@ -5,6 +5,7 @@ import {
   createProvider,
   clampThinkingLevel as clampPiThinkingLevel,
   getSupportedThinkingLevels,
+  isModelType,
   type Api,
   type AuthResult,
   type AuthInteraction,
@@ -87,6 +88,7 @@ const builtinPresetSchema = z
 
 const cachedModelSchema = z
   .object({
+    type: z.literal('chat').optional(),
     id: z.string().min(1).max(500),
     name: z.string().min(1).max(500),
     api: piApiSchema,
@@ -664,6 +666,7 @@ export class AgentProviderCatalogService {
       await Promise.all(
         provider
           .getModels()
+          .filter((model) => isModelType(model, 'chat'))
           .slice(0, MAX_MODELS)
           .map(async (model) => {
             const parsed = piApiSchema.safeParse(model.api)
@@ -1119,6 +1122,7 @@ function discoveryEntries(value: unknown): Array<{ id: string; name: string }> {
   const result: Array<{ id: string; name: string }> = []
   for (const candidate of candidates) {
     if (candidate === null || typeof candidate !== 'object') continue
+    if ('type' in candidate && candidate.type !== undefined && candidate.type !== 'chat') continue
     const rawId =
       'id' in candidate && typeof candidate.id === 'string'
         ? candidate.id
@@ -1164,7 +1168,9 @@ class DatabaseModelsStore implements ModelsStore {
     options?.signal?.throwIfAborted()
     if (row === undefined) return undefined
     try {
-      const models = cachedModelsSchema.parse(JSON.parse(row.models_json)) as Model<Api>[]
+      const models = cachedModelsSchema.parse(
+        chatCacheEntries(JSON.parse(row.models_json))
+      ) as Model<Api>[]
       return {
         models,
         ...(row.checked_at === null ? {} : { checkedAt: Date.parse(row.checked_at) })
@@ -1183,7 +1189,7 @@ class DatabaseModelsStore implements ModelsStore {
     const providerConfigId = await this.#providerConfigId(providerId)
     options?.signal?.throwIfAborted()
     if (providerConfigId === null) throw new Error('Agent provider record is missing')
-    const models = cachedModelsSchema.parse(entry.models)
+    const models = cachedModelsSchema.parse(chatCacheEntries(entry.models))
     const modelsJson = JSON.stringify(models)
     if (new TextEncoder().encode(modelsJson).byteLength > MAX_CATALOG_BYTES) {
       throw new Error('Agent model catalog is too large')
@@ -1278,4 +1284,15 @@ function safeRefreshErrorCode(error: unknown): string {
 
 export function isBuiltinProviderId(value: string): value is BuiltinProvider {
   return builtinProviders().some((provider) => provider.id === value)
+}
+
+function chatCacheEntries(value: unknown): unknown {
+  if (!Array.isArray(value)) return value
+  return value.filter(
+    (model) =>
+      model === null ||
+      typeof model !== 'object' ||
+      model.type === undefined ||
+      model.type === 'chat'
+  )
 }

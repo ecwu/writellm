@@ -291,6 +291,7 @@ test(
       await composer.fill(afterPartialPrompt)
       await expect(send).toBeEnabled({ timeout: 30_000 })
       await send.click()
+      await expect(panel.getByTestId('agent-status')).toContainText('Ready', { timeout: 30_000 })
       await expect(
         panel.getByText('Recovered after a normal run following stream interruption.', {
           exact: true

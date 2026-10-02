@@ -1618,8 +1618,8 @@ readable compatibility data but do not control new runs. See ADRs 054, 055, and 
 `listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
 credential surface, so historical conversation totals remain complete.
 
-Pi `loadSourcedSkills` runs over a read-only, manifest-backed virtual `ExecutionEnv`. WriteLLM's
-stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any Pi or
+WriteLLM owns Skill types, YAML loading, and prompt formatting after the Pi 1.0 upgrade. WriteLLM's
+stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any
 WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
 `formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog that fits the actual system
 prompt token/byte space after requested roots. Omitted catalog entries generate no attention
@@ -2037,3 +2037,33 @@ The following earlier decisions were revised to form the current baseline:
 - Add the manuscript/BlockNote domain, knowledge normalization domain, and Pi agent tool/proposal domain.
 - Split interactive agent models from embedding/rerank gateways.
 - Replace the old infrastructure-only future roadmap with product-oriented vertical checkpoints.
+
+## 2026-10-02 Pi 1.0 maintenance amendment
+
+[Issue 1](https://github.com/ecwu/writellm/issues/1) authorizes both Pi packages at exactly 1.0.0.
+Pi removes its Skill exports and changes request preparation and transcript representation.
+WriteLLM retains the low-level Agent and its existing process and database boundaries.
+The application owns Skill parsing and compatible prompt formatting instead of importing removed harness APIs.
+
+Worker `prepareRequest` prepares every provider request after selected input events.
+Main retains request authorization and database writes.
+Each request consumes one authorization, including tool continuations and queued input.
+System messages contain prompt instructions and serializable tool declarations.
+The Worker reads allowed tools from those declarations and counts prompt overhead once.
+Diagnostic requests record the transcript, including its system message.
+`finishTurn` ends a turn that reaches the output limit.
+The Worker retains approval pauses and cancellation.
+
+The provider catalog accepts chat models and legacy caches without an explicit model type.
+Image, classifier, and unknown typed entries do not enter Agent or Notebook selectors.
+Stored Skill snapshots and model caches need no database migration.
+Generic Pi tools, `pi-durable`, new login flows, and image-generation migration remain outside this task.
+The paused checkpoint and release state remain unchanged.
+
+Decisions: ADRs [008](adrs/008-pi-provider-catalog-and-agent-model-selection.md),
+[013](adrs/013-downloadable-agent-writing-skills.md), [053](adrs/053-composable-progressive-writing-skills.md),
+[074](adrs/074-agent-occam-ablation-and-error-propagation.md),
+and [076](adrs/076-agent-model-configuration-and-output-completion.md).
+Official sources: [Agent changelog](https://github.com/earendil-works/pi/blob/v1.0.0/packages/agent/CHANGELOG.md),
+[AI changelog](https://github.com/earendil-works/pi/blob/v1.0.0/packages/ai/CHANGELOG.md),
+and [Agent documentation](https://github.com/earendil-works/pi/blob/v1.0.0/packages/agent/README.md).

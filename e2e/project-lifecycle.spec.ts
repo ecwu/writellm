@@ -207,7 +207,7 @@ test(
         await dialog.getByRole('option', { name: /^Agent API/ }).click()
         await providerList.locator('[data-agent-provider-preset-id="builtin:openai-codex"]').click()
         await expect(
-          dialog.getByRole('heading', { name: 'OpenAI Codex', exact: true })
+          dialog.getByRole('heading', { name: 'OpenAI Codex (legacy)', exact: true })
         ).toBeVisible()
         await dialog.getByRole('button', { name: 'Sign in', exact: true }).click()
         await expect(providerSignIn).toContainText('Select OpenAI Codex login method:')
@@ -217,7 +217,6 @@ test(
         await signInErrorToast.getByRole('button', { name: 'Close toast' }).click()
         await expect(signInErrorToast).toHaveCount(0)
         await expect(dialog).toBeVisible()
-        await dialog.getByRole('button', { name: 'Back to providers' }).click()
         await dialog.getByRole('button', { name: 'Add provider' }).click()
         const addProvider = first.page.getByRole('dialog', { name: 'Add provider' })
         await addProvider.getByLabel('Provider name').fill('Loopback Agent')
@@ -261,9 +260,13 @@ test(
         await expect(
           dialog.getByRole('heading', { name: 'Loopback Agent Renamed', exact: true })
         ).toBeVisible()
-        await dialog.getByRole('button', { name: 'Back to providers' }).click()
-        await expect(dialog.getByRole('button', { name: /Loopback Agent Renamed/ })).toBeVisible()
-        await dialog.getByRole('button', { name: /Loopback Agent Renamed/ }).click()
+        await expect(
+          providerList.getByRole('button', { name: /Loopback Agent Renamed/ })
+        ).toBeVisible()
+        await dialog
+          .getByTestId('agent-provider-list')
+          .getByRole('button', { name: /Loopback Agent Renamed/ })
+          .click()
         await expect(dialog.getByText('Unsaved changes', { exact: true })).toBeVisible()
         await dialog.getByRole('button', { name: 'Save changes' }).click()
         await expect
@@ -445,8 +448,10 @@ test(
         await dialog.getByRole('option', { name: /^Agent API/ }).click()
         await dialog.getByRole('button', { name: /Remote HTTP Agent/ }).click()
         await expect(dialog.getByLabel('Base URL')).toHaveValue('http://model.example.test:8080/v1')
-        await dialog.getByRole('button', { name: 'Back to providers' }).click()
-        await dialog.getByRole('button', { name: /Loopback Agent Renamed/ }).click()
+        await dialog
+          .getByTestId('agent-provider-list')
+          .getByRole('button', { name: /Loopback Agent Renamed/ })
+          .click()
         const providerHeading = dialog.getByRole('heading', { name: 'Loopback Agent Renamed' })
         await expect(providerHeading).toBeVisible()
         await expect(

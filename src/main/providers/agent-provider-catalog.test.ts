@@ -134,6 +134,65 @@ describe('AgentProviderCatalogService', () => {
     }
   })
 
+  it('reads legacy chat caches and excludes mixed non-chat entries without losing chat models', async () => {
+    const { database, catalog } = await createHarness()
+    try {
+      await catalog.saveCustomPreset({
+        presetId: 'custom:mixed',
+        name: 'Mixed',
+        baseUrl: 'https://models.example.test/v1',
+        api: 'openai-responses',
+        authMode: 'none',
+        timeoutMs: 30_000
+      })
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>(
+          async () =>
+            new Response(JSON.stringify({ data: [{ id: 'legacy-chat' }] }), {
+              headers: { 'content-type': 'application/json' }
+            })
+        )
+      )
+      await catalog.refreshPreset('custom:mixed', new AbortController().signal)
+      const row = await database.kysely
+        .selectFrom('agent_model_catalogs')
+        .select('models_json')
+        .where('provider_config_id', '=', 'agent:custom:mixed')
+        .executeTakeFirstOrThrow()
+      const legacy = JSON.parse(row.models_json)[0]
+      delete legacy.type
+      await database.kysely
+        .updateTable('agent_model_catalogs')
+        .set({
+          models_json: JSON.stringify([
+            legacy,
+            { ...legacy, id: 'typed-chat', type: 'chat' },
+            { id: 'image-only', type: 'image', api: 'openrouter-images' },
+            { id: 'classifier-only', type: 'classifier', api: 'typesafe-system-one' },
+            { id: 'future-model', type: 'future' }
+          ])
+        })
+        .where('provider_config_id', '=', 'agent:custom:mixed')
+        .execute()
+      const preset = (await catalog.snapshot()).presets.find(
+        (entry) => entry.presetId === 'custom:mixed'
+      )
+      expect(preset?.models.map((model) => model.id)).toEqual(['legacy-chat', 'typed-chat'])
+      await expect(
+        catalog.resolve({ presetId: 'custom:mixed', modelId: 'legacy-chat' })
+      ).resolves.toMatchObject({ model: { id: 'legacy-chat' } })
+      await expect(
+        catalog.resolve({ presetId: 'custom:mixed', modelId: 'image-only' })
+      ).rejects.toThrow()
+      await expect(
+        catalog.resolve({ presetId: 'custom:mixed', modelId: 'classifier-only' })
+      ).rejects.toThrow()
+    } finally {
+      database.close()
+    }
+  })
+
   it('keeps a newer catalog when a cancelled refresh finishes late', async () => {
     const { database, catalog } = await createHarness()
     await catalog.saveCustomPreset({
@@ -340,7 +399,12 @@ describe('AgentProviderCatalogService', () => {
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer catalog-secret')
         return new Response(
           JSON.stringify({
-            data: [{ id: 'writer-1' }, { id: 'writer-2', displayName: 'Writer 2' }]
+            data: [
+              { id: 'writer-1' },
+              { id: 'writer-2', displayName: 'Writer 2' },
+              { id: 'image-only', type: 'image' },
+              { id: 'classifier-only', type: 'classifier' }
+            ]
           }),
           { status: 200, headers: { 'content-type': 'application/json' } }
         )

@@ -91,3 +91,9 @@ session changes, prompt/context accounting, Renderer presentation, durable event
 focused Main/Renderer/Real-Electron verification. It adds no new Agent tool, worker role, provider,
 dependency, network endpoint, package/release work, marketplace, auto-update, executable Skill,
 per-turn override, or multi-agent capability.
+
+## 2026-10-02 Pi 1.0 amendment
+
+WriteLLM owns Skill types, metadata parsing, and prompt formatting with Pi 1.0.
+The existing YAML parser replaces the removed Pi loader and virtual execution environment.
+Virtual URIs, prompt wrappers, provenance, integrity rules, progressive loading, and stored snapshots remain compatible.

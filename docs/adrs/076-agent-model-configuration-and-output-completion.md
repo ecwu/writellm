@@ -44,3 +44,8 @@ There is no schema migration, dependency change, new provider adapter, or new ba
 Existing history and active-run authority remain immutable. This maintenance affects model
 catalog/configuration delivery, run budgeting, completion classification, and their focused
 verification. It does not advance the paused Writing Task checkpoint.
+
+## 2026-10-02 Pi 1.0 amendment
+
+Pi 1.0 `finishTurn` replaces `shouldStopAfterTurn`.
+A length-truncated response still fails without replay. Error and aborted responses retain their hard exits.

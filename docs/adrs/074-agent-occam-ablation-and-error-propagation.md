@@ -75,3 +75,10 @@ Their security, persistence ownership, and no-replay invariants otherwise remain
 Rejected alternatives are warning-only cosmetic changes, configurable strict/lenient modes,
 replacement numerical thresholds, and a new long-lived ablation framework. Verification uses
 deterministic replay/fault injection. The implementation must remove more runtime policy code than it adds.
+
+## 2026-10-02 Pi 1.0 amendment
+
+Pi 1.0 `prepareRequest` prepares every request after selected input events.
+Main retains authorization and database writes. Each logical request consumes one authorization.
+System messages carry prompt instructions and tool declarations. The runtime counts prompt overhead once.
+Retries preserve the prepared context and never repeat completed effects.

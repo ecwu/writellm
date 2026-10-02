@@ -2294,29 +2294,12 @@ test(
         .toBe(4)
       await nativeDrag.dispose()
 
-      const resizeHandle = launched.page.getByRole('separator', { name: 'Resize sidebar' })
-      await resizeHandle.focus()
-      await resizeHandle.press('End')
-      await expect(resizeHandle).toHaveAttribute('aria-valuenow', '480')
-      await expect
-        .poll(() =>
-          launched.page
-            .locator('[data-slot=sidebar-gap]')
-            .evaluate((element) => element.getBoundingClientRect().width)
-        )
-        .toBe(480)
+      // Dockview embeds this contextual sidebar inside the Knowledge content tab.
+      await expect(sidebar).toBeVisible()
       await attachmentsToggle.click()
-      await launched.page.screenshot({ path: test.info().outputPath('reference-sidebar-wide.png') })
-      await resizeHandle.dblclick()
-      await expect
-        .poll(() =>
-          launched.page
-            .locator('[data-slot=sidebar-gap]')
-            .evaluate((element) => element.getBoundingClientRect().width)
-        )
-        .toBe(340)
+      await expect(supplement).toBeVisible()
       await launched.page.screenshot({
-        path: test.info().outputPath('reference-sidebar-default.png')
+        path: test.info().outputPath('reference-sidebar-docked.png')
       })
       await expect
         .poll(() => sidebar.evaluate((element) => element.scrollWidth <= element.clientWidth))
@@ -2741,7 +2724,7 @@ test(
         launched.page.getByTestId(`outline-word-count-${ids.secondSectionId}`)
       ).toHaveText('2')
       await expect(
-        launched.page.getByText('4 words · 19 characters', { exact: true })
+        launched.page.getByRole('button', { name: 'Section 2 / Manuscript 4 words', exact: true })
       ).toBeVisible()
 
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()

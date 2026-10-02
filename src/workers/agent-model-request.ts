@@ -89,9 +89,7 @@ export async function runAgentModelRequest(
                     {
                       kind: 'harness_request',
                       value: jsonValue({
-                        systemPrompt: context.systemPrompt,
-                        messages: context.messages,
-                        tools: context.tools
+                        messages: context.messages
                       })
                     },
                     {

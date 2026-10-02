@@ -1,3 +1,4 @@
+import { pressAppShortcut } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -769,6 +770,8 @@ test(
         '[Source: unique source.pdf, p. 1] [Source: duplicate source.pdf] [Source: Missing source.pdf]'
       )
       await launched.page.getByLabel('Section title').focus()
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
 
       const checks = launched.page.getByTestId('checks-workspace')
@@ -794,7 +797,11 @@ test(
       await launched.page.keyboard.type(' [Source: unused source.pdf]')
       await expect(sectionEditor(launched.page)).toContainText('[Source: unused source.pdf]')
       await launched.page.getByLabel('Section title').focus()
+      await pressAppShortcut(launched.page, 'ControlOrMeta+s')
+      await expect(launched.page.getByText('Saved', { exact: true }).last()).toBeVisible()
       await launched.page.getByRole('button', { name: 'Checks', exact: true }).click()
+      await checks.getByRole('button', { name: 'Refresh', exact: true }).click()
+      await checks.getByRole('radio', { name: 'All', exact: true }).click()
       await expect(summary.getByText('50%', { exact: true }).first()).toBeVisible()
       await expect(table.getByText('unused source.pdf', { exact: true })).toBeVisible()
       await expect(table.getByText('Cited', { exact: true })).toHaveCount(2)

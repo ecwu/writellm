@@ -34,7 +34,6 @@ import {
   validateCuratedSkillCatalog
 } from './catalog'
 import { formatWriteLlmSkill, virtualSkillPath, type WriteLlmSkill } from './prompt'
-import { loadManifestSkillWithPi } from './native-loader'
 
 const INSPECTION_TTL_MS = 15 * 60 * 1_000
 const GITHUB_JSON_MAX_BYTES = 8 * 1_024 * 1_024
@@ -628,18 +627,6 @@ export class SkillService {
       basenameForSkill(manifest.directory, manifest.repository)
     )
     const virtualUri = virtualSkillPath(manifest.skillId, manifest.commit)
-    const native = await loadManifestSkillWithPi({
-      name: parsed.name,
-      document,
-      virtualUri
-    })
-    if (
-      native.name !== parsed.name ||
-      native.description.trim() !== parsed.description ||
-      native.content !== parsed.body
-    ) {
-      throw new SkillServiceError('skill_manifest_invalid', 'Pi parsed inconsistent skill metadata')
-    }
     return {
       skillId: manifest.skillId,
       displayName,

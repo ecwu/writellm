@@ -272,7 +272,7 @@ describe('runAgentSession', () => {
     expect(bodies[0]).toMatchObject({
       generationConfig: {
         maxOutputTokens: 65_536,
-        thinkingConfig: { thinkingLevel: 'MINIMAL' }
+        thinkingConfig: { thinkingBudget: 0 }
       }
     })
   })
@@ -301,10 +301,47 @@ describe('runAgentSession', () => {
       physicalAttempt: 1,
       documents: [{ kind: 'harness_request' }, { kind: 'provider_request' }]
     })
+    const harness = traceEvents[0]?.documents.find(
+      (document) => document.kind === 'harness_request'
+    )?.value
+    expect(harness).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          role: 'system',
+          content: request.systemPrompt,
+          toolsAdded: expect.any(Array)
+        })
+      ])
+    })
+    expect(harness).not.toHaveProperty('systemPrompt')
+    expect(harness).not.toHaveProperty('tools')
     expect(traceEvents[1]).toMatchObject({
       type: 'model_trace_capture_requested',
       documents: [{ kind: 'provider_response' }]
     })
+  })
+
+  it('counts system instructions once when Main supplies the remaining message budget', async () => {
+    const systemPrompt = 'Skill instruction. '.repeat(200)
+    const bodies: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return completionResponse('done', 'budget-once')
+      })
+    )
+    await expect(
+      runAgentSession(
+        { ...request, history: [], systemPrompt, runtimeMessageBudgetTokens: 100 },
+        () => undefined,
+        () => undefined,
+        undefined,
+        new FakeMessagePort() as never
+      )
+    ).resolves.toEqual({ outcome: 'finished' })
+    expect(bodies).toHaveLength(1)
+    expect(JSON.stringify(bodies[0]).split(systemPrompt)).toHaveLength(2)
   })
 
   it('continues provider work when trace delivery fails', async () => {
@@ -482,7 +519,7 @@ describe('runAgentSession', () => {
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
       content: 'Change direction.',
       timestamp: 3,
-      systemPrompt: request.systemPrompt
+      systemPrompt: 'Steering Skill instructions.'
     })
     control?.enqueue({
       operation: 'follow_up',
@@ -494,7 +531,7 @@ describe('runAgentSession', () => {
       modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc417',
       content: 'Now summarize.',
       timestamp: 4,
-      systemPrompt: request.systemPrompt
+      systemPrompt: 'Follow-up Skill instructions.'
     })
     resolveFirst?.(
       new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
@@ -514,6 +551,16 @@ describe('runAgentSession', () => {
       ]
     })
     expect(bodies).toHaveLength(4)
+    expect(JSON.stringify(bodies[0])).toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[1])).toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[2])).toContain('Steering Skill instructions.')
+    expect(JSON.stringify(bodies[2])).not.toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[3])).toContain('Follow-up Skill instructions.')
+    expect(JSON.stringify(bodies[3])).not.toContain('Steering Skill instructions.')
+    expect(events.filter((event) => event.type === 'model_call_requested')).toHaveLength(0)
+    expect(events.filter((event) => event.type === 'follow_up_consumption_requested')).toHaveLength(
+      1
+    )
     for (const body of bodies) expect(body).toMatchObject({ reasoning_effort: 'high' })
     const finished = events.filter((event) => event.type === 'model_call_finished')
     expect(finished).toHaveLength(3)
@@ -1183,6 +1230,11 @@ describe('runAgentSession', () => {
     expect(bodies[0]?.tools).toBeDefined()
     expect(bodies[1]?.tools).toBeDefined()
     expect(JSON.stringify(bodies[1]?.messages)).toContain('final evidence')
+    expect(JSON.stringify(bodies[1]?.messages)).toContain(
+      'Return the best result and unfinished items now.'
+    )
+    expect(JSON.stringify(bodies[1]?.messages)).not.toContain(request.systemPrompt)
+    expect(events.filter((event) => event.type === 'model_call_requested')).toHaveLength(1)
     expect(events).toContainEqual(
       expect.objectContaining({
         type: 'assistant_message',

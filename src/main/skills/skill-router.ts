@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { formatSkillsForSystemPrompt } from '@earendil-works/pi-agent-core'
+import { formatSkillsForSystemPrompt } from './prompt'
 import type { Logger } from 'pino'
 import {
   skillRunSnapshotSchema,

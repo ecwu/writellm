@@ -40,3 +40,9 @@ ADR 004's statement that the Renderer receives no model catalog is superseded on
 bounded, non-secret selection catalog. ADR 001 and ADR 005 remain authoritative for Agent tool
 boundaries, project capabilities, persistence authority, and proposal semantics; their exact tool
 lists evolve across ADR 005/006/013/024/025 toward Protocol v6.
+
+## 2026-10-02 Pi 1.0 amendment
+
+Both Pi packages are pinned to exactly 1.0.0 under Issue 1.
+Agent and Notebook selection accepts chat models only. Legacy caches without a model type remain readable.
+Image and classifier models remain outside interactive chat selection.
