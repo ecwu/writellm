@@ -1,8 +1,8 @@
 {
   "name": "writellm",
-  "version": "0.2026.9",
+  "version": "0.2026.10",
   "release": {
-    "version": "0.2026.9.10"
+    "version": "0.2026.10.1"
   },
   "description": "A local-first AI-assisted writing workspace",
   "packageManager": "pnpm@11.28.3",
@@ -48,10 +48,10 @@
   "dependencies": {
     "@ai-sdk/cohere": "4.0.54",
     "@ai-sdk/openai-compatible": "3.0.62",
-    "@blocknote/core": "0.54.0",
-    "@blocknote/math-block": "0.54.0",
-    "@blocknote/react": "0.54.0",
-    "@blocknote/shadcn": "0.54.0",
+    "@blocknote/core": "0.55.0",
+    "@blocknote/math-block": "0.55.0",
+    "@blocknote/react": "0.55.0",
+    "@blocknote/shadcn": "0.55.0",
     "@citation-js/core": "0.9.0",
     "@citation-js/plugin-bibtex": "0.9.0",
     "@citation-js/plugin-csl": "0.9.0",
@@ -64,7 +64,7 @@
     "@unified-latex/unified-latex-util-parse": "1.8.4",
     "@unified-latex/unified-latex-util-print-raw": "1.8.4",
     "ai": "7.0.127",
-    "better-sqlite3": "12.11.1",
+    "better-sqlite3": "13.0.3",
     "border-beam": "1.4.1",
     "citeproc": "2.4.63",
     "class-variance-authority": "^0.7.1",
@@ -76,9 +76,9 @@
     "isomorphic-git": "1.42.6",
     "jszip": "3.10.2",
     "katex": "0.16.47",
-    "kysely": "0.28.17",
+    "kysely": "0.29.6",
     "lucide-react": "^1.49.0",
-    "mermaid": "11.17.2",
+    "mermaid": "12.1.0",
     "openai": "7.27.0",
     "p-queue": "9.3.3",
     "pdfjs-dist": "6.3.289",
@@ -120,7 +120,7 @@
     "@types/yazl": "3.3.1",
     "@vitejs/plugin-react": "^5.1.1",
     "axe-core": "^4.13.0",
-    "electron": "43.7.7",
+    "electron": "44.5.1",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "mammoth": "1.13.0",
@@ -128,9 +128,9 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^7.2.6",
-    "vitest": "^4.1.11",
+    "vitest": "^5.0.3",
     "yazl": "3.3.1"
   }
 }

@@ -69,7 +69,7 @@ export default class VerificationReporter {
     const active = this.activeAttempts.get(testCase.id)
     const totalDurationMs = durationMs(diagnostic?.duration ?? 0)
     const retryCount = diagnostic?.retryCount ?? 0
-    // Vitest 4.1 also emits test-retried after the last failed try. The final
+    // Vitest 5 also emits test-retried after the last failed try. The final
     // diagnostic is authoritative, so do not count that event as another try.
     const attempts = active?.attempts.slice(0, retryCount) ?? []
     const wasNotExecuted =

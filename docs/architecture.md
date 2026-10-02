@@ -444,12 +444,12 @@ search becomes available.
 
 | Area                    | Choice                                                                        |
 | ----------------------- | ----------------------------------------------------------------------------- |
-| Desktop runtime         | Electron 43; 43.4.1 maintenance baseline                                      |
+| Desktop runtime         | Electron 44.5.1; macOS 13 or later                                      |
 | Build and development   | electron-vite 5                                                               |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
 | PDF preview rendering   | `pdfjs-dist` 6.2.108 with a bundled Vite worker and Main-owned stream          |
-| Block editor            | BlockNote React 0.54.0 with the shadcn-compatible UI integration               |
+| Block editor            | BlockNote React 0.55.0 with the shadcn-compatible UI integration               |
 | Rich media rendering    | Native BlockNote image/inline Math plus application Mermaid and display Math  |
 | Renderer server state   | TanStack Query                                                                |
 | Local UI state          | React state first; Zustand only when justified                                |
@@ -457,8 +457,8 @@ search becomes available.
 | Structured logging      | Pino                                                                          |
 | Correlation context     | Pino child loggers and Node.js `AsyncLocalStorage`                            |
 | Log rotation            | pino-roll with application retention cleanup                                  |
-| Application database    | `app.sqlite`, better-sqlite3 with Kysely 0.28.17                              |
-| Project database        | per-project `project.sqlite`, better-sqlite3 with Kysely 0.28.17              |
+| Application database    | `app.sqlite`, better-sqlite3 with Kysely 0.29.6                              |
+| Project database        | per-project `project.sqlite`, better-sqlite3 with Kysely 0.29.6              |
 | Durable jobs            | project-local SQLite jobs table with p-queue runtime scheduling               |
 | Full-text search        | project-local SQLite FTS5                                                     |
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
@@ -530,6 +530,9 @@ Pin the package manager in `package.json`. Pin exact Pi package versions and maj
 The [dependency maintenance amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) accepts Electron 43.7.7 and Vitest 4.1.11 for security fixes.
 It also accepts compatible maintenance updates and the Node 24.21.0 and pnpm 11.28.3 toolchain pins.
 The [Issue 2 first-stage amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) accepts Citation.js 0.9.0, thinking-orbs 0.3.2, and better-sqlite3 types 9.6.0.
+The [Issue 2 second-stage amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-second-stage-amendment) accepts Kysely 0.29.6, BlockNote 0.55.0, and Vitest 5.0.3.
+The [Issue 2 independent migrations amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment) accepts TypeScript 7.0.2, Mermaid 12.1.0, better-sqlite3 13.0.3, and Electron 44.5.1.
+The macOS minimum is 13 for both architectures.
 The existing process, database, content, and native packaging rules remain authoritative.
 
 ## Project Lifecycle

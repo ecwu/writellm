@@ -31,6 +31,49 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Release 0.2026.10.1 preparation is authorized after dependency maintenance.
+  Package base is 0.2026.10. The version-specific macOS arm64 package gate passes all ten stages in 253.8s.
+  All 12 runtime checks and 43 packaged E2E scenarios pass with zero retries or skips.
+  The DMG and ZIP use the same tested App and pass structure and checksum inspection.
+  Existing Electron test and dependency audit evidence still cover the application source.
+  Tag v0.2026.10.1 is prepared for the active four-platform build and automatic GitHub publisher.
+  Hosted build and public-release confirmation remain pending.
+  The publisher remains unchanged and requires all four build jobs and package checks to pass.
+  Distribution uses the existing unsigned publication policy.
+
+- Issue 2 independent migrations are implemented under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment).
+  TypeScript is 7.0.2, Mermaid is 12.1.0, better-sqlite3 is 13.0.3, and Electron is 44.5.1.
+  Renderer aliases no longer use baseUrl. Mermaid selects Dagre and classic appearance.
+  Native preparation and package inventory resolve bundled Node-API binaries with source-build fallback.
+  Both macOS architectures now require macOS 13 or later.
+  Frozen installation and both dependency audits pass with zero known vulnerabilities.
+  The final Electron suite passes 1,644 tests across 267 files in 20.9s, with three benchmark skips and zero retries.
+  Final macOS arm64 package acceptance passes all ten stages in 267.7s with one App build.
+  Static checks pass in 2.5s; the final production build passes in 15.6s.
+  All 12 packaged runtime scenarios pass in 49.5s, including database integrity and sqlite-vec.
+  All 43 packaged E2E scenarios pass in 152.5s with zero retries or skips.
+  The matching DMG and ZIP pass structure and checksum inspection.
+  App metadata declares LSMinimumSystemVersion 13.0. Release metadata remains 0.2026.9.10.
+  Other platforms remain unverified.
+  Independent changes and the previous second-stage changes are included in the 0.2026.10.1 release source.
+  Evidence: [independent migrations](history/implementation-log.md#2026-10-02-issue-2-independent-typescript-migration).
+
+- Issue 2 second-stage migrations are implemented under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-second-stage-amendment).
+  Kysely is at 0.29.6, all four BlockNote packages are at 0.55.0, and Vitest is at 5.0.3.
+  The BlockNote popup patch is migrated, and ProseMirror Transform resolves to one 1.12.2 version.
+  The Electron test runner and real-failure retry fixture preserve verification reporting.
+  Frozen installation and both dependency audits pass with zero known vulnerabilities.
+  The complete Electron suite passes 1,638 tests across 266 files in 20.9s, with three benchmark skips and zero retries.
+  Final macOS arm64 package acceptance passes all ten required stages across retained and continuation evidence.
+  The final App build takes 12.2s; all 12 runtime smoke scenarios pass in 40.1s.
+  The complete packaged suite passes 43 scenarios in 141.1s, and an additional citation scenario passes in 3.6s.
+  Final Electron scenarios have zero retries or skips.
+  Comment creation now releases its mutation barrier; regression coverage proves that text insertion and anchor rebasing resume.
+  The DMG and ZIP use this same tested App; continuation takes 169.0s without another build.
+  This maintenance acceptance used release metadata `0.2026.9.10`; the source is included in 0.2026.10.1.
+  Other platforms remain unverified for this stage.
+  Evidence: [second-stage maintenance](history/implementation-log.md#2026-10-02-issue-2-second-stage-dependency-migration).
+
 - Issue 2 first-stage dependencies are locally verified under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment).
   Citation.js core, plugin-bibtex, and plugin-csl are at 0.9.0, thinking-orbs is at 0.3.2, and better-sqlite3 types are at 9.6.0.
   The native database library remains at 12.11.1.

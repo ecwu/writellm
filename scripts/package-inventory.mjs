@@ -3,6 +3,7 @@ import { access, readFile, readdir, stat } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import { assertNativeBinaryArchitecture } from './native-binary.mjs'
+import { isLinuxMusl, resolveBetterSqlite3Binary } from './better-sqlite3-binary.mjs'
 import { resolvePackageTarget } from './package-targets.mjs'
 import { resolveReleaseMetadata } from './release-version.mjs'
 
@@ -63,15 +64,8 @@ export async function verifyPackageInventory(resources, target) {
     }
   }
 
-  const addonPath = join(
-    absoluteResources,
-    'app.asar.unpacked',
-    'node_modules',
-    'better-sqlite3',
-    'build',
-    'Release',
-    'better_sqlite3.node'
-  )
+  const addonRoot = join(absoluteResources, 'app.asar.unpacked', 'node_modules', 'better-sqlite3')
+  const addonPath = resolveBetterSqlite3Binary(addonRoot, target, isLinuxMusl())
   const addonInspection = assertNativeBinaryArchitecture(
     await readFile(addonPath),
     target.arch,
@@ -102,6 +96,7 @@ export async function verifyPackageInventory(resources, target) {
     asarEntries: paths.length,
     rendererEntry: rendererScripts[0],
     betterSqlite3: {
+      file: relative(addonRoot, addonPath).split(sep).join('/'),
       format: addonInspection.format,
       arch: addonInspection.arch
     },

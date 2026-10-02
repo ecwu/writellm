@@ -42,6 +42,7 @@ export function CommentsPanel(props: {
   draftSelection: PendingCommentSelection | null
   selectedThreadId: string | null
   onDraftConsumed(): void
+  onCreateSettled(): void
   onThreads(threads: CommentThreadSummary[]): void
   onHighlightThreads(threads: CommentThreadSummary[]): void
   onSelect(thread: CommentThreadSummary | null): void
@@ -515,17 +516,21 @@ export function CommentsPanel(props: {
                 void mutate(async () => {
                   const selection = props.draftSelection
                   if (selection === null) return
-                  await window.desktop.manuscript.createComment({
-                    projectSessionId: props.projectSessionId,
-                    sectionId: selection.sectionId,
-                    revisionId: selection.capturedRevisionId,
-                    contentHash: selection.capturedContentHash,
-                    quote: selection.selectedText,
-                    segments: selection.commentSegments,
-                    body: draft
-                  })
-                  setDraft('')
-                  props.onDraftConsumed()
+                  try {
+                    await window.desktop.manuscript.createComment({
+                      projectSessionId: props.projectSessionId,
+                      sectionId: selection.sectionId,
+                      revisionId: selection.capturedRevisionId,
+                      contentHash: selection.capturedContentHash,
+                      quote: selection.selectedText,
+                      segments: selection.commentSegments,
+                      body: draft
+                    })
+                    setDraft('')
+                    props.onDraftConsumed()
+                  } finally {
+                    props.onCreateSettled()
+                  }
                 })
               }
             >

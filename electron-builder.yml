@@ -42,6 +42,7 @@ appx:
   capabilities:
     - runFullTrust
 mac:
+  minimumSystemVersion: '13.0'
   target:
     - dmg
     - zip

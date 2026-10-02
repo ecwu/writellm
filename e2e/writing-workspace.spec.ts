@@ -517,8 +517,10 @@ test(
       await expect(launched.page.getByText('Needs clarity updated.', { exact: true })).toBeVisible()
 
       await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
-      await editor.focus()
+      await expect(editor).toHaveAttribute('contenteditable', 'true')
+      await editor.click()
       await launched.page.keyboard.press('ArrowLeft')
+      await expect.poll(() => editor.evaluate(() => window.getSelection()?.isCollapsed)).toBe(true)
       await expect(addComment).not.toBeVisible()
       await editor
         .locator('.bn-inline-content', { hasText: 'Alpha review sentence' })
@@ -564,7 +566,10 @@ test(
       ).toHaveCount(2)
       await overlapDialog.getByRole('button').filter({ hasText: 'Needs clarity updated.' }).click()
       await expect(launched.page.getByPlaceholder('Follow up…')).toBeVisible()
-      await editor.focus()
+      const rebasedEvents = launched.page.getByText('Anchor Rebased', { exact: true })
+      const priorRebaseCount = await rebasedEvents.count()
+      await expect(editor).toHaveAttribute('contenteditable', 'true')
+      await editor.click()
       await editor
         .locator('.bn-inline-content')
         .first()
@@ -579,8 +584,10 @@ test(
           document.dispatchEvent(new Event('selectionchange', { bubbles: true }))
         })
       await launched.page.keyboard.type(' Updated.')
+      await expect(editor).toContainText('Alpha review sentence Updated.')
       await pressAppShortcut(launched.page, 'ControlOrMeta+s')
-      await expect(launched.page.getByText('Anchor Rebased', { exact: true })).toBeVisible()
+      await expect.poll(() => rebasedEvents.count()).toBeGreaterThan(priorRebaseCount)
+      await expect(rebasedEvents.last()).toBeVisible()
       await launched.page.getByPlaceholder('Follow up…').fill('Author follow up.')
       await launched.page.getByRole('button', { name: 'Reply', exact: true }).click()
       await expect(launched.page.getByText('Author follow up.', { exact: true })).toBeVisible()
@@ -2478,7 +2485,7 @@ test(
         .getByRole('button', { name: 'Open Untitled Section', exact: true })
         .first()
         .click()
-      await expect(renderedEditor.getByRole('img')).toHaveCount(2)
+      await expect(renderedEditor.locator('.bn-editor').getByRole('img')).toHaveCount(2)
       await renderedEditor.locator('.bn-preview-container:has(math)').click()
       await expect(renderedEditor.locator('code[aria-label="E = mc^2"]')).toBeVisible()
       await renderedEditor
@@ -2582,7 +2589,9 @@ test(
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
-      await expect(launched.page.getByTestId('section-editor').getByRole('img')).toHaveCount(2)
+      await expect(
+        launched.page.getByTestId('section-editor').locator('.bn-editor').getByRole('img')
+      ).toHaveCount(2)
       await expect(
         launched.page
           .getByTestId('section-editor')

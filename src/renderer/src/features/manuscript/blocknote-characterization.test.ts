@@ -133,7 +133,7 @@ function blockIds(blocks: readonly unknown[]): string[] {
   return ids
 }
 
-describe('BlockNote 0.54.0 native JSON characterization', () => {
+describe('BlockNote 0.55.0 native JSON characterization', () => {
   it('rejects the checkpoint 9 empty document as initialContent', () => {
     expect(() =>
       BlockNoteEditor.create({ schema: approvedEditorSchema, initialContent: [] })

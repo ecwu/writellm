@@ -128,3 +128,59 @@ Selected real Electron scenarios cover bibliography import, citation export, Age
 The fetch utility replacement changes the Main bundle configuration.
 Final acceptance also requires the full package gate to cover this dependency boundary in the packaged App.
 All later Issue 2 stages remain deferred.
+
+## 2026-10-02 Issue 2 second-stage amendment
+
+The user approved the second-stage migration after the compatibility review.
+This stage accepts Kysely 0.29.6, all four BlockNote packages at 0.55.0, and Vitest 5.0.3.
+Exact declarations remain exact, and Vitest retains its caret range.
+Kysely now publishes ESM only.
+The accepted Electron Node 24 runtime supports its module loading requirements.
+The application uses its own database migration runner and no removed Kysely interfaces.
+Database formats and migration versions remain unchanged.
+
+The BlockNote React popup patch moves to the 0.55.0 source and distribution files.
+Tiptap remains unified at 3.31.4, and ProseMirror packages retain one compatible runtime version each.
+ProseMirror Transform advances to at least 1.12.1.
+Native inline-math input rules retain explicit extension registration.
+Canonical document formats, stable block IDs, and export contracts remain authoritative.
+Comment creation releases the Renderer mutation barrier after its IPC request settles.
+The real Electron scenario must prove that editing resumes and the new text reaches a saved revision.
+
+Vitest retains the canonical Electron runner and the custom verification report.
+Its default mock-history clearing applies to the migrated suite.
+The retry fixture must exercise real failures because expected-failure tests now stop after the first expected failure.
+The reporter must establish retry, skip, failure, duration, and result counts against the exact installed version.
+
+Acceptance requires frozen installation, both dependency audits, the complete Electron suite, and the full package gate.
+The package gate uses one App build for runtime smoke, packaged scenarios, and installers.
+Other Issue 2 migrations remain deferred.
+
+## 2026-10-02 Issue 2 independent migrations amendment
+
+The user authorized all four independent migrations in Issue 2.
+Each migration retains its own implementation and acceptance evidence.
+TypeScript advances to 7.0.2, Mermaid to 12.1.0, better-sqlite3 to 13.0.3, and Electron to 44.5.1.
+Existing exact and caret declaration policies remain in place.
+
+TypeScript removes baseUrl and uses explicit relative path mappings.
+The compiler entry point and Main/Renderer defaults require verification.
+Mermaid explicitly uses Dagre layout and classic appearance for existing documents.
+Strict configuration, theme selection, SVG cleanup, image isolation, and source exports remain authoritative.
+
+better-sqlite3 uses Node-API, the stable native extension interface.
+Native preparation resolves the binary selected by the package loader, including bundled prebuilds and source-build fallback.
+Package inventory verifies that exact binary and its target architecture.
+Database migrations, backup, integrity checks, and sqlite-vec remain required.
+
+Electron 44 raises the supported macOS minimum to 13 for both architectures.
+Remaining on Electron 43 would retain macOS 12 support but defer the authorized migration.
+Package metadata and user guidance must state the new minimum.
+Linux packaging must account for statically linked ANGLE and retain the configured GTK dependencies.
+The application does not replace ANGLE libraries.
+Renderer sandboxing, session authorization, IPC, credentials, and worker roles remain unchanged.
+
+Acceptance includes frozen installation, both audits, static checks, the complete Electron suite, and the full package gate.
+Independent evidence can reuse a matching final build across unchanged boundaries.
+This host verifies macOS arm64 only. Other platform acceptance remains pending.
+No release metadata change, hosted workflow, tag, push, or publication is part of these migrations.

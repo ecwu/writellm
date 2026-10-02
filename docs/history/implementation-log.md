@@ -4255,3 +4255,202 @@ and [source inventory](../../.cache/verification/issue-2-stage-1/reverification-
 [Issue 2](https://github.com/ecwu/writellm/issues/2) now marks the three first-stage dependency groups complete and records the passing evidence.
 Its later-stage items remain unchecked, and the Issue stays open.
 The fetched Issue body matches the prepared body, including the local uncommitted-source and platform limits.
+
+
+## 2026-10-02 Issue 2 second-stage dependency migration
+
+The user approved the migration after the compatibility report.
+Kysely moves from 0.28.17 to 0.29.6.
+BlockNote core, React, shadcn, and math-block move together from 0.54.0 to 0.55.0.
+Vitest moves from 4.1.11 to 5.0.3 and retains its caret declaration.
+Other direct dependency declarations remain unchanged.
+
+Kysely uses its ESM distribution with the accepted Electron Node 24 runtime.
+The application retains its own migrations and does not use removed Kysely interfaces.
+The database schema and persisted content formats remain unchanged.
+The BlockNote popup patch retains both source and compiled distribution changes.
+The patch preserves the new portal and visibility behavior outside the repaired reference update effect.
+Tiptap remains unified at 3.31.4.
+ProseMirror Model, State, Transform, and View resolve to 1.25.12, 1.4.4, 1.12.2, and 1.42.6 respectively.
+Native inline-math input rules retain explicit extension registration.
+The editor characterization records the new dependency version.
+
+The exact Vitest 5.0.3 distribution still dispatches the legacy task-update event for the existing reporter.
+The final diagnostic remains authoritative for retry counts.
+The retry fixture uses genuine failed tests and expects the child runner to exit with code 1.
+It records one recovered test, two failed tests, and one skipped test.
+Its six attempts and three retries establish actual retry exhaustion and reporting behavior.
+The complete suite accepts the new default mock-history clearing without an override.
+
+Frozen installation passes with pnpm 11.28.3.
+The production dependency audit covers 765 packages, and the complete audit covers 1,176 packages.
+Both report zero known vulnerabilities.
+The focused Electron suite passes all 61 tests across 12 files in 3.5s.
+The complete Electron suite passes 1,638 tests across 266 files in 24.8s.
+Three opt-in benchmarks remain skipped, with zero retries and zero unhandled errors.
+The host retains Node 26.10.0 outside the declared Node 24 range.
+Tests use Electron 43.7.7 with Node 24.21.0 and ABI 148.
+
+Evidence: [complete Electron suite](../../.cache/verification/1790948836308-82443-0f413cb9/vitest-1790948836516-82466-27da2fea.json),
+[focused suite](../../.cache/verification/1790948809005-81950-4838c795),
+and [installation and audit records](../../.cache/verification/issue-2-stage-2).
+
+The initial package gate reaches packaged E2E and stops after 41 scenarios pass and two fail.
+BlockNote 0.55 moves floating UI into the editor container.
+The image assertions now count only manuscript content inside `.bn-editor`.
+Focused investigation also identifies an unreleased comment-creation mutation barrier.
+The editor remains read-only after the creation request finishes.
+The comments panel now releases this barrier in `finally` after the creation IPC settles.
+The existing error path and draft retention remain in place.
+The comment scenario now asserts editability, collapsed selection, actual inserted text, and a new rebase event.
+A temporary React-state diagnostic is removed after establishing the cause.
+
+The final source changes require a new matching App build.
+The complete Electron suite is rerun against those changes.
+It passes 1,638 tests in 20.9s, with three benchmark skips, zero retries, and zero unhandled errors.
+Evidence: [final complete suite](../../.cache/verification/1790949668926-97623-f8861ee7/vitest-1790949669395-97624-50e374e8.json)
+and [initial failure evidence](../../.cache/verification/issue-2-stage-2).
+
+The rebuilt App passes static analysis, the recovery inventory, native preparation, compilation, signature policy, resource inventory, and all 12 runtime smoke scenarios.
+Production compilation and native preparation together take 12.2s.
+Runtime smoke takes 40.1s.
+Its initial complete packaged run passes 42 scenarios and fails the comment scenario's synthetic focus assertion.
+The editor is now editable, but DOM focus alone does not restore the selection for keyboard input under the new floating UI.
+The scenario uses a real editor click, retains the editability and collapsed-selection assertions, and passes in a focused packaged run.
+
+Final acceptance reuses the seven passing stages because compiled inputs remain identical.
+It reruns all 43 packaged scenarios against that same App.
+All pass in 141.1s with zero retries or skips.
+The additional citation display, reference renumbering, and export scenario also passes against the packaged App in 3.6s.
+The continuation creates the DMG and ZIP from the tested App and runs the existing structural and checksum inspectors.
+The continuation passes in 169.0s without another build.
+Together, the retained stages and continuation satisfy all ten required package stages plus the extra citation scenario.
+The App ASAR hash remains identical through installer creation.
+The final non-document source inventory records the tested inputs.
+
+The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
+Windows, Linux, and macOS Intel runtime results remain unverified for this stage.
+The first-stage commit is `de3f758`.
+Second-stage changes remain uncommitted and unpushed, with no tag or publication.
+
+Evidence: [retained package stages](../../.cache/verification/1790949691209-98233-1ba61ccf/stages-1790949691209-98233-1ba61ccf.json),
+[passing continuation](../../.cache/verification/1790950039121-5844-03258874/stages-1790950039121-5844-03258874.json),
+[complete packaged suite](../../.cache/verification/1790950039121-5844-03258874/e2e-1790950039520-5847-bbeef8eb.json),
+[citation scenario](../../.cache/verification/1790950039121-5844-03258874/e2e-1790950181115-7977-403b89da.json),
+and [combined package acceptance](../../.cache/verification/issue-2-stage-2/package-acceptance.json).
+
+[Issue 2](https://github.com/ecwu/writellm/issues/2) now marks all three second-stage groups complete and records the acceptance evidence.
+The read-back body matches the prepared update.
+The Issue remains open for its independent and deferred migrations.
+
+## 2026-10-02 Issue 2 independent TypeScript migration
+
+TypeScript advances from 5.9.3 to 7.0.2 under the independent migrations amendment.
+Renderer paths use explicit relative targets without baseUrl.
+The package retains a Node CLI wrapper, so canonical verification commands need no replacement.
+Frozen installation passes with pnpm 11.28.3.
+The three-stage static gate passes in 3.0s, including Main and Renderer typechecks.
+Report: `.cache/verification/1790950813624-16536-6fab317b`.
+Final build evidence will follow the shared matching package build.
+
+## 2026-10-02 Issue 2 independent Mermaid migration
+
+Mermaid advances from 11.17.2 to 12.1.0.
+The renderer selects Dagre and classic appearance explicitly in both themes.
+Strict SVG-only rendering, cleanup, and source-based exports retain their boundaries.
+Frozen installation passes. Two focused files pass 15 tests in 0.35s with zero retries.
+Report: `.cache/verification/1790950842950-17039-d3b333e0`.
+Packaged diagram, theme, source recovery, and export evidence will follow the final matching build.
+
+## 2026-10-02 Issue 2 independent native database migration
+
+better-sqlite3 advances from 12.11.1 to 13.0.3 with Node-API binaries.
+Native preparation and package inventory follow the package loader order: target prebuild, Debug, then Release.
+The obsolete V8 warning workaround is removed. Source rebuild requests force compilation.
+Nine focused files pass 47 tests in 3.22s with zero retries under Electron 43.7.7.
+Report: `.cache/verification/1790950904428-17991-37937264`.
+Native loading and sqlite-vec integration pass with the bundled darwin-arm64 binary.
+The final Electron 44 suite and package gate will cover backup, recovery, integrity, and worker execution.
+
+## 2026-10-02 Issue 2 independent Electron migration
+
+Electron advances from 43.7.7 to 44.5.1.
+Package metadata and README declare macOS 13 as the minimum for arm64 and x64.
+The official 44 changes remove external ANGLE libraries; WriteLLM does not reference them.
+The configured CI targets remain supported 64-bit platforms.
+Clipboard test probes already await results, and product code uses navigator.clipboard.
+No application use of removed Unity or login-item APIs requires changes.
+The host Node 26.10.0 remains outside the declared Node 24 range and is preserved.
+Electron embeds Node 24.21.0, ABI 149, and Node-API 10.
+Native preparation passes in 0.3s with the same bundled Node-API binary and sqlite-vec.
+Report: `.cache/verification/1790951000104-19610-e0cc3a45`.
+Frozen installation passes with pnpm 11.28.3.
+Production audit covers 747 packages, and the complete audit covers 1,181 packages. Both report zero known vulnerabilities.
+The complete Electron suite passes 1,644 tests across 267 files in 20.92s, with three optional benchmark skips and zero retries.
+Report: `.cache/verification/1790951001168-19697-35743db1`.
+The suite includes the new binary resolver tests, backup, project snapshots, migrations, workers, exports, and editor contracts.
+The package gate is running on macOS arm64. Other platform acceptance remains pending.
+
+Official sources: [TypeScript 7](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/),
+[Mermaid 12 defaults](https://github.com/mermaid-js/mermaid/blob/develop/docs/syntax/flowchart.md),
+[better-sqlite3 13](https://github.com/WiseLibs/better-sqlite3/releases/tag/v13.0.0),
+and [Electron 44 changes](https://github.com/electron/electron/blob/v44.5.1/docs/breaking-changes.md).
+The reviewed Mermaid parser and release are explicit minimum-age exceptions added by pnpm.
+
+## 2026-10-02 Issue 2 independent migrations final acceptance
+
+The final macOS arm64 package gate passes all ten stages in 267.7s with one App build.
+Report: `.cache/verification/1790951028615-20387-a2c2d33b/stages-1790951028615-20387-a2c2d33b.json`.
+Static analysis passes in 2.5s, recovery inventory in 0.1s, and production build in 15.6s.
+All 12 packaged runtime scenarios pass in 49.5s.
+All 43 packaged E2E scenarios pass in 152.5s, with zero retries, flaky results, failures, or skips.
+The packaged E2E wrapper takes 152.8s.
+Installers use the same tested App and complete in 25.8s. Artifact inspection passes in 0.2s.
+The DMG and ZIP retain release metadata 0.2026.9.10.
+The App has LSMinimumSystemVersion 13.0 and a no-Team-ID ad-hoc/linker signature.
+
+TypeScript acceptance: the native compiler passes Main/Renderer checks and the final matching production build.
+Mermaid acceptance: the packaged rich-media scenario proves diagrams, both themes, sanitized SVG, source/preview interaction, reopen, and Markdown export.
+Native database acceptance: the packaged inventory identifies the arm64 Node-API prebuild, and smoke checks prove sqlite-vec and app database integrity.
+The full suite and packaged snapshot scenario prove backup and recovery under the migrated library.
+Electron acceptance: the final App proves isolated Renderer, Main and worker execution, credentials, menus, clipboard, PDF, editor, and packaging on macOS arm64.
+The existing broad GTK default is unchanged by version 44. ANGLE now links into Electron rather than external libraries.
+
+The developer guide describes Node-API loading and removes obsolete Electron 43 ABI recovery guidance.
+The final non-document source inventory is `.cache/verification/issue-2-independent-source-inventory.json`.
+Source hashes remain matched to the tested App. Diff whitespace checks pass.
+Markdown is excluded from Biome; document review checks guidance and link consistency.
+Windows, Linux, and macOS x64 builds and runtime acceptance remain pending.
+No source-build fallback compilation or live-provider requests ran in this acceptance.
+Changes remain local and uncommitted, including the previous second-stage migration.
+No push, hosted build, tag, publication, signing identity, or notarization ran.
+
+Issue 2 now marks all four local migrations complete and records their acceptance evidence.
+It remains open with Windows, Linux, and macOS x64 acceptance explicitly pending.
+The updated issue body was read back and matched exactly.
+
+## 2026-10-02 Release 0.2026.10.1 preparation
+
+The user authorized a tag and public release after dependency maintenance.
+The package base changes to 0.2026.10, and release metadata changes to 0.2026.10.1.
+The existing tag-only build and successful-workflow publisher are active.
+The remote publisher matches the reviewed local workflow.
+The publisher checks all four native jobs, exact source/tag identity, package inventory, sizes, and SHA-256 before publication.
+It publishes Windows EXE, both macOS DMGs, and Linux AppImage as a normal Latest release.
+The existing unsigned distribution policy remains in effect.
+The signed release-candidate workflow remains disabled.
+Application source tests and audits remain applicable; the release-version package gate will run once.
+
+The release-version macOS arm64 package gate passes all ten stages in 253.8s with one App build.
+Static checks pass in 2.8s; the production build passes in 16.5s.
+All 12 packaged runtime scenarios pass in 39.2s.
+All 43 packaged E2E scenarios pass in 147.3s, with zero retries, flaky results, skips, or failures.
+The E2E wrapper takes 147.5s. DMG/ZIP creation and structure/checksum inspection pass.
+Report: `.cache/verification/1790952278094-39484-57f29c4a`.
+The complete 1,644-test application result remains applicable because only release metadata changed afterward.
+Nine tag/source tests and three publisher-state tests pass through the canonical Electron runner.
+An initial Node test-runner invocation of the Vitest fixture failed outside its required harness; the corrected canonical invocation passes.
+Frozen installation passes with pnpm 11.28.3.
+The final source inventory is `.cache/verification/release-02026101-source-inventory.json`.
+The local artifacts contain the pre-commit dirty state and are runtime evidence; CI will create the public artifacts from the immutable tag.
+The user-authorized release source will include the outstanding dependency migrations, version metadata, and release notes.

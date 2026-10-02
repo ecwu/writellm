@@ -191,6 +191,8 @@ export function getMermaidRenderConfig(dark: boolean) {
   return {
     startOnLoad: false,
     securityLevel: 'strict' as const,
+    layout: 'dagre',
+    look: 'classic' as const,
     theme: dark ? ('dark' as const) : ('default' as const),
     htmlLabels: false,
     flowchart: { htmlLabels: false }

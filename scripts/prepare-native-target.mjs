@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { basename, join, resolve } from 'node:path'
 import { getLoadablePath } from 'sqlite-vec'
 import { assertNativeBinaryArchitecture } from './native-binary.mjs'
+import { isLinuxMusl, resolveBetterSqlite3Binary } from './better-sqlite3-binary.mjs'
 import {
   assertNativePackageHost,
   currentPackageTarget,
@@ -41,12 +42,6 @@ if (
 }
 process.env.npm_config_devdir ??= writableNodeGypRoot
 
-// Electron 43's GCC build path is incompatible with its V8 deprecation
-// attribute ordering. Removing only that warning define keeps the ABI and
-// source unchanged while allowing better-sqlite3 to compile on Debian/WSL.
-if (process.platform === 'linux' && !process.env.CXXFLAGS?.includes('-UV8_DEPRECATION_WARNINGS')) {
-  process.env.CXXFLAGS = `${process.env.CXXFLAGS ?? ''} -UV8_DEPRECATION_WARNINGS`.trim()
-}
 const force = process.argv.includes('--force')
 const allowedArguments = new Set([
   '--install',
@@ -62,8 +57,8 @@ assertNativePackageHost(target)
 const verification = new VerificationRun('native-prepare')
 let failure
 try {
-  const addon = resolve('node_modules/better-sqlite3/build/Release/better_sqlite3.node')
-  let addonProbe = probeAddon(addon)
+  const addonRoot = resolve('node_modules/better-sqlite3')
+  let addonProbe = probeAddon(addonRoot)
   if (!addonProbe.ok && !force) {
     await verification.command('native-install', process.execPath, [
       electronBuilderCli,
@@ -71,9 +66,10 @@ try {
       '--arch',
       target.arch
     ])
-    addonProbe = probeAddon(addon)
+    addonProbe = probeAddon(addonRoot)
   }
   if (!addonProbe.ok || force) {
+    process.env.npm_config_force_build = '1'
     await verification.stage('native-rebuild', () =>
       rebuild({
         buildPath: resolve('.'),
@@ -84,13 +80,14 @@ try {
         force: true
       })
     )
-    addonProbe = probeAddon(addon)
+    addonProbe = probeAddon(addonRoot)
   }
   if (!addonProbe.ok) {
     throw new Error(
-      `better-sqlite3 is not loadable in Electron ${process.versions.electron ?? '43'}: ${addonProbe.message}`
+      `better-sqlite3 is not loadable in Electron ${rootPackage.devDependencies.electron}: ${addonProbe.message}`
     )
   }
+  const addon = resolveBetterSqlite3Binary(addonRoot, target, isLinuxMusl())
   const addonInspection = assertNativeBinaryArchitecture(
     await readFile(addon),
     target.arch,
@@ -127,6 +124,8 @@ try {
       electronAbi: electronProbe('process.versions.modules'),
       betterSqlite3: rootPackage.dependencies['better-sqlite3'],
       betterSqlite3Format: addonInspection.format,
+      betterSqlite3Binary: addon.slice(addonRoot.length + 1),
+      nodeApi: electronProbe('process.versions.napi'),
       sqliteVec: rootPackage.dependencies['sqlite-vec'],
       sqliteVecFormat: sqliteVecInspection.format,
       sqliteVecResource: `native/sqlite-vec/${target.platform}-${target.arch}/${basename(sqliteVecSource)}`
@@ -139,7 +138,7 @@ try {
 }
 
 function probeAddon(path) {
-  const expression = `require(${JSON.stringify(path)}); process.stdout.write(process.versions.modules)`
+  const expression = `const Database = require(${JSON.stringify(path)}); const db = new Database(':memory:'); db.prepare('SELECT 1').get(); db.close(); process.stdout.write(process.versions.napi)`
   const result = spawnElectron(['-e', expression], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     encoding: 'utf8'

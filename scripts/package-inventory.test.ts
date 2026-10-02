@@ -69,6 +69,8 @@ describe('package inventory', () => {
       'node_modules/better-sqlite3/build/Release/.deps/addon.d',
       'node_modules/better-sqlite3/build/Release/test_extension.node',
       'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
+      'node_modules/better-sqlite3/prebuilds/darwin-arm64.node',
+      'node_modules/better-sqlite3/lib/binding.js',
       'node_modules/better-sqlite3/lib/index.js',
       'node_modules/better-sqlite3/package.json',
       'node_modules/example/dist/index.js.map',
@@ -103,6 +105,8 @@ describe('package inventory', () => {
     expect(matches('node_modules/better-sqlite3/build/Release/.deps/addon.d')).toBe(false)
     expect(matches('node_modules/better-sqlite3/build/Release/test_extension.node')).toBe(false)
     expect(matches('node_modules/better-sqlite3/build/Release/better_sqlite3.node')).toBe(true)
+    expect(matches('node_modules/better-sqlite3/prebuilds/darwin-arm64.node')).toBe(true)
+    expect(matches('node_modules/better-sqlite3/lib/binding.js')).toBe(true)
     expect(matches('node_modules/better-sqlite3/lib/index.js')).toBe(true)
     expect(matches('node_modules/better-sqlite3/package.json')).toBe(true)
     expect(matches('node_modules/example/dist/index.js.map')).toBe(false)

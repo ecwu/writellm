@@ -13,7 +13,7 @@ import { figureImageBlockSpec } from './figure-image-block'
 const nativeInlineMathSpec = createReactInlineMathSpec()
 const nativeMathBlockSpec = createReactMathBlockSpec()
 
-// BlockNote 0.54.0 exposes the native input-rule extension on the inline spec but its editor
+// BlockNote 0.55.0 exposes the native input-rule extension on the inline spec but its editor
 // extension manager only auto-registers block-spec extensions. Pass this same native extension to
 // the editor explicitly so both documented delimiter rules are active.
 export const nativeInlineMathExtensions = (nativeInlineMathSpec.extensions ?? []).filter(

@@ -49,8 +49,8 @@ describe('test reporting and timeout policy', () => {
         `import { it, expect } from 'vitest';
 let attempts = 0;
 it('retries once', { retry: 1 }, () => expect(++attempts).toBe(2));
-it.fails('exhausts two retries', { retry: 2 }, () => expect(false).toBe(true));
-it.fails('fails without retry', () => expect(false).toBe(true));
+it('exhausts two retries', { retry: 2 }, () => expect(false).toBe(true));
+it('fails without retry', () => expect(false).toBe(true));
 it.skip('not executed', () => {});
 `
       )
@@ -58,10 +58,12 @@ it.skip('not executed', () => {});
         config,
         `export default { test: { include: [${JSON.stringify(fixture)}], exclude: [] } }\n`
       )
-      await promisify(execFile)('node', ['scripts/run-tests.mjs', fixture, '--config', config], {
-        env: { ...process.env, WRITELLM_VERIFICATION_DIRECTORY: reports },
-        maxBuffer: 1024 * 1024
-      })
+      await expect(
+        promisify(execFile)('node', ['scripts/run-tests.mjs', fixture, '--config', config], {
+          env: { ...process.env, WRITELLM_VERIFICATION_DIRECTORY: reports },
+          maxBuffer: 1024 * 1024
+        })
+      ).rejects.toMatchObject({ code: 1 })
       const reportFile = (await readdir(reports)).find((file) => file.startsWith('vitest-'))
       expect(reportFile).toBeDefined()
       const report = JSON.parse(await readFile(join(reports, reportFile as string), 'utf8'))
@@ -69,8 +71,9 @@ it.skip('not executed', () => {});
         tests: 4,
         attempts: 6,
         retries: 3,
-        passed: 3,
-        flaky: 2,
+        passed: 1,
+        failed: 2,
+        flaky: 1,
         skipped: 1
       })
       const retried = report.tests.find((test) => test.name === 'retries once')

@@ -10,12 +10,16 @@ describe('rich media block safety', () => {
   it('keeps Mermaid in strict SVG-only mode for both themes', () => {
     expect(getMermaidRenderConfig(false)).toMatchObject({
       securityLevel: 'strict',
+      layout: 'dagre',
+      look: 'classic',
       theme: 'default',
       htmlLabels: false,
       flowchart: { htmlLabels: false }
     })
     expect(getMermaidRenderConfig(true)).toMatchObject({
       securityLevel: 'strict',
+      layout: 'dagre',
+      look: 'classic',
       theme: 'dark',
       htmlLabels: false,
       flowchart: { htmlLabels: false }

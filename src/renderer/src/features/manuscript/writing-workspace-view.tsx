@@ -402,6 +402,7 @@ export function WritingWorkspaceView(input: {
           draftSelection={commentDraftSelection}
           selectedThreadId={selectedCommentThreadId}
           onDraftConsumed={() => setCommentDraftSelection(null)}
+          onCreateSettled={() => editorRef.current?.releaseMutationBarrier()}
           onThreads={setCommentThreads}
           onHighlightThreads={setCommentHighlightThreads}
           onSelect={(thread) => {

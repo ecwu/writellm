@@ -60,7 +60,9 @@ minimumReleaseAgeExclude:
   - '@types/node@24.19.1'
   - ai@7.0.127
   - openai@7.27.0
+  - '@mermaid-js/parser@2.0.1'
+  - mermaid@12.1.0
 patchedDependencies:
-  '@blocknote/react@0.54.0': patches/@blocknote__react@0.54.0.patch
+  '@blocknote/react@0.55.0': patches/@blocknote__react@0.55.0.patch
   playwright-core@1.63.0: patches/playwright-core@1.63.0.patch
 verifyDepsBeforeRun: false

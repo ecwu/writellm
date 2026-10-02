@@ -229,39 +229,29 @@ Electron's macOS `task_name_for_pid: (os/kern) failure (5)` diagnostic is
 non-fatal when Vitest continues and reports its normal test summary. Do not
 classify that line alone as a test failure or rerun reason.
 
-Before diagnosing a native-module failure, compare the ABI of the runtime
-that will execute the test with the ABI of the installed addon:
+Before diagnosing a native-module failure, inspect the runtime versions:
 
 ```sh
-node -p "process.versions.modules"
-ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "process.versions.modules"
+node -p "JSON.stringify({ modules: process.versions.modules, napi: process.versions.napi })"
+ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron -p "JSON.stringify({ modules: process.versions.modules, napi: process.versions.napi })"
 ```
 
-The system Node and Electron ABIs are allowed to differ. For this repository,
-the full suite targets Electron, so an Electron-compatible `better-sqlite3`
-binary is the expected state. Restore that state with the existing dependency
-installer when necessary:
+Electron 44 and the system Node runtime can have different module ABIs.
+better-sqlite3 13 uses Node-API 10, so that difference alone does not require a rebuild.
+The package selects a bundled binary under `prebuilds/` before a Debug or Release source build.
+Use the canonical preparation command to test real database operations, sqlite-vec loading,
+and the selected binary's architecture:
 
 ```sh
-./node_modules/.bin/electron-builder install-app-deps
+pnpm prepare:native
 ```
 
-With Electron 43 and `better-sqlite3` 12, `install-app-deps` can report
-success while retaining a prebuilt binary for the system Node ABI. If the ABI
-check still fails after that command, force the repository's
-Electron-targeted rebuild and rerun the ABI check:
-
-```sh
-pnpm prepare:native --force
-```
-
-Do not rebuild `better-sqlite3` for system Node merely to make direct Vitest
-invocation pass; that can replace the Electron-compatible binary and make the
-Electron-hosted suite fail. If a Node-only benchmark is required, use a separate
-dependency environment or explicitly rebuild for Node and restore the
-Electron dependencies before running the application test suite. Record the
-runtime, ABI, command, test counts, and failure class in the verification
-report.
+Use `pnpm prepare:native --force` only when source compilation is required.
+The preparation script sets `npm_config_force_build=1` for that compilation.
+The default package loader still prefers its bundled target prebuild when one exists.
+Keep tests on the canonical Electron runner even when the binary also loads in system Node.
+Record the runtime, module ABI, Node-API version, selected binary path, command,
+test counts, and failure class in the verification report.
 
 ## Electron E2E
 
