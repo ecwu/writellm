@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 28.5
 Date: 2026-08-12
 
+Current rule: ADRs 049, 064, 072, and 074 replace the older compaction rules. Use ADR 074 for current context budgets and recovery. ADR 083 sets the shared admission limit.
+
 ## Context
 
 Checkpoint 28.4 permits three concurrent Agent conversations in one project and keeps their
@@ -13,7 +15,7 @@ the compaction model-request ID by querying the newest request for a run. That c
 without an explicit checkpoint and can mis-associate concurrent title and compaction requests.
 
 Raw `agent_events`, mutation proposals, citation records, and manuscript/project rows already own
-the durable truth. A separate memory store or recoverable background compaction job would duplicate
+the authoritative state. A separate memory store or recoverable background compaction job would duplicate
 authority and add a lifecycle that this desktop product does not need.
 
 ## Decision
@@ -21,7 +23,7 @@ authority and add a lifecycle that this desktop product does not need.
 Keep raw Agent events and project business tables as the only authority. Model-visible conversation
 history is rebuilt from the latest successful rolling checkpoint, a continuous recent tail beginning
 after that checkpoint, and current authoritative project context. Checkpoints remain ordinary
-`agent_events` rows; no compaction or long-term-memory table is introduced. Legacy summaries remain
+`agent_events` rows. No compaction or long-term-memory table is introduced. Legacy summaries remain
 readable and are naturally replaced by a v2 checkpoint at the next successful compaction.
 
 Main owns a pure `AgentContextPlanner`. Planning occurs only after resolving the conversation model,
@@ -41,7 +43,7 @@ and never becomes manuscript, proposal, citation, or instruction authority.
 
 Main projects each compaction step as plain serialized typed JSON containing its authority and
 covered sequence interval. The bounded compaction task template adds the single model-visible
-semantic wrapper and performs the single delimiter-significant escape pass; the projection layer
+semantic wrapper and performs the single delimiter-significant escape pass. The projection layer
 does not pre-wrap or pre-escape that payload.
 
 Compaction uses the conversation's resolved provider, model, credential envelope, limits, and
@@ -49,7 +51,7 @@ transport compatibility with tools disabled. The internal model execution API re
 `modelRequestId` with its result. Automatic compaction is correlated to its current `agentRunId`;
 manual compaction uses `agentRunId: null` and `operationId = compactionId`.
 
-Generalize ADR 018's three run slots into three project-level Agent work slots. A conversation may
+Generalize ADR 018's three run slots into three project-level Agent work slots. A conversation can
 hold one run or one manual compaction reservation. Manual compaction is request-scoped and appears in
 the existing project activity stream without inventing an Agent run or broker. Automatic compaction
 reuses its run's existing slot. Project close cancels and awaits starting runs, active runs, title
@@ -65,7 +67,7 @@ the run as `context_overflow_after_activity`, and a second pre-activity overflow
 `context_overflow`.
 
 At project-service startup, an unmatched `compaction_started` event is closed with
-`compaction_failed(process_restarted)`; model work is never resumed.
+`compaction_failed(process_restarted)`. Model work is never resumed.
 
 ## Consequences
 

@@ -21,7 +21,7 @@ NLP dependency tree. Citation.js is selected and exact-pinned.
 
 ## Decision
 
-The existing import command accepts `.md`, `.tex`, and bounded `.zip` files; a sibling command
+The existing import command accepts `.md`, `.tex`, and bounded `.zip` files. A sibling command
 selects a LaTeX project directory. A direct `.tex` selection is the explicit entry file. Directory
 or archive selection prefers root `main.tex`, otherwise requires exactly one source containing a
 document environment. Main captures only regular contained files from a strict extension
@@ -50,7 +50,7 @@ compiler, package hook, macro expansion, or external converter is permitted.
 - Project import inherits ADR 032/CP36's session-bound staging, 30-minute plan TTL, preview/apply,
   and cleanup boundary, and remains a larger fixture around the same staged plan/apply authority,
   not a new conversation, model endpoint, or mutation path.
-- A selected directory can expose only bounded captured files; the parser never learns its real
+- A selected directory can expose only bounded captured files. The parser never learns its real
   path.
 - Citation rendering is intentionally conservative and loss-reported rather than pretending to
   reproduce an arbitrary TeX bibliography style.

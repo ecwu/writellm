@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-09-01
 
+Current rule: ADR 074 replaces complete dependency injection with selected root entrypoints. Automatic reads are ordinary tool results and do not gate run completion.
+
 ## Context
 
 ADRs 054 and 055 made every Writing Skill entrypoint visible as a
@@ -34,8 +36,8 @@ composition and failure behavior that never applies only half of a rule set.
   as `selected` before the first provider request. It emits no synthetic tool use, timeline loading
   card, badge, chip, attachment, or extra provider request. Its roots and dependencies immediately
   authorize their bounded reference capabilities for optional `read_writing_skill` reads.
-- Automatic mode remains progressive and visible. The model may read one new root or dependency
-  entrypoint per Skill-only assistant response and may read authorized references within the
+- Automatic mode remains progressive and visible. The model can read one new root or dependency
+  entrypoint per Skill-only assistant response and can read authorized references within the
   existing count and byte limits. Dependencies are recommended for complete use, but unread or
   failed dependencies do not suppress assistant text, block downstream tools, reject a final
   answer, or fail run settlement. A protocol violation remains an ordinary recoverable tool error.
@@ -66,7 +68,7 @@ and the prohibition on executable Skill capabilities.
 3. Inject roots but leave dependency composition to later tool calls. A failed or skipped
    dependency could apply a partial explicit ruleset, contrary to the user's direct request.
 4. Keep the final-answer detector as a warning. Main cannot reliably infer whether partial guidance
-   is semantically required, and a system-level detector should not override a valid model answer.
+   is semantically required, and a system-level detector must not override a valid model answer.
 
 ## Consequences
 

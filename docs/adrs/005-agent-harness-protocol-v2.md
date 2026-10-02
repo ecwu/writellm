@@ -24,17 +24,17 @@ WriteLLM adopts Agent Harness Protocol v2 before Checkpoint 24.
 - Every dispatched tool returns a versioned success or structured domain-error result. Protocol or
   capability corruption remains exceptional.
 - A model request owns an in-memory writing snapshot keyed by `modelRequestId`. Manuscript reads and
-  mutation bases use that snapshot; each provider continuation receives a fresh snapshot and
+  mutation bases use that snapshot. Each provider continuation receives a fresh snapshot and
   trusted system context.
 - Submit tools finish after the proposal is durably created or automatically decided. A pending
   proposal pauses the run; approval continuation is a new immutable run and model request.
 - `manual`, `section_auto`, and `yolo` remain user-facing presets. Main computes the actual effect
-  from canonical arguments and may require review even in an automatic preset.
+  from canonical arguments and can require review even in an automatic preset.
 - Pi-local attempts and pre-dispatch failures become durable Agent events. Raw private arguments are
   not duplicated; audit records contain a hash and bounded structural shape.
 - Outline references and section block preconditions are resolved by Main. `prepareArguments` is
   reserved for compatibility shims and does not allocate domain identifiers.
-- Citation snippets are discovery results. A proposal may cite only evidence expanded through
+- Citation snippets are discovery results. A proposal can cite only evidence expanded through
   `read_citations`, and its bounded evidence snapshot is stored with the immutable proposal.
 
 The project keeps the existing five Agent persistence tables. Writing snapshots and progress are

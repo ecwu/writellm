@@ -6,7 +6,7 @@ Date: 2026-08-14
 ## Context
 
 ADR 004 snapshotted the approval mode into each run, and `setApprovalMode` refused to change the
-mode while a run was active or a proposal awaited review. Hands-on use shows this is the wrong
+mode while a run was active or a proposal awaited review. Use shows this is the wrong
 granularity: a user who watches the Agent start an automatic run and realizes the mode is wrong
 cannot correct it without stopping the run, and a user paused on a review cannot switch to YOLO to
 let the remaining proposals flow through.
@@ -18,12 +18,12 @@ pausing for review.
 ## Decision
 
 `AgentSessionService.setApprovalMode` no longer refuses changes during an active run or a pending
-review; only the existing compatibility check remains. When a proposal-producing tool result
+review. Only the existing compatibility check remains. When a proposal-producing tool result
 arrives, `#handleToolRequest` reads the session's current approval mode from the project database
 at that moment and passes it to `shouldAutoApprove`, instead of using the run-start snapshot.
 
 The `agent_runs.approval_mode` column keeps recording the mode in effect at run start as audit
-history; it no longer drives any decision. The Renderer approval picker and its handler stay
+history. It no longer drives any decision. The Renderer approval picker and its handler stay
 enabled during runs and review pauses (still disabled for archived sessions and while a write is
 in flight), so the session details pane and the composer can switch modes at any time.
 

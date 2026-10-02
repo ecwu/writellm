@@ -20,7 +20,7 @@ Steer, and Stop actions shown while a run is active.
 When the Agent is idle, the primary submit control is an icon-only circular shadcn Button using
 the Lucide `ArrowUp` icon. It retains `aria-label="Send"`, the existing enablement conditions,
 keyboard focus treatment, click behavior, and test identifier through its accessible role. The
-button uses the established primary and disabled color tokens; no one-off color, shadow, or
+button uses the established primary and disabled color tokens. No one-off color, shadow, or
 animation is introduced.
 
 The running-state Queue, Queue/Steer disclosure, retry, and Stop controls do not adopt the arrow

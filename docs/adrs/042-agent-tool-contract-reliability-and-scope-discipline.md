@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 50
 Date: 2026-08-13
 
+Current rule: ADR 067 replaces repeated shared instructions in tool descriptions. ADR 074 replaces the one-recovery limit. ADR 077 removes the Review Issue tools.
+
 ## Context
 
 The screenshot run in the reported Agent conversation made 69 tool attempts: 27 failed before
@@ -33,8 +35,8 @@ JSON Schema conversion, including:
 - section/image anchor-placement compatibility.
 
 Pi validates the generated JSON Schema before dispatch, while Main later parses the authoritative
-Zod contract. When those schemas express different languages, a call may pass provider/Pi
-preflight and fail in Main, or a required-but-defaultable field may fail before Main can normalize
+Zod contract. When those schemas express different languages, a call can pass provider/Pi
+preflight and fail in Main, or a required-but-defaultable field can fail before Main can normalize
 it. This is an all-tool contract problem, not only a section-edit prompt problem.
 
 The runtime evidence also contains tool-specific defects. Outline normalization calculates a move
@@ -55,7 +57,7 @@ failure-presentation problems.
 ## Decision
 
 Checkpoint 50 audits and hardens all 20 entries in `AGENT_MODEL_VISIBLE_TOOL_SPECS` as one bounded
-tool-contract checkpoint. It keeps the existing tool names and authorities; it adds no generic
+tool-contract checkpoint. It keeps the existing tool names and authorities. It adds no generic
 edit tool or alias.
 
 ### Common model contract
@@ -70,19 +72,19 @@ application policy instead of a new structured-guidance type or compiler.
 
 Model-visible JSON Schema is intentionally simpler and no stricter than authoritative Main Zod.
 The compatibility requirement is one-way: every standard minimal and boundary-valid call accepted
-by Main must pass Pi preflight, while a call rejected by Main may pass preflight and receive a
-precise domain error. High-load mutually exclusive modes may use one flat union; simple non-empty,
+by Main must pass Pi preflight, while a call rejected by Main can pass preflight and receive a
+precise domain error. High-load mutually exclusive modes can use one flat union; simple non-empty,
 pairing, ordering, state, and version invariants stay in Main and in description prose. Nested
 unions are not introduced merely to mirror `refine` or `superRefine`. Defaults are never advertised
 as required, while strict object boundaries and basic type, enum, count, and byte limits remain.
 Ordinary normalization uses Zod defaults, including nullable insertion anchors. A per-tool
 `prepareArguments` shim is allowed only for an observed stable model quirk and must have a dedicated
-input/output fixture; no shim is added speculatively.
+input/output fixture. No shim is added speculatively.
 
-The usage contracts stay compact. The serialized 20-tool envelope may not exceed 48 KiB and no
-single tool may exceed 8 KiB. To meet that budget without weakening Main validation,
+The usage contracts stay compact. The serialized 20-tool envelope must not exceed 48 KiB.
+No single tool can exceed 8 KiB. To meet that budget without weakening Main validation,
 `replaceCanonicalBlock.block` becomes an opaque bounded JSON object in the model schema, described
-as the exact canonical block returned by `read_section`; Main still validates it against the full
+as the exact canonical block returned by `read_section`. Main still validates it against the full
 BlockNote contract and still requires a current-run canonical read. The current recursive schema
 is not sent to every model request.
 
@@ -98,19 +100,19 @@ read, and one-block canonical-fragment pagination. Its result explicitly identif
 `blockHash`, and `revisionId` as the only valid source for subsequent section preconditions.
 
 `read_citations` keeps flat `citationIds` and `requests` fields with at most one shallow
-`anyOf: [{required: [citationIds]}, {required: [requests]}]`; Main enforces actual non-empty arrays,
+`anyOf: [{required: [citationIds]}, {required: [requests]}]`. Main enforces actual non-empty arrays,
 duplicates, combined count, and pagination bounds. `search_knowledge` keeps flat `pageFrom` and
-`pageTo`; Main reports the safe actual range and exact correction when ordering is invalid. No hits
+`pageTo`. Main reports the safe actual range and exact correction when ordering is invalid. No hits
 or unavailable reranking remain successful bounded outcomes, not permission to invent evidence.
 
 `read_writing_skill` keeps the authorized virtual-URI boundary. A phase mismatch returns a safe
-recovery containing the exact authorized entrypoint/reference URI that may be read next; it does
-not expose filesystem paths. Skill content may constrain authorized work but cannot widen the
+recovery containing the exact authorized entrypoint/reference URI that can be read next. It does
+not expose filesystem paths. Skill content can constrain authorized work but cannot widen the
 user's mutation scope.
 
 ### Review and writing-task tools
 
-`record_review_issues` keeps one flat candidate shape; Main requires an existing issue ID and
+`record_review_issues` keeps one flat candidate shape. Main requires an existing issue ID and
 expected version together and directs conflicts to `list_review_issues`. `update_review_issues` documents the exact
 claim/release/resolve/reopen transition matrix and refreshes through `list_review_issues` on a
 version conflict. Review diagnostics and issue state do not grant manuscript mutation authority.
@@ -125,7 +127,7 @@ multi-step.
 ### Proposal and generation tools
 
 All proposal tools state that Main binds schema/manuscript/base versions, that citation IDs must
-come from expanded citations in the current run, and that `resolvesReviewIssues` may contain only
+come from expanded citations in the current run, and that `resolvesReviewIssues` can contain only
 currently claimed exact issue IDs/versions. An applied or satisfied structured result is the only
 manuscript success signal.
 
@@ -146,7 +148,7 @@ Fabricated, cross-section, deleted, and stale blocks remain rejected.
 
 `generate_image` has two explicit model-visible modes. New insertion uses an optional-null anchor
 with the same root/anchored placement rule as section insertion. Iteration requires only the exact
-generated source-block precondition and `replace`/`insert_after` disposition; it does not require a
+generated source-block precondition and `replace`/`insert_after` disposition. It does not require a
 second meaningless anchor/placement pair. Main still reuses retained prompt/asset lineage and
 validates provider, source figure, revision, and proposal authority. Contract-v8 tests
 freeze provider rejection as `unavailable`, never `Agent read tool failed`.
@@ -154,7 +156,7 @@ freeze provider rejection as `unavailable`, never `Agent read tool failed`.
 ### Scope and recovery
 
 Application policy outranks Writing Skills and diagnostic tools. A Skill, `check_draft`, review
-issue, writing task, or tool recovery may constrain or advise work but cannot introduce a new
+issue, writing task, or tool recovery can constrain or advise work but cannot introduce a new
 artifact, mutation kind, or manuscript region. Approval authorizes only the reviewed proposal.
 Main owns the approval-continuation instruction, removes the unconditional `check_draft` request,
 and continues only unresolved work already requested by the user.
@@ -163,7 +165,7 @@ Structured error recovery becomes tool-aware. Section conflicts point to `read_s
 conflicts to `read_outline`, review conflicts to `list_review_issues`, task conflicts to
 `get_writing_task`, proposal inspection misses to the authoritative proposal result, pagination
 failures to restart the same read, and transient retrieval/generation failures to at most one
-retry. No recovery may instruct the model to guess an identifier or repeat indefinitely.
+retry. Recovery must not instruct the model to guess an identifier or repeat indefinitely.
 
 ### Diagnostics and presentation
 
@@ -180,7 +182,7 @@ Structured logs record correlated safe IDs, tool name, phase, code, recovery act
 and duration.
 
 Checkpoint 50 does not add a generalized hard-abort or retry state machine. Pi-local malformed
-arguments occur before the Main bridge; a graceful cross-provider turn-stop is a separate protocol
+arguments occur before the Main bridge. A graceful cross-provider turn-stop is a separate protocol
 decision. This checkpoint removes model-schema false rejections for standard valid calls, fixes
 the known state/implementation defects, provides exact one-retry recovery, exposes residual
 failures, and then measures whether a circuit breaker is still justified.
@@ -215,16 +217,15 @@ readable after field flattening and the v8 change.
 - Strengthen only the system prompt. Prompt text cannot repair normalizer/simulator disagreement or
   eliminate model-schema false rejection or repair Main's runtime recovery.
 - Mirror every Main refinement in JSON Schema. This recreates the complex preflight language that
-  caused the observed loop; Pi-style broad shape validation plus precise Main errors is simpler and
+  caused the observed loop. Pi-style broad shape validation plus precise Main errors is simpler and
   more recoverable.
 - Add simpler alias tools for section append or image iteration. Aliases duplicate authority and
-  make tool routing more ambiguous; the existing typed contracts should be corrected.
+  make tool routing more ambiguous. Correct the existing typed contracts.
 - Send the full recursive BlockNote schema. It consumes nearly half of the current tool envelope
   for a rare operation even though Main must validate the returned canonical object anyway.
 - Relax block/version preconditions or let Main infer targets. That can apply changes to unintended
   manuscript state and breaks optimistic concurrency.
-- Persist raw validation/provider errors. They may contain private argument values or unstable
+- Persist raw validation/provider errors. They can contain private argument values or unstable
   dependency text.
 - Add a global retry circuit breaker now. The accepted protocol lacks a graceful Pi-preflight stop
-  contract, and the measurable contract defects should be removed before adding another state
-  machine.
+  contract. Remove the measurable contract defects before adding another state machine.

@@ -26,7 +26,7 @@ Section content schema v3 extends only the existing BlockNote `image` block with
 
 `caption` remains reader-visible prose and `name` remains BlockNote/file compatibility metadata.
 New and accepted Agent-generated images receive both semantic props. Main normalizes every newly
-persisted section document; a missing figure ID is deterministically derived from the stable
+persisted section document. A missing figure ID is deterministically derived from the stable
 section and block IDs. An explicitly empty `altText` remains empty so deterministic review can
 report it rather than inventing content.
 

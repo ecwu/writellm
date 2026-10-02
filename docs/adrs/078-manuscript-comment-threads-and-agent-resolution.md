@@ -3,6 +3,8 @@
 Status: accepted; implementation authorized
 Date: 2026-09-04
 
+Current rule: ADR 079 replaces quote-only anchor relocation and run-only read receipts. Use both decisions for current Comment requirements.
+
 ## Context
 
 ADR 077 removed the former Review Center, deterministic Review Issues, and manuscript annotations
@@ -26,7 +28,7 @@ repeated quote to the first manuscript occurrence.
 The Renderer receives only project-session-scoped comment IPC. Main determines author identity,
 validates optimistic thread versions, and writes lifecycle events transactionally. Agent Harness
 Protocol v16 adds bounded `list_comments`, `read_comment`, `reply_comment`, and `resolve_comment`.
-Ask and Plan may read; only Write may reply or resolve. Agent resolution requires a read receipt
+Ask and Plan can read. Only Write can reply or resolve. Agent resolution requires a read receipt
 for the current thread version and current section revision, plus an explicit verification note.
 Any later reply or revision makes that receipt stale. Manuscript changes continue through ordinary
 typed proposals and existing approval continuations.

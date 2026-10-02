@@ -4,6 +4,8 @@ Status: accepted
 
 Date: 2026-08-31
 
+Current rule: ADR 074 makes trace capture best effort. Trace storage failures cannot block model work. Trace data remains diagnostic only.
+
 ## Context
 
 `model_requests` records lineage, outcome, usage, retries, and latency, while `agent_events` is the
@@ -27,17 +29,17 @@ content-addressed canonical JSON objects plus ordered references:
 - `agent_trace_records` orders harness, provider, tool, Skill, compaction, and image evidence and
   carries the applicable session, run, request, tool-call, and compaction identifiers.
 - `agent_model_request_trace_v` reconstructs semantic harness requests, physical provider attempts,
-  and responses; existing model requests without evidence are reported as `legacy_unavailable`.
+  and responses. Existing model requests without evidence are reported as `legacy_unavailable`.
 - `agent_run_trace_v` interleaves trace records with authoritative `agent_events` for diagnosis.
 
 Trace capture is fail-closed for Agent model traffic. The Worker captures the complete Pi context
 and Pi `onPayload` result, sends both to Main, and waits for a durable SQLite acknowledgement before
-the provider request may start. Every retry is a separate physical attempt. Serialization, size,
+the provider request can start. Every retry is a separate physical attempt. Serialization, size,
 or persistence failure terminates the request before network I/O. Provider response headers use an
 explicit diagnostic allowlist; authentication, cookies, signed URLs, and binary bodies are never
 stored.
 
-Trace payloads may contain private prompt, response, invalid tool, and Skill bodies. This is the
+Trace payloads can contain private prompt, response, invalid tool, and Skill bodies. This is the
 only persistence boundary allowed to retain those model-visible bodies. Ordinary logs remain
 metadata-only and preserve the original diagnostic error as top-level `err` without private
 content. Project databases and backups are sensitive data.

@@ -35,7 +35,7 @@ revision prompt and the original run's Writing Skill snapshot. Apply-only and re
 continuation remain available as secondary actions. An outdated proposal still requires the
 existing operation-aware refresh before approval.
 
-Main may attach additive presentation metadata to a persisted user-message event so the Renderer
+Main can attach additive presentation metadata to a persisted user-message event so the Renderer
 can hide a synthetic approval-continuation prompt or show only the user's review feedback. Model
 history continues to use the complete Main-owned content. Existing events remain readable, the
 event schema version remains compatible, and no database migration is required.

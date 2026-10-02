@@ -3,42 +3,48 @@
 Status: accepted
 Date: 2026-09-19
 
+Current rule: ADR 084 replaces the in-window macOS Menubar with the native application menu. Windows and Linux retain the shadcn Menubar.
+
 ## Decision
 
-The user authorized replacing the fixed sidebar-09 composition with a persistent Menubar,
-activity rail, one central content tab group and movable tool groups. Dockview React 8.3.1
-(MIT only) owns docking; shadcn new-york remains the control and theme language.
-Sections are unique, lazy-created, retained editor instances; only one content tab is visible.
-Knowledge, Preview, Assets and Checks are singleton tabs. Content cannot split or dock into tools.
-Agent, Outline, Find, References, Writing Rules and Comments may dock left, right or below.
-No popout windows or Enterprise capabilities are introduced.
+The user authorized replacing the fixed sidebar-09 composition.
+The shell uses a persistent Menubar, activity rail, one central content tab group, and movable tool groups.
+Dockview React 8.3.1 (MIT only) manages docking. shadcn new-york provides controls and themes.
+Create each section editor when first opened. Retain one editor instance per section.
+Only one content tab is visible. Knowledge, Preview, Assets, and Checks each have one tab.
+Content cannot split or dock into tools.
+Agent, Outline, Find, References, Writing Rules, and Comments can dock left, right, or below.
+Do not add popout windows or Enterprise capabilities.
 
-Notebook becomes up to ten independent transient instances per project session, each with an
-explicit notebookId. This supersedes ADR 058's single-conversation restriction; ADR 062's
-read-only tool profile and memory-only content remain mandatory. The explicitly approved plan
-restores a shared three-slot Agent/Notebook admission limit at the Main model gateway, superseding
-ADR 074's quota removal. Overflow fails immediately; there is no waiting queue.
-Closing a Notebook destroys its state; closing or switching projects revokes every instance.
+Each project session supports up to ten independent Notebook instances, each with an explicit notebookId.
+This replaces ADR 058's single-conversation restriction.
+Keep ADR 062's read-only tools and memory-only content.
+The approved plan restores a shared three-slot Agent/Notebook admission limit at the Main model gateway.
+This replaces ADR 074's removal of that limit.
+Reject overflow immediately. Do not add a waiting queue.
+Closing a Notebook destroys its state. Closing or switching projects revokes every instance.
 
-Versioned local layout preferences live in app.sqlite settings, keyed by projectId. Only safe
-section IDs, content kinds, tool placement, ordering and sizes are retained. Notebook state and
-tabs never persist. Invalid layouts recover to defaults; restoring never starts provider work.
+Versioned local layout preferences live in app.sqlite settings, keyed by projectId.
+Store only safe section IDs, content kinds, tool placement, ordering, and sizes.
+Never persist Notebook state or tabs. If a layout is invalid, restore defaults.
+Restoring a layout never starts provider work.
 
 ## Consequences
 
-Preserve flush barriers, revision conflict checks, project capability revocation, renderer
-isolation and diagnostics. Switching away from an editor first saves its body and title; a
-failure blocks navigation. Layout reset preserves open content and live Notebook instances.
-All content navigation shares open-or-activate semantics.
+Preserve flush barriers, revision conflict checks, project capability revocation, renderer isolation, and diagnostics.
+Before switching away from an editor, save its body and title. If saving fails, block navigation.
+Layout reset preserves open content and live Notebook instances.
+Every content navigation action opens the tab or activates its existing tab.
 
-Alternatives were continuing bespoke resizable panels (requires implementing docking),
+Alternatives were continuing custom resizable panels (requires implementing docking),
 FlexLayout and Golden Layout. Dockview was selected for current npm adoption and sustained releases.
 No project schema migration or portable layout files are needed.
 
 ## 2026-09-26 Tool-close sizing clarification
 
-Closing a docked tool gives released horizontal space to the retained content area while
-preserving the current widths of surviving side groups where the grid permits it. User-resized
-widths take precedence over defaults. This is a close-operation policy, not a permanent width
-lock: pointer and keyboard resizing remain available. Bottom groups that span the content may
-grow with it. Closing the final content tab retains the existing empty content surface.
+When a docked tool closes, give its released horizontal space to the retained content area.
+Preserve the widths of surviving side groups where the grid permits it.
+User-resized widths take precedence over defaults.
+This rule applies during closing. Pointer and keyboard resizing remain available afterward.
+Bottom groups that span the content can grow with it.
+Closing the final content tab retains the existing empty content surface.

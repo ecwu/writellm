@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 28.3
 Date: 2026-08-12
 
+Current rule: ADRs 073 and 074 replace the Skill preparation barrier. Keep the prompt ownership, encoding, and authority rules.
+
 ## Context
 
 WriteLLM's Agent prompt behavior is application-owned, but its text and composition are spread

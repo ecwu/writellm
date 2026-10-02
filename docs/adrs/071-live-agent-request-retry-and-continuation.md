@@ -4,6 +4,8 @@ Status: accepted for Checkpoint 80; implementation authorized
 
 Date: 2026-09-01
 
+Current rule: ADR 074 removes live retry anchors, retry authorizations, waiting states, and their UI. After a failure, a new user message starts an ordinary run. Do not restore this live-retry design.
+
 ## Context
 
 The Agent panel's current `Try again` action starts a new immutable run with the latest prompt. The
@@ -13,11 +15,10 @@ This is a new user turn, not a retry of the failed provider request.
 
 The desired product behavior distinguishes two provider failure stages:
 
-- a request that fails before any assistant content is published should retry that request without
-  adding another conversation message; and
-- a request that fails after partial streaming, or after earlier tool results in the same run,
-  should continue from the last safe model-call boundary without clearing completed context or
-  replaying tools.
+If a request fails before publishing assistant content, retry that request without adding another conversation message.
+
+If it fails after partial streaming or earlier tool results, continue from the last safe model-call boundary.
+Do not clear completed context or replay tools.
 
 WriteLLM pins `@earendil-works/pi-agent-core` and `@earendil-works/pi-ai` at `0.80.10`. Research
 against that exact installed version establishes the following boundary:
@@ -50,14 +51,14 @@ Worker remain live.
 
 ### Logical requests and physical attempts
 
-Automatic transport retry remains unchanged: one authorized `model_request` may make at most five
+Automatic transport retry remains unchanged: one authorized `model_request` can make at most five
 physical attempts, only for transient failures and only before assistant text, thinking, or tool
 call content has been published.
 
 One explicit user click authorizes one new logical `model_request`. That new request receives its
 own immutable row, trace span, usage, physical retry count, and terminal outcome. It does not create
 a new `agent_run`, append a `user_message`, rerun Skill routing, or reconstruct the request from
-Renderer-supplied prompt text. The new logical request may use the normal bounded automatic
+Renderer-supplied prompt text. The new logical request can use the normal bounded automatic
 physical retry policy. If it fails again, another click is required for another logical request.
 
 ### Worker-owned retry anchor
@@ -78,7 +79,7 @@ The full transcript remains Pi execution state. The transformed context snapshot
 override for the first transform of the retry, so context projection and active-batch recovery do
 not advance merely because the same provider request is retried. Before network I/O, the Worker
 recomputes the canonical provider-context fingerprint. A mismatch rejects the retry as
-`retry_context_mismatch`; it never silently sends changed context.
+`retry_context_mismatch`. It never silently sends changed context.
 
 The anchor is memory-only and belongs to the active run capability. It is not reconstructed from
 `agent_trace_payloads`, logs, Renderer state, or an interrupted assistant message. Starting a later
@@ -115,7 +116,7 @@ diagnostic and do not authorize the action.
 The Worker validates the one-use authorization, restores the anchor, places the new authorized
 model-request ID at the provider-call boundary, and invokes `agent.continue()`. Stale, duplicated,
 cross-run, or mismatched authorization fails closed before network I/O. If durable creation succeeds
-but Worker delivery fails, Main aborts the target request with `retry_delivery_failed`; it does not
+but Worker delivery fails, Main aborts the target request with `retry_delivery_failed`. It does not
 reopen the source request.
 
 ### Message, tool, and queue semantics
@@ -135,7 +136,7 @@ event.
 Steer and Follow-up messages accepted before or during failure remain Main-authoritative but are
 held behind a retry barrier. The Worker removes them from Pi's immediate queues before restoring
 the anchor and requeues them in original order only after the retried assistant turn settles. New
-Steer input is disabled while the UI is waiting for retry; Follow-up may remain queued. Queued user
+Steer input is disabled while the UI is waiting for retry; Follow-up can remain queued. Queued user
 content never changes the provider context fingerprint of the retried request.
 
 ### Eligibility and UI
@@ -155,7 +156,7 @@ missing model access, content policy, quota, billing, cancellation, user Stop, p
 trace-persistence failure, setup or Skill-routing failure, tool execution failure, review/input
 pauses, process restart, Worker crash, or any boundary with uncertain effects. Context overflow
 continues to use ADR 019's existing bounded pre-activity compaction recovery. Non-eligible terminal
-states may offer an explicitly named `Send as new request` action, but never reuse the words
+states can offer an explicitly named `Send as new request` action, but never reuse the words
 `Retry request` or `Continue` and never silently repeat the prior prompt.
 
 ## Consequences
@@ -177,25 +178,25 @@ permanent-failure exclusions remain unchanged. ADRs 019, 046, 063, and 069 remai
 
 ## Alternatives Rejected
 
-- **Start another run with the same prompt:** this is the current bug; it duplicates durable user
+- Start another run with the same prompt: this is the current bug. It duplicates durable user
   content and inflates future context.
-- **Delete the failed run or user event before resending:** this destroys audit history and can
+- Delete the failed run or user event before resending: this destroys audit history and can
   detach already completed tool or proposal evidence.
-- **Call `continue()` on the failed Pi state:** Pi rejects continuation from the terminal assistant
+- Call `continue()` on the failed Pi state: Pi rejects continuation from the terminal assistant
   error message.
-- **Resume from diagnostic traces after restart:** ADR 069 explicitly forbids traces from becoming
-  recovery authority, and trace capture may contain provider-projected rather than full Pi state.
-- **Retry from the latest durable session history in a new Worker:** a process loss can make tool or
+- Resume from diagnostic traces after restart: ADR 069 explicitly forbids traces from becoming
+  recovery authority, and trace capture can contain provider-projected rather than full Pi state.
+- Retry from the latest durable session history in a new Worker: a process loss can make tool or
   effect completion uncertain and would weaken the existing request-scoped no-resume boundary.
-- **Adopt `AgentHarness` for this feature:** the pinned harness has session and retry-related
+- Adopt `AgentHarness` for this feature: the pinned harness has session and retry-related
   facilities but no public manual request retry/continue control; migration would broaden the
   checkpoint without removing the required protocol.
-- **Automatically retry after published content:** visible partial output makes unattended replay
+- Automatically retry after published content: visible partial output makes unattended replay
   ambiguous. Explicit user authorization is required.
 
 ## Acceptance Gate
 
-Checkpoint 80 may begin only after the user accepts this ADR and the corresponding architecture
+Checkpoint 80 can begin only after the user accepts this ADR and the corresponding architecture
 amendment. Implementation must prove request-context identity before network dispatch, exactly-once
 user-message history, no tool replay, stale-capability rejection, queue ordering, migration
-recovery, and truthful UI behavior for every eligible and excluded failure class.
+recovery, and accurate UI behavior for every eligible and excluded failure class.

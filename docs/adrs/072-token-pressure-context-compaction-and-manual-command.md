@@ -4,6 +4,8 @@ Status: accepted for Checkpoint 81; implementation authorized
 
 Date: 2026-09-01
 
+Current rule: ADR 074 removes the event scan ceiling and event-count finalization, and replaces rolling compaction with one summary. The manual `/compact` action remains.
+
 ## Context
 
 A hands-on Gemini 3.1 Pro conversation compacted after 203 durable events even though the latest
@@ -21,7 +23,7 @@ are not independent semantic-compaction thresholds.
   conversation token budget calculated after system prompt, exact tool envelope, current request,
   output reserve, model limits, and the existing safety buffer are known. The 200-event and 2-MiB
   runtime-envelope thresholds are removed.
-- A provider-declared context overflow may still perform the existing single pre-activity recovery
+- A provider-declared context overflow can still perform the existing single pre-activity recovery
   compaction. ADR 063's 2,000-event compaction-source ceiling and 180-event tool-loop finalization
   remain execution safeguards, not automatic-compaction triggers.
 - Payload-v3, one summarization request, the 12,000-token checkpoint maximum, the 20,000-token raw

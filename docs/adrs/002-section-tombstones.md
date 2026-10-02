@@ -5,7 +5,7 @@ Date: 2026-07-22
 
 ## Context
 
-An outline proposal may delete a section whose accepted Agent revisions are still referenced by
+An outline proposal can delete a section whose accepted Agent revisions are still referenced by
 `mutation_proposals`. Physical deletion cascades through `section_revisions`, while the proposal
 foreign keys correctly prevent that immutable lineage from being discarded. The result is a raw
 SQLite foreign-key failure during proposal approval.
@@ -33,5 +33,5 @@ conflicts, current-revision selection, and materialization publication.
 
 Project schema migration 0018 adds the tombstone marker and active-only position indexes without
 adding a new table. Existing projects migrate with every section active. Failed pre-migration
-approval transactions remain pending and may be retried after upgrade if their outline base is
+approval transactions remain pending and can be retried after upgrade if their outline base is
 still current.

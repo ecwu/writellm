@@ -28,7 +28,7 @@ Checkpoint 64 is a bounded security and compatibility refresh:
   and BlockNote-owned persistence are not admitted. The application-owned math, Mermaid, figure,
   revision, canonicalization, and hash contracts remain authoritative.
 - Update selected same-generation provider, Renderer, data, formatting, and test dependencies to
-  the exact Checkpoint 64 targets. Existing exact pins remain exact; existing caret declarations
+  the exact Checkpoint 64 targets. Existing exact pins remain exact. Existing caret declarations
   retain caret semantics with a refreshed lockfile.
 - Refresh vulnerable transitive versions only within parent-declared compatible ranges. Do not use
   an override to force a package across its parent's admitted major line.

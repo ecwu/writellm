@@ -4,11 +4,16 @@ An Electron application with React and TypeScript
 
 ## Implementation Status
 
-WriteLLM v2 is being built incrementally from this starter. Before making implementation changes, read:
+WriteLLM is a desktop writing application. Before changing code, read:
 
 - [`AGENTS.md`](./AGENTS.md) for repository working rules.
 - [`docs/architecture.md`](./docs/architecture.md) for fixed architecture and technology decisions.
-- [`docs/implementation-todo.md`](./docs/implementation-todo.md) for the ordered roadmap and current checkpoint.
+- [`docs/current-plan.md`](./docs/current-plan.md) for current delivery state, verification, and deferred work.
+- [`docs/implementation-todo.md`](./docs/implementation-todo.md) for links to checkpoint plans and evidence.
+
+Read the ADR for the affected feature before implementation. An ADR is an architecture decision record.
+Completed Phase files record past evidence. Use the accepted amendment or ADR that replaces an older rule.
+Past command examples do not replace the command catalog below.
 
 ## Recommended IDE Setup
 
@@ -81,9 +86,9 @@ NSIS/AppX must run from Windows x64. These commands write versioned artifacts un
 
 ### Verification
 
-Choose the smallest scope that covers the change; see `AGENTS.md` for the change-to-test table.
-Atomic commands do one job. Composite `check:*` gates combine prerequisites for a specific
-acceptance scope; they are alternatives, not a sequence to run after every edit.
+Choose the smallest verification scope that covers the change. Use the change-to-test table in `AGENTS.md`.
+Each basic command performs one task. Each `check:*` command combines the checks for a specific scope.
+Choose the applicable command. Do not run all combined commands after every edit.
 
 | Command | Responsibility | Builds / functional tests |
 | --- | --- | --- |
@@ -101,7 +106,7 @@ acceptance scope; they are alternatives, not a sequence to run after every edit.
 | `check:release` | Explicit signed distribution acceptance | Full package gate plus signing/notarization requirements |
 
 For a local logic change, run static checks once and filter Vitest by file, directory, or test
-name. Existing tests include both isolated logic and database/process integration; they all use
+name. Existing tests include both isolated logic and database/process integration. They all use
 the canonical Electron runtime so SQLite retains the correct ABI. Directory filters select a
 subsystem without pretending that every test in that directory is a unit test.
 
@@ -164,8 +169,8 @@ Completed history and ADR command examples retain their original spelling as his
 ### Verification reports
 
 Stage starts, completions, and 30-second progress updates appear in the terminal. JSON reports in
-`.cache/verification/` contain elapsed time, scope, outcomes, and test attempts. Timing is diagnostic;
-functional test timeouts remain separate. Recovery fixture checks verify the declared coverage
+`.cache/verification/` contain elapsed time, scope, outcomes, and test attempts. Timing helps diagnose performance.
+Functional test timeouts remain separate. Recovery fixture checks verify the declared coverage
 inventory, not execution of the named tests. Final installers retain SHA256 checksums; internal
 ASAR/native inventory does not maintain separate custom hashes.
 

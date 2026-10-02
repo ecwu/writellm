@@ -17,7 +17,7 @@ macOS-only promotion, manual upload and workflow-trigger provisions below.
   and inventory checks, not runtime acceptance. Branch pushes and manual dispatch do not trigger CI.
 - After all four rows and the build run succeed, `publish-release.yml` automatically publishes
   from that run. Manual dispatch accepts the exact existing run ID and tag for recovery or initial
-  rollout; it never rebuilds or moves the tag. Only the publication job receives `contents: write`.
+  rollout. It never rebuilds or moves the tag. Only the publication job receives `contents: write`.
 - Trusted default-branch code checks same-repository `ci.yml` provenance, successful jobs, tag SHA,
   source version, default-branch ancestry and artifact identities. It verifies the four selected
   packages against original platform evidence (revision, architecture, size and SHA-256), then
@@ -64,6 +64,8 @@ and a new native package row.
 
 ## macOS-first distribution scope
 
+Historical design. The active four-platform distribution policy above replaces this scope.
+
 The active distribution scope was narrowed on 2026-08-10 to `macos`: macOS arm64 and macOS x64
 must both build, test, package, and provide complete promotion evidence from the same immutable
 tag. Windows x64 and Linux x64 remain supported package targets and CI diagnostics, but they are
@@ -74,7 +76,7 @@ Windows/Linux evidence. The alternatives considered were continuing to require a
 which conflicts with the active budget and delivery priority, or silently accepting a partial
 four-row manifest, which would weaken the fail-closed verifier. Instead, the release workflow and
 manifest carry an explicit target set and require its exact rows. Existing four-row evidence stays
-valid under the `all` target set; it is not reclassified as macOS-only evidence. Resuming Windows
+valid under the `all` target set. It is not reclassified as macOS-only evidence. Resuming Windows
 or Linux distribution requires an explicit roadmap update, successful native rows, and a new
 promotion run. No application data or artifact-format migration is required.
 
@@ -83,7 +85,9 @@ remains historical input only and cannot be promoted through the target-scoped w
 
 ## Workflow trust and retention
 
-- Workflow and job permissions default to `contents: read`. Only the protected promotion job may
+Historical signed-distribution design. Use the active workflow policy for current triggers and permissions.
+
+- Workflow and job permissions default to `contents: read`. Only the protected promotion job can
   request `contents: write`.
 - External actions are pinned to reviewed immutable commit SHAs. Dependency caches accelerate the
   frozen pnpm install but never replace `pnpm-lock.yaml` verification.
@@ -99,18 +103,20 @@ remains historical input only and cannot be promoted through the target-scoped w
 - Linux positive-path Electron and package jobs start a temporary CI-only Secret Service and opt
   the test harness into Electron's `gnome-libsecret` password store explicitly. The harness fails
   closed when that opt-in is absent or encryption is unavailable. The packaged smoke also launches
-  once with `--password-store=basic` and requires truthful `basic_text` reporting plus
+  once with `--password-store=basic` and requires accurate `basic_text` reporting plus
   credential-persistence rejection.
 
 ## Promotion
 
+Historical signed-distribution design. This section does not enable `release-candidate.yml.disabled`.
+
 The `release-candidate` workflow checks out an exact tag, rebuilds and verifies every native row in
 the selected target set, and sends only that exact complete output to the `release` environment.
-The active and default target set is `macos`; the `all` target set is retained only for explicitly
+The active and default target set is `macos`. The `all` target set is retained only for explicitly
 resuming four-platform validation. Repository administrators must configure that environment with
 the desired required reviewers.
 
-`dry-run` promotion is test-only and may retain unsigned packages; it never creates a GitHub
+`dry-run` promotion is test-only and can retain unsigned packages. It never creates a GitHub
 Release. Production promotion is currently allowed only for the `macos` target set and is
 fail-closed until its evidence proves Developer ID signing and notarization for both macOS rows.
 The deferred `all` target set would additionally require Authenticode signing for Windows and

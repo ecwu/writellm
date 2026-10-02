@@ -45,7 +45,7 @@ revisions must use v2.
 
 All Markdown export runs in Main/shared. Both whole-manuscript and single-section export derive one
 index from the validated current assembly and emit only `[n]` in body content. A single-section
-artifact therefore preserves global numbers and may contain gaps. No References appendix or hidden
+artifact therefore preserves global numbers and can contain gaps. No References appendix or hidden
 mapping is emitted, and import treats `[n]` as ordinary text. The whole-manuscript loss report
 records citation numbering explicitly.
 
@@ -55,7 +55,7 @@ Users can choose compact editing without changing manuscript identity or LLM beh
 whole-manuscript, preview, and Agent-visible revision counts consume one citation-free authority.
 Reordering can change every displayed and exported number by design. Markdown export is explicitly
 non-recoverable for citation titles and provenance. Historical pruned revision counts remain
-truthfully marked v1 rather than being fabricated.
+accurately marked v1 instead of being fabricated.
 
 The checkpoint requires app-setting IPC, bounded reference-index IPC, project migration 0028, and
 Renderer decoration/References state, but adds no app migration, project registry, provider change,

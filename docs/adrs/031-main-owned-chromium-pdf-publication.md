@@ -7,8 +7,7 @@
 ## Context
 
 Checkpoint 41A needs a stable final PDF from the same immutable Checkpoint 38 publication
-assembly used by DOCX and LaTeX (that assembly's contract lives in `architecture.md`; it has no
-standalone ADR). The result must preserve selectable mixed CJK/Latin text,
+assembly used by DOCX and LaTeX. Its contract lives in `architecture.md` and has no standalone ADR. The result must preserve selectable mixed CJK/Latin text,
 headings as bookmarks, links, images, formulas, references, page numbers, and a numbered table of
 contents. Rendering must not expose filesystem paths or browser authority to the Renderer, create
 a local HTTP service, or introduce a second publication model.
@@ -25,7 +24,7 @@ Main owns a single hidden, sandboxed `BrowserWindow` per export. It uses a uniqu
 partition, context isolation, no Node integration, JavaScript disabled, denied permissions and
 window creation, and a strict content security policy. Captured and hash-verified image bytes are
 served only through a dedicated privileged `writellm-pdf-asset:` protocol registered on that
-ephemeral session; no raw paths or local server are used.
+ephemeral session. No raw paths or local server are used.
 
 A pure converter renders the captured publication assembly as print HTML with an
 application-owned CJK/Latin font stack, CSS page size and margins, heading hierarchy, figures,
@@ -51,6 +50,6 @@ Chromium embeds build metadata.
 - There is no PDF editor, general print service, local web server, utility-process browser, or
   bundled office/TeX runtime.
 - Runtime verification must inspect selectable text, outline, destinations, and annotations with
-  `pdfjs-dist`; the package gate is required because Electron and packaged resources participate.
+  `pdfjs-dist`. The package gate is required because Electron and packaged resources participate.
 - The fixed three-capture maximum bounds TOC stabilization. A residual destination mismatch is
   surfaced through validation rather than an unbounded render loop.

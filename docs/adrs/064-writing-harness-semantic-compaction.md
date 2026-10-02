@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 72; implementation authorized
 Date: 2026-08-25
 
+Current rule: ADR 074 replaces rolling compaction with one summary of older history. Current requests remain intact. Raw events and project records remain authoritative.
+
 ## Context
 
 Checkpoint 71 removed the fixed 240-event source ceiling, but a field run still produced a
@@ -27,12 +29,12 @@ can be reread through bounded tools.
   not enter the compaction model.
 - Re-readable observations retain only deduplicated safe identity and freshness facts such as IDs,
   revisions, hashes, bounded display labels, page ranges, counts, and truncation state. Tool calls
-  and results are represented once as bounded continuation facts; a new tool without an explicit
+  and results are represented once as bounded continuation facts. A new tool without an explicit
   policy is a compile-time and test failure.
 - Candidate sizing uses the final escaped compaction prompt. The 2,000-event scan ceiling, the
   262,144-character Agent prompt contract, and the calculated model-input token budget all fail
   closed before provider work. Low-priority diagnostics and then oldest unused observation facts
-  may be removed; conversational requirements and authoritative outcomes may not.
+  can be removed. Conversational requirements and authoritative outcomes must not be removed.
 - Payload-v3, existing Agent events, current IPC, and current project tables remain compatible.
   No migration, compaction table, background summary task, provider-specific checkpoint, or
   long-term implicit memory is introduced.

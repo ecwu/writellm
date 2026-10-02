@@ -21,7 +21,7 @@ compact activity summary that expands to individual operations.
 
 The Agent composer keeps context, approval policy, model, Thinking, and Writing Skill directly
 available as compact shadcn controls. The same values remain in Details for diagnostics and the
-existing run/review/image-generation snapshot lock remains authoritative. Labels may truncate
+existing run/review/image-generation snapshot lock remains authoritative. Labels can truncate
 within their allocated desktop controls, but must not remove controls from the default composer.
 
 The running status names the current user-facing activity and elapsed time instead of displaying a
@@ -31,7 +31,7 @@ commit details remain in Details.
 
 The Agent operating policy asks for brief user-visible progress messages before the first
 substantial tool phase and between materially different phases. These messages report intent,
-observable findings, and the next action; they must not expose hidden reasoning or narrate every
+observable findings, and the next action. They must not expose hidden reasoning or narrate every
 trivial operation. Existing assistant-message and tool events provide the alternating timeline, so
 no event type, persistence table, worker role, or migration is added.
 

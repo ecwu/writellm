@@ -3,18 +3,20 @@
 Status: accepted for Checkpoint 76; implementation authorized
 Date: 2026-08-30
 
+Current rule: ADR 077 removes Review Issue tools. ADRs 078 and 079 add Comment tools within the existing Ask, Plan, and Write limits.
+
 ## Context
 
 ADR 067 reduced the initial writing envelope by letting the model activate bounded tool groups.
 That mechanism optimizes context after Main has already authorized an ordinary writing run. It
-cannot represent a user's stronger instruction that a particular run may only inspect the
-manuscript or may plan without proposing manuscript changes: a writing run that starts without an
+cannot represent a user's stronger instruction that a particular run can only inspect the
+manuscript or can plan without proposing manuscript changes: a writing run that starts without an
 active group still has `activate_tool_groups` and can widen its own active set.
 
 ADR 067 rejected UI-selected modes because making every ordinary request depend on a manual choice
 would add product state and friction. The requested interaction does not require that tradeoff.
 New conversations continue to default to Write, while Ask and Plan are explicit user-selected
-ceilings that reduce authority. The selected value remains directly beside Send, may be changed
+ceilings that reduce authority. The selected value remains directly beside Send, can be changed
 before each run, and persists until the user changes it. A run snapshots the value and cannot
 widen it.
 
@@ -28,7 +30,7 @@ activation mechanism and proposal boundary.
 ### 1. Keep the outer profiles and add one writing-only interaction mode
 
 `writing` and `notebook_knowledge` remain the only outer Main-authorized tool profiles. Durable
-writing sessions add a sticky `ask`, `plan`, or `write` interaction mode; Notebook has no mode.
+writing sessions add a sticky `ask`, `plan`, or `write` interaction mode. Notebook has no mode.
 New and migrated writing sessions default to `write`. Every writing run stores an immutable mode
 snapshot.
 
@@ -45,13 +47,13 @@ set, and Main rejects every call outside it.
   `update_writing_task`.
 - Write preserves the nine Protocol v12 core tools and the seven run-local activation groups.
 
-Ask and Plan never expose `activate_tool_groups`. Plan may change only Writing Task collaboration
-metadata; it cannot record or update Review Issues or create Brief, Writing Rule, Outline,
+Ask and Plan never expose `activate_tool_groups`. Plan can change only Writing Task collaboration
+metadata. It cannot record or update Review Issues or create Brief, Writing Rule, Outline,
 Section, table, or image proposals. Approval policy never enlarges a mode ceiling.
 
 ### 3. Snapshot mode at the run boundary
 
-The session value may change only when no live run, clarification waiter, compaction, generation,
+The session value can change only when no live run, clarification waiter, compaction, generation,
 or reserved steer/follow-up remains. Pending proposals do not block changing the next ordinary
 run. Steering and follow-up messages inherit their live run's snapshot.
 
@@ -75,7 +77,7 @@ remain excluded from logs.
 
 The idle composer keeps its single footer row: Add, approval, elastic model/effort, interaction
 mode, and Send. The mode trigger uses a shadcn Dropdown Menu Radio Group with Ask, Plan, and Write
-plus short truthful descriptions. It stays visible but disabled while a run is live. Ask and Plan
+plus short accurate descriptions. It stays visible but disabled while a run is live. Ask and Plan
 leave the approval selector visible but disabled and retain its stored value for the next Write
 run. The configured desktop composer keeps Add, approval, mode, and Send complete while
 model/effort truncates first when space is needed.
@@ -95,7 +97,7 @@ reconciliation, and Plan-to-Write task handoff remain separately gated Checkpoin
 - Rely only on `activate_tool_groups`: the model, rather than the user, still controls whether a
   writing run widens its active set.
 - Use prompt text without an enforced ceiling: this is neither auditable nor fail closed.
-- Require a choice for every message: this adds the friction ADR 067 rejected; a sticky Write
+- Require a choice for every message: this adds the friction ADR 067 rejected. A sticky Write
   default preserves ordinary behavior.
 - Add three outer profiles or a generic permission engine: both duplicate the existing profile and
   active-set authority.

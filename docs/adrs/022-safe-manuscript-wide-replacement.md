@@ -43,18 +43,18 @@ current section revision without changing structural meaning:
 | Any match in a code block or touching `styles.code` text | Skipped | Code is structured content |
 | Mermaid or math source, image name/URL, block props other than caption | Not searched | Outside the CP29 prose surface |
 
-One candidate that crosses both eligible and excluded nodes is skipped as a whole; it is never
+One candidate that crosses both eligible and excluded nodes is skipped as a whole. It is never
 partially rewritten. Skip reasons are the closed enum `section_metadata`, `readable_citation`,
 `link_text`, `code_block`, `inline_code`, `structured_overlap`, and `unchanged`. When more than one
 reason applies, that list is also the precedence order, except `unchanged` is evaluated only after
 structural eligibility. Every reason is shown in preview. CP30 has no override that makes an
-excluded candidate selectable. A later checkpoint may add a separately reviewed structured-edit
+excluded candidate selectable. A later checkpoint can add a separately reviewed structured-edit
 mode, but it must not widen this plain-text contract in place.
 
 Readable-citation overlap is determined with the shared canonical citation parser over the exact
 original surface. Link and inline-code overlap is determined from the semantic segments and their
 stored inline nodes. The containing block type decides the code-block rule. This classification is
-pure application-domain logic and is covered by fixtures; it is not inferred from DOM,
+pure application-domain logic and is covered by fixtures. It is not inferred from DOM,
 ProseMirror, decoration, preview, or rendered HTML state.
 
 The query keeps CP29 semantics: well-formed UTF-16, 1-512 code units, NFC projection, optional
@@ -88,7 +88,7 @@ A plan contains:
 
 Only one unapplied live plan is retained per active project session. Creating another plan revokes
 the previous unapplied plan. A plan expires after 15 minutes, on project close/switch, after
-successful application, or when explicitly dismissed. A bounded completed-command receipt may
+successful application, or when explicitly dismissed. A bounded completed-command receipt can
 remain until the same expiry solely for idempotent retry, without remaining applicable. Main
 retains at most 32 MiB for live-plan and receipt state, including the bounded 8 MiB manuscript
 snapshot and derived candidates. Plan state is never stored in SQLite, a job, Renderer storage, or
@@ -109,7 +109,7 @@ embedded in cursors or IDs.
 
 ### 3. Selection is explicit and application revalidates only the selected body authority
 
-Renderer initially selects no candidates. It may select individual eligible candidates, one
+Renderer initially selects no candidates. It can select individual eligible candidates, one
 section's eligible candidates, or all eligible candidates within the application limit. Skipped
 candidates are visible but cannot be selected. Application accepts one `planId`, a unique list of
 candidate IDs, a random `commandId`, and whether to create an optional pre-change project
@@ -133,7 +133,7 @@ transaction:
 - the transformed section remains valid under BlockNote schema, per-section byte/block/inline/
   depth limits, and the 8 MiB current-workspace limit.
 
-An unselected section revision may change without invalidating selected body replacements, but an
+An unselected section revision can change without invalidating selected body replacements, but an
 outline-version change invalidates the plan. Any failed selected precondition aborts the entire
 transaction and returns a bounded conflict summary. Main never relocates a candidate, reruns a
 nearest-text search, accepts a changed occurrence count, or applies the remaining candidates.
@@ -194,7 +194,7 @@ it does not justify a background worker or partial-commit protocol.
 After the database transaction commits, the application service materializes every new current
 revision through `EditorPersistenceService`. File publication remains outside the transaction. A
 materialization failure is logged with the original error and returned as
-`materializationPendingSectionIds`; it does not roll back or disguise the already-atomic canonical
+`materializationPendingSectionIds`. It does not roll back or disguise the already-atomic canonical
 database commit. Existing materialization guards prevent an older publication from overwriting a
 newer revision, and startup/open repair restores missing or stale mirrors.
 
@@ -211,7 +211,7 @@ was delivered.
 
 While the process remains alive, the consumed plan retains the completed `commandId`, selection
 fingerprint, revision IDs, and result until expiry. Retrying the same command returns
-`already_applied`; a different command or selection against the consumed plan is rejected. Plan
+`already_applied`. A different command or selection against the consumed plan is rejected. Plan
 state is intentionally not durable across process restart. Once the write transaction begins the
 operation is non-cancellable; cancellation and project-close aborts are honored before that
 boundary, then finalization completes against the committed authority.
@@ -250,7 +250,7 @@ Find gains a progressive-disclosure Replace mode. Entering replacement text perf
 `Review replacement` requests a complete plan and opens a grouped preview in the same workspace
 rail language. Each candidate shows bounded before/after context, section/outline context,
 target type when useful, eligibility, and a human-readable skip reason. Selection controls expose
-individual, per-section, and all-eligible actions; the default selection is empty.
+individual, per-section, and all-eligible actions. The default selection is empty.
 
 Preview uses one scroll region. Sections are ordered like the manuscript and use compact headings;
 eligible candidates are immediately visible, while each section's skipped candidates sit in one
@@ -298,7 +298,7 @@ undo:  undone | already_undone | stale | invalid_capability | expired_capability
 
 Only `applied` and `already_applied` mean that every selected canonical revision committed. A
 bounded conflict carries reason/count/section IDs, never manuscript slices. Sanitized transport or
-unexpected failures remain errors rather than being mislabeled as a domain result.
+unexpected failures remain errors instead of being mislabeled as a domain result.
 
 Lifecycle logs use `subsystem: 'manuscript'`, a replacement component, and fixed events for plan
 completion/truncation/failure/expiry, apply start/conflict/commit/materialization failure, and Undo.

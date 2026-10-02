@@ -4,6 +4,8 @@
 - Date: 2026-08-17
 - Checkpoint: Phase 12 Checkpoint 51
 
+Current rule: ADR 074 replaces the one-recovery limit with independent errors for oversized read batches. The no-replay and mutation rules remain.
+
 ## Context
 
 The Pi runtime receives a provider-facing transcript through `transformContext`, while its full
@@ -28,7 +30,7 @@ atomic assistant/tool-result batches:
   results;
 - the newest batch that fits is retained in full, including body content, `blockId`, `blockHash`,
   and `revisionId`;
-- only older complete read batches may become a `historical_projection`, which has
+- only older complete read batches can become a `historical_projection`, which has
   `contentAvailable: false` and `mutationAuthority: false`;
 - mutation and effect results are never projected.
 
@@ -43,8 +45,7 @@ The full Pi transcript, durable Agent events, checkpoints, and manuscript state 
 the transform creates only a provider-facing copy. Successful recovery emits structured worker
 lifecycle logs and no Renderer timeline item. Final exhaustion crosses the existing Worker-to-Main
 error channel and produces one actionable Renderer termination message: earlier confirmed changes
-remain, unprocessed content was not force-edited, and the user should continue with one section or
-a smaller range.
+remain and unprocessed content was not force-edited. It asks the user to continue with one section or a smaller range.
 
 ## Consequences
 
@@ -58,14 +59,14 @@ a smaller range.
 
 ## Alternatives Rejected
 
-- **Continue grouping by user message:** a long request remains an indivisible context unit and can
+- Continue grouping by user message: a long request remains an indivisible context unit and can
   discard the wrong active evidence.
-- **Project the newest read and ask the user to refresh:** refresh cannot restore data deliberately
+- Project the newest read and ask the user to refresh: refresh cannot restore data deliberately
   omitted from the provider copy and misdiagnoses healthy document state.
-- **Guess hashes or reuse projected identifiers:** this would weaken optimistic concurrency and
+- Guess hashes or reuse projected identifiers: this would weaken optimistic concurrency and
   could authorize edits against content the model did not receive.
-- **Replay the whole request after overflow:** prior proposals and effects make replay unsafe.
-- **Add a new recovery tool or persistence table:** the existing read tools and Pi loop already
+- Replay the whole request after overflow: prior proposals and effects make replay unsafe.
+- Add a new recovery tool or persistence table: the existing read tools and Pi loop already
   provide the required bounded retry.
 
 ## Verification

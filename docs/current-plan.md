@@ -1147,6 +1147,12 @@ notarization, GitHub Release, promotion, or publication ran.
 
 ## Current authorized work
 
+The checkpoint authorization records below describe past requests. They do not start a new task.
+Read Current state above for later decisions and delivery results. Follow the current user request for new work.
+ADR 074 replaces the older compaction, Skill-loading, trace, and live-retry rules.
+ADR 083 replaces ADR 074's removal of the shared admission limit.
+The active release policy replaces the older publication restrictions below.
+
 Checkpoint 81 is complete under ADR 072. It removed event/byte auto-compaction thresholds,
 strengthened the existing payload-v3 rolling handoff prompt and wrapper, and added the slash-only
 immediate manual compaction action. The existing source scan ceiling, tool-loop finalization,
@@ -1156,7 +1162,7 @@ promotion, and publication remain outside authorization.
 
 Checkpoint 80 is authorized under ADR 071. It may add the live Worker retry anchor, capability-
 bound Main/Worker protocol, schema-v4 `model_retry` lineage, request-scoped retry-waiting activity,
-dedicated IPC/preload method, truthful Renderer actions, migration/recovery coverage, and the
+dedicated IPC/preload method, accurate Renderer actions, migration/recovery coverage, and the
 approved non-release verification gates. Durable Agent jobs, restart recovery, token-offset stream
 resume, provider-specific SDK paths, Pi forks, tool replay, package/release work, commits, tags,
 pushes, signing, notarization, promotion, and publication remain outside this authorization.
@@ -1263,5 +1269,5 @@ transitions and local candidate chronology are in
 - Realtime collaboration, Yjs, cloud sync, and alternative vector backends.
 - DOCX and other non-LaTeX manuscript import formats.
 - True image editing and provider-agnostic image plugins.
-- Auto-updater, additional distribution targets, signing, notarization, release promotion, and
-  publication.
+- Auto-updater, additional distribution targets, and signed distribution, including signing and notarization.
+  Unsigned publication follows the accepted policy in [`release-policy.md`](release-policy.md).

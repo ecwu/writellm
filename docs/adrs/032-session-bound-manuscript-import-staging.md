@@ -7,7 +7,7 @@
 ## Context
 
 Checkpoint 36 replaces the Renderer-owned Markdown file input with a review-before-apply import
-boundary. An import may contain a manuscript structure, rich text, and local images, but the
+boundary. An import can contain a manuscript structure, rich text, and local images, but the
 Renderer is untrusted and must not receive file paths, source bytes, or filesystem authority. The
 preview and the eventual mutation must also be derived from exactly the same captured source and
 mapping plan.
@@ -29,7 +29,7 @@ never returns the selected path or bytes to Renderer. A format adapter receives 
 bytes plus a constrained local-resource resolver. It cannot access the network, execute embedded
 content, start a process, or open arbitrary paths.
 
-The selected file's real parent directory is the resource root. Relative image references may
+The selected file's real parent directory is the resource root. Relative image references can
 contain only normal path segments beneath that root; absolute paths, URL schemes, `..`, encoded
 escapes, links, non-regular files, unsupported MIME content, and resources outside the byte/count
 budget are rejected. Identical image bytes are deduplicated by hash. Resource bytes are also
@@ -44,14 +44,14 @@ identity, proposed metadata/sections/content, assets, warnings, unsupported cons
 records.
 
 Markdown level-one headings start new proposed sections. Text before the first heading becomes an
-`Imported preface`; a file without level-one headings becomes one section named from the source
+`Imported preface`. A file without level-one headings becomes one section named from the source
 file. Lower headings remain body headings. Empty input produces a non-applicable no-op plan.
 `create_sections` appends all proposed sections; `replace_active_section` flattens multiple
 proposals into the active body with their titles as headings. Whole-manuscript replacement is not
 implemented and remains a separate reviewed mutation.
 
 During planning, captured images are published through the existing immutable asset service so
-the typed preview and final BlockNote body share the same registered opaque URLs; no manuscript
+the typed preview and final BlockNote body share the same registered opaque URLs. No manuscript
 revision changes. Before apply, Main verifies the staged source and resource hashes and
 revalidates the captured brief, outline, and active revision. The manuscript database mutation is
 then atomic: either all imported sections and
@@ -60,7 +60,7 @@ are. Active-section replacement uses the existing import revision optimistic-con
 Materializations are published after commit and remain repairable from canonical SQLite state.
 If asset publication succeeds but the manuscript transaction fails, the deduplicated unreferenced
 asset is an explicit partial outcome and the existing orphan cleanup lifecycle reclaims it after
-its grace period; no manuscript state is partially applied.
+its grace period. No manuscript state is partially applied.
 
 ## Consequences
 

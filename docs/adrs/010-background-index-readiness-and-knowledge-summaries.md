@@ -35,5 +35,5 @@ selected source. Polling runs only while corresponding work is active.
 Manuscript editing is available independently of derived-index size. Search can be temporarily
 unavailable after an unclean exit or while rebuilding, but no authoritative content is lost.
 Existing indexes receive one conservative background scan before they can establish the clean
-reopen marker. Freed SQLite pages may remain in the file until reused; this change bounds future
+reopen marker. Freed SQLite pages can remain in the file until reused; this change bounds future
 growth but does not perform an uninterruptible compaction.

@@ -33,11 +33,11 @@ single-section `insertBlocks` domain operation. The persisted proposal kind, sim
 CAS, preview, approval, Undo, materialization, and asset-reference authority remain unchanged.
 
 Cross-section relocation is deliberately two-stage and non-atomic. The Agent first proposes the
-destination insertion. It may propose removal of the original source block only after the
+destination insertion. It can propose removal of the original source block only after the
 insertion result is `applied` or `satisfied`, using the original source block ID and hash. A pending,
 failed, conflicted, or rejected insertion never authorizes source removal. A source-removal
 conflict is terminal for the relocation attempt: the Agent does not refresh the hash and delete a
-newer source block. This failure bias may leave a recoverable duplicate but never removes the only
+newer source block. This failure bias can leave a recoverable duplicate but never removes the only
 copy.
 
 Same-section movement continues to use `moveBlocks`. When an ordinary target belongs to another
@@ -46,7 +46,7 @@ refreshable missing-block conflict. Ordinary missing, deleted, and stale same-se
 their existing conflict behavior.
 
 Application policy, not a new workflow table or coordinator, owns the cross-tool sequence. Manual
-mode stops on the pending insertion and waits for review. Write Auto and YOLO may continue only
+mode stops on the pending insertion and waits for review. Write Auto and YOLO can continue only
 after the ordinary insertion proposal has actually applied. The feature adds structured safe-ID
 lifecycle logs at insertion preparation and retains the existing proposal/application logs.
 

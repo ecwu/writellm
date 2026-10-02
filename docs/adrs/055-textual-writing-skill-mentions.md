@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-08-19
 
+Current rule: ADRs 073 and 074 replace the requirement that explicit Skill content enter only through tool reads. Textual mentions remain supported.
+
 ## Context
 
 ADR 054 correctly removed Writing Skills as durable session or composer configuration, but it also
@@ -10,25 +12,25 @@ removed the direct discovery affordance that lets a user name an installed Skill
 its exact canonical name. Ordinary prose remains valid, yet it is less precise and does not expose
 which explicit-only Skills are available.
 
-Writing Skill invocation should remain an Agent tool process. A composer affordance may help author
+Writing Skill invocation must remain an Agent tool process. A composer affordance can help author
 the request, but it must not become a second authorization channel, hidden attachment, persisted
 selection, or silent prompt injection.
 
 ## Decision
 
-- A new Agent run may begin with an ordered prefix of up to four canonical `$skill-name` tokens.
+- A new Agent run can begin with an ordered prefix of up to four canonical `$skill-name` tokens.
   The tokens are ordinary, editable prompt text and remain verbatim in the user message. The
-  composer may autocomplete them from safe installed metadata, but sends no Skill IDs or selection
+  composer can autocomplete them from safe installed metadata, but sends no Skill IDs or selection
   object.
 - Main reparses the original prompt and resolves exact canonical names against current application-
   global Skill authority. Unknown tokens grant nothing. Disabled, invalid, ambiguous, and excessive
   recognized mentions fail safely before any Skill content is disclosed to the model.
 - A recognized mention authorizes only the pinned virtual entrypoint for that run. The Agent must
-  still call `read_writing_skill`; no Skill body is injected silently. Mentioned Skills load in text
+  still call `read_writing_skill`. No Skill body is injected silently. Mentioned Skills load in text
   order, dependencies remain mandatory, and downstream work or a final answer is rejected while a
   requested load is pending.
-- Explicit-only Skills may appear in `$` autocomplete and the requested catalog but remain absent
-  from automatic model discovery. After requested Skills settle, the Agent may discover additional
+- Explicit-only Skills can appear in `$` autocomplete and the requested catalog but remain absent
+  from automatic model discovery. After requested Skills settle, the Agent can discover additional
   complementary Skills within the existing shared limits.
 - Autocomplete is available only for an idle composer starting a new run. Slash commands continue
   to control context. Steer and queued Follow-up messages do not reopen a run's closed Skill
@@ -50,7 +52,7 @@ supersedes only its conclusion that the composer has no textual Skill invocation
 3. Trust Renderer-supplied Skill IDs. This makes untrusted UI state an authorization input instead
    of deriving authority from the original prompt and Main-owned registry.
 4. Reopen Skill preparation during Steer or Follow-up. This complicates active-run ordering and can
-   invalidate already-built context; it is deferred unless a later decision redesigns run turns.
+   invalidate already-built context. It is deferred unless a later decision redesigns run turns.
 
 ## Consequences
 

@@ -8,8 +8,8 @@
 
 Restore deliberately preserves project identity because it replaces or relocates one authority.
 Clone / Save As creates a second independently writable authority and therefore must mint a new
-identity. A raw directory copy is unsafe: an open SQLite database may have WAL state, transient or
-rebuildable files may be copied, links may escape the project, and the manifest can disagree with
+identity. A raw directory copy is unsafe: an open SQLite database can have WAL state, transient or
+rebuildable files can be copied, links can escape the project, and the manifest can disagree with
 the database.
 
 ## Decision
@@ -40,15 +40,15 @@ manifest is written last inside staging, and the complete directory is published
 create-only rename. Failure or cancellation removes staging and never changes the source or
 publishes a destination. After successful publication, Save As closes the source and opens the
 clone through the normal project lifecycle, which is the first point at which recent-project state
-may be updated. The clone has no version-history repository and opens with history uninitialized (ADR 007's
+can be updated. The clone has no version-history repository and opens with history uninitialized (ADR 007's
 initial-checkpoint rule does not apply to clone);
 its missing derived index follows the normal rebuild path.
 
 ## Consequences
 
-- Source and clone may be opened sequentially and can never share a `projectId`.
+- Source and clone can be opened sequentially and can never share a `projectId`.
 - Clone is not a restore mode, folder watcher, multi-project runtime, or configurable backup UI.
-- Copied content keeps internal IDs and provenance; only project-level identity changes.
+- Copied content keeps internal IDs and provenance. Only project-level identity changes.
 - Application-global provider credentials and settings are available to the application as usual
   but are never copied into the project folder.
 - A later schema change that introduces project identity must update this ADR and the asserted

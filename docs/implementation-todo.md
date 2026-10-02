@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
+Status: Phase 33 Checkpoint 84 is locally verified under accepted ADRs 078–079. Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
 complete under accepted ADR 072. Phase 29 Checkpoint 80 is
 complete under ADR 071. Phase 28 Checkpoint 79 is
 complete under ADR 070; Checkpoint 77 remains independently paused.
@@ -9,7 +9,8 @@ static/fixture gate and all four independent native build/upload jobs under the 
 online scope; complete Electron, E2E, and package verification passed locally before the tag.
 Recorded: 2026-09-05
 
-This is the short completion and routing index. Active delivery state lives in
+This file lists checkpoint status and links to detailed evidence.
+Use the current plan for later delivery state. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
 completed chronology lives in [`history/implementation-log.md`](history/implementation-log.md).
 
@@ -90,7 +91,7 @@ Status markers:
   proposal review. Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal).
 
-- [x] Maintenance: add caret-local `/cite` search with three single-line Reference candidates.
+- [x] Maintenance: add caret-local `/cite` search with three limited to one active run or manual compaction at a time Reference candidates.
   Evidence:
   [`history/implementation-log.md`](history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
 

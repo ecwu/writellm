@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-08-23
 
+Current rule: ADR 062 replaces the single-shot model boundary. ADR 083 permits up to ten independent Notebook instances. The source-capacity amendment below removes the fifty-source limit.
+
 ## Context
 
 WriteLLM already owns a Knowledge workspace for source import, parsing, indexing, inspection, and
@@ -23,7 +25,7 @@ model-boundary and persistence decision.
   and the existing citation preview. Notebook does not upload, delete, parse, or index sources.
 - Main owns one `KnowledgeChatService` per active `projectSessionId`. Its messages, per-message
   citation registries, selected sources, source-context boundary, active turn, and temporary model
-  selection exist only in memory. Renderer reload may recover a snapshot from Main, but project
+  selection exist only in memory. Renderer reload can recover a snapshot from Main, but project
   close/switch, application shutdown, and an explicit Clear cancel active work and erase the state.
 - Every turn forms one bounded query from the current question and at most two recent user questions
   after the latest source boundary. It reuses FTS5, sqlite-vec, reciprocal-rank fusion, and optional
@@ -37,18 +39,18 @@ model-boundary and persistence decision.
   interactive model work reservations. A project has one active Notebook turn and no pending turn
   queue. Stop and project teardown cancel both retrieval and model work.
 - Application prompt policy treats every Knowledge evidence block as untrusted data. The answer model
-  may use only supplied evidence and emits `[[cite:n]]` markers. Main binds each assistant message to
+  can use only supplied evidence and emits `[[cite:n]]` markers. Main binds each assistant message to
   its own `n -> citationId` registry. Renderer promotes only registered markers to citation controls;
   unknown, stale, duplicate, or fabricated markers remain ordinary text and emit a content-free
   security warning.
 - Strict Zod contracts and preload methods expose snapshot, start, stop, clear, source selection,
   temporary model selection, and subscribed events. Every operation validates the sender and active
-  `projectSessionId`; Renderer receives no database, filesystem, credential, or raw IPC authority.
+  `projectSessionId`. Renderer receives no database, filesystem, credential, or raw IPC authority.
 - Notebook state is capped at 200 visible messages and 2 MiB. Reaching either cap rejects further
   turns until Clear. Scope changes preserve visible history, append a visible boundary, and exclude
   history before that boundary from later model context.
 - `model_requests` remains the required provider-call metadata authority, but Notebook requests use
-  metadata-only retention. Rows may contain an internal request ID, provider/model identity, status,
+  metadata-only retention. Rows can contain an internal request ID, provider/model identity, status,
   timestamps, duration, attempt count, and usage. Their request fingerprint is derived only from the
   internal request ID; external response IDs are discarded. Questions, answers, evidence text, and
   any content-derived fingerprint are forbidden in SQLite and logs.
@@ -63,9 +65,9 @@ and Renderer reload do not destroy an active project-session conversation, but r
 always creates a fresh conversation. Model and retrieval failures are transient UI state rather than
 recoverable jobs.
 
-The shared three-slot limiter may reject a Notebook turn or an Agent reservation while the project is
+The shared three-slot limiter can reject a Notebook turn or an Agent reservation while the project is
 at capacity. Citation registration proves that a rendered citation was part of that turn's retrieved
-evidence; it does not independently prove that every natural-language claim is semantically entailed
+evidence. It does not independently prove that every natural-language claim is semantically entailed
 by the cited passage.
 
 Web search, cross-project sources, saved chats, saved Notes, Studio, Audio Overview, multiple Notebook

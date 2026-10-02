@@ -15,7 +15,7 @@ Application-global Agent provider and model preferences determine which authenti
 available for future conversation runs. Provider and model disablement never rewrites a stored
 conversation selection or an immutable run snapshot. Main revalidates availability when resolving
 the next run and performs no silent fallback. Disabling or deleting a selected default clears the
-default; an affected idle conversation must choose another enabled model before it can run.
+default. An affected idle conversation must choose another enabled model before it can run.
 
 Pi's packaged and last-successful discovered catalogs remain distinct from application-owned
 manual models. Manual models store only bounded non-secret metadata and overlay a discovered model

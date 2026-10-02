@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-08-23
 
+Current rule: ADR 060 replaces application-owned display Math with native `mathBlock`. The inline Math decision remains.
+
 ## Context
 
 BlockNote 0.54.0 exposes an optional native inline Math spec with `$...$` and `\(...\)` input
@@ -22,7 +24,7 @@ capabilities and persisted block contracts without a corresponding product gain.
 - Keep application-owned display Math and Mermaid. BlockNote shares one ProseMirror node namespace
   between block and inline specs, so Renderer uses `displayMath` solely as the internal editor name
   for the existing display block. Load/save conversion maps that alias to canonical block
-  `type: "math"`; no database, Agent, import/export, or historical JSON shape changes.
+  `type: "math"`. No database, Agent, import/export, or historical JSON shape changes.
 - Advance current section content to schema v4. Canonical inline formulas are strict atomic nodes
   `{ "type": "math", "content": string }` with no styles or props. Source is one line, contains no
   NUL, is at most 8,192 characters, and is at most 8 KiB UTF-8. Renderer blocks over-limit edits;
@@ -33,7 +35,7 @@ capabilities and persisted block contracts without a corresponding product gain.
   artifacts remain immutable and therefore become detectably stale through the existing rules.
 - Ordinary text extraction, counts, search, replacement, and readable-citation parsing treat inline
   formulas as non-searchable structural separators. Agent reads project formulas as `$source$` and
-  canonical block replacement may preserve or create them without a new IPC or tool.
+  canonical block replacement can preserve or create them without a new IPC or tool.
 - Markdown and LaTeX import create native inline formula nodes. Markdown emits `$source$`, DOCX
   reuses the OMML projection, PDF uses inline KaTeX, and LaTeX emits `\(source\)`. Unsafe,
   structurally invalid, or non-round-trippable source degrades to readable code text with an exact
@@ -47,7 +49,7 @@ capabilities and persisted block contracts without a corresponding product gain.
 
 Inline formulas become first-class editable manuscript structure without replacing the richer
 application display blocks or delegating authority to BlockNote exporters. Persisted v1-v3
-revisions remain readable and unchanged; only active heads advance to v4. Formula source no longer
+revisions remain readable and unchanged. Only active heads advance to v4. Formula source no longer
 participates in ordinary prose operations, while whole-block Agent edits and explicit interchange
 formats retain it.
 

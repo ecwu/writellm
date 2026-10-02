@@ -12,7 +12,7 @@ cost, failure, and model-request lineage ambiguous.
 
 The accepted product flow uses the user's local Google Cloud Application Default Credentials (ADC),
 normally established with `gcloud auth application-default login`. WriteLLM stores only the Project
-ID and fixed model settings; it neither imports nor persists Google credentials. The exact-pinned
+ID and fixed model settings. It neither imports nor persists Google credentials. The exact-pinned
 `@google/genai@2.13.0` Node client discovers ADC when initialized for Vertex with `project` and
 `location` and no API key.
 

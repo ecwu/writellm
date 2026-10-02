@@ -20,7 +20,7 @@ terminology contain the word “review”.
 Remove the Review Center, manuscript annotations, `check_draft`, the three Review Issue tools,
 Review Issue persistence and lifecycle, and proposal-to-issue reconciliation. Agent Harness
 Protocol v15 contains no runtime or model-visible compatibility branch for those four removed
-tools. Ordinary Agent conversations may still inspect manuscript and evidence through the general
+tools. Ordinary Agent conversations can still inspect manuscript and evidence through the general
 read tools and provide non-persisted feedback.
 
 Keep Writing Rules, `inspect_change`, typed proposals, manual/automatic approval, rejection,

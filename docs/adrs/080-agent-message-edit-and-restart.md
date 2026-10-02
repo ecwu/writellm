@@ -18,7 +18,7 @@ conversation; subsequent execution failure leaves the replacement prompt availab
 Migration 0046 adds replacement intervals and sequence-bound business-effect receipts. SQLite
 triggers record actual proposal application/undo and Agent comment writes in their own transaction;
 legacy effects are conservatively reconstructed from persisted decision/event timestamps. These
-receipts only disqualify editing; they are not manuscript or recovery authority. Agent writing-plan
+receipts only disqualify editing. They are not manuscript or recovery authority. Agent writing-plan
 changes also disqualify editing because their current collaboration state cannot be silently rewound.
 Manual and other-session edits do not disqualify the target message. Pending image work must settle
 or be cancelled first. Pending proposals whose tool call precedes the editable boundary must be

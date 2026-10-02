@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 28.4; amended by ADR 019 for Checkpoint 28.5
 Date: 2026-08-12
 
+Current rule: ADR 083 sets the current shared three-run Agent/Notebook limit. ADR 019 defines reservations for manual compaction.
+
 ## Context
 
 Agent persistence and protocol envelopes already isolate work by `agentSessionId`, `agentRunId`,
@@ -32,7 +34,7 @@ settlement remain capability-bound to the exact work item. Project close cancels
 starting run, active run, title request, and manual compaction. Relaunch recovery marks persisted
 `running` rows interrupted and unmatched compaction starts failed without resuming model work.
 
-Keep one `agent-worker` process. It may host up to three isolated Pi session loops, each with its
+Keep one `agent-worker` process. It can host up to three isolated Pi session loops, each with its
 own controller, request state, tool `MessagePort`, and run capabilities. A targeted cancellation
 affects only its matching loop; worker exit or a process-level protocol violation rejects all
 requests owned by that worker.

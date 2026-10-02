@@ -7,7 +7,7 @@ Date: 2026-08-13
 
 ADR 038 replaced the separately visible Agent settings with one compact composer row, but the
 first approval presentation used long action sentences such as `Approve eligible edits` plus a
-shield icon. Hands-on use in the normal Agent panel width shows two problems: the long approval
+shield icon. Use in the normal Agent panel width shows two problems: the long approval
 trigger can collide with the model trigger, and the shield visually borrows Codex's automatic-
 approval metaphor even when WriteLLM is in manual review mode.
 

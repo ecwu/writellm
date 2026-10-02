@@ -1,78 +1,95 @@
 # WriteLLM Agent Guide
 
-This file is the entry point for agents working in this repository.
+Read this file first when working in this repository.
 
 ## Required Reading
 
 Before changing code, read:
 
-1. `docs/architecture.md` for fixed technology choices, process boundaries, and invariants.
+1. `docs/architecture.md` for technology choices, process responsibilities, and required rules.
 2. `docs/current-plan.md` for the current checkpoint, acceptance gate, and deferred work.
-3. The ADR under `docs/adrs/` that covers the current boundary or decision.
+3. The architecture decision record (ADR) under `docs/adrs/` for the affected feature.
 4. Any boundary-specific audit or Phase evidence linked by the current plan or relevant ADR.
 
-`docs/implementation-todo.md`, `docs/implementation-todo/`, and older audit
-records are historical evidence. Read only the Phase material relevant to the
-current checkpoint; newer architecture amendments and ADRs are authoritative
-when historical text conflicts with them.
+Use `docs/current-plan.md` for current delivery state. Use `docs/implementation-todo.md`
+to find the relevant Phase file. Completed Phase files and older audits record past work.
+Read only the evidence relevant to the task. If rules conflict, follow the accepted architecture amendment or ADR that replaces the older rule.
+Past authorization records describe their original task. They do not authorize new work or cancel later user authorization.
 
 ## Document Write Rules
 
-Keep the mutable/immutable split strict so documents never drift from the state they claim:
+Keep current status separate from decisions and past evidence:
 
 - `docs/current-plan.md` is authoritative for current delivery state and platform results.
-  Architecture, ADRs, completed Phase files, and audits record decisions or historical evidence;
-  do not turn them into live status reports. Tracker checkboxes summarize checkpoint state and
-  must agree with the current plan.
+  Architecture and ADRs record decisions. Completed Phase files and audits record past evidence.
+  Do not use these files as current status reports.
+  Tracker checkboxes must agree with the current plan.
 - Detailed checkpoint evidence (per-checkpoint checklists, `Local evidence`, authorization, and
   decision prose) lives only in the matching Phase file under `docs/implementation-todo/`. The
-  tracker `docs/implementation-todo.md` keeps only a short `[x]`/`[~]`/`[!]` checklist plus routing
-  links; do not copy evidence back into it.
-- `docs/history/implementation-log.md` is the append-only cross-phase chronology. Maintenance that
-  has no numbered Phase home is appended there rather than kept in a standalone file.
+  tracker `docs/implementation-todo.md` keeps only a short `[x]`/`[~]`/`[!]` checklist and links.
+  Do not copy detailed evidence into the tracker.
+- `docs/history/implementation-log.md` records work across phases. Append new entries. Do not rewrite existing entries.
+  If maintenance has no numbered Phase file, append its evidence to this log.
 - Update only records affected by the task: the current plan for delivery-state changes, the
-  tracker for checkpoint-state changes, and the Phase evidence or history log for completed
+  tracker for checkpoint-state changes, and the Phase file or history log for completed
   implementation. Keep affected records consistent in the same change. Documentation-only
   corrections do not require progress entries or unrelated tracker/history edits.
 
 ## Orchestration And Delegation
 
 The primary agent owns scope, integration, final verification, and user communication.
-When permitted by the current session's delegation rules, delegate bounded,
-independently executable work only when it saves time or improves quality.
-Assign explicit file ownership for writes and avoid concurrent edits to shared
-state. Return a compact summary with evidence, verification, and unresolved risks.
-Workers must stay within the authorized scope and must not commit or push.
-Repository guidance does not override the harness's delegation restrictions.
+Follow the current session's delegation rules.
+If those rules permit delegation, assign independent tasks only when this saves time or improves quality.
+Name the files each worker can edit. Do not assign concurrent writes to the same file.
+Workers must stay within the assignment. Workers must not commit or push.
+Report the result, evidence, verification, and unresolved risks.
 
 ## Working Rules
 
-- Work within the scope authorized by the current user request and prior conversation,
-  including explicitly requested maintenance or checkpoint changes. Do not ask again for
-  authorization already given, or expand into unrequested phases. Resolve routine reversible
-  implementation choices within that scope; follow Decision Changes for material departures.
+- Follow the scope authorized by the current request and prior conversation.
+  This includes requested maintenance and checkpoint changes.
+  Do not ask again for authorization already given. Do not start unrequested phases.
+  Make routine, reversible implementation choices within scope. Follow Decision Changes for material departures.
 - Update affected delivery records under Document Write Rules. A task is complete only after
   its applicable acceptance criteria and verification steps pass.
 - Keep changes small and reviewable. Do not install dependencies for future phases.
-- Treat the renderer as untrusted. It must not receive Node.js, raw IPC, database, filesystem, or plaintext credential access.
-- Validate IPC inputs and outputs with shared Zod contracts and authorize the sender in the main process.
-- Keep application-global authority in `app.sqlite`, project authority in each project's `.writellm/project.sqlite`, and only rebuildable search data in that project's `.writellm/index.sqlite`.
-- Treat the active `projectSessionId` as a revocable capability on every project-scoped IPC and cross-process message; never store absolute paths in project records.
+- Treat the renderer as untrusted.
+  It must not receive Node.js, raw IPC, database, filesystem, or plaintext credential access.
+- Use shared Zod contracts to make sure that IPC inputs and outputs match their schemas.
+  Main must authorize the sender. IPC means messages between application processes.
+- Store application-wide authoritative state in `app.sqlite`.
+  Store authoritative project state in each project's `.writellm/project.sqlite`.
+  Store only rebuildable search data in that project's `.writellm/index.sqlite`.
+- Use the active `projectSessionId` to authorize every project-scoped IPC and cross-process message.
+  Revoke this capability, or access permission, when the session ends. Never store absolute paths in project records.
 - Keep network waits and large indexing work outside database transactions and outside the renderer.
-- Durable job handlers must be idempotent. Persist remote IDs and recovery state before continuing external workflows.
-- Do not let product code depend directly on provider SDKs, sqlite-vec table layouts, or arbitrary filesystem paths. Use the adapters and interfaces defined in the architecture.
+- Durable job handlers must be idempotent (safe to run twice).
+  Persist remote IDs and recovery state before continuing external workflows.
+- Do not let product code depend directly on provider SDKs, sqlite-vec table layouts, or arbitrary filesystem paths.
+  Use the adapters and interfaces defined in the architecture.
 - Forward-only migrations require review, backup, integrity checks, and recovery coverage.
-- Every implemented feature must emit structured lifecycle logs at useful boundaries through the shared observability module. Use fixed `subsystem`, `component`, and machine-readable `event` fields; do not introduce feature-level `console.log` calls or independent log files.
-- Never swallow errors. When catching an error, log the original error object as top-level `err` before it can be transformed or discarded, together with the operation context. Preserve its stack and `cause`; then recover explicitly, or rethrow/return a safe error that retains the cause. A message such as "operation failed" without the original error is not acceptable.
-- Logging the original error does not permit leaking secrets or private content. Never log credentials, authorization/cookie headers, full prompts or responses, document bodies, embedding vectors, signed URLs, SQL parameters, or private absolute paths. Log safe IDs, hashes, counts, relative paths, status codes, and durations instead.
-- Use the shared AsyncLocalStorage correlation context and propagate it explicitly across process boundaries. Preserve `operationId`, `jobId`, and `requestId` when available.
-- Renderer-safe errors and user-facing messages may be sanitized, but the main/worker logger must first receive the diagnostic original. Audit records in SQLite remain authoritative; logs must never be used as recovery state.
+- Log feature lifecycle events through the shared observability module.
+  Use fixed `subsystem`, `component`, and machine-readable `event` fields.
+  Do not add feature-level `console.log` calls or separate log files.
+- Never discard an error without handling it.
+  If you catch an error, first log the original object as top-level `err` with the operation context.
+  Preserve its stack and `cause`.
+  Then recover explicitly, rethrow it, or return a safe error that retains the cause.
+  A message such as "operation failed" without the original error is not acceptable.
+- Do not leak secrets or private content when logging the original error.
+  Never log credentials, authorization/cookie headers, full prompts or responses, document bodies, embedding vectors, signed URLs, SQL parameters, or private absolute paths.
+  Log safe IDs, hashes, counts, relative paths, status codes, and durations.
+- Use the shared AsyncLocalStorage context to correlate operations.
+  Pass this context across process boundaries. Preserve `operationId`, `jobId`, and `requestId` when available.
+- Remove sensitive data from Renderer errors and user-facing messages when necessary.
+  The Main/worker logger must first receive the original error under the logging restrictions above.
+  SQLite audit records remain authoritative. Never use logs as recovery state.
 - Never add Redis, a standalone vector service, Prisma, `node-sqlite3`, a broad RPC framework, or plaintext secret storage unless the architecture decision is explicitly revised.
-- Verify native modules in packaged artifacts, not only in development mode.
+- Make sure that native modules work in packaged artifacts. Development tests alone are insufficient.
 
 ## Formatting And Style Checks
 
-Biome is the repository's single formatter and style checker. Run commands from the repository root with pnpm:
+Use Biome for formatting and style checks. Run these commands from the repository root with pnpm:
 
 - `pnpm check`: verify formatting and lint rules without changing files. Use the Verification Gates below to select the applicable checks.
 - `pnpm check:write`: apply formatting and safe lint fixes.
@@ -82,13 +99,16 @@ Biome is the repository's single formatter and style checker. Run commands from 
 - `pnpm lint`: run lint rules only.
 - `pnpm lint --write`: apply safe lint fixes only.
 
-Prefer `pnpm check:write` for routine cleanup. Do not use `pnpm check:write --unsafe` without reviewing every behavioral change it proposes. Biome configuration and excluded generated or local files are defined in `biome.json`.
+Prefer `pnpm check:write` for routine cleanup.
+If you use `pnpm check:write --unsafe`, review every proposed behavior change.
+`biome.json` defines Biome configuration and excluded files.
 
 ## Verification Gates
 
-Choose tests by the changed boundary, not by running every gate in sequence. Before verification,
-state the selected scope and reason; afterwards report counts, duration, retries, and any remaining
-platform limits. Reuse results that still cover the final source; rerun only affected checks.
+Choose tests for the affected feature or process boundary. Do not run every gate in sequence.
+Before verification, state the selected scope and reason.
+After verification, report counts, duration, retries, and platform limits.
+Reuse results that still cover the final source. Rerun only affected checks.
 
 | Change | Default verification |
 | --- | --- |
@@ -101,7 +121,7 @@ platform limits. Reuse results that still cover the final source; rerun only aff
 | Comprehensive release acceptance | Explicit complete acceptance with one build per invocation |
 
 - `pnpm check:fast`: Biome and Node/Renderer typechecks.
-- `pnpm test [files or directory] [-t name]`: Electron-hosted tests only; no filters means all
+- `pnpm test [files or directory] [-t name]`: Electron-hosted tests only. No filters means all
   Vitest tests. Prefer explicit filters for local changes. Reuse prior static checks when valid.
 - `pnpm test:e2e [file or --grep filters]`: selected E2E against an existing matching build;
   no filters means all source E2E. Does not build or repeat static checks.
@@ -117,30 +137,29 @@ platform limits. Reuse results that still cover the final source; rerun only aff
 `pnpm build` prepares native modules and compiles without typechecking or testing. `pnpm package`
 creates an App and installers; `pnpm package:unpack` creates only the App. Both accept
 `--target=<target>` (default: current host), check the package inventory, and run no functional tests.
-CI uses the same package command. A successful
-build is not test evidence. `critical` is a coverage subset, not the default for small changes.
-Do not chain `check:fast`, `check:e2e`, and `check:package` reflexively: select a composite gate
-or focused tests and avoid repeated builds. Reports live under `.cache/verification/`; timing
-statistics are diagnostic, separate from test hard timeouts. Benchmarks remain explicit.
+CI uses the same package command. A successful build is not test evidence.
+`critical` selects a coverage subset. Do not use it by default for small changes.
+Choose a combined gate or focused tests. Do not automatically run `check:fast`, `check:e2e`, and `check:package` in sequence.
+Avoid repeated builds. Reports live under `.cache/verification/`.
+Timing statistics help diagnose performance. They do not change test timeouts.
+Run benchmarks only when the task requires them.
 The command catalog and removed-alias migration table are in `README.md`. Do not resurrect
 historical aliases from completed Phase files, ADRs, or audit evidence.
 
-The repository's exact `packageManager` version must match the locally
-installed pnpm used by agents. pnpm 11 tries to download and switch to the
-manifest version before it prints any command output, including for
-`pnpm --version`; in a network-restricted sandbox, a version mismatch can
-therefore look like an indefinite silent hang. Do not keep retrying a silent
-pnpm command. Diagnose it once with:
+Use the exact pnpm version in `package.json#packageManager`.
+Before printing output, pnpm 11 tries to download and switch to that version.
+This also applies to `pnpm --version`.
+If network access is blocked, a version mismatch can leave pnpm silent.
+Do not repeatedly retry a silent command. Diagnose it once with:
 
 ```sh
 pnpm --pm-on-fail=ignore --version
 ```
 
-Compare that result with `package.json#packageManager`. Align the repository
-pin only during an approved environment-maintenance task when the installed
-pnpm is the accepted project version; do not rewrite it merely to suit an
-arbitrary local installation. If pnpm itself still cannot start, run the
-installed tool directly:
+Compare the result with `package.json#packageManager`.
+Change the pin only during approved environment maintenance when the installed pnpm is the accepted project version.
+Do not change the pin to match an arbitrary local installation.
+If pnpm still cannot start, run the installed tool directly:
 
 ```sh
 ./node_modules/.bin/biome check .
@@ -170,13 +189,13 @@ pnpm test
 ```
 
 The repository disables pnpm 11's automatic `verify-deps-before-run` install.
-The forced Electron native rebuild intentionally changes a package binary and
-otherwise makes every later script try to reinstall `node_modules` (and fail
-without a TTY or registry access). Run an explicit frozen install after
-changing `package.json` or `pnpm-lock.yaml`; do not re-enable the implicit
-pre-script install.
+A forced Electron rebuild changes a native package binary.
+With automatic installation enabled, later scripts try to reinstall `node_modules`.
+That installation fails without a TTY or registry access.
+After changing `package.json` or `pnpm-lock.yaml`, run an explicit frozen install.
+Do not enable automatic installation before scripts.
 
-The canonical runner is `scripts/run-tests.mjs`. It launches the bundled
+The required test runner is `scripts/run-tests.mjs`. It launches the bundled
 Electron runtime with `ELECTRON_RUN_AS_NODE=1` and then runs Vitest. Use this
 runtime for tests that import `better-sqlite3` or other native modules. Do not
 run `vitest run`, `pnpm exec vitest run`, or a SQLite benchmark directly with
@@ -184,7 +203,7 @@ the system Node runtime unless the native dependency has deliberately been
 rebuilt for that exact Node ABI.
 
 If Corepack or pnpm cannot start, it is valid to bypass only the package
-manager wrapper and run the repository's canonical runner directly:
+manager wrapper and run the required test runner directly:
 
 ```sh
 node scripts/run-tests.mjs
@@ -198,7 +217,7 @@ workspace, or a blocked network/GUI operation. A non-zero Vitest exit caused
 by assertion failures, migration errors, or Electron's non-fatal diagnostic
 warnings is a test/code result, not evidence of sandbox blocking.
 
-The canonical runner forwards additional Vitest arguments. Use a focused
+The test runner forwards additional Vitest arguments. Use a focused
 target before rerunning the full suite:
 
 ```sh
@@ -238,7 +257,7 @@ pnpm prepare:native --force
 
 Do not rebuild `better-sqlite3` for system Node merely to make direct Vitest
 invocation pass; that can replace the Electron-compatible binary and make the
-canonical suite fail. If a Node-only benchmark is required, use a separate
+Electron-hosted suite fail. If a Node-only benchmark is required, use a separate
 dependency environment or explicitly rebuild for Node and restore the
 Electron dependencies before running the application test suite. Record the
 runtime, ABI, command, test counts, and failure class in the verification
@@ -253,7 +272,7 @@ gate that already built matching output satisfies this prerequisite; do not
 prepend another build. Preserve filters on reruns. Packaged verification still
 uses the matching packaged App required by Verification Gates.
 
-The default E2E wrapper is silent and should remain the normal agent path.
+Use the silent E2E wrapper for normal agent verification.
 Use `pnpm test:e2e --visible` only for explicitly requested interactive
 debugging.
 
@@ -273,14 +292,22 @@ WriteLLM targets normal desktop windows. Do not introduce mobile layouts, specia
 breakpoints, or narrow-window-specific verification. The configured desktop Agent sidebar must
 remain usable: its controls must not overlap, and its resize handle must continue to work.
 
-- Use the official shadcn/ui `new-york` preset and its generated components as the renderer design system. Do not create a parallel visual system or hand-write replacements for components available from shadcn/ui.
-- Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives. Compose them with standard Tailwind layout utilities; do not add product-specific CSS unless an interaction or platform constraint cannot be expressed by the preset and utilities.
-- Do not use `Card` as a general-purpose layout or spacing tool unless the task explicitly requests it. Prefer content-oriented screens and containers composed with flex layouts for the configured desktop surfaces.
+- Use the official shadcn/ui `new-york` preset and its generated components.
+  Do not create a separate visual system. Do not hand-write replacements for available shadcn/ui components.
+- Use official components for buttons, cards, menus, dropdown menus, commands, dialogs, forms, inputs, badges, sidebars, and similar primitives.
+  Compose them with standard Tailwind layout utilities.
+  Add product-specific CSS only when the preset and utilities cannot express an interaction or platform requirement.
+- Use `Card` for general layout or spacing only when the task explicitly requests it.
+  Prefer flex containers for desktop content layout.
 - Keep a global command surface in every application state: the native application menu on macOS
   (ADR 084), and the shadcn `Menubar` on Windows and Linux. Project creation, opening, switching, saving, settings, and diagnostics entry points belong there when available.
-- Settings are a global command surface that can be opened from anywhere, implemented with the shadcn `Command` component rather than a standalone settings page.
-- Follow ADR 083 for the active-project shell: retain the shadcn activity rail and controls, with one Dockview content tab group and independently dockable tool groups. Contextual sidebars stay inside their owning content or tool surface. Do not restore the fixed sidebar-09 composition.
-- Extend the established shell and official component language for future screens. Do not introduce bespoke gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.
+- Make Settings available from anywhere through the shadcn `Command` component.
+  Do not implement a standalone settings page.
+- Follow ADR 083 for the active-project shell.
+  Keep the shadcn activity rail, controls, one Dockview content tab group, and independently dockable tool groups.
+  Keep contextual sidebars inside their content or tool surface. Do not restore the fixed sidebar-09 composition.
+- Use the existing shell and official components for future screens.
+  Do not add custom gradients, decorative hero layouts, arbitrary radii, custom shadows, or one-off control styling.
 - Preserve keyboard-accessible behavior from the official components. Any unavailable future action must be visibly disabled or labeled as unavailable rather than simulated.
 
 ## Decision Changes

@@ -28,10 +28,10 @@ needs a crash-safe boundary between reserving a row and removing its file.
    and supports used/unused, generated/uploaded, and current-section filters. Preview URLs remain
    short-lived project-session capabilities.
 4. Current revisions, every retained historical revision, and every retained proposal protect an
-   asset. Historical-only purge is deferred. A section proposal may reference only an active asset.
+   asset. Historical-only purge is deferred. A section proposal can reference only an active asset.
 5. Explicit deletion first rechecks protection and atomically moves an unprotected row from
    `active` to `deleting`. New revisions and proposals then reject the asset. File removal and row
-   removal follow; a failed cleanup remains `deleting`, is hidden from the workspace, and is
+   removal follow. A failed cleanup remains `deleting`, is hidden from the workspace, and is
    retried by the existing artifact-cleanup job and project-open reconciliation.
 6. Missing or changed files remain visible with an integrity status. The workspace never repairs,
    replaces, or silently trusts changed bytes.
@@ -40,11 +40,11 @@ needs a crash-safe boundary between reserving a row and removing its file.
 
 - No second asset database, background model flow, provider call, mutable candidate file, or raw
   Renderer filesystem authority is introduced.
-- Retained project history can deliberately keep unused-looking assets undeletable; the UI states
+- Retained project history can deliberately keep unused-looking assets undeletable. The UI states
   the exact protecting authority.
 - Listing a page performs bounded file verification for that page. Large libraries remain bounded
   by pagination and indexed SQL projections.
 - CP43B can add candidate lineage to this same asset authority rather than create an image library
   of its own.
 - Migration 0034 (CP42) precedes migration 0033 (CP43A) in numbering despite the reverse checkpoint
-  order; the migration runner's continuous-numbering invariant is satisfied in the shipped tree.
+  order. The migration runner's continuous-numbering invariant is satisfied in the shipped tree.

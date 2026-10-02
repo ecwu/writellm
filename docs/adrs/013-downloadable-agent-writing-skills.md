@@ -3,6 +3,8 @@
 Status: accepted; amended for Checkpoint 27.6 (defines Agent Harness Protocol v4)
 Date: 2026-08-10
 
+Current rule: ADRs 053, 054, 073, and 074 replace the session selection and loading rules below. Use ADR 074 for current injection and read limits.
+
 ## Context
 
 WriteLLM's fixed Agent tool protocol already provides bounded manuscript reads, project-knowledge
@@ -46,7 +48,7 @@ discovery, no network authority for skills, and no direct mutation authority.
   `ccf-humanization`. Every entry's pin and allowlist are reviewed like application code before the
   catalog ships. Files added upstream do not enter an installed curated skill until a later
   WriteLLM release reviews and publishes a new pin and allowlist.
-- Users may also add a skill by GitHub `owner/repo` plus an optional directory path. Curated
+- Users can also add a skill by GitHub `owner/repo` plus an optional directory path. Curated
   entries install at the reviewed pin; user-added entries pin the commit resolved at install time
   (trust on first use) and record it. Skills are never fetched by mutable ref or tag.
 - Main owns the downloader. It resolves the pinned commit through the GitHub git-trees and blobs
@@ -88,7 +90,7 @@ discovery, no network authority for skills, and no direct mutation authority.
   `auto` considers enabled, integrity-verified skills that permit model invocation, `explicit`
   fixes one enabled, integrity-verified primary skill selected for that run, and `none` disables
   skill use. At most one primary writing-method skill is active per run, plus its declared dependencies;
-  `ccf-humanization` may be a declared dependency of `ccf-paper-writer`. Dependencies resolve only
+  `ccf-humanization` can be a declared dependency of `ccf-paper-writer`. Dependencies resolve only
   within the curated catalog — user-added skills have no dependencies — and catalog validation
   rejects unknown or cyclic dependencies at startup. Venue or style methods with conflicting rules
   are never co-active.
@@ -101,26 +103,26 @@ discovery, no network authority for skills, and no direct mutation authority.
   databases, Renderer projections, durable tool events, or logs. Structured lifecycle logs carry
   bounded IDs and pins, never full prompt bodies.
 - No automatic updates. A curated skill's update check compares its installed pin only with the
-  reviewed pin in the current application catalog; it never follows the upstream default branch.
-  A custom skill may inspect the upstream default branch for a new immutable commit, but the UI
+  reviewed pin in the current application catalog. It never follows the upstream default branch.
+  A custom skill can inspect the upstream default branch for a new immutable commit, but the UI
   labels it an unreviewed update and installs it only after explicit confirmation. That mutable-head
-  check result is Renderer-ephemeral; Main persists only the confirmed immutable pin. Existing
+  check result is Renderer-ephemeral. Main persists only the confirmed immutable pin. Existing
   runs retain their snapshot. Uninstall deletes only files Main itself wrote.
 - Main performs startup integrity revalidation. Missing or hash-mismatched files mark an installed
   skill unavailable instead of silently dropping it. Settings exposes the safe reason plus
-  Reinstall and Uninstall; no private path is shown. Curated reinstall uses the catalog's reviewed
+  Reinstall and Uninstall. No private path is shown. Curated reinstall uses the catalog's reviewed
   pin, while custom reinstall defaults to the recorded commit.
 - Auto mode performs no auxiliary model request. The formal turn receives enabled,
   integrity-ready, model-invocable Skill name/description metadata through Pi's catalog formatter.
-  The model may use `read_writing_skill` to read one candidate entrypoint; that first successful
-  read atomically locks the run to one primary and supplies its dependency entrypoints. It may then
+  The model can use `read_writing_skill` to read one candidate entrypoint; that first successful
+  read atomically locks the run to one primary and supplies its dependency entrypoints. It can then
   read at most four manifest-listed primary references. Explicit mode freezes its primary and
   dependency closure at run start and injects their complete entrypoints on every turn while
   retaining the same lazy reference capability. A selected explicit Skill that becomes unavailable
   blocks new runs without silently changing the session setting.
 - Writing Skill reads are a preparation phase rather than independent downstream reads. Explicit
   mode does not reread an entrypoint already injected into the system prompt. Auto reads at most one
-  candidate entrypoint in an otherwise Skill-only assistant response. The model may then issue up to
+  candidate entrypoint in an otherwise Skill-only assistant response. The model can then issue up to
   four task-relevant reference reads together, but waits for every selected result before using
   manuscript, knowledge, citation, generation, checking, or submission tools in a later response.
 - Prompt order is fixed: global safety/tool/writing/citation policy, companion note, Pi-formatted
@@ -150,7 +152,7 @@ discovery, no network authority for skills, and no direct mutation authority.
   The bounded `read_writing_skill` tool accepts only virtual URIs pre-authorized for the run, so
   progressive
   disclosure adds no generic filesystem authority. `AgentHarness.skill()` remains unused because
-  it delivers the skill as a user-turn message and requires the harness; WriteLLM keeps explicit
+  it delivers the skill as a user-turn message and requires the harness. WriteLLM keeps explicit
   invocation in the ordered system prompt. A later migration from the low-level
   `Agent` to `AgentHarness` requires separate evidence that its session, hook, retry,
   compaction, and tool lifecycle semantics preserve WriteLLM's current protocol.
@@ -174,7 +176,7 @@ discovery, no network authority for skills, and no direct mutation authority.
    filesystem/prompt-injection surface and breaks project portability and the fixed authority
    model.
 5. Load all skill bodies in every run, or keep one global prompt forever. The first wastes the
-   bounded system context and creates conflicting venue/style rules; the second cannot express
+   bounded system context and creates conflicting venue/style rules. The second cannot express
    explicit, inspectable, task-specific writing methods.
 6. Migrate immediately to Pi `AgentHarness`. This gains native resource APIs but risks replacing
    stable WriteLLM persistence, provider-call authorization, retry, proposal review, and event
@@ -182,15 +184,18 @@ discovery, no network authority for skills, and no direct mutation authority.
 
 ## Migration and roadmap impact
 
-An approved implementation needs a focused checkpoint covering: curated-catalog contracts and
-startup validation; the Main downloader (GitHub trees/blobs, git-hash verification, deterministic
-caps, atomic user-data storage, provenance manifest); IPC contracts exposing bounded metadata,
-install/update/uninstall commands, and add-by-repository to Renderer; a compact shadcn skill picker
-in the Agent surface showing source, license, install state, and version; Main-owned prompt
-composition with the companion note, reusing Pi's `Skill` type and `formatSkillInvocation` block
-format; per-run snapshot semantics; event/model-request observability;
-compatibility for existing sessions; focused Main/Worker/Renderer tests with mocked network; and a
-real-Electron grounded-writing scenario. It does not authorize a skill marketplace, executable
+An approved implementation needs a focused checkpoint with these parts:
+
+- Curated-catalog contracts and startup validation.
+- A Main downloader using GitHub trees/blobs, git-hash verification, deterministic caps, atomic user-data storage, and a provenance manifest.
+- IPC contracts for bounded metadata, install/update/uninstall commands, and add-by-repository to Renderer.
+- A compact shadcn skill picker that shows source, license, install state, and version in the Agent surface.
+- Main-owned prompt composition with the companion note, Pi's `Skill` type, and `formatSkillInvocation` block format.
+- Per-run snapshots and event/model-request observability.
+- Compatibility for existing sessions.
+- Focused Main/Worker/Renderer tests with mocked network and a real-Electron grounded-writing scenario.
+
+It does not authorize a skill marketplace, executable
 plugins or skill-authored tools, new Agent tools (superseded by the 27.6 amendment, which adds
 `read_writing_skill`), arbitrary URL fetching, automatic updates, hosted
 CI, packaging, release, push, or promotion.

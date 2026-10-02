@@ -7,7 +7,7 @@
 ## Context
 
 Checkpoint 40 needs one editable LaTeX project derived from the Checkpoint 38 publication
-assembly (whose contract lives in `architecture.md`; it has no standalone ADR). The product must
+assembly. Its contract lives in `architecture.md` and has no standalone ADR. The product must
 not require, invoke, or bundle a TeX compiler, accept arbitrary
 templates/preambles, fabricate bibliography metadata, or allow manuscript text to inject LaTeX
 commands. CJK/Latin text, figures, formulas, tables, links, citations, deterministic output, and
@@ -36,7 +36,7 @@ it never invents fields.
 The existing Main-owned export barrier, verified asset capture, create-only staging, manifest,
 hash inventory, read-back validation, and atomic rename remain the only publication boundary.
 Generated output is deterministic UTF-8 with LF line endings. Tests independently parse the full
-document with exact-pinned `@unified-latex/unified-latex-util-parse@1.8.4`; an explicitly
+document with exact-pinned `@unified-latex/unified-latex-util-parse@1.8.4`. An explicitly
 provisioned manual compiler is optional evidence and never a product dependency.
 
 ## Consequences

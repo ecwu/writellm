@@ -14,7 +14,7 @@ Main-owned folder-selection and project-publication boundary.
 Onboarding progress is application-global UI state in `app.sqlite`. It stores only the current
 bounded step or a completed marker. It stores no provider configuration, credential, project
 path, project identity, or content. Main validates and persists that state through sender-authorized
-IPC; the Renderer receives no database or generic settings authority.
+IPC. The Renderer receives no database or generic settings authority.
 
 Advancing or going back records the destination step so an interrupted first run resumes without
 repeating completed setup. Explicitly skipping the whole flow, skipping the final project step, or

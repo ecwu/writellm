@@ -42,7 +42,7 @@ particular, compatibility forms remain distinct and `Straße` is not required to
 
 Matches are left-to-right and non-overlapping. A query never crosses a section-metadata field,
 BlockNote block, table cell, block property, or child-block boundary. Within one ordinary inline
-surface it may cross adjacent styled-text and link nodes because formatting does not insert
+surface it can cross adjacent styled-text and link nodes because formatting does not insert
 visible characters. Empty, ill-formed-Unicode, and over-limit queries are rejected.
 
 The Renderer surface searches, in manuscript order:
@@ -54,7 +54,7 @@ The Renderer surface searches, in manuscript order:
 5. the visible `caption` property of image, Mermaid, and math blocks.
 
 Image names and Mermaid/math source are not included because they are not visible manuscript prose
-in the main editing surface. The existing Agent adapter may retain its currently bounded Agent-text
+in the main editing surface. The existing Agent adapter can retain its currently bounded Agent-text
 surface selection, including source-oriented text, but it uses the same projection matcher and
 source-map implementation. CP29 does not add or rename an Agent tool and does not change the
 model-visible `search_manuscript` schema.
@@ -120,7 +120,7 @@ preview, ProseMirror position, DOM node, or flattened block range.
 
 Metadata ranges are tied to the exact outline snapshot. Body targets carry the exact current
 revision ID. A stable `matchId` hashes the matching mode, semantic path, original ranges, and hash
-of the original matched slices; it contains no manuscript text and deliberately excludes the
+of the original matched slices. It contains no manuscript text and deliberately excludes the
 whole-manuscript snapshot fingerprint so unrelated saves do not change it.
 
 ### 3. The offset source map has two layers and a fast path
@@ -154,14 +154,14 @@ semantic segments.
 Only a surface whose normalization changes or whose lower mapping changes length takes the slow
 path. That surface is segmented into extended grapheme clusters with one reused
 `Intl.Segmenter('und', { granularity: 'grapheme' })`. Each cluster is transformed independently and
-becomes a map run. A run may be linear only when every internal UTF-16 boundary remains reversible;
+becomes a map run. A run can be linear only when every internal UTF-16 boundary remains reversible;
 composition, reordering, expansion, or contraction produces an atomic run. The concatenated
-per-cluster projection must equal the whole-surface projection; a mismatch fails closed and is
+per-cluster projection must equal the whole-surface projection. A mismatch fails closed and is
 covered by property tests.
 
 A candidate match whose start or end falls inside an atomic run is rejected. A candidate that
 consumes the complete run maps to the complete original grapheme. Thus a decomposed `e` plus acute
-may match composed `é` and returns the two original UTF-16 code units, while a query that matches
+can match composed `é` and returns the two original UTF-16 code units, while a query that matches
 only half of a length-expanded lowercase mapping cannot produce a destructive or misleading
 range.
 
@@ -187,7 +187,7 @@ The request contract contains:
 
 Results are ordered by outline order, then title/objective/body surface order, then original
 range. At most 2,000 occurrences are navigable for one request fingerprint. Reaching that limit
-returns `complete: false` and `incompleteReason: 'result_limit'`; it is never presented as a full
+returns `complete: false` and `incompleteReason: 'result_limit'`. It is never presented as a full
 count. A cursor encodes a version, snapshot fingerprint, request fingerprint, and next occurrence
 ordinal. Main recomputes and validates all fields. A changed snapshot, changed options, malformed
 cursor, or project switch fails as stale/invalid instead of mixing pages.
@@ -195,7 +195,7 @@ cursor, or project switch fails as stale/invalid instead of mixing pages.
 Scanning is request-scoped. It uses the active project's operation tracker, checks its abort signal
 between surfaces, yields to Main after at most 16 milliseconds of synchronous work, and enforces a
 250-millisecond scan budget for the maximum fixture. A budget exit is explicit
-`incompleteReason: 'scan_budget'` with scanned section/byte counts; the UI asks the user to narrow
+`incompleteReason: 'scan_budget'` with scanned section/byte counts. The UI asks the user to narrow
 scope and never implies exhaustive results. Project close or switch aborts the request and no
 search row is written to `jobs` or another table.
 
@@ -217,12 +217,12 @@ invalidate the current query through existing Renderer state. Selecting a result
 Inline and table highlights use an application-owned BlockNote extension with an official
 ProseMirror plugin and `DecorationSet`, following the existing readable-citation extension. The
 adapter resolves the stable block ID and validated surface-local range against the loaded
-ProseMirror document; it must not depend on `_tiptapEditor`, persist a ProseMirror position, or
+ProseMirror document. It must not depend on `_tiptapEditor`, persist a ProseMirror position, or
 rewrite BlockNote JSON. BlockNote 0.47.2's public `getBlock`, `prosemirrorState`,
 `prosemirrorView`, and extension/plugin surfaces are the pinned integration boundary.
 
 The selected result remains the durable visual/accessible indicator. The editor decoration clears
-on document change, another result, query change, Escape, Find close, or project switch; it does
+on document change, another result, query change, Escape, Find close, or project switch. It does
 not use a short timer that a keyboard or assistive-technology user could miss. Caption results
 scroll to and mark the owning rich-media block. Title results select the exact range in the title
 editor only when the user explicitly chooses to edit it. Objective results open the existing

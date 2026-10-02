@@ -34,14 +34,14 @@ must not block opening or editing the project.
 
 New projects receive an initial checkpoint after successful publication and opening. Existing
 projects require user consent. Renderer APIs are session-authorized and return only bounded
-checkpoint metadata and sanitized errors; they never expose project paths, Git paths, temporary
+checkpoint metadata and sanitized errors. They never expose project paths, Git paths, temporary
 paths, or raw Git errors. Restore materializes and validates a selected commit, preserves the
 existing repository, and appends a new restore commit instead of rewriting history.
 
 ## Consequences
 
 - Version history is a local recovery mechanism, not an off-device backup.
-- External Snapshot v2 can include the complete managed repository; Snapshot v1 remains readable
+- External Snapshot v2 can include the complete managed repository. Snapshot v1 remains readable
   and restores without version history.
 - Users do not manage Git concepts such as branches or remotes in the product UI.
 - Direct external modification of `.writellm/history.git` is unsupported and fails closed rather

@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 27.5
 Date: 2026-08-10
 
+Current rule: ADR 062 adds Notebook Thinking controls. ADR 076 replaces the exclusion of manual/custom reasoning metadata.
+
 ## Context
 
 The pinned Pi runtime already models provider-neutral reasoning depth as `off`, `minimal`, `low`,
@@ -16,8 +18,8 @@ Renderer or be confused with displaying model thinking content.
 
 ## Decision
 
-WriteLLM adds one project-local Thinking level to each Agent conversation. It may change only while
-the conversation is idle. Each run snapshots the effective level; every provider call, retry,
+WriteLLM adds one project-local Thinking level to each Agent conversation. It can change only while
+the conversation is idle. Each run snapshots the effective level. Every provider call, retry,
 steer, follow-up, and tool continuation within that run retains the snapshot.
 
 The shared level set is Pi's exact `ModelThinkingLevel` order. Main derives availability with the
@@ -26,7 +28,7 @@ or previously stored level must be adapted to a different model. `xhigh` and `ma
 remain opt-in model capabilities and a `null` Pi mapping remains unsupported. Direct Renderer
 requests for an unsupported level are rejected rather than clamped.
 
-Only non-manual models owned by a Pi built-in provider preset may expose reasoning controls in
+Only non-manual models owned by a Pi built-in provider preset can expose reasoning controls in
 this checkpoint. Custom provider presets and every manual model expose only `off`, even if their
 metadata advertises reasoning. This avoids inventing compatibility or provider-parameter mappings
 that the custom model catalog cannot verify.
@@ -40,7 +42,7 @@ Main sends the Agent worker a strict, bounded, non-secret Pi model descriptor co
 resolved model identity, reasoning metadata, input types, limits, and bounded compatibility data.
 Headers and credentials continue through the existing request-scoped authorization envelope and
 are never part of the descriptor. The worker reconstructs the Pi model and sets the low-level
-Agent's initial Thinking level; Pi remains solely responsible for provider-specific translation.
+Agent's initial Thinking level. Pi remains solely responsible for provider-specific translation.
 
 Thinking content remains filtered from persisted Agent messages and Renderer projections. This
 checkpoint does not add chain-of-thought display, reasoning summaries, persisted reasoning,
@@ -49,7 +51,7 @@ provider Pro modes, per-message overrides, or reasoning controls for auxiliary m
 ## Consequences
 
 `project.sqlite` adds `thinking_level` to `agent_sessions`, `agent_runs`, and the existing
-`model_requests` table; no new Agent table or durable job is introduced. The dedicated nullable
+`model_requests` table. No new Agent table or durable job is introduced. The dedicated nullable
 `model_requests.thinking_level` column records only the safe level for interactive Agent calls;
 WriteLLM does not add generic request JSON that could persist prompts. The app database needs no
 schema change because the remembered value uses the existing bounded settings table.

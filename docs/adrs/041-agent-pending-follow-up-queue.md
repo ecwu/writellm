@@ -6,7 +6,7 @@ Date: 2026-08-13
 ## Context
 
 ADRs 015 and 040 keep running messages as Follow-up by default and expose Queue, Steer, and Stop as
-separate composer controls. Hands-on use showed that the permanent Queue label and disclosure take
+separate composer controls. Use showed that the permanent Queue label and disclosure take
 too much horizontal space, while a queued message cannot be inspected, promoted to Steer, or
 deleted before Pi consumes it.
 
@@ -18,7 +18,7 @@ false: future context could contain text the model never received.
 ## Decision
 
 WriteLLM owns a bounded, addressable pending Follow-up queue for each active run. Main owns the
-Renderer-visible queue and its pre-authorized model-request records; the agent worker mirrors its
+Renderer-visible queue and its pre-authorized model-request records. The agent worker mirrors its
 order but places only the current head in Pi's Follow-up queue. The next item is loaded only after
 the head is consumed or removed. A run accepts at most 20 pending items and 1 MiB of aggregate
 UTF-8 content.
@@ -30,7 +30,7 @@ their order. Direct Cmd/Ctrl+Enter steering retains the existing path.
 
 When Pi consumes a Follow-up, an awaited worker event forms a persistence barrier: Main validates
 the exact active-run item and durably appends its `user_message` before acknowledging the worker.
-Only then may the provider request start. Deleted or otherwise unconsumed text never becomes Agent
+Only then can the provider request start. Deleted or otherwise unconsumed text never becomes Agent
 history. Its already-created `model_requests` row is aborted with a bounded reason instead.
 
 Pending content remains request-scoped memory. It survives Agent-panel and conversation switching

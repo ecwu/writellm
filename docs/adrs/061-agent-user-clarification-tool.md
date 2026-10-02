@@ -27,7 +27,7 @@ run, tool call, question IDs, option membership, and answer cardinality before a
 answer. Main then records the ordinary `tool_result` before completing the answer IPC and
 returning the resolved tool response to the Worker. Stop, project close, application shutdown, or
 worker cancellation aborts the waiter and interrupts the run. Restarted runs retain the existing
-interrupted recovery behavior; an old unanswered call is historical and cannot be answered.
+interrupted recovery behavior. An old unanswered call is historical and cannot be answered.
 
 The Worker enforces that `ask_user` is the only tool call in its assistant message and serializes a
 successful answer as trusted user clarification below application policy. The application prompt

@@ -8,8 +8,8 @@ Date: 2026-09-08
 Fork only at a persisted complete assistant reply whose run has settled. Create an independent
 conversation with inherited model, thinking, interaction and approval settings and an empty draft.
 Creation is transactional and request-idempotent, without provider preparation or model calls.
-The source may continue subsequent work or be archived. All conversations share current project
-content; no manuscript snapshot, conversation merge or Notebook persistence is introduced.
+The source can continue subsequent work or be archived. All conversations share current project
+content. No manuscript snapshot, conversation merge or Notebook persistence is introduced.
 
 Migration 0047 records fork provenance and flattened immutable event references. Each reference
 has its own display identity and preserves the source logical sequence. New local events start
@@ -18,7 +18,7 @@ A separate conversation-history view combines frozen references and local effect
 presentation, model history, title generation and compaction. The existing effective-events view
 remains the local execution/edit authority. This avoids duplicating payloads, runs and usage, and
 avoids recursive parent reads or parent edits changing children. Foreign keys retain referenced
-raw evidence. Forks may fork again. Inherited messages are read-only.
+raw evidence. Forks can fork again. Inherited messages are read-only.
 
 Do not inherit compaction events: reconstruct from the frozen raw prefix and compact on demand.
 Historical tool records carry no approvals, task, delegation, retry or execution authority.

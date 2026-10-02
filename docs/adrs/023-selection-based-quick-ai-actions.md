@@ -20,7 +20,7 @@ before Main accepts the request.
 Add seven fixed application commands: rewrite, shorten, expand, adjust tone, check evidence, align
 with manuscript, and custom instruction. Their identifiers and bounded custom input are shared
 contracts, while all task prose is Main-owned under `src/main/agent/prompts/`. Selected manuscript
-text is wrapped as non-instructional dynamic data; the chosen task and custom instruction are a
+text is wrapped as non-instructional dynamic data. The chosen task and custom instruction are a
 separate application-owned instruction block. The evidence template explicitly permits a complete
 review-only response with no mutation proposal.
 
@@ -59,5 +59,5 @@ text is intentionally persisted with the normal Agent user event and run context
 existing 64 KiB editor-context and 2 MiB event bounds.
 
 The selected text check is an authorization/relevance guard, not a character-offset mutation
-capability. The Agent must still read canonical blocks and submit the existing typed proposal; Main
+capability. The Agent must still read canonical blocks and submit the existing typed proposal. Main
 continues to bind and revalidate the proposal's source snapshot and revision.

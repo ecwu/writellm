@@ -15,14 +15,14 @@ Supersede ADR 078's quote-only relocation rule with bounded old/new canonical-co
 Every manuscript revision producer invokes the same comment mapper inside its revision transaction.
 Stable block identity and uniquely determined edit mappings preserve ranges, including replacement
 ranges; ambiguity retains an orphaned thread. Persist the revision represented by the stored
-anchor independently of the latest document revision. Anchor history may restore positions only
+anchor independently of the latest document revision. Anchor history can restore positions only
 when the entire canonical document content hash matches. Explicit author relinking is authoritative.
 Original migration 0044 remains immutable; forward migration 0045 supplies the additional state.
 
 Main persists a fixed delegated thread set for an existing Write session. A running or paused
 review cannot silently replace its scope. Replies and resolution require an active Write run in
 that session and membership in the delegated set. Existing session and proposal lifecycles remain
-the execution authority; no new job or comment task state machine is introduced.
+the execution authority. No new job or comment task state machine is introduced.
 
 Comment reads carry a model request identity and current thread/revision. Section verification
 accumulates actual untruncated block reads or complete canonical fragments for that revision.
@@ -31,7 +31,7 @@ subsequent model request so the model can inspect the returned evidence. Fresh r
 must reflect the current section before recording a comment read.
 
 Link comment work to ordinary proposals. Main checks applied state and current revision in the
-resolution transaction. A lost anchor normally requires relinking; an applied deletion qualifies
+resolution transaction. A lost anchor normally requires relinking. An applied deletion qualifies
 only with a preserved pre-deletion anchor and proof that its block or exact selected range was
 removed. Undo reopens only a thread whose latest resolution depended on that proposal.
 

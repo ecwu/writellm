@@ -22,7 +22,7 @@ ambiguous and difficult to protect during cleanup.
 
 Add a project-local `manuscript_asset_variants` relation. Each row links an immutable parent asset
 to an immutable candidate asset and records the generation proposal, the resulting section
-proposal, the requested disposition, and creation time. A content-deduplicated candidate may have
+proposal, the requested disposition, and creation time. A content-deduplicated candidate can have
 more than one lineage row. Both sides use restrictive foreign keys so cleanup cannot erase retained
 lineage.
 

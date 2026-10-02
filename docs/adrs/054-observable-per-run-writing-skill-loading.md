@@ -3,6 +3,8 @@
 Status: accepted
 Date: 2026-08-19
 
+Current rule: ADRs 073 and 074 replace the requirements for complete Skill reads and replay of recorded loading. Use ADR 074 for current loading behavior.
+
 ## Context
 
 ADR 053 modeled Writing Skill composition as a durable session choice, with Explicit, Auto, and
@@ -11,9 +13,9 @@ look like conversation configuration. It also creates two execution paths: Expli
 silently injected before the provider call, while Auto Skills are visibly loaded through
 `read_writing_skill`.
 
-A Writing Skill is guidance the Agent may discover and load while preparing a response. A user may
-name a Skill in ordinary language, or the Agent may decide from the same metadata catalog that a
-Skill is useful. Neither case requires a Renderer-owned selection state. Both cases should produce
+A Writing Skill is guidance the Agent can discover and load while preparing a response. A user can
+name a Skill in ordinary language, or the Agent can decide from the same metadata catalog that a
+Skill is useful. Neither case requires a Renderer-owned selection state. Both cases must produce
 the same inspectable tool activity before the guidance can affect downstream work.
 
 ## Decision
@@ -34,7 +36,7 @@ force where they do not conflict with this decision.
 - Skill content enters a run only as the result of `read_writing_skill({ uri })`. There is no
   silent Explicit injection. A successful entrypoint read authorizes its dependency entrypoints
   and reference URIs; those files are also read through named tool calls rather than hidden file
-  access. One Skill-only assistant response may add at most one new entrypoint. A run may load at
+  access. One Skill-only assistant response can add at most one new entrypoint. A run can load at
   most four top-level Skills, eight deduplicated dependencies, and twelve complete references
   totaling at most 32 KiB.
 - The preparation barrier remains: a response containing Skill reads contains no other tool kind,
@@ -44,10 +46,10 @@ force where they do not conflict with this decision.
 - The immutable version-2 run snapshot records only what was actually loaded: ordered top-level
   Skills, dependencies, and retained references with display name, commit, relative path, hash,
   and byte count. It never records Skill bodies or private paths. Retry authorizes the exact
-  recorded versions and resources and reproduces their loading as visible tool activity; a missing
+  recorded versions and resources and reproduces their loading as visible tool activity. A missing
   pinned version fails closed. Historical version-1 snapshots remain readable.
 - The timeline renders each `read_writing_skill` call as named, expandable progress: loading,
-  loaded entrypoint, loaded dependency, or read reference. Completed groups may collapse, but Skill
+  loaded entrypoint, loaded dependency, or read reference. Completed groups can collapse, but Skill
   names and file counts remain visible. Agent Details is read-only provenance derived from actual
   tool results and the run snapshot. If no Skill tool call occurred, the UI makes no claim that a
   Skill was used.

@@ -22,7 +22,7 @@ coverage.
 - Main owns a `ProjectFilesystem` capability constructed from the canonical project root. It
   validates every existing path segment with `lstat`, rejects symbolic links and junctions,
   validates the deepest existing ancestor before creation, and owns no-follow deletion, exclusive
-  staging, and atomic publication. SQLite adapters may receive only paths validated by this
+  staging, and atomic publication. SQLite adapters can receive only paths validated by this
   capability.
 - An existing project database is opened read-only and its application role and project identity
   are checked before backup, migration, or any write. New databases are created only under a
@@ -31,7 +31,7 @@ coverage.
   authentication mode, and normalized endpoint origin. Binding is checked before decryption.
   Existing credentials for editable endpoints (legacy Agent, custom Agent, embedding, rerank, and
   MinerU) are invalidated once during migration because their historical origin cannot be proven;
-  immutable built-in bindings may be backfilled.
+  immutable built-in bindings can be backfilled.
 - MinerU artifact URLs allow public HTTPS only. DNS results must all be globally routable; uploads
   do not redirect, while downloads follow at most three manually validated HTTPS hops. DNS
   rebinding remains a documented residual risk because this checkpoint does not pin the resolved
@@ -40,7 +40,7 @@ coverage.
   four-MiB block pages, and lazy four-MiB Markdown. Agent event pages are limited to fifty rows and
   four MiB.
 
-The test harness may select an explicit loopback policy through a bootstrap-only E2E argument
+The test harness can select an explicit loopback policy through a bootstrap-only E2E argument
 that the application composition root converts into a background-worker constructor dependency.
 No environment variable, persisted setting, project record, Renderer input, preload API, or IPC
 request can enable that policy.

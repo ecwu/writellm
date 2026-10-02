@@ -11,7 +11,7 @@ and already knows the exact source set of the active Knowledge index generation.
 assets, uses every stored Knowledge item, and returns issue-shaped findings rather than a stable
 article-level coverage view.
 
-The author wants a read-only Checks workspace now and may later expose the same result through a
+The author wants a read-only Checks workspace now and can later expose the same result through a
 dedicated Agent tool or use it to exclude already cited articles from Knowledge retrieval. The
 initial page must therefore retain stable Knowledge identities without changing manuscript citation
 storage or creating a second persistence authority.
@@ -27,7 +27,7 @@ Text indexing is sufficient; vector-embedding readiness is not required.
 Coverage recognizes only the existing canonical English and Chinese citation syntax. Titles use
 the established NFC-plus-trim, case-sensitive normalization and ignore page when grouping. A
 unique title match marks one indexed Knowledge article cited and retains its occurrence count. A
-title shared by multiple indexed articles marks those articles ambiguous; they stay in the
+title shared by multiple indexed articles marks those articles ambiguous. They stay in the
 denominator but not the numerator. A citation title with no indexed match is a separate unmatched
 citation and does not enter the denominator. With no indexed articles, coverage is null rather
 than zero.

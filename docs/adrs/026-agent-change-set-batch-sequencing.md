@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 35B; implementation authorized
 Date: 2026-08-13
 
+Current rule: ADR 077 removes the Review Issue and `check_draft` paths referenced below. Existing proposal sequencing remains.
+
 ## Context
 
 Checkpoint 35A reconstructs a read-only task-wide view from ordinary Agent proposal rows. Authors
@@ -40,9 +42,9 @@ Main ignores Renderer ordering and sorts selected proposals by authority:
 4. generated-image insertion.
 
 Within one authority class, creation time and proposal ID are the stable tie breakers. This places
-outline changes before body effects that may depend on section identity and keeps multiple
+outline changes before body effects that can depend on section identity and keeps multiple
 proposals for one section in their original order. Each item still revalidates its own exact base;
-the first applied proposal may correctly make a later proposal stale.
+the first applied proposal can correctly make a later proposal stale.
 
 ### 3. Refresh, conflict, and failure stop the sequence
 
@@ -51,7 +53,7 @@ result persists the replacement through ADR 003 but does not approve it: the rep
 new pending proposal requiring individual review. Refresh-required, explicit conflict, image
 generation failure, validation failure, or another item error stops before the next item. The UI
 reports every remaining selection as not attempted. After resolving the blocking item, the author
-may create a new batch for remaining pending proposals and Resume the same ordinary writing task.
+can create a new batch for remaining pending proposals and Resume the same ordinary writing task.
 
 Request changes remains an individual normal proposal rejection/continuation because it starts the
 ordinary Agent loop with item-specific feedback. Batch rejection records one explicit bounded
@@ -71,7 +73,7 @@ its stored result. A `prepared` or `running` command resumes at its cursor.
 
 If a process exits after a proposal effect commits but before the cursor advances, recovery reads
 the current authoritative proposal status. `applied`, `satisfied`, or `rejected` is reconciled
-without repeating the mutation; a superseded proposal resolves to its current refresh-chain leaf
+without repeating the mutation. A superseded proposal resolves to its current refresh-chain leaf
 and stops for review. The approval-decision event is deduplicated by proposal and decision before
 the cursor advances. Generating/failed image state stops safely rather than replaying an external
 generation request.
@@ -80,7 +82,7 @@ generation request.
 
 When requested, the durable receipt precedes inspection of managed history. Ready history receives
 one pre-change checkpoint through the existing Project Manager snapshot barrier. Uninitialized or
-damaged history is reported as unavailable and the batch may proceed. A checkpoint creation error
+damaged history is reported as unavailable and the batch can proceed. A checkpoint creation error
 is logged with the original error, recorded as failed, and stops before any proposal is attempted.
 The operation never enables or repairs history automatically.
 
@@ -90,7 +92,7 @@ The result reconciles every selected ID against current proposal authority and r
 satisfied, rejected, adverse, processed, and remaining counts. `reconciled` is true only when the
 whole selection reached a non-adverse terminal result. The passive UI refreshes manuscript and
 task projections after the command. Deeper manuscript review remains the ordinary Agent's
-`check_draft` fixture and Review Center path; the batch protocol does not start a special model
+`check_draft` fixture and Review Center path. The batch protocol does not start a special model
 review.
 
 ## Consequences

@@ -27,7 +27,7 @@ Main extends ADR 032's same source capture, hash, plan capability, preview, appl
 boundary to `.tex`. It sends only bounded UTF-8 source text, its SHA-256, and an opaque request ID
 to a one-request utility child using the existing `background-worker.js` entrypoint. A five-second
 Main timer kills that child on timeout or cancellation. The child never receives absolute
-filesystem paths, credentials, project state, network authority, or mutation authority (it may
+filesystem paths, credentials, project state, network authority, or mutation authority (it can
 receive bounded relative logical paths as ordinary string data). No TeX compiler, shell
 escape, bibliography tool, macro-expansion processor, package hook, include resolver, or external
 converter is invoked.
@@ -48,8 +48,8 @@ and recorded in the unsupported/loss report. Comments are retained as inert comm
 ## Consequences
 
 - A hostile parser input can cost at most one bounded disposable utility process and the fixed
-  timeout; Main and other long-lived worker requests remain responsive.
+  timeout. Main and other long-lived worker requests remain responsive.
 - Imported bodies stay ordinary editable `import` revisions and use CP36's atomic application.
 - The representation is deliberately lossy but never silently drops an unmapped subtree.
-- CP37B may add contained includes, images, tables, references, and bibliography resolution to the
+- CP37B can add contained includes, images, tables, references, and bibliography resolution to the
   same adapter contract without widening the CP37A worker's authority.

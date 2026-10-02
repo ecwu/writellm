@@ -12,7 +12,7 @@ order and assistant prose cannot safely define that boundary: concurrent convers
 plan revision, and rolling context checkpoints make those inferences ambiguous.
 
 The task plan is collaboration state around the existing ordinary Agent loop. It must not become a
-scheduler, mutation authority, background Agent job, second conversation type, or source of truth
+scheduler, mutation authority, background Agent job, second conversation type, or authoritative source
 for manuscript effects.
 
 ## Decision
@@ -21,7 +21,7 @@ for manuscript effects.
 
 Main allocates an opaque UUID task ID when the ordinary Agent calls `create_writing_task`. A task is
 project-local, belongs to exactly one `agent_session`, and survives archive/restore, project
-close/reopen, and application restart for the lifetime of that conversation. One conversation may
+close/reopen, and application restart for the lifetime of that conversation. One conversation can
 have at most one task. A task cannot move between conversations or projects, and deleting its
 conversation cascades the task.
 
@@ -40,8 +40,8 @@ characters and one of these states:
 - `skipped`: intentionally omitted with a bounded reason;
 - `blocked`: cannot proceed, with a bounded reason.
 
-Exactly one non-terminal step is active. A plan may be entirely terminal. Completed and skipped
-steps never return to a non-terminal state. A blocked step may become active or skipped. Plan
+Exactly one non-terminal step is active. A plan can be entirely terminal. Completed and skipped
+steps never return to a non-terminal state. A blocked step can become active or skipped. Plan
 revision preserves IDs for retained steps, allocates IDs for additions, and rejects unknown,
 duplicate, or foreign IDs.
 
@@ -82,7 +82,7 @@ creation snapshots the conversation's current task ID and active step ID onto th
 row. This immutable correlation lets CP35 group proposals without deriving identity from narration
 or event order. A proposal created with no active task step remains unscoped.
 
-CP34B snapshots the current task and active step onto each later ordinary Agent run; the run that
+CP34B snapshots the current task and active step onto each later ordinary Agent run. The run that
 creates the task is correlated in the same task-creation transaction. It projects progress from
 those exact run identities and correlated proposal status. Authoritative proposal, revision, and
 model-request rows continue to decide whether manuscript work actually happened. Plan `completed`
@@ -112,7 +112,7 @@ proposal review surface.
 The projection recomputes after project open, switch, restart, plan revision, and concurrent
 conversation activity. Pending section and generated-image proposals compare their stored base
 revision with the current section revision and display ADR 003's refresh-required state. The
-Renderer may render the already persisted bounded before/after preview inside the group, but it
+Renderer can render the already persisted bounded before/after preview inside the group, but it
 cannot decide, refresh, apply, or rebase a proposal from that projection.
 
 ## Consequences
@@ -122,7 +122,7 @@ single task table and nullable immutable task/step correlation columns on existi
 No Agent event-schema change, dependency, worker, job type, scheduler, subagent, provider runtime,
 or conversation type is introduced.
 
-Project migration 0031 adds nullable task/step correlation to `agent_runs`; it does not add a table,
+Project migration 0031 adds nullable task/step correlation to `agent_runs`. It does not add a table,
 worker, job, scheduler, or event type. Task state participates in project backups, snapshots, history restore, clone sanitization, and
 portability because it is authoritative project collaboration metadata. It never enters
 `app.sqlite` and is never reconstructed from logs or assistant prose.

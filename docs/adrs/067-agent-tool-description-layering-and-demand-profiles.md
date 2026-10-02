@@ -32,7 +32,7 @@ tool outside that set. Main preflights the resulting fixed context before commit
 an unsafe model capacity leaves the set unchanged and returns a structured error. Initial calls,
 tool continuations, compaction planning, and provider-overflow restarts account for the exact
 active envelope. Main sends the active groups and resulting runtime message budget on every
-writing run start and continuation authorization; Worker atomically replaces Pi tools and budget.
+writing run start and continuation authorization. Worker atomically replaces Pi tools and budget.
 
 Shared tool behavior lives once in the application policy. A tool description contains only its
 purpose, use trigger, and at most one unique boundary in one or two short sentences, capped at 240
@@ -49,11 +49,11 @@ validation. This rule is provider-neutral and has no LM Studio-specific runtime 
 
 Protocol and tool contract version advance from 11 to 12. The Pi runtime remains the installed
 0.80.10 version, and the Agent event schema remains version 3. Existing event arguments/results
-remain opaque and readable; no database migration is required.
+remain opaque and readable. No database migration is required.
 
 ## Consequences
 
-Ordinary writing calls carry nine core tools instead of the full writing surface. Broad tasks may
+Ordinary writing calls carry nine core tools instead of the full writing surface. Broad tasks can
 eventually activate every group, but pay that context cost only when requested. Shared guidance is
 shorter and easier to update, Main retains every project and mutation check, and strict
 OpenAI-compatible servers receive object-root function schemas.

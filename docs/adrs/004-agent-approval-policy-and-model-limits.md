@@ -12,7 +12,7 @@ proposal tools in every non-YOLO run do not return to Pi until the user approves
 proposal. Automatic application never bypasses the existing proposal transaction or revision
 checks.
 
-A stale Section proposal is still never applied directly. In an automatic mode, Main may perform
+A stale Section proposal is still never applied directly. In an automatic mode, Main can perform
 the existing operation-aware refresh once and immediately approve the fresh replacement when it
 remains exact and non-conflicting. Manual mode continues to require separate review of the
 replacement. Conflicts and a second stale race return safely to the Agent.
@@ -25,7 +25,7 @@ utilization. models.dev is an optional fixed-host metadata source, not an online
 ## Consequences
 
 The seven-tool boundary and five Agent persistence tables remain unchanged. Approval waiters are
-request-scoped memory and are cancelled with the run; proposal rows remain durable. Existing
+request-scoped memory and are cancelled with the run. Proposal rows remain durable. Existing
 sessions/runs migrate to `manual` and legacy limits. The renderer receives only validated settings,
 resolved limit metadata, and proposal lifecycle notifications, never a raw catalog or network
 capability.

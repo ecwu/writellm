@@ -5,23 +5,24 @@ Date: 2026-09-21
 
 ## Decision
 
-The user authorized moving the macOS global command surface into Electron's native application
-menu. Windows and Linux retain the shadcn Menubar. This narrowly supersedes ADR 083's requirement
-for a persistent in-window Menubar on every platform. The native window frame remains; macOS
-window titles use the active project display name, or WriteLLM when no project is open.
+The user authorized moving macOS global commands into Electron's native application menu.
+Windows and Linux retain the shadcn Menubar.
+This replaces only ADR 083's requirement for an in-window Menubar on macOS.
+Keep the native window frame.
+The macOS window title shows the active project display name. If no project is open, it shows WriteLLM.
 
-Main owns the fixed menu template, sender authorization and project capability checks. A bounded
-Zod state projection and command subscription cross preload; no arbitrary menu templates or code
-cross that boundary. Both presentations reuse command availability and existing Renderer actions.
-Native accelerators own migrated macOS shortcuts, while editor-specific shortcuts remain intact.
+Main owns the fixed menu template, sender authorization, and project capability checks.
+Preload exposes bounded Zod state and a command subscription. It does not expose arbitrary menu templates or code.
+Both menus reuse command availability and existing Renderer actions.
+Native accelerators handle migrated macOS shortcuts. Editor-specific shortcuts remain intact.
 Project save/close and app quit retain existing flush and shutdown coordination.
 
 ## Consequences
 
-Menu state is ephemeral and reset on navigation, renderer failure and window closure. Windowless
-New project, Open project and Settings recreate the main window before dispatch. Existing project
-and application databases need no migration. Lifecycle logs use the shared correlation context.
+Menu state exists only in memory. Reset it on navigation, renderer failure, and window closure.
+If no window is open, New project, Open project, and Settings recreate the main window before dispatch.
+Existing project and application databases need no migration. Lifecycle logs use the shared correlation context.
 
-Keeping duplicate menus wastes workspace; a custom frameless titlebar adds unnecessary drag and
-window-control complexity. Neither alternative is adopted. This is maintenance, not a new Phase,
-and does not authorize signing, publication or changes to other platforms.
+Duplicate menus waste workspace. A custom frameless titlebar adds drag and window-control complexity.
+Neither alternative is adopted.
+This maintenance does not start a new Phase or authorize signing, publication, or changes to other platforms.

@@ -16,7 +16,7 @@ already own the rest of the workflow.
 
 Checkpoint 57 replaces only ADR 006's Gemini-exclusive provider choice with a fixed catalog:
 Google Gemini, OpenAI, and xAI. Their configuration and encrypted credentials are independent and
-may coexist, but exactly zero or one saved source is explicitly active. Generation uses only the
+can coexist, but exactly zero or one saved source is explicitly active. Generation uses only the
 active source captured when the request starts. There is no automatic fallback, rotation, retry,
 or failure-triggered provider switch.
 
@@ -58,7 +58,7 @@ providers, a generic image plugin framework, or provider-specific workers.
 
 ## Alternatives Rejected
 
-- Automatic fallback or round-robin routing: a failed call may already be billable, so hidden
+- Automatic fallback or round-robin routing: a failed call can already be billable, so hidden
   retries can duplicate cost and obscure lineage.
 - Responses API for OpenAI: the current operation is a single prompt producing a single image, for
   which the Image API is the narrower interface.

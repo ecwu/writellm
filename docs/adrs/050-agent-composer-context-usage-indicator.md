@@ -6,7 +6,7 @@ Date: 2026-08-18
 ## Context
 
 The Agent Details dialog already reports the latest model request's context usage and context
-window, but authors must leave the composer to inspect it. Hands-on use of the Codex composer
+window, but authors must leave the composer to inspect it. Use of the Codex composer
 showed that a compact circular indicator beside the model summary makes this capacity visible
 without adding another configuration control or disturbing the writing flow.
 

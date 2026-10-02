@@ -13,7 +13,7 @@ from recognizable model names, and model choice is visually separated from the T
 constrains.
 
 The user supplied the current Codex composer as the interaction reference. Its useful pattern is
-not its computer-wide permission model; it is a restrained default surface with progressive
+not its computer-wide permission model. It is a restrained default surface with progressive
 disclosure, a combined model/effort summary, and the same secondary actions reachable from an Add
 menu or a leading slash. WriteLLM must preserve its narrower local-first authority and must not
 present Codex labels that imply shell, arbitrary filesystem, or unrestricted network access.
@@ -27,9 +27,9 @@ requires each value to have an independent control on the default composer; all 
 available without navigation to Settings.
 
 Add and a leading `/` expose the same application-owned command catalog. The first version contains
-only capabilities WriteLLM already owns: context scope and Writing Skill. The menu may select Auto,
-selected text, current section, or whole manuscript context, and may select existing Writing Skill
-choices in the same catalog. Slash selection performs configuration; it does not insert
+only capabilities WriteLLM already owns: context scope and Writing Skill. The menu can select Auto,
+selected text, current section, or whole manuscript context, and can select existing Writing Skill
+choices in the same catalog. Slash selection performs configuration. It does not insert
 hidden prompt text or add a new Agent tool, plugin, attachment, Goal, Plan, filesystem, browser, or
 network capability.
 

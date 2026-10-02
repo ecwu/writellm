@@ -18,7 +18,7 @@ immediate use of updated model catalogs and configuration by subsequent requests
   planning, the Worker, and immutable run provenance. Legacy singleton models retain their
   metadata resolver. The catalog must not be replaced by an older limits cache.
 - Interactive runs default to the resolved model's output allowance. An explicit smaller
-  request still applies; the existing generic output bound remains. The 8,192-token fallback
+  request still applies. The existing generic output bound remains. The 8,192-token fallback
   is used only when no output capability is known. Auxiliary title and summary requests keep
   their purpose-specific budgets.
 - Manual and custom models retain their declared reasoning metadata. Pi's existing supported
@@ -43,4 +43,4 @@ truncated writing automatically could repeat effects and cost. Those alternative
 There is no schema migration, dependency change, new provider adapter, or new background job.
 Existing history and active-run authority remain immutable. This maintenance affects model
 catalog/configuration delivery, run budgeting, completion classification, and their focused
-verification; it does not advance the paused Writing Task checkpoint.
+verification. It does not advance the paused Writing Task checkpoint.

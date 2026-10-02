@@ -3,11 +3,13 @@
 Status: accepted
 Date: 2026-08-19
 
+Current rule: ADR 054 replaces session Skill selection. ADRs 073 and 074 replace injection and loading rules. Use ADR 074 for current loading limits.
+
 ## Context
 
 ADR 013 established application-global, immutable, text-only Writing Skills with a Pi-formatted
 metadata catalog, exact virtual resource capabilities, progressive reference reads, and one
-session-level `auto | explicit | none` selection. Hands-on use exposed two product gaps: a task may
+session-level `auto | explicit | none` selection. Use exposed two product gaps: a task can
 need more than one complementary method, and the Agent timeline does not clearly distinguish an
 explicit user choice from an automatic Skill load or identify the files that were read.
 
@@ -34,22 +36,22 @@ integrity, and authority rules remain in force.
   Skill. Skill bodies remain absent from project SQLite and Renderer projections.
 - The project session table gains an ordered `skill_ids_json` column. The historical `skill_id`
   column remains a compatibility shadow of the first explicit ID. Forward migration backfills a
-  singleton array; new writes keep both representations consistent. Main/shared validation owns
+  singleton array. New writes keep both representations consistent. Main/shared validation owns
   ordering, distinctness, ID validity, and the four-Skill limit.
 - Explicit mode resolves all selected Skills and a combined dependency closure before the run
   starts. A selected Skill that also appears in another selected Skill's dependency closure is
   injected once as a top-level Skill. Shared dependencies are injected once. The total dependency
   closure remains limited to eight.
 - Auto keeps the existing Pi metadata catalog and makes no auxiliary model request. One Skill-only
-  assistant response may add at most one previously unselected top-level Skill, so the model sees
-  the current composition before requesting another. One run may select at most four. A duplicate
+  assistant response can add at most one previously unselected top-level Skill, so the model sees
+  the current composition before requesting another. One run can select at most four. A duplicate
   read is idempotent.
 - Instruction precedence is application safety/tool/writing policy, ordered top-level Skills, then
   dependency Skills. Earlier top-level selections have higher precedence. Dependencies are emitted
   in stable topological order below all top-level Skills. This ordering is explicit in the
   application companion text and is not inferred from installation order.
 - Every selected top-level Skill and dependency contributes its exact manifest reference allowlist.
-  References are keyed by `skillId + commit + relativePath`, may be read only through the existing
+  References are keyed by `skillId + commit + relativePath`, can be read only through the existing
   `read_writing_skill({ uri })` tool, and are limited to twelve distinct complete files and 32 KiB
   total per run. Count and byte reservations happen before asynchronous reads; failures release the
   reservation. Duplicate reads consume neither budget twice nor another snapshot entry.
@@ -57,8 +59,8 @@ integrity, and authority rules remain in force.
   Explicit selection fails before provider activity when the composition cannot fit. Auto checks a
   prospective composition before committing a new top-level Skill and leaves the existing set
   unchanged on rejection. Optional references continue to be removed whole, never truncated.
-- The preparation barrier remains. Auto may load one new entrypoint in a Skill-only response and
-  may read independent authorized references together in a later Skill-only response. Manuscript,
+- The preparation barrier remains. Auto can load one new entrypoint in a Skill-only response and
+  can read independent authorized references together in a later Skill-only response. Manuscript,
   knowledge, checking, generation, and submit tools run only after the selected Skill reads settle.
 - User-visible provenance has two layers. Explicit Skills appear as compact chips on the composer
   and the resulting user message. Auto entrypoint/reference reads appear as named, expandable

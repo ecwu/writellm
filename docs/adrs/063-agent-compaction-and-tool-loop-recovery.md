@@ -3,6 +3,8 @@
 Status: accepted for Checkpoint 71; implementation authorized
 Date: 2026-08-25
 
+Current rule: ADR 074 replaces event-count finalization and the one-recovery limit. The no-replay and authorization rules remain.
+
 ## Context
 
 A hands-on writing run produced 415 durable events in one interrupted run. The existing compaction
@@ -20,14 +22,14 @@ user requirements.
   data, chooses complete `run_completed`/`run_interrupted` boundaries, and remains bounded by the
   compaction model's calculated input budget. A 2,000-event absolute scan ceiling protects local
   memory and database work. A complete run that exceeds either bound fails explicitly as
-  `compaction_run_too_large`; original events remain unchanged.
+  `compaction_run_too_large`. Original events remain unchanged.
 - Main begins finalization when a writing run has at least 180 durable events at a tool-continuation
-  boundary. The authorized continuation is marked `finalize`; Worker removes tools from the next Pi
+  boundary. The authorized continuation is marked `finalize`. Worker removes tools from the next Pi
   context and adds application-authored guidance to return the best supported answer and identify
   unfinished work. Notebook does not persist Agent events and never receives this flag.
 - Worker treats an authorized but unconsumed continuation as a recoverable Pi-loop settlement edge.
   It resumes from the final tool result with `continue()`. If the authorization still cannot be
-  consumed, the run fails as `continuation_lost`; Main continues to reject successful settlement
+  consumed, the run fails as `continuation_lost`. Main continues to reject successful settlement
   while any model request remains pending.
 - Existing payload-v3 checkpoints, raw event authority, provider-overflow no-replay rules, proposal
   authority, and current-request preservation remain unchanged. No table, migration, background job,

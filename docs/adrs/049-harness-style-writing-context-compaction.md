@@ -3,12 +3,14 @@
 Status: accepted for Checkpoint 54
 Date: 2026-08-18
 
+Current rule: ADRs 064, 072, and 074 replace the older compaction policy. Use ADR 074 for current summaries and context budgets.
+
 ## Context
 
 ADR 019 introduced auditable rolling checkpoints, but the implemented projection shortens every
 user and terminal assistant message above 1,024 characters before the compaction model sees it.
 It also marks the resulting checkpoint as authority-free data and gives manual compaction a zero
-post-compaction target. Hands-on use showed that requirements in the middle of long requests can
+post-compaction target. Use showed that requirements in the middle of long requests can
 therefore disappear even though the raw Agent events remain intact.
 
 Current coding harnesses instead combine fresh canonical instructions, a semantic handoff for old
@@ -25,9 +27,9 @@ outside compaction and is never recursively truncated.
 
 The post-compaction history budget is the smaller of 32,000 tokens and half of the final
 conversation budget. The checkpoint receives the smaller of 12,000 tokens and 37.5 percent of
-that post-compaction budget; the remainder is reserved for recent complete turns. At the normal
+that post-compaction budget. The remainder is reserved for recent complete turns. At the normal
 maximum this yields a 12,000-token handoff and a 20,000-token raw tail. Automatic and manual
-compaction use the same policy. A newest complete turn may borrow unused checkpoint capacity, but
+compaction use the same policy. A newest complete turn can borrow unused checkpoint capacity, but
 an indivisible turn that cannot fit the full conversation budget fails before provider work rather
 than being shortened or silently omitted.
 
@@ -50,7 +52,7 @@ records the requested deliverable, writing intent and terminology, verified prog
 outcomes, evidence and gaps, blockers, next action, and critical safe references. Each rolling
 step must carry every still-active item forward because the prior checkpoint is replaced.
 
-Automatic failure may continue only when the last successful checkpoint plus every later raw turn
+Automatic failure can continue only when the last successful checkpoint plus every later raw turn
 fits without omission. If continuing would discard an uncheckpointed user message, the run fails
 before the provider call with a retryable compaction error. Existing pre-activity provider-overflow
 retry, no-replay-after-activity, cancellation, and raw-event authority remain unchanged.
