@@ -527,6 +527,10 @@ ADRs 018, 019, and 058.
 
 Pin the package manager in `package.json`. Pin exact Pi package versions and major versions for Electron, electron-vite, AI SDK, BlockNote, and native dependencies. Pi and BlockNote API changes must be reviewed rather than accepted through broad version ranges.
 
+The [dependency maintenance amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) accepts Electron 43.7.7 and Vitest 4.1.11 for security fixes.
+It also accepts compatible maintenance updates and the Node 24.21.0 and pnpm 11.28.3 toolchain pins.
+The existing process, database, content, and native packaging rules remain authoritative.
+
 ## Project Lifecycle
 
 Main owns a single `ProjectManager` with an explicit state machine:

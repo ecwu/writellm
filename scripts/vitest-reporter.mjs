@@ -68,7 +68,10 @@ export default class VerificationReporter {
     const diagnostic = testCase.diagnostic()
     const active = this.activeAttempts.get(testCase.id)
     const totalDurationMs = durationMs(diagnostic?.duration ?? 0)
-    const attempts = active?.attempts ?? []
+    const retryCount = diagnostic?.retryCount ?? 0
+    // Vitest 4.1 also emits test-retried after the last failed try. The final
+    // diagnostic is authoritative, so do not count that event as another try.
+    const attempts = active?.attempts.slice(0, retryCount) ?? []
     const wasNotExecuted =
       (result.state === 'skipped' || result.state === 'pending') &&
       diagnostic?.startTime === undefined
@@ -78,10 +81,10 @@ export default class VerificationReporter {
     } else if (active !== undefined) {
       const previousDurationMs = attempts.reduce((total, attempt) => total + attempt.durationMs, 0)
       attempts.push({
-        retry: active.currentRetry,
+        retry: retryCount,
         durationMs: Math.max(0, totalDurationMs - previousDurationMs),
         startedAt: attemptStart(active, diagnostic?.startTime),
-        timing: active.currentRetry === 0 ? 'measured' : 'estimated'
+        timing: retryCount === 0 ? 'measured' : 'estimated'
       })
       this.activeAttempts.delete(testCase.id)
     } else {
@@ -99,7 +102,7 @@ export default class VerificationReporter {
       state: result.state,
       durationMs: totalDurationMs,
       startedAt: diagnosticStart(diagnostic?.startTime),
-      retryCount: diagnostic?.retryCount ?? 0,
+      retryCount,
       repeatCount: diagnostic?.repeatCount ?? 0,
       flaky: diagnostic?.flaky ?? false,
       attemptCount: attempts.length,

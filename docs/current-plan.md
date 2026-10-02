@@ -31,6 +31,17 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- The 2026-10-02 security and maintenance refresh updates 30 direct dependencies and compatible transitive packages under the accepted ADR 056 amendment.
+  Pi remains at exactly 1.0.0, and BlockNote remains at 0.54.0.
+  Production and complete dependency audits report zero known vulnerabilities.
+  The final Electron suite passes 1,637 tests in 26.0s, with three benchmark skips and zero retries.
+  The macOS arm64 package gate passes all 10 stages in 245.0s with one App build.
+  All 12 runtime smoke scenarios and 43 packaged E2E scenarios pass without retries or skips.
+
+  The tested App, DMG, and ZIP retain release metadata `0.2026.9.10`.
+  Other native platforms and live-provider requests remain unverified for this maintenance.
+  Evidence: [maintenance history](history/implementation-log.md#2026-10-02-dependency-security-and-maintenance-refresh).
+
 - Release 0.2026.9.10 has passed local release acceptance. The release counter advances from 0.2026.9.9;
   package base remains 0.2026.9. The candidate includes sidebar width preservation, tool chrome
   and empty-workbench navigation, section title typography, native macOS menus and the new

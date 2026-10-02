@@ -28,6 +28,13 @@ describe('DOCX publication renderer', () => {
       readAsset: async () => imageBytes
     })
 
+    const firstArchive = await JSZip.loadAsync(first.bytes)
+    const secondArchive = await JSZip.loadAsync(second.bytes)
+    for (const name of Object.keys(firstArchive.files).filter((entry) => entry.endsWith('.xml'))) {
+      expect((await requiredEntry(secondArchive, name)).replaceAll('><', '>\n<'), name).toBe(
+        (await requiredEntry(firstArchive, name)).replaceAll('><', '>\n<')
+      )
+    }
     expect(second.bytes).toEqual(first.bytes)
     expect(first.losses).toEqual(
       expect.arrayContaining([
@@ -68,6 +75,10 @@ describe('DOCX publication renderer', () => {
     expect(documentXml).toContain('<m:f>')
     expect(documentXml).toContain('Alternative figure')
     expect(documentXml).toContain('Figure 1. A deterministic pixel')
+    const bookmarkStarts = [...documentXml.matchAll(/<w:bookmarkStart\b[^>]*w:id="(\d+)"/gu)]
+    const bookmarkEnds = [...documentXml.matchAll(/<w:bookmarkEnd\b[^>]*w:id="(\d+)"/gu)]
+    expect(bookmarkStarts.map((match) => match[1])).toEqual(['1', '2'])
+    expect(bookmarkEnds.map((match) => match[1])).toEqual(['1', '2'])
     expect(relationshipsXml).toContain('https://example.com/research')
     expect(footerXml).toContain('PAGE')
     expect(footerXml).toContain('NUMPAGES')
@@ -128,6 +139,12 @@ function fixtureAssembly(): PublicationAssembly {
         level: 1,
         content: [{ type: 'text', text: 'Introduction 介绍', style: emptyStyle() }],
         target: { ...target, blockId: null }
+      },
+      {
+        type: 'heading',
+        level: 2,
+        content: [{ type: 'text', text: 'Methods', style: emptyStyle() }],
+        target: { ...target, blockId: 'methods' }
       },
       {
         type: 'paragraph',

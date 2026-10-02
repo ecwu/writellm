@@ -6,51 +6,61 @@ allowBuilds:
   esbuild: true
   protobufjs: false
 overrides:
-  "fast-uri@>=3.0.0 <3.1.7": "3.1.7"
-  "@tiptap/core": "3.31.2"
-  "@tiptap/extension-bold": "3.31.2"
-  "@tiptap/extension-bubble-menu": "3.31.2"
-  "@tiptap/extension-code": "3.31.2"
-  "@tiptap/extension-floating-menu": "3.31.2"
-  "@tiptap/extension-italic": "3.31.2"
-  "@tiptap/extension-strike": "3.31.2"
-  "@tiptap/extension-text": "3.31.2"
-  "@tiptap/extension-underline": "3.31.2"
-  "@tiptap/extensions": "3.31.2"
-  "@tiptap/pm": "3.31.2"
-  "@tiptap/react": "3.31.2"
-  browserslist: "4.28.8"
+  "fast-uri@>=3.0.0 <3.1.8": "3.1.8"
+  "@tiptap/core": "3.31.4"
+  "@tiptap/extension-bold": "3.31.4"
+  "@tiptap/extension-bubble-menu": "3.31.4"
+  "@tiptap/extension-code": "3.31.4"
+  "@tiptap/extension-floating-menu": "3.31.4"
+  "@tiptap/extension-italic": "3.31.4"
+  "@tiptap/extension-strike": "3.31.4"
+  "@tiptap/extension-text": "3.31.4"
+  "@tiptap/extension-underline": "3.31.4"
+  "@tiptap/extensions": "3.31.4"
+  "@tiptap/pm": "3.31.4"
+  "@tiptap/react": "3.31.4"
+  browserslist: "4.29.3"
   "@xmldom/xmldom": "0.8.15"
-  "brace-expansion@<1.1.18": "1.1.18"
-  "brace-expansion@>=2.0.0 <2.1.4": "2.1.4"
-  "brace-expansion@>=5.0.0 <5.0.9": "5.0.9"
-  "undici@>=6.0.0 <6.28.0": "6.28.0"
-  "tar@>=7.0.0 <7.5.21": "7.5.21"
+  "brace-expansion@>=1.0.0 <1.1.21": "1.1.21"
+  "brace-expansion@>=2.0.0 <2.1.7": "2.1.7"
+  "brace-expansion@>=5.0.0 <5.0.12": "5.0.12"
+  "undici@>=6.0.0 <6.28.1": "6.28.1"
+  "undici@>=7.0.0 <7.29.1": "7.29.1"
+  "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
+  "dompurify@>=3.0.0 <3.4.16": "3.4.16"
+  "tar@>=7.0.0 <7.5.22": "7.5.22"
 minimumReleaseAgeExclude:
-  - fast-uri@3.1.4 || 3.1.5 || 3.1.6 || 3.1.7
-  - brace-expansion@1.1.17 || 1.1.18 || 2.1.3 || 2.1.4 || 5.0.8 || 5.0.9
+  - fast-uri@3.1.8
+  - brace-expansion@1.1.21 || 2.1.7 || 5.0.12
   - postcss@8.5.23
-  - undici@6.28.0
-  - js-yaml@4.3.1
+  - undici@6.28.1 || 7.29.1
+  - js-yaml@4.3.2
   - nanoid@3.3.18
-  - tar@7.5.21
-  - '@tiptap/core@3.31.2'
-  - '@tiptap/extension-bold@3.31.2'
-  - '@tiptap/extension-bubble-menu@3.31.2'
-  - '@tiptap/extension-code@3.31.2'
-  - '@tiptap/extension-floating-menu@3.31.2'
-  - '@tiptap/extension-italic@3.31.2'
-  - '@tiptap/extension-strike@3.31.2'
-  - '@tiptap/extension-text@3.31.2'
-  - '@tiptap/extension-underline@3.31.2'
-  - '@tiptap/extensions@3.31.2'
-  - '@tiptap/pm@3.31.2'
-  - '@tiptap/react@3.31.2'
+  - tar@7.5.22
+  - '@tiptap/core@3.31.4'
+  - '@tiptap/extension-bold@3.31.4'
+  - '@tiptap/extension-bubble-menu@3.31.4'
+  - '@tiptap/extension-code@3.31.4'
+  - '@tiptap/extension-floating-menu@3.31.4'
+  - '@tiptap/extension-italic@3.31.4'
+  - '@tiptap/extension-strike@3.31.4'
+  - '@tiptap/extension-text@3.31.4'
+  - '@tiptap/extension-underline@3.31.4'
+  - '@tiptap/extensions@3.31.4'
+  - '@tiptap/pm@3.31.4'
+  - '@tiptap/react@3.31.4'
   - '@earendil-works/chord@0.85.0'
   - '@earendil-works/pi-agent-core@0.85.0 || 1.0.0'
   - '@earendil-works/pi-ai@0.85.0 || 1.0.0'
   - '@earendil-works/pi-telemetry@0.85.0 || 1.0.0'
+  - '@ai-sdk/gateway@4.0.103'
+  - '@google/genai@2.26.0'
+  - '@tanstack/query-core@5.104.1'
+  - '@tanstack/react-query@5.104.1'
+  - '@types/node@24.19.1'
+  - ai@7.0.127
+  - openai@7.27.0
 patchedDependencies:
   '@blocknote/react@0.54.0': patches/@blocknote__react@0.54.0.patch
-  playwright-core@1.62.1: patches/playwright-core@1.62.1.patch
+  playwright-core@1.63.0: patches/playwright-core@1.63.0.patch
 verifyDepsBeforeRun: false

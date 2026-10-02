@@ -4059,3 +4059,84 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   The final source retains the full and package acceptance results recorded above.
   Only documentation changed after those gates, and final Biome, diff, and local evidence-link checks passed.
   This integration does not publish a release or change CP77.
+
+## 2026-10-02 dependency security and maintenance refresh
+
+The user authorized security fixes and routine maintenance after the dependency audit.
+The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) records the accepted scope.
+This change updates 30 direct dependencies, compatible transitive packages, and the existing Tiptap and browserslist overrides.
+Pi remains at exactly 1.0.0, and BlockNote remains at 0.54.0.
+The deferred editor, compiler, bundler, database, and CI Action migrations remain separate.
+Release metadata remains `0.2026.9.10`, and CP77 remains paused.
+
+Electron advances to 43.7.7, Playwright to 1.63.0, and Vitest to the repaired 4.1.11 line.
+Provider SDKs, React, DOCX, ProseMirror, Biome, and other compatible dependencies receive maintenance updates.
+Security overrides repair fast-uri, brace-expansion, undici, js-yaml, DOMPurify, and tar within their admitted major versions.
+The BlockNote patch remains unchanged, and the Playwright credential-store patch applies to the new loader.
+
+ProseMirror View resolves to one 1.42.6 version across the editor dependency tree.
+ProseMirror Model also resolves to one compatible 1.25.12 version.
+The [version inventory](../../.cache/verification/dependency-maintenance-2026-10-02/updates.json) records all direct version changes.
+
+Node 24.21.0 and pnpm 11.28.3 pins agree across the manifest, bootstrap scripts, README, and CI configuration.
+The release-age policy retains exact exceptions for reviewed security fixes and Tiptap packages.
+Installation also adds exact exceptions for seven reviewed SDK, query, and Node-type packages.
+Those packages are `@ai-sdk/gateway`, `@google/genai`, `@tanstack/query-core`, `@tanstack/react-query`, `@types/node`, `ai`, and `openai`.
+Their exact admitted versions appear in `pnpm-workspace.yaml`.
+The final frozen installation passes with pnpm 11.28.3 and takes 0.2s.
+
+Vitest 4 emits a retry event after the final failed attempt, so the reporter uses the final diagnostic count.
+The subprocess fixture covers successful retries, exhausted retries, failures without retries, and skipped tests.
+Its explicit file selection prevents Vitest 4 from scanning unrelated files.
+Two test mocks receive explicit function types for Vitest 4.
+DOCX normalization replaces process-wide bookmark counters with document-order identifiers and preserves matching bookmark pairs.
+The existing export test covers repeated bytes, matching identifiers, and two headings.
+
+Initial reporter runs timed out because the fixture scanned unrelated files.
+The first complete suite exposed two DOCX failures from the changed bookmark counter.
+Two package attempts stopped before any App build because of mock types and duplicate ProseMirror types.
+These failures were compatibility results, and their fixes passed focused coverage and the final complete suite.
+The final Electron-hosted suite passes 1,637 tests across 265 files in 26.0s.
+Three opt-in benchmark tests remain skipped, with zero retries and zero unhandled errors.
+
+The production audit falls from 16 advisory records to zero, and the complete audit falls from 28 to zero.
+The final production graph contains 766 package entries, and the complete graph contains 1,183.
+Evidence: [production audit](../../.cache/verification/dependency-maintenance-2026-10-02/audit-production.json),
+[complete audit](../../.cache/verification/dependency-maintenance-2026-10-02/audit-all.json),
+[frozen installation](../../.cache/verification/dependency-maintenance-2026-10-02/frozen-install.log),
+and [Electron suite](../../.cache/verification/1790941302375-89983-f1092842/vitest-1790941302949-89984-464d70bd.json).
+
+The first App passed native preparation, production compilation, signature policy, and package inventory.
+Its runtime smoke stopped at a hidden-window size wait after 30 seconds.
+A separate probe showed the correct native and Renderer dimensions, and all 12 smoke scenarios passed on one focused retry.
+The two startup waits now use the shared timer interval instead of animation-frame polling.
+Their existing timeouts and assertions remain unchanged.
+The final full gate records acceptance separately from this failed attempt and focused retry.
+Evidence: [failed package attempt](../../.cache/verification/1790940882593-83591-b27375c6/stages-1790940882593-83591-b27375c6.json)
+and [focused smoke retry](../../.cache/verification/1790941068505-86176-4f3421a8/stages-1790941068505-86176-4f3421a8.json).
+The focused retry takes 38.8s and reuses the first App.
+
+The next App passes all 12 smoke scenarios but exposes duplicate ProseMirror Model classes during real typing.
+Autocomplete, Agent writing, and other editor scenarios fail with the same Fragment conversion error.
+The Model update unifies all parent-compatible ranges at 1.25.12 without product-code casts or a forced major override.
+The agent stops the failed old-App suite and retains its reports with exit 130.
+The final complete Electron suite and both audits above cover the repaired dependency tree.
+Evidence: [failed editor gate](../../.cache/verification/1790941120404-87116-76d13227/stages-1790941120404-87116-76d13227.json)
+and [typing error](../../.cache/verification/dependency-maintenance-2026-10-02/initial-editor-errors/autocomplete.md).
+
+The final `pnpm check:package` passes all 10 stages in 245.0s on macOS arm64 with one App build.
+Recovery inventory contains 32 fixtures, and all 12 runtime smoke scenarios pass in 39.0s.
+All 43 packaged E2E scenarios pass in 139.6s with zero retries or skips.
+DMG and ZIP inspection, checksums, native resources, and the no-Team-ID signature policy pass.
+The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+The gate creates installers from that same App and performs no notarization or publication.
+
+Evidence: [package gate](../../.cache/verification/1790941343069-90907-bbaa8134/stages-1790941343069-90907-bbaa8134.json)
+and [packaged E2E](../../.cache/verification/1790941343069-90907-bbaa8134/e2e-1790941425646-92119-6639dadd.json).
+
+The host retains Node 26.10.0 and its original pnpm 11.17.0 launcher.
+The launcher selects the accepted pnpm 11.28.3 project runtime outside the sandbox.
+Node exceeds the declared 24.x range, so commands record an engine warning.
+Native execution uses Electron 43.7.7, ABI 148, with better-sqlite3 12.11.1 and sqlite-vec 0.1.9.
+Windows, Linux, macOS x64, live-provider requests, signing, and notarization remain unverified for this change.
+No commit, push, tag movement, or remote release write occurs.

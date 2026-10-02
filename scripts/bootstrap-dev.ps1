@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$requiredNodeVersion = '24.15.0'
-$requiredPnpmVersion = '11.17.0'
+$requiredNodeVersion = '24.21.0'
+$requiredPnpmVersion = '11.28.3'
 
 if (-not [Environment]::Is64BitOperatingSystem) {
   throw 'WriteLLM Windows packaging requires a 64-bit Windows host.'
@@ -11,7 +11,7 @@ $nodeCommand = Get-Command node -ErrorAction SilentlyContinue
 if ($null -eq $nodeCommand) {
   $wingetCommand = Get-Command winget -ErrorAction SilentlyContinue
   if ($null -eq $wingetCommand) {
-    throw 'Node.js 24.15.0 is missing. Install the official x64 Node.js LTS release, then rerun this script.'
+    throw 'Node.js 24.21.0 is missing. Install the official x64 Node.js LTS release, then rerun this script.'
   }
   winget install --id OpenJS.NodeJS --version $requiredNodeVersion --exact --scope user --accept-package-agreements --accept-source-agreements
   $nodeCommand = Get-Command node -ErrorAction SilentlyContinue

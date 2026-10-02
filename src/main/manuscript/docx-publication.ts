@@ -524,7 +524,7 @@ async function canonicalizeDocx(bytes: Buffer): Promise<Buffer> {
       for (const [generated, stable] of relationshipIds) {
         xml = xml.replaceAll(`"${generated}"`, `"${stable}"`)
       }
-      if (name === 'word/document.xml') xml = canonicalDrawingIds(xml)
+      if (name === 'word/document.xml') xml = canonicalBookmarkIds(canonicalDrawingIds(xml))
       data = Buffer.from(xml)
     }
     if (name === 'docProps/core.xml') {
@@ -569,5 +569,19 @@ function canonicalDrawingIds(xml: string): string {
     return element
       .replace(/\bid="\d+"/u, `id="${drawing}"`)
       .replace(/\bname="[^"]*"/u, `name="WriteLLM Figure ${drawing}"`)
+  })
+}
+
+function canonicalBookmarkIds(xml: string): string {
+  const ids = new Map<string, string>()
+  for (const [element] of xml.matchAll(/<w:bookmarkStart\b[^>]*>/gu)) {
+    const generated = attribute(element, 'w:id')
+    if (generated !== null) ids.set(generated, String(ids.size + 1))
+  }
+  return xml.replace(/<w:bookmark(?:Start|End)\b[^>]*>/gu, (element) => {
+    const generated = attribute(element, 'w:id')
+    const stable = generated === null ? undefined : ids.get(generated)
+    if (stable === undefined) throw new Error('DOCX bookmark has no matching start identifier')
+    return element.replace(/\bw:id="[^"]*"/u, `w:id="${stable}"`)
   })
 }

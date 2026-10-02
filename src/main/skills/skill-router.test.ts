@@ -316,9 +316,9 @@ describe('Pi-native progressive Writing Skill routing', () => {
 })
 
 function logger(): {
-  info: ReturnType<typeof vi.fn>
-  warn: ReturnType<typeof vi.fn>
-  error: ReturnType<typeof vi.fn>
+  info: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>
+  warn: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>
+  error: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>
 } {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
 }

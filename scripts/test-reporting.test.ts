@@ -49,10 +49,15 @@ describe('test reporting and timeout policy', () => {
         `import { it, expect } from 'vitest';
 let attempts = 0;
 it('retries once', { retry: 1 }, () => expect(++attempts).toBe(2));
+it.fails('exhausts two retries', { retry: 2 }, () => expect(false).toBe(true));
+it.fails('fails without retry', () => expect(false).toBe(true));
 it.skip('not executed', () => {});
 `
       )
-      await writeFile(config, 'export default { test: { exclude: [] } }\n')
+      await writeFile(
+        config,
+        `export default { test: { include: [${JSON.stringify(fixture)}], exclude: [] } }\n`
+      )
       await promisify(execFile)('node', ['scripts/run-tests.mjs', fixture, '--config', config], {
         env: { ...process.env, WRITELLM_VERIFICATION_DIRECTORY: reports },
         maxBuffer: 1024 * 1024
@@ -61,17 +66,21 @@ it.skip('not executed', () => {});
       expect(reportFile).toBeDefined()
       const report = JSON.parse(await readFile(join(reports, reportFile as string), 'utf8'))
       expect(report.counts).toMatchObject({
-        tests: 2,
-        attempts: 2,
-        retries: 1,
-        passed: 1,
-        flaky: 1,
+        tests: 4,
+        attempts: 6,
+        retries: 3,
+        passed: 3,
+        flaky: 2,
         skipped: 1
       })
-      const retried = report.tests.find((test) => test.flaky)
+      const retried = report.tests.find((test) => test.name === 'retries once')
       expect(retried.attempts).toHaveLength(2)
       expect(retried.attempts.map((attempt) => attempt.retry)).toEqual([0, 1])
       expect(retried.attempts.every((attempt) => attempt.timing === 'estimated')).toBe(true)
+      const exhausted = report.tests.find((test) => test.name === 'exhausts two retries')
+      expect(exhausted.attempts.map((attempt) => attempt.retry)).toEqual([0, 1, 2])
+      expect(exhausted.attemptCount).toBe(exhausted.retryCount + 1)
+      expect(report.tests.find((test) => test.name === 'fails without retry').attemptCount).toBe(1)
       expect(report.tests.find((test) => test.state === 'skipped').attempts).toEqual([])
     } finally {
       await rm(directory, { recursive: true, force: true })

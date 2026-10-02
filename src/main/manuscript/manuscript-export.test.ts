@@ -414,7 +414,7 @@ async function exportFixture(): Promise<{
     database: ProjectDatabase
     log: typeof log
     now: () => Date
-    createId: ReturnType<typeof vi.fn>
+    createId: ReturnType<typeof vi.fn<() => string>>
   }
 }> {
   const parent = await mkdtemp(join(tmpdir(), 'writellm-manuscript-export-'))

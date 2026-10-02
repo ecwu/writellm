@@ -314,10 +314,13 @@ async function runPackagedAppScenarios(resources) {
       window.unmaximize()
       window.setContentSize(1400, 900)
     })
-    await page.waitForFunction(() => window.innerWidth >= 1_280)
+    await page.waitForFunction(() => window.innerWidth >= 1_280, undefined, {
+      polling: pollIntervalMs
+    })
     try {
       await page.waitForFunction(() => window.desktop?.providers !== undefined, undefined, {
-        timeout: 15_000
+        timeout: 15_000,
+        polling: pollIntervalMs
       })
     } catch (error) {
       const diagnostics = await page.evaluate(() => ({

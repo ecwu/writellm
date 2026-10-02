@@ -2,7 +2,7 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-node_version="24.15.0"
+node_version="24.21.0"
 local_prefix="${HOME}/.local"
 node_root="${local_prefix}/node-v${node_version}"
 node_archive="${TMPDIR:-/tmp}/writellm-node-v${node_version}-linux-x64.tar.xz"
@@ -27,8 +27,8 @@ ln -sfn "${node_root}/bin/npx" "${local_prefix}/bin/npx"
 PATH="${local_prefix}/bin:${PATH}"
 export PATH
 
-if [[ "$(pnpm --version 2>/dev/null || true)" != "11.17.0" ]]; then
-  npm install --global --prefix "${local_prefix}" pnpm@11.17.0
+if [[ "$(pnpm --version 2>/dev/null || true)" != "11.28.3" ]]; then
+  npm install --global --prefix "${local_prefix}" pnpm@11.28.3
 fi
 
 echo "Node: $(node --version)"

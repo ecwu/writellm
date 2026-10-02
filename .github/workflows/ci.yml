@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PNPM_VERSION: 11.17.0
-  NODE_VERSION: 24.15.0
+  PNPM_VERSION: 11.28.3
+  NODE_VERSION: 24.21.0
 
 jobs:
   static:
