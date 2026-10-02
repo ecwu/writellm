@@ -47,6 +47,10 @@ compiler, package hook, macro expansion, or external converter is permitted.
 
 ## Consequences
 
+The [2026-10-02 Issue 2 amendment](056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) updates Citation.js to 0.9.0.
+The Main build now replaces its fetch utility module to block synchronous and asynchronous network calls.
+This preserves the network boundary when upstream replaces its fetch dependencies.
+
 - Project import inherits ADR 032/CP36's session-bound staging, 30-minute plan TTL, preview/apply,
   and cleanup boundary, and remains a larger fixture around the same staged plan/apply authority,
   not a new conversation, model endpoint, or mutation path.

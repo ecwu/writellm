@@ -217,6 +217,20 @@ test(
           })
         )
         .toContain('workbench2026')
+      const formattedReferences = await page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (!projectSessionId) throw new Error('Project session missing')
+        return window.desktop.knowledge.formatReferences({ projectSessionId })
+      })
+      expect(formattedReferences.citations).toHaveLength(1)
+      expect(formattedReferences.citations[0]?.formatted).not.toContain('@workbench2026')
+      expect(formattedReferences.bibliography).toEqual([
+        expect.objectContaining({
+          citationKey: 'workbench2026',
+          formatted: expect.stringContaining('Workbench source')
+        })
+      ])
       await page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       await expect(page.getByTestId('workspace-tab-knowledge')).toHaveCount(1)
       await expect(status.getByTestId('workbench-word-count')).not.toContainText('Section')

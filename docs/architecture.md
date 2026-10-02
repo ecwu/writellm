@@ -529,6 +529,7 @@ Pin the package manager in `package.json`. Pin exact Pi package versions and maj
 
 The [dependency maintenance amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) accepts Electron 43.7.7 and Vitest 4.1.11 for security fixes.
 It also accepts compatible maintenance updates and the Node 24.21.0 and pnpm 11.28.3 toolchain pins.
+The [Issue 2 first-stage amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) accepts Citation.js 0.9.0, thinking-orbs 0.3.2, and better-sqlite3 types 9.6.0.
 The existing process, database, content, and native packaging rules remain authoritative.
 
 ## Project Lifecycle

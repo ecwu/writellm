@@ -12,3 +12,9 @@ const deniedFetch = Object.assign(
 )
 
 export default deniedFetch
+
+export const fetchFile = deniedFetch
+export async function fetchFileAsync(): Promise<never> {
+  return deniedFetch()
+}
+export const setUserAgent = deniedFetch

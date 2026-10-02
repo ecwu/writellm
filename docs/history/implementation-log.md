@@ -4140,3 +4140,118 @@ Node exceeds the declared 24.x range, so commands record an engine warning.
 Native execution uses Electron 43.7.7, ABI 148, with better-sqlite3 12.11.1 and sqlite-vec 0.1.9.
 Windows, Linux, macOS x64, live-provider requests, signing, and notarization remain unverified for this change.
 No commit, push, tag movement, or remote release write occurs.
+
+
+## 2026-10-02 Issue 2 first-stage dependency update
+
+The user authorized the first stage of [Issue 2](https://github.com/ecwu/writellm/issues/2).
+The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) records this scope.
+Citation.js core, plugin-bibtex, and plugin-csl advance together from 0.8.2 to 0.9.0.
+Thinking-orbs advances from 0.2.0 to 0.3.2.
+The better-sqlite3 type declaration advances from ^7.6.13 to ^9.6.0, with its caret policy retained.
+The native better-sqlite3 library stays at 12.11.1.
+
+Official package metadata confirms the stable versions, Node requirements, and plugin peer ranges.
+Citation.js requires Node 22.12 or later, and its plugins accept core 0.9.x.
+Thinking-orbs accepts React 18 or later and preserves the current state, size, theme, and canvas attributes.
+Its optional pointer interaction remains disabled.
+The dependency graph replaces sync-fetch with sync-fetch-undici and advances its MIME parser within the declared range.
+The [inventory](../../.cache/verification/issue-2-stage-1/updates.json) records versions and source links.
+
+Citation.js 0.9 also replaces its asynchronous node-fetch call with global fetch.
+The existing dependency aliases alone no longer preserve ADR 034.
+A Main build plugin replaces the Citation.js fetch utility module with the existing network-denied module.
+This keeps both synchronous and asynchronous remote parsing unavailable while preserving local bibliography parsing.
+A Vite bundle test exercises both denied APIs, makes sure that global fetch receives no call, and parses a local BibTeX control.
+The final source bundle contains the denial module and no sync-fetch-undici implementation.
+
+The final frozen installation passes in 2.6s with pnpm 11.28.3.
+Production and complete dependency audits report zero known vulnerabilities across 765 and 1,182 graph entries, respectively.
+The host Node is 26.10.0, outside the declared Node 24 range, and the host installation remains unchanged.
+The required Electron 43.7.7 runtime uses Node 24.21.0 and ABI 148.
+The native-load probe passes without a forced rebuild.
+
+The initial static gate passes all three stages in 12.0s.
+The complete Electron-hosted suite passes 1,637 tests across 265 files in 22.6s, with three benchmark skips and zero retries.
+After the bundle boundary repair, nine focused tests pass in 0.4s across three files, with zero skips or retries.
+Eight overlap the complete suite, so final-source coverage totals 1,638 distinct passing tests.
+The new test covers the only additional runtime module, and the unchanged suite results remain applicable.
+
+The initial source build passes in 13.8s.
+Three selected Electron scenarios pass in 14.7s without retries or skips.
+They cover bibliography import, citation display and export, and concurrent Agent behavior.
+The Agent scenario also tests 20px canvas geometry, animated frames, theme changes, reduced-motion static frames, and animation resumption.
+The fetch boundary repair then requires a fresh App build and complete package acceptance.
+The initial build remains historical evidence, and the final App replaces its compiled inputs.
+
+Evidence: [frozen installation](../../.cache/verification/issue-2-stage-1/frozen-install.log),
+[production audit](../../.cache/verification/issue-2-stage-1/audit-production.json),
+[complete audit](../../.cache/verification/issue-2-stage-1/audit-all.json),
+[complete Electron suite](../../.cache/verification/1790946225913-39303-3806e5cf/vitest-1790946226211-39326-0824a6e8.json),
+[boundary tests](../../.cache/verification/1790946411791-42275-24f5a3ff/stages-1790946411791-42275-24f5a3ff.json),
+and [initial source scenarios](../../.cache/verification/1790946258646-40137-7839d630/stages-1790946258646-40137-7839d630.json).
+
+The first package App passes all 12 runtime smoke scenarios and all 43 packaged scenarios without retries or skips.
+A separate runtime probe then finds that the bundled Core registry lacks the external CSL plugin.
+The agent stops that gate during installer generation, with exit 130, because its App requires another bundle repair.
+The strengthened workbench test was added after that suite began, so its results do not cover the new formatting assertion.
+The final Main bundle includes the CSL plugin alongside Core and the BibTeX plugin.
+The bundle fixture now also exercises CSL registration and bibliography formatting.
+Thirty-four focused tests pass across nine files in 1.0s, with zero skips or retries.
+Those results replace the initial boundary fixture result, and the unchanged complete-suite results remain applicable.
+Evidence: [final focused tests](../../.cache/verification/1790946700575-49177-981b779c/stages-1790946700575-49177-981b779c.json)
+and [interrupted gate](../../.cache/verification/1790946438795-42662-8107197b/stages-1790946438795-42662-8107197b.json).
+
+The final source-only citation display and export scenario passes in 3.9s with zero skips or retries.
+It reuses the output from the final package build and performs no additional build.
+Evidence: [final source scenario](../../.cache/verification/1790946762914-50371-fe7d8d28/stages-1790946762914-50371-fe7d8d28.json).
+The version inventory also records the exact acceptance commands.
+
+The final `pnpm check:package` passes all ten stages in 265.1s on macOS arm64 with one App build.
+Its static gate passes in 12.1s, and the recovery inventory contains 32 fixtures.
+All 12 packaged runtime smoke scenarios pass in 39.6s.
+All 43 packaged E2E scenarios pass in 150.6s with zero retries or skips.
+The final workbench scenario includes the new citation and bibliography formatting assertion.
+The retained 1,638 distinct Electron test results and the final package results cover the final source.
+Together with the final source-only citation scenario, runtime coverage includes 44 distinct Electron scenarios.
+
+The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
+The native modules, resource inventory, signature policy, installer inspection, and artifact checksums pass.
+The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+Windows, Linux, and macOS Intel runtime results remain unverified for this stage.
+Other Issue 2 migrations remain deferred, and this task creates no commit, tag, push, or publication.
+
+Evidence: [final package gate](../../.cache/verification/1790946720531-49549-f5d84a43/stages-1790946720531-49549-f5d84a43.json),
+[final packaged scenarios](../../.cache/verification/1790946720531-49549-f5d84a43/e2e-1790946811836-51062-853258d8.json),
+and [package log](../../.cache/verification/issue-2-stage-1/package-final.log).
+
+
+## 2026-10-02 Issue 2 first-stage acceptance rerun
+
+The user requested tests, a build, and an Issue update only after acceptance passes.
+The agent runs `pnpm test` and then `pnpm check:package` against the final first-stage source.
+The source hash inventory remains unchanged throughout acceptance.
+The complete Electron suite passes 1,638 tests across 266 files in 22.2s.
+Three opt-in benchmark tests remain skipped, with zero retries and zero unhandled errors.
+
+The complete macOS arm64 package gate passes all ten stages in 263.6s with one App build.
+All 12 runtime smoke scenarios pass in 40.2s.
+All 43 packaged scenarios pass in 153.2s with zero retries or skips.
+Static analysis, the recovery inventory, native loading, package resources, signature policy, installers, and checksums pass.
+The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
+
+The prior frozen installation and both audits remain applicable because the manifest and lockfile are unchanged.
+The audits report zero known vulnerabilities.
+The host retains Node 26.10.0 outside the declared Node 24 range, and pnpm selects the fixed 11.28.3 version.
+Tests use Electron 43.7.7 with Node 24.21.0 and ABI 148.
+Other platforms remain unverified for this stage.
+No code, dependency, commit, push, tag, or release change is part of this rerun.
+
+Evidence: [complete Electron suite](../../.cache/verification/1790947879429-65683-ce97f3a6/vitest-1790947879966-65684-d7c5e874.json),
+[package gate](../../.cache/verification/1790947903312-66308-d9867f99/stages-1790947903312-66308-d9867f99.json),
+[packaged scenarios](../../.cache/verification/1790947903312-66308-d9867f99/e2e-1790947990496-67541-35d05f7f.json),
+and [source inventory](../../.cache/verification/issue-2-stage-1/reverification-source.json).
+
+[Issue 2](https://github.com/ecwu/writellm/issues/2) now marks the three first-stage dependency groups complete and records the passing evidence.
+Its later-stage items remain unchecked, and the Issue stays open.
+The fetched Issue body matches the prepared body, including the local uncommitted-source and platform limits.

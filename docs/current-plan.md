@@ -31,6 +31,18 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Issue 2 first-stage dependencies are locally verified under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment).
+  Citation.js core, plugin-bibtex, and plugin-csl are at 0.9.0, thinking-orbs is at 0.3.2, and better-sqlite3 types are at 9.6.0.
+  The native database library remains at 12.11.1.
+  The Main bundle preserves network denial for Citation.js and shares one Core/CSL plugin registry.
+  Frozen installation and both dependency audits pass with zero known vulnerabilities.
+  The final complete Electron suite passes 1,638 tests across 266 files in 22.2s, with three benchmark skips and zero retries.
+  The latest macOS arm64 package gate passes all ten stages in 263.6s with one App build.
+  All 12 runtime smoke scenarios and 43 packaged scenarios pass, including real bibliography formatting and reduced-motion coverage.
+  One additional source scenario passes against the final build, for 44 distinct Electron scenarios with zero retries or skips.
+  Release metadata remains `0.2026.9.10`, and other platforms remain unverified for this stage.
+  Evidence: [first-stage maintenance](history/implementation-log.md#2026-10-02-issue-2-first-stage-dependency-update) and [acceptance rerun](history/implementation-log.md#2026-10-02-issue-2-first-stage-acceptance-rerun).
+
 - The 2026-10-02 security and maintenance refresh updates 30 direct dependencies and compatible transitive packages under the accepted ADR 056 amendment.
   Pi remains at exactly 1.0.0, and BlockNote remains at 0.54.0.
   Production and complete dependency audits report zero known vulnerabilities.

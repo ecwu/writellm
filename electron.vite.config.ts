@@ -2,9 +2,11 @@ import { resolve } from 'node:path'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { citationNetworkBoundary } from './scripts/citation-network-boundary'
 
 export default defineConfig({
   main: {
+    plugins: [citationNetworkBoundary()],
     resolve: {
       alias: {
         'node-fetch': resolve('src/workers/network-denied.ts'),
@@ -16,6 +18,7 @@ export default defineConfig({
         exclude: [
           '@citation-js/core',
           '@citation-js/plugin-bibtex',
+          '@citation-js/plugin-csl',
           '@earendil-works/pi-agent-core',
           '@earendil-works/pi-ai'
         ]

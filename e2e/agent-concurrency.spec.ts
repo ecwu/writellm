@@ -1,4 +1,4 @@
-import { agentToggle } from './application-menu'
+import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -190,6 +190,60 @@ test(
       await expect.poll(() => pendingAgentResponses.length).toBe(1)
       await expect(panel.getByTestId('agent-status')).toContainText(/Preparing|Loading|Writing/)
       await expect(panel.getByTestId('agent-thinking-indicator')).toBeVisible()
+      const orb = panel.getByTestId('agent-thinking-indicator')
+      await expect(orb).toHaveAttribute('data-state', 'working')
+      await expect(orb).toHaveCSS('width', '20px')
+      await expect(orb).toHaveCSS('height', '20px')
+      await launched.page.emulateMedia({ reducedMotion: 'no-preference' })
+      const animatedFrame = await orb.evaluate((element) =>
+        (element as HTMLCanvasElement).toDataURL()
+      )
+      await expect
+        .poll(() => orb.evaluate((element) => (element as HTMLCanvasElement).toDataURL()))
+        .not.toBe(animatedFrame)
+
+      await launched.page.emulateMedia({ reducedMotion: 'reduce' })
+      await expect
+        .poll(() =>
+          orb.evaluate(async (element) => {
+            const canvas = element as HTMLCanvasElement
+            const frame = canvas.toDataURL()
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            return canvas.toDataURL() === frame
+          })
+        )
+        .toBe(true)
+      const originalTheme = await launched.page.evaluate(
+        () => document.documentElement.dataset.theme
+      )
+      const staticFrame = await orb.evaluate((element) =>
+        (element as HTMLCanvasElement).toDataURL()
+      )
+      await openAppMenu(launched.page, 'Tools')
+      await clickAppMenuItem(launched.page, 'Settings')
+      const settings = launched.page.getByRole('dialog', { name: 'Settings' })
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
+      await settings
+        .getByRole('radio', { name: originalTheme === 'dark' ? 'Light' : 'Dark', exact: true })
+        .click()
+      await launched.page.keyboard.press('Escape')
+      await expect(settings).not.toBeVisible()
+      await expect
+        .poll(() => orb.evaluate((element) => (element as HTMLCanvasElement).toDataURL()))
+        .not.toBe(staticFrame)
+      const themedFrame = await orb.evaluate((element) =>
+        (element as HTMLCanvasElement).toDataURL()
+      )
+      expect(
+        await orb.evaluate(async (element) => {
+          await new Promise((resolve) => setTimeout(resolve, 100))
+          return (element as HTMLCanvasElement).toDataURL()
+        })
+      ).toBe(themedFrame)
+      await launched.page.emulateMedia({ reducedMotion: 'no-preference' })
+      await expect
+        .poll(() => orb.evaluate((element) => (element as HTMLCanvasElement).toDataURL()))
+        .not.toBe(themedFrame)
 
       await panel.getByTestId('agent-conversation-switcher').click()
       await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()

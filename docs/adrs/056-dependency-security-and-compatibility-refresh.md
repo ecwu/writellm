@@ -104,3 +104,27 @@ Acceptance requires a frozen installation, production and complete dependency au
 The package gate covers recovery fixtures, native modules, resources, runtime smoke, and all packaged Electron scenarios with one App build.
 Additional source-only scenarios can reuse that build when the same compiled inputs apply.
 Current evidence belongs in the current plan and implementation history, rather than the completed Checkpoint 64 record.
+
+## 2026-10-02 Issue 2 first-stage amendment
+
+The user authorized the first stage of [Issue 2](https://github.com/ecwu/writellm/issues/2).
+This stage updates Citation.js core, plugin-bibtex, and plugin-csl together to 0.9.0.
+It updates thinking-orbs to 0.3.2 and better-sqlite3 type declarations to 9.6.0.
+Exact declarations remain exact, and the type declaration retains its caret range.
+
+Citation.js requires Node 22.12 or later, which the accepted Node 24 line satisfies.
+Its plugins require core 0.9.x, and its fetch adapter changes to sync-fetch-undici.
+The application continues to parse supplied bibliography content through its existing adapters.
+The Main build replaces Citation.js fetch utilities with the existing network-denied module.
+This blocks both sync-fetch-undici and the new global-fetch path under ADR 034.
+The Main bundle includes the CSL plugin so that it shares the Core plugin registry.
+No remote bibliography lookup or new network authority is added.
+ThinkingOrb retains the existing state, size, theme, and canvas attributes.
+Its optional pointer interaction remains disabled.
+The better-sqlite3 native library remains at 12.11.1.
+
+Acceptance requires frozen installation, both dependency audits, static analysis, and the Electron-hosted suite.
+Selected real Electron scenarios cover bibliography import, citation export, Agent state animation, themes, and reduced motion.
+The fetch utility replacement changes the Main bundle configuration.
+Final acceptance also requires the full package gate to cover this dependency boundary in the packaged App.
+All later Issue 2 stages remain deferred.
