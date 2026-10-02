@@ -4454,3 +4454,18 @@ Frozen installation passes with pnpm 11.28.3.
 The final source inventory is `.cache/verification/release-02026101-source-inventory.json`.
 The local artifacts contain the pre-commit dirty state and are runtime evidence; CI will create the public artifacts from the immutable tag.
 The user-authorized release source will include the outstanding dependency migrations, version metadata, and release notes.
+
+Tag v0.2026.10.1 points to 1eb808e1c241cd101ca1701ae8b933fabc60a0f8 and is pushed with main.
+Clean tag/source verification passes.
+[Build 37022616070](https://github.com/ecwu/writellm/actions/runs/37022616070) passes static checks, recovery inventory, and all four native package jobs.
+[Publisher 37023943063](https://github.com/ecwu/writellm/actions/runs/37023943063) starts automatically through workflow_run.
+It verifies source and packages, creates an empty draft, then fails because an immediate release-list read does not return that draft.
+The publisher now consumes the structured creation response directly.
+It still checks the draft identity and notes, and it reuses matching existing drafts on retries.
+The application tag and original four-platform artifacts remain unchanged.
+
+Publisher remediation verification passes the three-stage static gate in 2.6s and seven focused Electron-hosted tests in 0.14s.
+Reports: `.cache/verification/1790953524910-59152-99bb6978` and `.cache/verification/1790953493071-58693-157bbaef`.
+The read-only publisher plan verifies the unchanged tag, exact revision, successful build, and four artifact identities.
+The default-branch publisher correction is authorized by the current release request.
+The existing workflow_run publication task will be retried against its original source build.

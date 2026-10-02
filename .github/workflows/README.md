@@ -24,6 +24,9 @@ under runner temporary storage and never executed. Selected files must match the
 package evidence's revision, architecture, size and SHA-256. This is artifact provenance and
 integrity verification, not another build or runtime acceptance gate.
 
+The publisher uses the draft creation response directly because the release list can lag behind creation.
+A retry reuses the matching existing draft.
+
 A draft is populated with exactly four packages: Windows x64 EXE, macOS arm64 DMG, macOS x64
 DMG and Linux x64 AppImage. After upload digests match, it is published as a normal, non-prerelease
 Release. JSON evidence and alternative ZIP/DEB files remain CI artifacts. Retries can add missing matching draft assets. They cannot overwrite mismatched assets or change the tag.

@@ -36,9 +36,12 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   All 12 runtime checks and 43 packaged E2E scenarios pass with zero retries or skips.
   The DMG and ZIP use the same tested App and pass structure and checksum inspection.
   Existing Electron test and dependency audit evidence still cover the application source.
-  Tag v0.2026.10.1 is prepared for the active four-platform build and automatic GitHub publisher.
-  Hosted build and public-release confirmation remain pending.
-  The publisher remains unchanged and requires all four build jobs and package checks to pass.
+  Tag v0.2026.10.1 points to 1eb808e and is pushed.
+  The four-platform build passes under run 37022616070.
+  workflow_run automatically starts publisher run 37023943063, which fails after draft creation because the release list does not return the draft immediately.
+  The publisher now uses the creation response directly and retains existing-draft recovery.
+  Public release confirmation remains pending.
+  The publisher requires all four build jobs and package checks to pass.
   Distribution uses the existing unsigned publication policy.
 
 - Issue 2 independent migrations are implemented under the [ADR 056 amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment).

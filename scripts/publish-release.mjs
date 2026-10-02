@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs'
 import { appendFile, lstat, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { selectRelease } from './publish-release-state.mjs'
+import { selectOrCreateRelease } from './publish-release-state.mjs'
 
 const repo = process.env.GITHUB_REPOSITORY
 const runId = process.env.SOURCE_RUN_ID
@@ -150,31 +150,19 @@ if (!planOnly) {
   await writeFile(notesPath, notes)
   // A failed upload leaves a draft. Retry only adds missing matching assets; never replaces them.
   const title = `WriteLLM ${version}`
-  const findRelease = () =>
-    selectRelease(
-      JSON.parse(gh('api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`)).flat(),
-      tag,
-      title,
-      notes
-    )
-  let release = findRelease()
-  if (!release) {
-    gh(
-      'release',
-      'create',
-      tag,
-      '--repo',
-      repo,
-      '--verify-tag',
-      '--draft',
-      '--title',
-      title,
-      '--notes-file',
-      notesPath
-    )
-    release = findRelease()
-    assert(release, 'Created draft must be visible to publisher')
-  }
+  const creationPath = join(root, 'release.json')
+  await writeFile(
+    creationPath,
+    JSON.stringify({ tag_name: tag, name: title, body: notes, draft: true, prerelease: false })
+  )
+  let release = selectOrCreateRelease(
+    JSON.parse(gh('api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`)).flat(),
+    tag,
+    title,
+    notes,
+    () =>
+      JSON.parse(gh('api', '--method', 'POST', `repos/${repo}/releases`, '--input', creationPath))
+  )
   assert.equal(release.prerelease, false, 'Existing release must not be a prerelease')
   const checkAssets = (uploaded, complete) => {
     assert(

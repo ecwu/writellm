@@ -16,3 +16,12 @@ export function selectRelease(releases, tag, title, notes) {
   }
   return release
 }
+
+export function selectOrCreateRelease(releases, tag, title, notes, createRelease) {
+  const existing = selectRelease(releases, tag, title, notes)
+  if (existing) return existing
+  // The creation response is authoritative before the release list catches up.
+  const created = selectRelease([createRelease()], tag, title, notes)
+  assert(created?.draft, 'Creation must return the matching draft')
+  return created
+}

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { selectRelease } from './publish-release-state.mjs'
+import { selectRelease, selectOrCreateRelease } from './publish-release-state.mjs'
 
 const tag = 'v0.2026.9.10'
 const title = 'WriteLLM 0.2026.9.10'
@@ -27,5 +27,36 @@ test('rejects edited or ambiguous drafts before uploading', () => {
   assert.throws(
     () => selectRelease([draft, { ...draft, tag_name: tag }], tag, title, notes),
     /Multiple releases/u
+  )
+})
+
+test('uses the creation response when the release list does not contain the new draft', () => {
+  const created = { id: 123, tag_name: tag, name: title, body: notes, draft: true }
+  let creations = 0
+  assert.equal(
+    selectOrCreateRelease([], tag, title, notes, () => {
+      creations++
+      return created
+    }),
+    created
+  )
+  assert.equal(creations, 1)
+  assert.equal(
+    selectOrCreateRelease([created], tag, title, notes, () => {
+      throw new Error('An existing draft must be reused')
+    }),
+    created
+  )
+})
+
+test('rejects a creation response that does not match the requested draft', () => {
+  const created = { tag_name: tag, name: title, body: notes, draft: false }
+  assert.throws(
+    () => selectOrCreateRelease([], tag, title, notes, () => created),
+    /matching draft/u
+  )
+  assert.throws(
+    () => selectOrCreateRelease([], tag, title, notes, () => ({ ...created, tag_name: 'other' })),
+    /matching draft/u
   )
 })
