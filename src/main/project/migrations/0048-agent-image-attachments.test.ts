@@ -22,20 +22,17 @@ async function legacyProject(fail = false) {
   createService(project, new FakeAgentRuntime()).createSession('Preserved conversation')
   const root = project.immediate((db) => {
     db.exec(`DROP TABLE agent_attachments;
-DROP VIEW agent_conversation_history;
-      DROP TABLE agent_history_references;
-      DROP TABLE agent_conversation_forks;
-      DELETE FROM schema_migrations WHERE version >= 47;
-      UPDATE schema_manifest SET schema_version = 46;
-      PRAGMA user_version = 46;`)
-    if (fail) db.exec('CREATE TABLE agent_conversation_forks (fixture TEXT)')
+      DELETE FROM schema_migrations WHERE version >= 48;
+      UPDATE schema_manifest SET schema_version = 47;
+      PRAGMA user_version = 47;`)
+    if (fail) db.exec('CREATE TABLE agent_attachments (fixture TEXT)')
     return dirname(dirname(db.name))
   })
   project.close()
   return root
 }
 
-describe('migration 0047 conversation fork', () => {
+describe('migration 0048 Agent image attachments', () => {
   it('creates a verified pre-migration backup and keeps existing conversation evidence', async () => {
     const root = await legacyProject()
     const database = await openProjectDatabase({
@@ -58,7 +55,7 @@ describe('migration 0047 conversation fork', () => {
     const backup = new Database(join(root, '.writellm', 'backups', backupName ?? ''), {
       readonly: true
     })
-    expect(backup.pragma('user_version', { simple: true })).toBe(46)
+    expect(backup.pragma('user_version', { simple: true })).toBe(47)
     expect(backup.pragma('integrity_check', { simple: true })).toBe('ok')
     expect(backup.prepare('SELECT title FROM agent_sessions').pluck().get()).toBe(
       'Preserved conversation'
@@ -73,7 +70,7 @@ describe('migration 0047 conversation fork', () => {
       openProjectDatabase({ projectRoot: root, manifest, applicationVersion: 'test', log })
     ).rejects.toThrow()
     const original = new Database(join(root, '.writellm', 'project.sqlite'), { readonly: true })
-    expect(original.pragma('user_version', { simple: true })).toBe(46)
+    expect(original.pragma('user_version', { simple: true })).toBe(47)
     expect(original.pragma('integrity_check', { simple: true })).toBe('ok')
     expect(original.prepare('SELECT title FROM agent_sessions').pluck().get()).toBe(
       'Preserved conversation'

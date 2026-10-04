@@ -28,6 +28,8 @@ import {
 } from './prompts/task-prompts'
 import { formatPromptBlock } from './prompts/prompt-block'
 
+import { AGENT_IMAGES_MAX_BASE64 } from '../../shared/contracts/agent-attachments'
+
 const PAGE_SIZE = 100
 const COMPACTION_EVENT_TYPES = `
   AND type NOT IN (
@@ -53,6 +55,7 @@ export interface CompactionMaterial {
   readonly sourcePayloadJson: string
   readonly sourceEventCount: number
   readonly sourcePayloadBytes: number
+  readonly sourceImageBytes: number
   readonly projectedPromptCharacters: number
   readonly estimatedPromptTokens: number
   readonly omittedEventCount: number
@@ -76,6 +79,7 @@ interface ProjectedEventRow {
   readonly event: Record<string, unknown>
   readonly historyMessage: AgentHistoryMessage | null
   readonly payloadBytes: number
+  readonly imageBytes: number
 }
 
 export function latestSuccessfulCheckpoint(
@@ -249,7 +253,12 @@ function loadConversationEventsAfterSequence(
       const payload = JSON.parse(row.payload_json) as unknown
       if (row.type === 'user_message') {
         const parsed = agentUserMessagePayloadSchema.parse(payload)
-        history.push({ role: 'user', content: parsed.content, timestamp: parsed.timestamp })
+        history.push({
+          role: 'user',
+          content: parsed.content,
+          attachmentIds: parsed.attachmentIds,
+          timestamp: parsed.timestamp
+        })
         continue
       }
       const parsed = agentAssistantMessagePayloadSchema.parse(payload)
@@ -271,6 +280,7 @@ export function buildNextCompactionMaterial(input: {
   recentTailTokenBudget?: number
   /** Optional byte budget for the retained runtime history tail. */
   recentTailMaxBytes?: number
+  recentTailMaxImageBytes?: number
 }): CompactionMaterial | null {
   const previousCheckpoint = latestSuccessfulCheckpoint(input.database, input.agentSessionId)
   const coveredFromSequence = (previousCheckpoint?.coveredThroughSequence ?? 0) + 1
@@ -303,7 +313,8 @@ export function buildNextCompactionMaterial(input: {
   let tailGroups = selectRecentTailGroups(
     groups,
     input.recentTailTokenBudget,
-    input.recentTailMaxBytes
+    input.recentTailMaxBytes,
+    input.recentTailMaxImageBytes
   )
   let tailRowCount = tailGroups.reduce((count, group) => count + group.length, 0)
   let sourceRows = rows.slice(0, Math.max(0, rows.length - tailRowCount))
@@ -423,13 +434,15 @@ function fitPreviousCheckpointSource(
 function selectRecentTailGroups(
   groups: readonly ProjectedEventRow[][],
   tokenBudget: number | undefined,
-  maxBytes: number | undefined
+  maxBytes: number | undefined,
+  maxImageBytes: number | undefined
 ): ProjectedEventRow[][] {
   if (tokenBudget === undefined) return []
   const budget = Math.max(0, Math.floor(tokenBudget))
   const tail: ProjectedEventRow[][] = []
   let remaining = budget
   let remainingBytes = Math.max(0, Math.floor(maxBytes ?? AGENT_RUNTIME_HISTORY_MAX_BYTES))
+  let remainingImageBytes = maxImageBytes ?? AGENT_IMAGES_MAX_BASE64
   let end = groups.length
   const lastGroup = groups.at(-1)
   if (lastGroup !== undefined && !hasTerminalEvent(lastGroup)) {
@@ -437,16 +450,27 @@ function selectRecentTailGroups(
     end -= 1
     remaining = Math.max(0, remaining - historyMessageTokens(lastGroup))
     remainingBytes = Math.max(0, remainingBytes - historyMessageBytes(lastGroup))
+    remainingImageBytes = Math.max(
+      0,
+      remainingImageBytes - lastGroup.reduce((total, row) => total + row.imageBytes, 0)
+    )
   }
   for (let index = end - 1; index >= 0; index -= 1) {
     const group = groups[index]
     if (group === undefined) continue
     const groupTokens = historyMessageTokens(group)
     const groupBytes = historyMessageBytes(group)
-    if (groupTokens > remaining || groupBytes > remainingBytes) break
+    const groupImageBytes = group.reduce((total, row) => total + row.imageBytes, 0)
+    if (
+      groupTokens > remaining ||
+      groupBytes > remainingBytes ||
+      groupImageBytes > remainingImageBytes
+    )
+      break
     tail.unshift(group)
     remaining -= groupTokens
     remainingBytes -= groupBytes
+    remainingImageBytes -= groupImageBytes
   }
   return tail
 }
@@ -499,7 +523,21 @@ function loadEventRows(
     )
     if (rows.length === 0) break
     for (const row of rows) {
-      selected.push(projectEventRow(row))
+      const projected = projectEventRow(row)
+      const ids =
+        row.type === 'user_message'
+          ? ((projected.event['attachmentIds'] as string[] | undefined) ?? [])
+          : []
+      const imageBytes = database.immediate((db) =>
+        ids.reduce((total, id) => {
+          const attachment = db
+            .prepare('SELECT image_bytes FROM agent_attachments WHERE attachment_id = ?')
+            .get(id) as { image_bytes: number } | undefined
+          if (!attachment) throw new Error('Historical image attachment is missing')
+          return total + Math.ceil(attachment.image_bytes / 3) * 4
+        }, 0)
+      )
+      selected.push({ ...projected, imageBytes })
       after = row.sequence
     }
     if (rows.length < PAGE_SIZE) break
@@ -573,8 +611,14 @@ function createCompactionMaterial(
     sourcePayloadJson,
     sourceEventCount: sourceRows.length,
     sourcePayloadBytes: sourceRows.reduce((total, row) => total + row.payloadBytes, 0),
+    sourceImageBytes: selectedRows.reduce((total, row) => total + row.imageBytes, 0),
     projectedPromptCharacters: formattedPrompt.length,
-    estimatedPromptTokens: estimateAgentTokens([HISTORY_COMPACTION_SYSTEM_PROMPT, formattedPrompt]),
+    estimatedPromptTokens:
+      estimateAgentTokens([HISTORY_COMPACTION_SYSTEM_PROMPT, formattedPrompt]) +
+      selectedRows.reduce((total, row) => {
+        const ids = row.event['attachmentIds'] as string[] | undefined
+        return total + (ids?.length ? estimateAgentTokens({ attachmentIds: ids }) : 0)
+      }, 0),
     omittedEventCount,
     retainedTail,
     retainedTailTokens: retainedTail.length === 0 ? 0 : estimateAgentTokens(retainedTail)
@@ -584,6 +628,7 @@ function createCompactionMaterial(
 function fitsCompactionSource(material: CompactionMaterial, sourceTokenBudget?: number): boolean {
   return (
     material.projectedPromptCharacters <= AGENT_RUN_PROMPT_MAX_CHARACTERS &&
+    material.sourceImageBytes <= AGENT_IMAGES_MAX_BASE64 &&
     (sourceTokenBudget === undefined || material.estimatedPromptTokens <= sourceTokenBudget)
   )
 }
@@ -615,8 +660,18 @@ function projectEventRow(row: StoredEventRow): ProjectedEventRow {
   switch (row.type) {
     case 'user_message': {
       const parsed = agentUserMessagePayloadSchema.parse(payload)
-      event = { sequence: row.sequence, type: row.type, content: parsed.content }
-      historyMessage = { role: 'user', content: parsed.content, timestamp: parsed.timestamp }
+      event = {
+        sequence: row.sequence,
+        type: row.type,
+        content: parsed.content,
+        attachmentIds: parsed.attachmentIds
+      }
+      historyMessage = {
+        role: 'user',
+        content: parsed.content,
+        attachmentIds: parsed.attachmentIds,
+        timestamp: parsed.timestamp
+      }
       break
     }
     case 'assistant_message': {
@@ -681,7 +736,8 @@ function projectEventRow(row: StoredEventRow): ProjectedEventRow {
     type: row.type,
     event,
     historyMessage,
-    payloadBytes: Buffer.byteLength(row.payload_json)
+    payloadBytes: Buffer.byteLength(row.payload_json),
+    imageBytes: 0
   }
 }
 

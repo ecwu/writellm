@@ -1,3 +1,4 @@
+import { AgentHistoryImages } from './agent-image-attachments'
 import { useState } from 'react'
 import {
   MessageCopyButton,
@@ -68,6 +69,7 @@ import { blockOperationDisplays, deliveryLabel } from './agent-panel-logic'
 export function EventTimeline(props: {
   presentation: AgentPresentation
   projectSessionId: string
+  agentSessionId?: string
   sectionTitles: Readonly<Record<string, string>>
   busy: boolean
   messageEdit?: AgentMessageEditState | null
@@ -103,6 +105,7 @@ export function EventTimeline(props: {
                   <TimelineItem
                     item={item}
                     projectSessionId={props.projectSessionId}
+                    agentSessionId={props.agentSessionId}
                     busy={props.busy}
                     messageEdit={props.messageEdit}
                     editingDisabled={props.editingDisabled}
@@ -140,6 +143,7 @@ export function EventTimeline(props: {
 function TimelineItem(props: {
   item: AgentTimelineItem
   projectSessionId: string
+  agentSessionId?: string
   busy: boolean
   messageEdit?: AgentMessageEditState | null
   editingDisabled?: boolean
@@ -174,6 +178,7 @@ function TimelineItem(props: {
           {editing && editable ? (
             <MessageEditor
               content={item.payload.content}
+              hasImages={(item.payload.attachmentIds?.length ?? 0) > 0}
               busy={props.busy}
               reason={editReason}
               onCancel={() => setEditing(false)}
@@ -184,25 +189,36 @@ function TimelineItem(props: {
               }}
             />
           ) : (
-            <Bubble variant='muted' align='end'>
-              <BubbleContent className='whitespace-pre-wrap'>
-                {item.payload.presentation?.kind === 'quick_action' ? (
-                  <div className='flex min-w-0 flex-col gap-2'>
-                    {item.payload.presentation.displayInstruction === null ? null : (
-                      <p>{item.payload.presentation.displayInstruction}</p>
+            <>
+              {props.agentSessionId && item.payload.attachmentIds?.length ? (
+                <AgentHistoryImages
+                  projectSessionId={props.projectSessionId}
+                  agentSessionId={props.agentSessionId}
+                  ids={item.payload.attachmentIds}
+                />
+              ) : null}
+              {item.payload.content || item.payload.presentation?.kind === 'quick_action' ? (
+                <Bubble variant='muted' align='end'>
+                  <BubbleContent className='whitespace-pre-wrap'>
+                    {item.payload.presentation?.kind === 'quick_action' ? (
+                      <div className='flex min-w-0 flex-col gap-2'>
+                        {item.payload.presentation.displayInstruction === null ? null : (
+                          <p>{item.payload.presentation.displayInstruction}</p>
+                        )}
+                        <Alert>
+                          <AlertTitle>Captured selection</AlertTitle>
+                          <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
+                            {item.payload.presentation.selectedText}
+                          </AlertDescription>
+                        </Alert>
+                      </div>
+                    ) : (
+                      item.payload.content
                     )}
-                    <Alert>
-                      <AlertTitle>Captured selection</AlertTitle>
-                      <AlertDescription className='max-h-40 overflow-y-auto whitespace-pre-wrap'>
-                        {item.payload.presentation.selectedText}
-                      </AlertDescription>
-                    </Alert>
-                  </div>
-                ) : (
-                  item.payload.content
-                )}
-              </BubbleContent>
-            </Bubble>
+                  </BubbleContent>
+                </Bubble>
+              ) : null}
+            </>
           )}
           {!editing && (
             <MessageFooter
@@ -766,6 +782,7 @@ export function AgentDiagnosticDetails(props: {
 function ProposalMessage(props: {
   item: Extract<AgentTimelineItem, { type: 'change' }>
   projectSessionId: string
+  agentSessionId?: string
   busy: boolean
   sectionTitles: Readonly<Record<string, string>>
   onAction(

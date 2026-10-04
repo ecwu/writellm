@@ -186,6 +186,7 @@ export function createService(
   overrides: Partial<
     Pick<
       AgentSessionServiceOptions,
+      | 'attachments'
       | 'agentCatalog'
       | 'contextBuilder'
       | 'log'

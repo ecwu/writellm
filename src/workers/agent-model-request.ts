@@ -1,3 +1,4 @@
+import { redactTraceImages } from '../shared/trace-image-redaction'
 import type { Api, AssistantMessage } from '@earendil-works/pi-ai'
 import type { AgentRunResult, AgentUtilityRequest } from '../shared/contracts/model-runtime'
 import {
@@ -38,7 +39,8 @@ export async function runAgentModelRequest(
   const model = buildAgentProviderModel({
     config: request.config,
     modelLimits: request.modelLimits,
-    maxOutputTokens: request.input.maxOutputTokens
+    maxOutputTokens: request.input.maxOutputTokens,
+    imageInput: (request.input.images?.length ?? 0) > 0
   })
   let lastResponseStatus: number | undefined
   let retryAfterMs: number | undefined
@@ -145,7 +147,10 @@ export async function runAgentModelRequest(
   if (externalSignal?.aborted) agent.abort()
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
   try {
-    await agent.prompt(request.input.prompt)
+    await agent.prompt(
+      request.input.prompt,
+      request.input.images?.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
+    )
     await agent.waitForIdle()
   } finally {
     externalSignal?.removeEventListener('abort', abortExternal)
@@ -290,7 +295,7 @@ function reportTraceError(
 }
 
 function jsonValue(value: unknown): null | boolean | number | string | unknown[] | object {
-  const serialized = JSON.stringify(value)
+  const serialized = JSON.stringify(redactTraceImages(value))
   if (serialized === undefined) throw new Error('Agent trace payload is not JSON serializable')
   return JSON.parse(serialized) as null | boolean | number | string | unknown[] | object
 }

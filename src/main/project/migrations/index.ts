@@ -49,6 +49,8 @@ import { migration0046 } from './0046-agent-message-replacements'
 
 import { migration0047 } from './0047-conversation-fork'
 
+import { migration0048 } from './0048-agent-image-attachments'
+
 export const projectMigrations = [
   migration0001,
   migration0002,
@@ -96,5 +98,6 @@ export const projectMigrations = [
   migration0044,
   migration0045,
   migration0046,
-  migration0047
+  migration0047,
+  migration0048
 ] as const

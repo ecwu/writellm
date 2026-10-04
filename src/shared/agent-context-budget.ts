@@ -1,3 +1,10 @@
+import { estimateTextAndImageContentTokens } from '@earendil-works/pi-ai/utils/estimate'
+import {
+  agentMessageTextBytes,
+  imageMetadata,
+  imageDataBytes,
+  AGENT_IMAGES_MAX_BASE64
+} from './contracts/agent-attachments'
 import type { UserMessage } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentModelLimits } from './contracts/agent'
@@ -124,6 +131,8 @@ export class AgentContextBudgetController {
   }
 
   transform(messages: AgentMessage[]): AgentMessage[] {
+    if (imageDataBytes(messages) > AGENT_IMAGES_MAX_BASE64)
+      throw new Error('Agent context images exceed 32 MiB')
     const result = boundAgentContext(messages, this.tokenBudget)
     for (const projection of result.projectedBatches) {
       this.onProjection?.(projection)
@@ -335,12 +344,13 @@ function isProjectedReadResult(message: Extract<AgentMessage, { role: 'toolResul
 export function contextWouldTruncate(messages: AgentMessage[], tokenBudget: number): boolean {
   return (
     estimateAgentTokens(messages) > tokenBudget ||
-    serializedAgentMessageBytes(messages) > AGENT_RUNTIME_HISTORY_MAX_BYTES
+    serializedAgentMessageBytes(messages) > AGENT_RUNTIME_HISTORY_MAX_BYTES ||
+    imageDataBytes(messages) > AGENT_IMAGES_MAX_BASE64
   )
 }
 
 function serializedAgentMessageBytes(messages: readonly AgentMessage[]): number {
-  return new TextEncoder().encode(JSON.stringify(messages)).byteLength
+  return agentMessageTextBytes(messages)
 }
 
 export function groupAgentTurns(messages: AgentMessage[]): AgentMessage[][] {
@@ -369,7 +379,25 @@ function legacyLimits(): AgentModelLimits {
 
 /** Deterministic estimate: ASCII is ~4 chars/token; non-ASCII uses UTF-8 width. */
 export function estimateAgentTokens(value: unknown): number {
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
+  let images = 0
+  const projected = JSON.stringify(imageMetadata(value), (key, entry: unknown) => {
+    if (key === 'images' && Array.isArray(entry)) {
+      images += entry.length
+      return undefined
+    }
+    if (key === 'attachmentIds' && Array.isArray(entry)) {
+      images += entry.length
+      return undefined
+    }
+    if (entry !== null && typeof entry === 'object' && 'type' in entry && entry.type === 'image') {
+      images += 1
+      return undefined
+    }
+    return entry
+  })
+  const text = typeof value === 'string' ? value : projected
+  const imageTokens =
+    images * estimateTextAndImageContentTokens([{ type: 'image', data: '', mimeType: 'image/png' }])
   let ascii = 0
   let nonAsciiBytes = 0
   for (const character of text) {
@@ -377,5 +405,5 @@ export function estimateAgentTokens(value: unknown): number {
     if (codePoint <= 0x7f) ascii += 1
     else nonAsciiBytes += new TextEncoder().encode(character).byteLength
   }
-  return Math.max(1, Math.ceil(ascii / 4) + Math.ceil(nonAsciiBytes / 3))
+  return Math.max(1, imageTokens + Math.ceil(ascii / 4) + Math.ceil(nonAsciiBytes / 3))
 }

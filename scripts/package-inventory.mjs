@@ -117,7 +117,9 @@ export function verifyInventoryPaths(paths) {
     'out/main/index-worker.js',
     'out/main/logging-fixture.js',
     'out/preload/index.js',
-    'out/renderer/index.html'
+    'out/renderer/index.html',
+    'node_modules/@silvia-odwyer/photon-node/photon_rs.js',
+    'node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'
   ]
   for (const required of requiredExact) {
     if (!paths.has(required)) throw new Error(`Package inventory is missing ${required}`)

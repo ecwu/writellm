@@ -4482,3 +4482,109 @@ The public artifacts use that tag, while the trusted default branch supplies the
 Evidence: `.cache/verification/release-02026101-ci.json`, `release-02026101-ci-run.json`, `release-02026101-publisher.json`, `release-02026101-publisher-run.json`, and `release-02026101-github.json`.
 Final readback confirms public status, Latest, and exactly four complete assets.
 Current delivery records are synchronized. Other-platform runtime tests remain outside this hosted build.
+
+
+## 2026-10-03 Issue 3 Agent image input
+
+Implemented [Issue 3](https://github.com/ecwu/writellm/issues/3) under [ADR 085](../adrs/085-agent-image-input.md).
+Persistent Agent conversations accept image-only messages and mixed text with four PNG, JPEG, or static WebP attachments.
+The existing shadcn Attachment component supplies thumbnails, processing and error states, removal, and dialog previews.
+The Add menu, panel drop target, browser paste, and native clipboard fallback use bounded input interfaces.
+Imports remain bound to their initiating conversation when the user switches conversations.
+A failed import preserves text and successful attachments, and processing blocks send.
+
+The existing background worker uses Photon 0.3.4 for actual decoding, EXIF orientation, resizing, and transparency preservation.
+Original limits remain 20 MiB, an 8192-pixel edge, and 40 million pixels.
+Sending copies remain below 4.5 MiB of Base64 and within 2000 pixels without enlargement.
+
+Main saves originals and sending copies under `.writellm/agent-attachments/` with relative paths and SHA-256 metadata.
+Migration 0048 uses the existing backup, integrity, and rollback protections.
+Publication writes recovery metadata before files, and canceled publication remains eligible for the 24-hour cleanup grace period.
+
+Project close drains canceled imports before database closure, and snapshot creation waits for active file publishers.
+
+Shared contracts bound image references and payloads across preload, Main, and workers.
+Main checks conversation ownership and model image capability before recording unsupported input.
+History rehydrates images after reopen, project moves, edits, and frozen forks.
+Steer and Follow-up preserve image parts through Pi serialization and retain queue references until consumption or removal.
+Raw events, including replaced history, protect referenced attachments from cleanup.
+
+History, pending input, and current requests use a separate 32 MiB image budget alongside the 2 MiB text and metadata budget.
+Pi image estimates determine token estimates, while actual provider usage remains authoritative.
+
+Compaction preserves the recent raw tail and sends selected older images to the summary model.
+Harness and provider traces replace image bytes with hashes, MIME types, dimensions, and byte counts.
+
+Verification selected focused Electron tests first because the feature crosses IPC, persistence, history, and worker boundaries.
+The complete suite then covered shared-contract and schema changes.
+Final `pnpm test` passes 1,672 tests across 271 files in 22.5s, with three opt-in benchmark tests skipped and no retries.
+Report: `.cache/verification/1791028619330-39212-152766ca`.
+
+The initial complete run passes 1,667 tests and exposes five historical downgrade-fixture failures.
+Those fixtures retained the new table or expected a version-47 backup name.
+Focused reruns pass after the fixtures remove the version-48 table and use the new backup name.
+The final complete suite confirms the corrected fixtures.
+
+Final `pnpm check:package` passes all ten stages in 250.8s with one production build.
+It includes static checks, 33 recovery cases, ASAR and WASM inventory, 12 packaged runtime checks, and all 44 packaged E2E scenarios.
+The E2E stage takes 143.5s, with zero retries, flaky scenarios, or skips.
+
+The image scenario processes real JPEG selection and PNG drop and paste, including the native clipboard fallback, inside the packaged application.
+It checks preview, removal, four-image limits, image-only send, edit resend, historical resend, compaction images, and text-only model rejection.
+It also checks asynchronous conversation changes, failed-import preservation, and normal desktop layout.
+
+DMG and ZIP artifacts use the same verified App.
+Report: `.cache/verification/1791028642785-39808-4001cf78`.
+
+
+The first package invocation passes its static, inventory, and runtime stages plus the 43 existing scenarios.
+Its new scenario fails because PopoverAnchor replaces the InputGroup slot attribute used by the locator.
+The corrected locator passes against the same App without another build.
+
+A later delayed-import fixture tries to replace a frozen preload function and cannot install its delay.
+The fixture now pauses the native dialog in Main, and the focused scenario passes.
+The final package invocation includes the finished lifecycle changes and corrected fixture.
+Final UI captures live under `test-results/agent-images-imports-selec-7a3e8--rejects-unsupported-models/`.
+
+The host uses pnpm 11.28.3 and Node 26.10.0.
+Node differs from the declared 24.x range, and the existing host toolchain remains unchanged.
+
+Tests use Electron 44.5.1, module ABI 149, and Node-API 10 for better-sqlite3 13.0.3.
+Native preparation selects `prebuilds/darwin-arm64.node` and the packaged sqlite-vec 0.1.9 resource.
+Runtime and installer acceptance covers macOS arm64 only.
+Windows, Linux, and macOS x64 remain unverified for this change.
+The implementation does not create a new release, tag, or published artifact.
+
+## 2026-10-03 Agent image presentation refinement
+
+The user requested image presentation that follows three supplied Codex desktop screenshots.
+The existing shadcn Attachment, Tooltip, and Dialog components provide the refined presentation under ADR 085.
+Composer attachments use 80-pixel image-only thumbnails, with removal on hover or keyboard focus.
+History images preserve proportions within 160 pixels and appear above the separate text bubble.
+Image-only messages no longer render an empty text bubble.
+Queued images use 64-pixel thumbnails.
+Names, dimensions, and import errors remain available on hover or keyboard focus.
+Processing and error icons remain visible. Dialog previews show the name and dimensions above the full image.
+Thumbnail borders explicitly use the shared theme token.
+
+Verification selected static checks and affected real Electron scenarios because this change affects only Renderer presentation.
+Final `pnpm check:fast` passes all three stages in 2.8s.
+Report: `.cache/verification/1791032267071-85962-2a62c442`.
+Final `pnpm package:unpack` passes four build and inventory stages in 39.5s.
+Report: `.cache/verification/1791032270954-86036-9131c5e5`.
+The preceding unpacked build takes 39.2s. Visual inspection then identifies the explicit border-token correction.
+The final build includes that correction.
+
+The final App passes image input, message copy/edit, and workbench sizing scenarios in 12.0s.
+All three pass with zero retries, failures, or skips.
+Coverage includes keyboard preview and restored focus, thumbnail bounds, image-only and mixed-text rendering, import routes, removal, history, and sidebar resizing.
+Report: `.cache/verification/1791032348543-87242-506389ba`.
+The earlier focused run also passes all three scenarios in 12.4s.
+A temporary visual probe uses a supplied screenshot in the same App and passes in 6.4s.
+Light and dark composer/history captures are inspected. The probe source is removed afterward.
+
+The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+The existing DMG and ZIP remain from the original image-input acceptance and precede this presentation refinement.
+The host uses pnpm 11.28.3 and Node 26.10.0. The declared Node range remains 24.x.
+Packaged coverage uses Electron 44.5.1 on macOS arm64. Other platforms are not tested for this refinement.
+The prior persistence and worker acceptance remains applicable because those sources do not change.

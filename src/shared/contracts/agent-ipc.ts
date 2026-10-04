@@ -1,3 +1,4 @@
+import { agentAttachmentIdsSchema } from './agent-attachments'
 import { z } from 'zod'
 import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import {
@@ -220,7 +221,8 @@ export const agentStartScopeSchema = z.enum(['selection', 'section', 'project'])
 export const agentStartRunInputSchema = strictObject({
   projectSessionId: projectSessionIdSchema,
   agentSessionId: agentSessionIdSchema,
-  prompt: z.string().trim().min(1).max(262_144).optional(),
+  prompt: z.string().trim().max(262_144).optional(),
+  attachmentIds: agentAttachmentIdsSchema.optional(),
   quickAction: agentQuickActionRequestSchema.optional(),
   resumeWritingTask: z.literal(true).optional(),
   approvedProposalId: z.uuid().optional(),
@@ -229,6 +231,22 @@ export const agentStartRunInputSchema = strictObject({
   scope: agentStartScopeSchema,
   editorContext: agentEditorContextSchema
 }).superRefine((input, context) => {
+  if (
+    (input.attachmentIds?.length ?? 0) > 0 &&
+    (input.quickAction !== undefined ||
+      input.resumeWritingTask !== undefined ||
+      input.approvedProposalId !== undefined ||
+      input.rejectedProposalId !== undefined)
+  ) {
+    context.addIssue({ code: 'custom', message: 'Images require an ordinary user message' })
+  }
+  if (
+    input.prompt !== undefined &&
+    input.prompt.length === 0 &&
+    (input.attachmentIds?.length ?? 0) === 0
+  ) {
+    context.addIssue({ code: 'custom', message: 'Enter text or add an image' })
+  }
   const requestKinds = [input.prompt, input.quickAction, input.resumeWritingTask].filter(
     (value) => value !== undefined
   ).length
@@ -343,12 +361,18 @@ export const agentStartRunInputSchema = strictObject({
     })
   }
 })
-export const agentEditLastMessageInputSchema = agentSessionInputSchema.extend({
-  targetEventId: agentEventIdSchema,
-  expectedThroughSequence: z.number().int().positive(),
-  content: z.string().trim().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
-  editorContext: agentEditorContextSchema
-})
+export const agentEditLastMessageInputSchema = agentSessionInputSchema
+  .extend({
+    targetEventId: agentEventIdSchema,
+    expectedThroughSequence: z.number().int().positive(),
+    content: z.string().trim().max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
+    attachmentIds: agentAttachmentIdsSchema.optional(),
+    editorContext: agentEditorContextSchema
+  })
+  .refine(
+    (input) => input.content.length > 0 || (input.attachmentIds?.length ?? 0) > 0,
+    'Enter text or add an image'
+  )
 
 export const agentStartRunResultSchema = strictObject({ run: agentRunRecordSchema })
 
@@ -364,9 +388,15 @@ export const agentAnswerUserQuestionInputSchema = strictObject({
   answers: askUserAnswersSchema
 })
 export const agentAnswerUserQuestionResultSchema = strictObject({})
-export const agentQueueInputSchema = agentRunInputSchema.extend({
-  content: z.string().trim().min(1).max(262_144)
-})
+export const agentQueueInputSchema = agentRunInputSchema
+  .extend({
+    content: z.string().trim().max(262_144),
+    attachmentIds: agentAttachmentIdsSchema.optional()
+  })
+  .refine(
+    (input) => input.content.length > 0 || (input.attachmentIds?.length ?? 0) > 0,
+    'Enter text or add an image'
+  )
 export const agentPendingMessageActionInputSchema = agentRunInputSchema.extend({
   pendingMessageId: agentPendingMessageIdSchema
 })
@@ -392,7 +422,8 @@ export const agentProjectActivitySubscriptionInputSchema = strictObject({
 
 export const agentPendingMessageSchema = strictObject({
   pendingMessageId: agentPendingMessageIdSchema,
-  content: z.string().min(1).max(262_144),
+  content: z.string().max(262_144),
+  attachmentIds: agentAttachmentIdsSchema.optional(),
   queuedAt: z.iso.datetime()
 })
 

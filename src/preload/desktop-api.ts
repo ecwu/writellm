@@ -1,3 +1,9 @@
+import type {
+  agentAttachmentImportSchema,
+  agentAttachmentScopeSchema,
+  agentAttachmentActionSchema,
+  AgentAttachment
+} from '../shared/contracts/agent-attachments'
 import type { ApplicationMenuApi } from '../shared/contracts/application-menu'
 import type { WorkbenchApi } from '../shared/contracts/workbench'
 import type { AutocompleteApi } from '../shared/contracts/autocomplete'
@@ -415,6 +421,17 @@ export interface DesktopApi {
     update(input: UpdateWritingRulesIpcInput): Promise<ManuscriptWorkspace>
   }
   agent: {
+    importImage(
+      input: ReturnType<typeof agentAttachmentImportSchema.parse>
+    ): Promise<AgentAttachment>
+    selectImages(
+      input: ReturnType<typeof agentAttachmentScopeSchema.parse> & { remaining: number }
+    ): Promise<{ attachments: AgentAttachment[]; errors: string[] }>
+    pasteImage(
+      input: ReturnType<typeof agentAttachmentScopeSchema.parse>
+    ): Promise<AgentAttachment | null>
+    getImage(input: ReturnType<typeof agentAttachmentActionSchema.parse>): Promise<AgentAttachment>
+    releaseImage(input: ReturnType<typeof agentAttachmentActionSchema.parse>): Promise<void>
     listSessions(input: {
       projectSessionId: string
       status?: 'active' | 'archived'
@@ -492,11 +509,13 @@ export interface DesktopApi {
       projectSessionId: string
       agentRunId: string
       content: string
+      attachmentIds?: string[]
     }): Promise<void>
     followUpRun(input: {
       projectSessionId: string
       agentRunId: string
       content: string
+      attachmentIds?: string[]
     }): Promise<void>
     steerPendingFollowUp(input: {
       projectSessionId: string

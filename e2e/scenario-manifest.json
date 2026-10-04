@@ -7,6 +7,7 @@
     { "id": "workbench.close-sizing", "tiers": ["packaged"] },
     { "id": "manuscript.autocomplete", "tiers": ["packaged"] },
     { "id": "agent.conversation-fork", "tiers": ["packaged"] },
+    { "id": "agent.image-input", "tiers": ["packaged"] },
     { "id": "agent.message-copy-edit", "tiers": ["packaged"] },
     { "id": "agent.current-model-configuration", "tiers": [] },
     { "id": "accessibility.shell-settings", "tiers": ["critical", "packaged"] },

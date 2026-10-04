@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-10-02
+Recorded: 2026-10-03
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,22 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Issue 3 Agent image input is locally verified under [ADR 085](adrs/085-agent-image-input.md).
+  Selection, drop, paste, previews, history, editing, forks, and queued input retain conversation-owned image attachments.
+  Complete Electron coverage passes 1,672 tests, with three opt-in benchmarks skipped.
+  The macOS arm64 package gate passes all ten stages in 250.8s, including 12 runtime checks and 44 packaged scenarios with zero retries or skips.
+  Photon WASM processes selected and pasted images inside the packaged application.
+  Image presentation now follows the user-supplied Codex desktop references.
+  Composer thumbnails use 80-pixel squares. History images retain their proportions within 160 pixels, above the text bubble.
+  File information appears on hover or keyboard focus and in the preview dialog.
+  The latest macOS arm64 App includes this presentation refinement through an unpacked build.
+  Final static checks pass in 2.8s. Three affected packaged scenarios pass in 12.0s with zero retries or skips.
+  The earlier DMG and ZIP precede this refinement.
+  Other-platform runtime verification remains outstanding.
+
+  Evidence: [Issue 3 implementation](history/implementation-log.md#2026-10-03-issue-3-agent-image-input)
+  and [image presentation refinement](history/implementation-log.md#2026-10-03-agent-image-presentation-refinement).
 
 - [Release 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is published and is Latest.
   Tag v0.2026.10.1 points to 1eb808e1c241cd101ca1701ae8b933fabc60a0f8. Package base is 0.2026.10.

@@ -60,6 +60,7 @@ export function useAgentPanelSessionActions(input: {
   } = input.runtime
 
   const createSession = async (): Promise<AgentSessionRecord> => {
+    const origin = activeSessionIdRef.current
     const created = await window.desktop.agent.createSession({
       projectSessionId: props.projectSessionId
     })
@@ -69,7 +70,7 @@ export function useAgentPanelSessionActions(input: {
       scopePreference: scopePreferenceRef.current
     })
     setSessions((current) => [created, ...current])
-    setActiveSessionId(created.agentSessionId)
+    if (activeSessionIdRef.current === origin) setActiveSessionId(created.agentSessionId)
     return created
   }
 

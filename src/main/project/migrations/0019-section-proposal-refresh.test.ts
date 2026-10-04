@@ -54,6 +54,7 @@ describe('migration 0019 section proposal refresh', () => {
       DROP TABLE manuscript_comment_events;
       DROP TABLE manuscript_comment_messages;
       DROP TABLE manuscript_comment_threads;
+      DROP TABLE agent_attachments;
       DROP VIEW agent_conversation_history;
       DROP TABLE agent_history_references;
       DROP TABLE agent_conversation_forks;

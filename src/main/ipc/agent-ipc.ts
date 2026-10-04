@@ -470,6 +470,7 @@ export function registerAgentIpc(options: {
       const started = await service.startRun({
         agentSessionId: input.agentSessionId,
         prompt,
+        attachmentIds: input.attachmentIds,
         editorContext: input.editorContext,
         presentation,
         interactionMode
@@ -481,7 +482,11 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentQueueInputSchema.parse(raw)
     return lifecycle('agent.run.steer', () =>
-      mutationContext(input.projectSessionId).agentSessions?.steer(input.agentRunId, input.content)
+      mutationContext(input.projectSessionId).agentSessions?.steer(
+        input.agentRunId,
+        input.content,
+        input.attachmentIds
+      )
     )
   })
   ipc.handle(IPC_CHANNELS.agentFollowUpRun, (event, raw: unknown) => {
@@ -490,7 +495,8 @@ export function registerAgentIpc(options: {
     return lifecycle('agent.run.follow_up', () =>
       mutationContext(input.projectSessionId).agentSessions?.followUp(
         input.agentRunId,
-        input.content
+        input.content,
+        input.attachmentIds
       )
     )
   })

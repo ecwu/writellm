@@ -1,3 +1,4 @@
+import { redactTraceImages } from '../../shared/trace-image-redaction'
 import { createHash, randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import type { Api } from '@earendil-works/pi-ai'
@@ -97,7 +98,7 @@ export class AgentTraceRepository {
       throw new Error('Trace physical attempt must be a positive integer')
     }
     const prepared = input.documents.map((document) =>
-      prepareDocument(document.kind, document.value)
+      prepareDocument(document.kind, redactTraceImages(document.value))
     )
     const providerAttempt = input.documents.some((document) =>
       ['harness_request', 'provider_request', 'provider_response'].includes(document.kind)

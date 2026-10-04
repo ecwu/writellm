@@ -21,6 +21,7 @@ export class AgentOutputLimitError extends Error {
 export function buildAgentProviderModel(input: {
   config: Extract<ProviderConfig, { role: 'agent' }>
   runtimeModel?: AgentRuntimeModel
+  imageInput?: boolean
   modelLimits: AgentModelLimits
   maxOutputTokens: number
 }): Model<Api> {
@@ -40,7 +41,9 @@ export function buildAgentProviderModel(input: {
     ...(runtimeModel?.thinkingLevelMap === undefined
       ? {}
       : { thinkingLevelMap: runtimeModel.thinkingLevelMap }),
-    input: runtimeModel?.input ?? ['text' as const],
+    input:
+      runtimeModel?.input ??
+      (input.imageInput ? ['text' as const, 'image' as const] : ['text' as const]),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: runtimeModel?.contextWindow ?? input.modelLimits?.contextWindowTokens ?? 131_072,
     maxTokens: runtimeModel?.maxTokens ?? input.maxOutputTokens,

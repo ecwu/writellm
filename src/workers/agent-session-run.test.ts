@@ -584,6 +584,138 @@ describe('runAgentSession', () => {
     expect(JSON.stringify(events)).not.toContain('agent-secret')
   })
 
+  it('preserves current, history, steering and follow-up images through Pi serialization', async () => {
+    const image = {
+      type: 'image' as const,
+      data: 'AAAA',
+      mimeType: 'image/png' as const,
+      sha256: 'a'.repeat(64),
+      width: 1,
+      height: 1
+    }
+    const imageRuntimeModel = reasoningRequest.runtimeModel
+    if (!imageRuntimeModel) throw new Error('Missing fixture model')
+    let resolveFirst: ((response: Response) => void) | undefined
+    const bodies: unknown[] = []
+    let fetchAttempt = 0
+    const fetchMock = vi.fn<typeof fetch>(async (_input, init) => {
+      fetchAttempt += 1
+      bodies.push(JSON.parse(String(init?.body)))
+      if (fetchAttempt === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirst = resolve
+        })
+      }
+      return completionResponse(`answer-${fetchAttempt - 1}`, `response-${fetchAttempt - 1}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const events: AgentRuntimeEvent[] = []
+    let control: AgentSessionRunControl | undefined
+    const running = runAgentSession(
+      {
+        ...reasoningRequest,
+        images: [image],
+        history: [{ role: 'user', content: 'Image history', images: [image], timestamp: 1 }],
+        runtimeModel: { ...imageRuntimeModel, input: ['text', 'image'] }
+      },
+      (event) => {
+        events.push(event)
+        if (event.type === 'follow_up_consumption_requested') {
+          control?.authorizeFollowUpConsumption({
+            operation: 'authorize_follow_up_consumption',
+            requestId: request.requestId,
+            projectSessionId: request.projectSessionId,
+            agentSessionId: request.agentSessionId,
+            agentRunId: request.agentRunId,
+            consumptionId: event.consumptionId,
+            pendingMessageId: event.pendingMessageId,
+            modelRequestId: event.modelRequestId
+          })
+        }
+      },
+      (value) => {
+        control = value
+      },
+      undefined,
+      new FakeMessagePort() as never
+    )
+    await vi.waitFor(() => expect(resolveFirst).toBeTypeOf('function'))
+    control?.enqueue({
+      operation: 'steer',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+      content: 'Change direction.',
+      images: [image],
+      timestamp: 3,
+      systemPrompt: 'Steering Skill instructions.'
+    })
+    control?.enqueue({
+      operation: 'follow_up',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId,
+      agentSessionId: request.agentSessionId,
+      agentRunId: request.agentRunId,
+      pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc417',
+      content: 'Now summarize.',
+      images: [image],
+      timestamp: 4,
+      systemPrompt: 'Follow-up Skill instructions.'
+    })
+    resolveFirst?.(
+      new Response(JSON.stringify({ error: { message: 'rate limited' } }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '0' }
+      })
+    )
+    await running
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    for (const [index, count] of [
+      [0, 2],
+      [1, 2],
+      [2, 3],
+      [3, 4]
+    ]) {
+      expect(JSON.stringify(bodies[index]).match(/data:image\/png;base64,/g)).toHaveLength(count)
+    }
+    expect(bodies).toHaveLength(4)
+    expect(JSON.stringify(bodies[0])).toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[1])).toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[2])).toContain('Steering Skill instructions.')
+    expect(JSON.stringify(bodies[2])).not.toContain(request.systemPrompt)
+    expect(JSON.stringify(bodies[3])).toContain('Follow-up Skill instructions.')
+    expect(JSON.stringify(bodies[3])).not.toContain('Steering Skill instructions.')
+    expect(events.filter((event) => event.type === 'model_call_requested')).toHaveLength(0)
+    expect(events.filter((event) => event.type === 'follow_up_consumption_requested')).toHaveLength(
+      1
+    )
+    for (const body of bodies) expect(body).toMatchObject({ reasoning_effort: 'high' })
+    const finished = events.filter((event) => event.type === 'model_call_finished')
+    expect(finished).toHaveLength(3)
+    expect(
+      finished.map((event) => event.type === 'model_call_finished' && event.modelRequestId)
+    ).toEqual([
+      request.modelRequestId,
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+      '019c6a5c-8d34-7a8e-a602-3d37a52dc417'
+    ])
+    expect(
+      finished.map((event) =>
+        event.type === 'model_call_finished' ? event.metadata.retryCount : -1
+      )
+    ).toEqual([1, 0, 0])
+    expect(
+      events
+        .filter((event) => event.type === 'assistant_message')
+        .map((event) => (event.type === 'assistant_message' ? event.message.content : ''))
+    ).toEqual(['answer-1', 'answer-2', 'answer-3'])
+    expect(JSON.stringify(events)).not.toContain('agent-secret')
+  })
+
   it('deletes and promotes individual Follow-ups and waits for consumption authorization', async () => {
     let resolveFirst: ((response: Response) => void) | undefined
     let fetchCount = 0

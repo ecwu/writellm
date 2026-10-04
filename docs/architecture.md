@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 084
-Recorded: 2026-07-31; amended through 2026-09-21
+Status: accepted implementation baseline, amended through accepted ADR 085
+Recorded: 2026-07-31. Amended through 2026-10-03.
 
 This document defines the accepted WriteLLM v2 architecture.
 WriteLLM opens one self-contained project folder at a time.
@@ -21,6 +21,13 @@ The active delivery state lives in [`docs/current-plan.md`](current-plan.md), wh
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
+
+## 2026-10-03 Agent image input amendment
+
+[ADR 085](adrs/085-agent-image-input.md) adds persistent conversation images through selection, drop, and paste.
+Main owns attachment authority and relative project storage. Photon runs in the background worker.
+History and queues retain separate image budgets, model capability checks, and conversation reference protection.
+Diagnostic image data becomes metadata. Notebook image input remains deferred.
 
 ## 2026-09-19 Notebook source capacity amendment
 

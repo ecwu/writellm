@@ -1,3 +1,6 @@
+import { registerAgentAttachmentIpc } from './ipc/agent-attachment-ipc'
+import { AgentAttachmentService } from './agent/attachment-service'
+import { AgentImageProcessClient } from './agent/image-process-client'
 import { ApplicationMenu } from './bootstrap/application-menu'
 import { registerWorkbenchIpc } from './ipc/workbench-ipc'
 import { autocompleteChangeSchema } from '../shared/contracts/autocomplete'
@@ -369,7 +372,16 @@ if (!hasSingleInstanceLock) {
             log
           })
           const registry = new JobHandlerRegistry()
-          registerMineruHandlers(registry, mineruWorkflow, () => manuscriptAssets.cleanupOrphans())
+          const agentAttachments = new AgentAttachmentService({
+            projectRoot,
+            database,
+            jobs,
+            log: loggerSystem.createModuleLogger('agent', 'attachments')
+          })
+          registerMineruHandlers(registry, mineruWorkflow, async () => {
+            await manuscriptAssets.cleanupOrphans()
+            return await agentAttachments.cleanupOrphans()
+          })
           const indexClient = new IndexClient({
             modulePath: join(__dirname, 'index-worker.js'),
             indexPath: resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH),
@@ -495,6 +507,7 @@ if (!hasSingleInstanceLock) {
             database,
             providers,
             agentCatalog: agentProviderCatalog,
+            attachments: agentAttachments,
             runtime: agentModel,
             contextBuilder: agentTools.contextBuilder(),
             skillRouter: writingSkillRuntime,
@@ -539,6 +552,7 @@ if (!hasSingleInstanceLock) {
                 {
                   systemPrompt: HISTORY_COMPACTION_SYSTEM_PROMPT,
                   prompt: formatHistoryCompactionInput(input.sourcePayloadJson),
+                  images: input.images,
                   maxOutputTokens: input.maxOutputTokens
                 },
                 {
@@ -750,6 +764,14 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      const agentAttachmentIpc = registerAgentAttachmentIpc({
+        manager: projectManager,
+        processor: new AgentImageProcessClient(backgroundWorker),
+        previews: assetPreview,
+        log: loggerSystem.createModuleLogger('ipc', 'agent-attachments'),
+        developmentUrl,
+        ipc
+      })
       const writingRulesIpc = registerWritingRulesIpc({
         manager: projectManager,
         logger: loggerSystem.createModuleLogger('ipc', 'writing-rules'),
@@ -825,6 +847,7 @@ if (!hasSingleInstanceLock) {
         ...editorIpc.closeParticipants,
         stopJobClaims: async (context) => context.knowledgeImports.cancelAll(),
         stopWorkersAndIndex: async (context) => {
+          await agentAttachmentIpc.revokeSession(context.projectSessionId)
           await context.knowledgeChat?.close()
           await context.projectIndex?.close()
         },
@@ -835,6 +858,7 @@ if (!hasSingleInstanceLock) {
           unregisterManuscriptIpc.revokeSession(projectSessionId)
           agentMutationIpc.revokeSession(projectSessionId)
           agentIpc.revokeSession(projectSessionId)
+          await agentAttachmentIpc.revokeSession(projectSessionId)
           notebookIpc.revokeSession(projectSessionId)
           pdfPreview.revokeSession(projectSessionId)
           assetPreview.revokeSession(projectSessionId)
@@ -844,6 +868,7 @@ if (!hasSingleInstanceLock) {
         finalEditorFlush: editorIpc.snapshotParticipants.finalEditorFlush,
         pauseFilePublishers: async (context) => {
           await context.runtime.park()
+          await agentAttachmentIpc.drainSession(context.projectSessionId)
         },
         resumeFilePublishers: async (context) => {
           context.runtime.resumeClaims()
@@ -898,6 +923,7 @@ if (!hasSingleInstanceLock) {
           unregisterManuscriptIpc.unregister()
           agentMutationIpc.unregister()
           agentIpc.unregister()
+          agentAttachmentIpc.unregister()
           writingRulesIpc.unregister()
           editorIpc.unregister()
           jobIpc.unregister()

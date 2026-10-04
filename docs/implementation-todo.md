@@ -10,6 +10,9 @@ online scope; complete Electron, E2E, and package verification passed locally be
 Recorded: 2026-09-05
 
 This file lists checkpoint status and links to detailed evidence.
+
+- [x] Issue 3: persistent Agent image input under [ADR 085](adrs/085-agent-image-input.md).
+
 Use the current plan for later delivery state. Active delivery state lives in
 [`current-plan.md`](current-plan.md); detailed plans and evidence live in the matching Phase file;
 completed chronology lives in [`history/implementation-log.md`](history/implementation-log.md).

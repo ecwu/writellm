@@ -37,7 +37,9 @@ const completeInventory = new Set([
   'node_modules/@earendil-works/pi-ai/package.json',
   'node_modules/@ai-sdk/openai-compatible/package.json',
   'node_modules/@ai-sdk/cohere/package.json',
-  'node_modules/@google/genai/package.json'
+  'node_modules/@google/genai/package.json',
+  'node_modules/@silvia-odwyer/photon-node/photon_rs.js',
+  'node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm'
 ])
 
 describe('package inventory', () => {
@@ -53,6 +55,10 @@ describe('package inventory', () => {
     const missingProvider = new Set(completeInventory)
     missingProvider.delete('node_modules/@google/genai/package.json')
     expect(() => verifyInventoryPaths(missingProvider)).toThrow('@google/genai')
+
+    const missingPhoton = new Set(completeInventory)
+    missingPhoton.delete('node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm')
+    expect(() => verifyInventoryPaths(missingPhoton)).toThrow('photon_rs_bg.wasm')
 
     const sourceContent = new Set(completeInventory)
     sourceContent.add('src/main/index.ts')

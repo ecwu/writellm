@@ -494,6 +494,7 @@ describe('comment project recovery', () => {
     })
     f.database.immediate((db) =>
       db.exec(`
+      DROP TABLE agent_attachments;
       DROP VIEW agent_conversation_history;
       DROP TABLE agent_history_references;
       DROP TABLE agent_conversation_forks;
@@ -529,7 +530,7 @@ describe('comment project recovery', () => {
       expect(upgraded.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
       expect(
         (await readdir(join(f.projectRoot, '.writellm', 'backups'))).some((name) =>
-          name.startsWith('migration-v44-to-v47-')
+          name.startsWith('migration-v44-to-v48-')
         )
       ).toBe(true)
       const copyRoot = await mkdtemp(join(tmpdir(), 'writellm-comment-copy-'))

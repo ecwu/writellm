@@ -17,6 +17,7 @@ import {
   CircleStop,
   FilePenLine,
   FolderOpen,
+  ImagePlus,
   ListCollapse,
   MoreHorizontal,
   RotateCcw,
@@ -254,12 +255,26 @@ export function ComposerCommandMenu(props: {
   selectedId?: string
   onSelectedIdChange?(id: string): void
   onSelect(command: ComposerCommand): void
+  onAddImages?(): void
+  imagesDisabled?: boolean
 }): React.JSX.Element {
   const groups = ['Context', 'Conversation'] as const
   return (
     <Command value={props.selectedId} onValueChange={props.onSelectedIdChange}>
       <CommandList>
         <CommandEmpty>No matching action.</CommandEmpty>
+        {props.onAddImages ? (
+          <CommandGroup heading='Images'>
+            <CommandItem
+              value='add-images'
+              disabled={props.imagesDisabled}
+              onSelect={props.onAddImages}
+            >
+              <ImagePlus />
+              <span>Add images</span>
+            </CommandItem>
+          </CommandGroup>
+        ) : null}
         {groups.map((group) => {
           const commands = props.commands.filter((command) => command.group === group)
           if (commands.length === 0) return null

@@ -1,3 +1,4 @@
+import { redactTraceImages } from '../shared/trace-image-redaction'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   createInitialSystemMessage,
@@ -654,7 +655,7 @@ export async function runAgentSession(
       }
       const message: UserMessage = {
         role: 'user',
-        content: parsed.content,
+        content: piUserContent(parsed.content, parsed.images),
         timestamp: parsed.timestamp
       }
       if (parsed.operation === 'steer') {
@@ -777,7 +778,10 @@ export async function runAgentSession(
   else externalSignal?.addEventListener('abort', abortExternal, { once: true })
   let runError: unknown
   try {
-    await agent.prompt(request.prompt)
+    await agent.prompt(
+      request.prompt,
+      request.images?.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
+    )
     await agent.waitForIdle()
     while (true) {
       const completedCallCount = callCompletions.length
@@ -879,7 +883,11 @@ function pausesForReview(details: unknown): boolean {
 
 function toPiMessage(message: AgentHistoryMessage): UserMessage | AssistantMessage {
   if (message.role === 'user') {
-    return { role: 'user', content: message.content, timestamp: message.timestamp }
+    return {
+      role: 'user',
+      content: piUserContent(message.content, message.images),
+      timestamp: message.timestamp
+    }
   }
   const payload = message.message
   return {
@@ -1244,7 +1252,7 @@ function serializableHarnessContext(context: { messages: unknown[] }): JSONType 
 }
 
 function jsonValue(value: unknown): JSONType {
-  const serialized = JSON.stringify(value)
+  const serialized = JSON.stringify(redactTraceImages(value))
   if (serialized === undefined) throw new Error('Agent trace payload is not JSON serializable')
   return JSON.parse(serialized) as JSONType
 }
@@ -1424,4 +1432,16 @@ function serializePreflightDiagnostic(
   error.name = 'AgentToolPreflightError'
   error.code = code
   return serializeAgentDiagnosticError(error, 'tool.preflight')
+}
+
+function piUserContent(
+  text: string,
+  images?: import('../shared/contracts/agent-attachments').AgentImageContent[]
+): UserMessage['content'] {
+  return !images?.length
+    ? text
+    : [
+        ...(text.length ? [{ type: 'text' as const, text }] : []),
+        ...images.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
+      ]
 }

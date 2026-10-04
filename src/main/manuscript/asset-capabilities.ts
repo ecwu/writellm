@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { APP_URL } from '../../shared/security/urls'
-import type { ManuscriptAssetService } from './asset-service'
 
 type Capability = {
   previewId: string
   projectSessionId: string
   assetId: string
-  assets: ManuscriptAssetService
+  assets: {
+    readVerified(
+      id: string
+    ): Promise<{ row: { byte_size: number; mime_type: string }; bytes: Buffer }>
+  }
 }
 
 export class ManuscriptAssetCapabilities {

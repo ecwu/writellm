@@ -1,3 +1,5 @@
+import { useAgentImageDraft } from './use-agent-image-draft'
+import { agentUserMessagePayloadSchema } from '../../../../shared/contracts/agent'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AskUserAnswer } from '../../../../shared/contracts/agent-tools'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
@@ -248,6 +250,13 @@ export function useAgentPanelController(props: AgentPanelProps) {
     workflowState
   })
 
+  const imageDraft = useAgentImageDraft({
+    projectSessionId: props.projectSessionId,
+    agentSessionId: activeSessionId,
+    ensureSession: async () => (await createSession()).agentSessionId,
+    onError: setError
+  })
+
   const startRun = async (
     content: string,
     approvedProposalId?: string,
@@ -260,6 +269,14 @@ export function useAgentPanelController(props: AgentPanelProps) {
     commentThreadIds?: readonly string[]
   ): Promise<boolean> => {
     const trimmed = content.trim()
+    const attachmentIds =
+      quickAction === undefined &&
+      approvedProposalId === undefined &&
+      rejectedProposalId === undefined &&
+      commentThreadIds === undefined
+        ? imageDraft.attachmentIds
+        : []
+    if (imageDraft.importing) return false
     const quickActionBlocked =
       quickAction === undefined
         ? null
@@ -278,6 +295,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     }
     if (
       (trimmed.length === 0 &&
+        attachmentIds.length === 0 &&
         quickAction === undefined &&
         approvedProposalId === undefined &&
         commentThreadIds === undefined) ||
@@ -327,7 +345,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
         agentSessionId: session.agentSessionId,
         ...(quickAction === undefined
           ? approvedProposalId === undefined
-            ? { prompt: runPrompt }
+            ? { prompt: runPrompt, attachmentIds }
             : {}
           : { quickAction }),
         ...(approvedProposalId === undefined ? {} : { approvedProposalId }),
@@ -347,7 +365,8 @@ export function useAgentPanelController(props: AgentPanelProps) {
           terminalRunIdsRef.current
         )
       )
-      setPrompt('')
+      if (runtime.activeSessionIdRef.current === session.agentSessionId) setPrompt('')
+      imageDraft.clear(session.agentSessionId, attachmentIds)
       return true
     } catch (cause) {
       const message = errorMessage(cause)
@@ -481,6 +500,9 @@ export function useAgentPanelController(props: AgentPanelProps) {
         targetEventId,
         expectedThroughSequence: edit.throughSequence,
         content,
+        attachmentIds: agentUserMessagePayloadSchema.parse(
+          events.find((event) => event.agentEventId === targetEventId)?.payload
+        ).attachmentIds,
         editorContext: editorContextForScope(
           scope,
           props.activeSectionId,
@@ -681,18 +703,26 @@ export function useAgentPanelController(props: AgentPanelProps) {
   }
 
   const queueMessage = async (delivery: 'steer' | 'follow_up'): Promise<void> => {
-    if (activeRun === null || prompt.trim().length === 0 || busy) return
+    if (
+      activeRun === null ||
+      (prompt.trim().length === 0 && imageDraft.attachmentIds.length === 0) ||
+      imageDraft.importing ||
+      busy
+    )
+      return
     setBusy(true)
     setError(null)
     try {
       const input = {
         projectSessionId: props.projectSessionId,
         agentRunId: activeRun.agentRunId,
-        content: prompt.trim()
+        content: prompt.trim(),
+        attachmentIds: imageDraft.attachmentIds
       }
       if (delivery === 'steer') await window.desktop.agent.steerRun(input)
       else await window.desktop.agent.followUpRun(input)
-      setPrompt('')
+      if (runtime.activeSessionIdRef.current === activeRun.agentSessionId) setPrompt('')
+      imageDraft.clear(activeRun.agentSessionId, input.attachmentIds)
     } catch (cause) {
       if (await reconcileInactiveRun(activeRun.agentRunId)) return
       const message = errorMessage(cause)
@@ -980,6 +1010,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
 
   return {
     props,
+    imageDraft,
     sessions,
     events,
     runs,

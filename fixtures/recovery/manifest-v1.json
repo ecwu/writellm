@@ -290,6 +290,15 @@
         "creates a verified pre-migration backup and keeps existing conversation evidence",
         "retains an intact original and recoverable backup when migration fails"
       ]
+    },
+    {
+      "id": "agent-image-attachments-migration",
+      "category": "migration",
+      "source": "src/main/project/migrations/0048-agent-image-attachments.test.ts",
+      "tests": [
+        "creates a verified pre-migration backup and keeps existing conversation evidence",
+        "retains an intact original and recoverable backup when migration fails"
+      ]
     }
   ]
 }

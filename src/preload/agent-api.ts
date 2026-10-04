@@ -1,3 +1,11 @@
+import {
+  agentAttachmentImportSchema,
+  agentAttachmentSelectSchema,
+  agentAttachmentSelectionSchema,
+  agentAttachmentScopeSchema,
+  agentAttachmentActionSchema,
+  agentAttachmentSchema
+} from '../shared/contracts/agent-attachments'
 import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
@@ -68,6 +76,43 @@ import {
 import type { DesktopApi } from './desktop-api'
 
 export const agentApi: DesktopApi['agent'] = {
+  async importImage(input) {
+    return agentAttachmentSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentImportImage,
+        agentAttachmentImportSchema.parse(input)
+      )
+    )
+  },
+  async selectImages(input) {
+    return agentAttachmentSelectionSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.agentSelectImages,
+        agentAttachmentSelectSchema.parse(input)
+      )
+    )
+  },
+  async pasteImage(input) {
+    return agentAttachmentSchema
+      .nullable()
+      .parse(
+        await ipcRenderer.invoke(
+          IPC_CHANNELS.agentPasteImage,
+          agentAttachmentScopeSchema.parse(input)
+        )
+      )
+  },
+  async getImage(input) {
+    return agentAttachmentSchema.parse(
+      await ipcRenderer.invoke(IPC_CHANNELS.agentGetImage, agentAttachmentActionSchema.parse(input))
+    )
+  },
+  async releaseImage(input) {
+    await ipcRenderer.invoke(
+      IPC_CHANNELS.agentReleaseImage,
+      agentAttachmentActionSchema.parse(input)
+    )
+  },
   async listSessions(input) {
     return agentListSessionsResultSchema.parse(
       await ipcRenderer.invoke(

@@ -1,3 +1,9 @@
+import {
+  agentMessageTextBytes,
+  AGENT_IMAGES_MAX_BASE64,
+  imageDataBytes,
+  type AgentImageContent
+} from '../../shared/contracts/agent-attachments'
 import type { AgentHistoryMessage, AgentModelLimits } from '../../shared/contracts/agent'
 import { AGENT_MODEL_VISIBLE_TOOL_ENVELOPE } from '../../shared/agent-tool-specs'
 import {
@@ -12,6 +18,8 @@ export interface AgentContextPlanInput {
   readonly systemPrompt: string
   readonly history: readonly AgentHistoryMessage[]
   readonly currentRequest: string
+  readonly currentImages?: AgentImageContent[]
+  readonly historyImageBytes?: number
   readonly advertisedTools?: unknown
 }
 
@@ -27,7 +35,7 @@ export interface AgentContextPlan {
   /** Space left for history after the fixed prompt and the current request. */
   readonly conversationBudgetTokens: number
   readonly requiresCompaction: boolean
-  readonly reasons: readonly ('token_budget' | 'message_bytes')[]
+  readonly reasons: readonly ('token_budget' | 'message_bytes' | 'image_bytes')[]
 }
 
 export class AgentCurrentTurnTooLargeError extends Error {
@@ -63,7 +71,9 @@ export class AgentContextPlanner {
     )
     const historyTokens = estimateAgentTokens(input.history)
     const historyBytes = serializedHistoryBytes(input.history)
-    const currentRequestTokens = estimateAgentTokens(input.currentRequest)
+    const currentRequestTokens =
+      estimateAgentTokens(input.currentRequest) +
+      (input.currentImages?.length ? estimateAgentTokens(input.currentImages) : 0)
     const conversationBudgetTokens =
       effectiveInputLimit - systemPromptTokens - advertisedToolTokens - currentRequestTokens
     const base = {
@@ -77,13 +87,19 @@ export class AgentContextPlanner {
       conversationBudgetTokens
     }
     if (conversationBudgetTokens <= 0) throw new AgentCurrentTurnTooLargeError(base)
-    const reasons: Array<'token_budget' | 'message_bytes'> = []
+    const reasons: Array<'token_budget' | 'message_bytes' | 'image_bytes'> = []
     if (historyTokens > conversationBudgetTokens) reasons.push('token_budget')
     if (historyBytes > AGENT_RUNTIME_HISTORY_MAX_BYTES) reasons.push('message_bytes')
+    if (
+      (input.historyImageBytes ?? imageDataBytes(input.history)) +
+        imageDataBytes(input.currentImages) >
+      AGENT_IMAGES_MAX_BASE64
+    )
+      reasons.push('image_bytes')
     return { ...base, requiresCompaction: reasons.length > 0, reasons }
   }
 }
 
 function serializedHistoryBytes(history: readonly AgentHistoryMessage[]): number {
-  return new TextEncoder().encode(JSON.stringify(history)).byteLength
+  return agentMessageTextBytes(history)
 }

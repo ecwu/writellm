@@ -21,7 +21,8 @@ async function legacyProject(fail = false) {
   const project = await createDatabase()
   createService(project, new FakeAgentRuntime()).createSession('Preserved conversation')
   const root = project.immediate((db) => {
-    db.exec(`DROP VIEW agent_conversation_history;
+    db.exec(`DROP TABLE agent_attachments;
+DROP VIEW agent_conversation_history;
       DROP TABLE agent_history_references;
       DROP TABLE agent_conversation_forks;
       DROP VIEW agent_effective_events;
@@ -48,7 +49,7 @@ describe('migration 0046 message replacements', () => {
       applicationVersion: 'test',
       log
     })
-    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(47)
+    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(48)
     expect(database.immediate((db) => db.pragma('integrity_check', { simple: true }))).toBe('ok')
     expect(database.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
     expect(createService(database, new FakeAgentRuntime()).listSessions()[0].title).toBe(

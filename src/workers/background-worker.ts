@@ -1,4 +1,9 @@
 import {
+  agentImageProcessRequestSchema,
+  agentImageProcessResultSchema
+} from '../shared/contracts/agent-attachments'
+import { processAgentImage } from './agent-image-process'
+import {
   autocompleteWorkerRequestSchema,
   type AutocompleteWorkerResult
 } from '../shared/contracts/autocomplete'
@@ -83,6 +88,41 @@ parentPort.on('message', (event) => {
 })
 
 async function dispatch(value: unknown): Promise<void> {
+  const image = agentImageProcessRequestSchema.safeParse(value)
+  if (image.success) {
+    const request = image.data
+    try {
+      const result = processAgentImage(Buffer.from(request.dataBase64, 'base64'), request.mimeType)
+      post(
+        agentImageProcessResultSchema.parse({
+          type: 'agent-image-result',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          image: result
+        })
+      )
+    } catch (err) {
+      workerLog?.(
+        'error',
+        'worker.background.agent_image_failed',
+        'Agent image processing failed',
+        { requestId: request.requestId },
+        err
+      )
+      post(
+        agentImageProcessResultSchema.parse({
+          type: 'agent-image-error',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          error: {
+            name: err instanceof Error ? err.name : 'Error',
+            message: 'The image cannot be decoded or processed.'
+          }
+        })
+      )
+    }
+    return
+  }
   const autocomplete = autocompleteWorkerRequestSchema.safeParse(value)
   if (autocomplete.success) {
     const request = autocomplete.data

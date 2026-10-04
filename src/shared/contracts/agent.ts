@@ -1,3 +1,10 @@
+import {
+  agentAttachmentIdsSchema,
+  agentImagesSchema,
+  agentMessageTextBytes,
+  imageDataBytes,
+  AGENT_IMAGES_MAX_BASE64
+} from './agent-attachments'
 import { z } from 'zod'
 import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import { agentCompactionCheckpointV4PayloadSchema } from './agent-compaction'
@@ -118,7 +125,8 @@ export const agentEditorContextSchema = z
 
 export const agentUserMessagePayloadSchema = z
   .object({
-    content: z.string().min(1).max(262_144),
+    content: z.string().max(262_144),
+    attachmentIds: agentAttachmentIdsSchema.optional(),
     delivery: z.enum(['prompt', 'steer', 'follow_up', 'clarification']),
     timestamp: z.number().int().nonnegative(),
     presentation: z
@@ -149,6 +157,10 @@ export const agentUserMessagePayloadSchema = z
       .optional()
   })
   .strict()
+  .refine(
+    (message) => message.content.length > 0 || (message.attachmentIds?.length ?? 0) > 0,
+    'Enter text or add an image'
+  )
 
 export const agentAssistantMessagePayloadSchema = z
   .object({
@@ -168,10 +180,19 @@ export const agentHistoryMessageSchema = z.discriminatedUnion('role', [
   z
     .object({
       role: z.literal('user'),
-      content: z.string().min(1).max(262_144),
+      content: z.string().max(262_144),
+      attachmentIds: agentAttachmentIdsSchema.optional(),
+      images: agentImagesSchema.optional(),
       timestamp: z.number().int().nonnegative()
     })
-    .strict(),
+    .strict()
+    .refine(
+      (message) =>
+        message.content.length > 0 ||
+        (message.attachmentIds?.length ?? 0) > 0 ||
+        (message.images?.length ?? 0) > 0,
+      'Enter text or add an image'
+    ),
   z
     .object({
       role: z.literal('assistant'),
@@ -183,8 +204,8 @@ export const agentHistoryMessageSchema = z.discriminatedUnion('role', [
 export const agentHistorySchema = z
   .array(agentHistoryMessageSchema)
   .superRefine((messages, context) => {
-    const bytes = new TextEncoder().encode(JSON.stringify(messages)).byteLength
-    if (bytes > 2_097_152) {
+    const bytes = agentMessageTextBytes(messages)
+    if (bytes > 2_097_152 || imageDataBytes(messages) > AGENT_IMAGES_MAX_BASE64) {
       context.addIssue({ code: 'custom', message: 'Agent history exceeds the runtime bound' })
     }
   })
@@ -231,7 +252,8 @@ export const agentRunStartSchema = z
     credential: agentRuntimeAuthSchema,
     systemPrompt: z.string().max(65_536),
     history: agentHistorySchema,
-    prompt: z.string().min(1).max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
+    prompt: z.string().max(AGENT_RUN_PROMPT_MAX_CHARACTERS),
+    images: agentImagesSchema.optional(),
     modelLimits: agentModelLimitsSchema.default(legacyAgentModelLimits),
     toolProfile: agentToolProfileSchema.default('writing'),
     interactionMode: agentInteractionModeSchema.default('write'),
@@ -244,6 +266,15 @@ export const agentRunStartSchema = z
     temperature: z.number().min(0).max(2).optional()
   })
   .strict()
+  .refine(
+    (request) => request.prompt.trim().length > 0 || (request.images?.length ?? 0) > 0,
+    'Enter text or add an image'
+  )
+  .refine(
+    (request) =>
+      imageDataBytes(request.history) + imageDataBytes(request.images) <= AGENT_IMAGES_MAX_BASE64,
+    'Agent context images exceed 32 MiB'
+  )
 
 const agentQueueCommandBaseSchema = z.object({
   requestId: z.uuid(),
@@ -251,20 +282,26 @@ const agentQueueCommandBaseSchema = z.object({
   agentSessionId: agentSessionIdSchema,
   agentRunId: agentRunIdSchema,
   modelRequestId: agentModelRequestIdSchema,
-  content: z.string().min(1).max(262_144),
+  content: z.string().max(262_144),
+  images: agentImagesSchema.optional(),
   timestamp: z.number().int().nonnegative(),
   systemPrompt: z.string().min(1).max(65_536)
 })
 
-export const agentQueueCommandSchema = z.discriminatedUnion('operation', [
-  agentQueueCommandBaseSchema.extend({ operation: z.literal('steer') }).strict(),
-  agentQueueCommandBaseSchema
-    .extend({
-      operation: z.literal('follow_up'),
-      pendingMessageId: agentPendingMessageIdSchema
-    })
-    .strict()
-])
+export const agentQueueCommandSchema = z
+  .discriminatedUnion('operation', [
+    agentQueueCommandBaseSchema.extend({ operation: z.literal('steer') }).strict(),
+    agentQueueCommandBaseSchema
+      .extend({
+        operation: z.literal('follow_up'),
+        pendingMessageId: agentPendingMessageIdSchema
+      })
+      .strict()
+  ])
+  .refine(
+    (message) => message.content.length > 0 || (message.images?.length ?? 0) > 0,
+    'Enter text or add an image'
+  )
 
 export const agentQueueActionCommandSchema = z.discriminatedUnion('operation', [
   z

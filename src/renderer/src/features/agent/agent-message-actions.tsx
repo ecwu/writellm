@@ -81,6 +81,7 @@ export function MessageEditButton(props: {
 }
 
 export function MessageEditor(props: {
+  hasImages?: boolean
   content: string
   busy: boolean
   reason: string | null
@@ -93,7 +94,7 @@ export function MessageEditor(props: {
   const canSave =
     !locked &&
     props.reason === null &&
-    draft.trim().length > 0 &&
+    (draft.trim().length > 0 || props.hasImages) &&
     draft.length <= AGENT_RUN_PROMPT_MAX_CHARACTERS
   const save = async (): Promise<void> => {
     if (!canSave) return

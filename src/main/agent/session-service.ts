@@ -1,3 +1,10 @@
+import {
+  agentAttachmentIdsSchema,
+  AGENT_IMAGES_MAX_BASE64,
+  imageDataBytes,
+  type AgentImageContent
+} from '../../shared/contracts/agent-attachments'
+import type { AgentAttachmentService } from './attachment-service'
 import { readForkMetadata } from './conversation-fork'
 import {
   assertMessageReplacement,
@@ -230,6 +237,7 @@ interface ActiveRun {
   readonly modelLimits: AgentModelLimits
   readonly credential: string
   currentRequest: string
+  currentImages?: AgentImageContent[]
   readonly maxOutputTokens: number
   readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
@@ -263,6 +271,8 @@ interface PendingUserQuestion {
 }
 
 interface PendingFollowUpMessage {
+  readonly attachmentIds?: string[]
+  readonly images?: AgentImageContent[]
   readonly pendingMessageId: string
   readonly modelRequestId: string
   readonly content: string
@@ -320,6 +330,7 @@ export interface AgentSessionServiceOptions {
   projectSessionId: string
   database: ProjectDatabase
   providers: Pick<ProviderService, 'withConfiguredProvider'>
+  attachments?: AgentAttachmentService
   agentCatalog?: Pick<AgentProviderCatalogService, 'resolve'>
   runtime: AgentSessionRuntime
   contextBuilder?: Pick<AgentContextBuilder, 'build'>
@@ -358,6 +369,7 @@ export interface AgentSessionServiceOptions {
     config: Extract<ProviderConfig, { role: 'agent' }>
     credential: string
     modelLimits: AgentModelLimits
+    images?: AgentImageContent[]
     sourcePayloadJson: string
     coveredThroughSequence: number
     estimatedInputTokens: number
@@ -1057,16 +1069,78 @@ export class AgentSessionService {
     return run
   }
 
+  get attachments(): AgentAttachmentService {
+    if (!this.options.attachments) throw new Error('Agent image attachments are unavailable')
+    return this.options.attachments
+  }
+
+  async #loadImages(
+    agentSessionId: string,
+    ids: readonly string[] = []
+  ): Promise<AgentImageContent[]> {
+    return ids.length === 0 ? [] : this.attachments.load(agentSessionId, ids)
+  }
+
+  async #hydrateHistory(
+    agentSessionId: string,
+    history: AgentHistoryMessage[]
+  ): Promise<AgentHistoryMessage[]> {
+    return Promise.all(
+      history.map(async (message) => {
+        if (message.role !== 'user' || !message.attachmentIds?.length) return message
+        const { attachmentIds, ...text } = message
+        return { ...text, images: await this.#loadImages(agentSessionId, attachmentIds) }
+      })
+    )
+  }
+
+  #historyImageBytes(agentSessionId: string, history: readonly AgentHistoryMessage[]): number {
+    return history.reduce(
+      (sum, message) =>
+        sum +
+        (message.role === 'user'
+          ? (message.attachmentIds ?? []).reduce(
+              (total, id) =>
+                total + Math.ceil(this.attachments.get(agentSessionId, id).image_bytes / 3) * 4,
+              0
+            )
+          : 0),
+      0
+    )
+  }
+
+  #assertQueueImageBudget(active: ActiveRun, images: AgentImageContent[]): void {
+    const history = loadContinuousRuntimeHistory(this.options.database, active.agentSessionId)
+    if (
+      this.#historyImageBytes(active.agentSessionId, history) +
+        imageDataBytes(active.pendingMessages) +
+        imageDataBytes(images) >
+      AGENT_IMAGES_MAX_BASE64
+    )
+      throw new Error(
+        'Agent history and waiting images exceed 32 MiB. Finish this run and summarize the conversation first.'
+      )
+  }
+
+  #assertImageModel(model: AgentRuntimeModel | undefined, hasImages: boolean): void {
+    if (hasImages && !model?.input.includes('image'))
+      throw new Error(
+        'The selected model does not support image input. Choose a model with image input.'
+      )
+  }
+
   editLastMessageAndRestart(input: {
     agentSessionId: string
     targetEventId: string
     expectedThroughSequence: number
     content: string
+    attachmentIds?: string[]
     editorContext: AgentEditorContext
   }): Promise<StartedAgentRun> {
     return this.startRun({
       agentSessionId: input.agentSessionId,
       prompt: input.content.trim(),
+      attachmentIds: input.attachmentIds,
       editorContext: input.editorContext,
       replacement: {
         targetEventId: input.targetEventId,
@@ -1078,6 +1152,7 @@ export class AgentSessionService {
   startRun(input: {
     agentSessionId: string
     prompt: string
+    attachmentIds?: string[]
     editorContext: AgentEditorContext
     systemPrompt?: string
     maxOutputTokens?: number
@@ -1089,6 +1164,10 @@ export class AgentSessionService {
   }): Promise<StartedAgentRun> {
     try {
       const prompt = agentUserMessagePayloadSchema.shape.content.parse(input.prompt)
+      const ids = agentAttachmentIdsSchema.parse(input.attachmentIds ?? [])
+      if (prompt.trim().length === 0 && ids.length === 0)
+        throw new Error('Enter text or add an image')
+      for (const id of ids) this.attachments.get(input.agentSessionId, id)
       const editorContext = agentEditorContextSchema.parse(input.editorContext)
       const operationId = input.operationId ?? this.#createId()
       const agentRunId = this.#createId()
@@ -1132,6 +1211,7 @@ export class AgentSessionService {
   async #startReservedRun(input: {
     agentSessionId: string
     prompt: string
+    attachmentIds?: string[]
     editorContext: AgentEditorContext
     systemPrompt?: string
     maxOutputTokens?: number
@@ -1143,7 +1223,6 @@ export class AgentSessionService {
     agentRunId: string
     controller: AbortController
   }): Promise<StartedAgentRun> {
-    input.controller.signal.throwIfAborted()
     input.controller.signal.throwIfAborted()
     return withLogContext(
       {
@@ -1174,6 +1253,15 @@ export class AgentSessionService {
           }
           const runtimeModel =
             resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved)
+          const currentImages = await this.#loadImages(input.agentSessionId, input.attachmentIds)
+          const history = loadContinuousRuntimeHistory(this.options.database, input.agentSessionId)
+          this.#assertImageModel(
+            runtimeModel,
+            currentImages.length > 0 ||
+              history.some(
+                (message) => message.role === 'user' && (message.attachmentIds?.length ?? 0) > 0
+              )
+          )
           input.controller.signal.throwIfAborted()
           const now = this.#now()
           const automaticTitle = this.#insertRunAndUserEvent({
@@ -1182,6 +1270,7 @@ export class AgentSessionService {
             config,
             editorContext: input.editorContext,
             prompt: input.prompt,
+            attachmentIds: input.attachmentIds,
             approvalMode,
             interactionMode,
             thinkingLevel,
@@ -1190,6 +1279,10 @@ export class AgentSessionService {
             replacement: input.replacement,
             now
           })
+          this.options.attachments?.release(
+            `draft:${input.agentSessionId}`,
+            input.attachmentIds ?? []
+          )
           const active: ActiveRun = {
             agentSessionId: input.agentSessionId,
             agentRunId: input.agentRunId,
@@ -1206,6 +1299,7 @@ export class AgentSessionService {
             modelLimits,
             credential,
             currentRequest: input.prompt,
+            currentImages,
             maxOutputTokens,
             ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
             authorizedModelRequestIds: new Set(),
@@ -1456,6 +1550,7 @@ export class AgentSessionService {
         systemPrompt: active.systemPrompt,
         history,
         prompt: currentRequest,
+        images: active.currentImages,
         maxOutputTokens: input.maxOutputTokens,
         modelLimits: active.modelLimits,
         toolProfile: 'writing',
@@ -1495,6 +1590,8 @@ export class AgentSessionService {
       { event: 'agent.run.setup_failed', err, agentRunId: active.agentRunId, phase: active.phase },
       'Agent run failed before provider generation started'
     )
+    for (const pending of active.pendingMessages)
+      this.options.attachments?.release(`queue:${pending.pendingMessageId}`)
     await this.#abortPendingModelRequests(active, 'agent_run_setup_failed')
     const cancellation = classifyRunFailure(err, active.controller.signal)
     const code = err instanceof AgentRunSetupError ? err.code : cancellation.code
@@ -1521,13 +1618,18 @@ export class AgentSessionService {
     })
   }
 
-  async steer(agentRunId: string, content: string): Promise<void> {
-    return this.#queueSteer(agentRunId, content)
+  async steer(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
+    return this.#queueSteer(agentRunId, content, attachmentIds)
   }
 
-  async followUp(agentRunId: string, content: string): Promise<void> {
+  async followUp(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
     const active = this.#requireQueueableRun(agentRunId)
     const parsedContent = agentUserMessagePayloadSchema.shape.content.parse(content)
+    const images = await this.#loadImages(active.agentSessionId, attachmentIds)
+    this.#requireQueueableRun(agentRunId)
+    if (!parsedContent.trim() && images.length === 0) throw new Error('Enter text or add an image')
+    this.#assertImageModel(active.runtimeModel, images.length > 0)
+    this.#assertQueueImageBudget(active, images)
     if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
       throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
     }
@@ -1562,6 +1664,17 @@ export class AgentSessionService {
         projectSessionId: this.options.projectSessionId
       })
     ).modelRequestId
+    try {
+      this.#requireQueueableRun(agentRunId)
+      this.#assertQueueImageBudget(active, images)
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.run.image_queue_rejected', err, agentRunId, modelRequestId },
+        'Agent image queue authorization failed'
+      )
+      await repository.abort(modelRequestId, 'queue_authorization_failed')
+      throw err
+    }
     const refreshedContext = this.options.contextBuilder?.build({
       prompt: parsedContent,
       editorContext: active.editorContext,
@@ -1569,17 +1682,22 @@ export class AgentSessionService {
       skillPrompt: active.skillPrompt,
       interactionMode: active.interactionMode
     })
-    if (refreshedContext !== undefined) {
-    }
     const pending: PendingFollowUpMessage = {
       pendingMessageId,
       modelRequestId,
       content: parsedContent,
+      attachmentIds,
+      images,
       timestamp,
       queuedAt,
       systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt,
       ...(refreshedContext === undefined ? {} : { snapshot: refreshedContext.snapshot })
     }
+    this.options.attachments?.retain(
+      `queue:${pendingMessageId}`,
+      active.agentSessionId,
+      attachmentIds ?? []
+    )
     active.pendingMessages.push(pending)
     active.pendingModelRequestIds.add(modelRequestId)
     active.authorizedModelRequestIds.add(modelRequestId)
@@ -1592,6 +1710,7 @@ export class AgentSessionService {
         pendingMessageId,
         modelRequestId,
         content: parsedContent,
+        images,
         timestamp,
         systemPrompt: pending.systemPrompt
       })
@@ -1600,7 +1719,7 @@ export class AgentSessionService {
         { event: 'agent.run.follow_up_queue_failed', err, agentRunId, modelRequestId },
         'Failed to queue an Agent Follow-up'
       )
-      active.pendingMessages.splice(active.pendingMessages.indexOf(pending), 1)
+      this.#removePendingMessage(active, pendingMessageId)
       active.pendingModelRequestIds.delete(modelRequestId)
       active.authorizedModelRequestIds.delete(modelRequestId)
       active.snapshots.delete(modelRequestId)
@@ -1608,6 +1727,7 @@ export class AgentSessionService {
       active.controller.abort(err)
       throw err
     }
+    this.options.attachments?.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
     await this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -1705,6 +1825,7 @@ export class AgentSessionService {
         type: 'user_message',
         payload: agentUserMessagePayloadSchema.parse({
           content: pending.content,
+          attachmentIds: pending.attachmentIds,
           delivery: 'steer',
           timestamp: pending.timestamp
         }),
@@ -1921,6 +2042,8 @@ export class AgentSessionService {
             config,
             credential,
             modelLimits,
+            runtimeModel:
+              resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved),
             signal: active.controller.signal,
             conversationBudgetTokens: agentMessageBudget(8_192, modelLimits),
             estimatedHistoryTokensBefore: estimateAgentTokens(
@@ -1982,6 +2105,7 @@ export class AgentSessionService {
       ...titleRequests.map((request) => request.completion),
       ...compactions.map((compaction) => compaction.completion)
     ])
+    this.options.attachments?.releaseAll()
   }
 
   projectActivitySnapshot(): AgentProjectActivitySnapshot {
@@ -1995,6 +2119,7 @@ export class AgentSessionService {
         pendingMessages: active.pendingMessages.map((message) => ({
           pendingMessageId: message.pendingMessageId,
           content: message.content,
+          attachmentIds: message.attachmentIds,
           queuedAt: message.queuedAt
         })),
         pendingQuestion:
@@ -2190,13 +2315,25 @@ export class AgentSessionService {
     const index = active.pendingMessages.findIndex(
       (message) => message.pendingMessageId === pendingMessageId
     )
-    if (index >= 0) active.pendingMessages.splice(index, 1)
+    if (index >= 0) {
+      active.pendingMessages.splice(index, 1)
+      this.options.attachments?.release(`queue:${pendingMessageId}`)
+    }
   }
 
-  async #queueSteer(agentRunId: string, rawContent: string): Promise<void> {
+  async #queueSteer(
+    agentRunId: string,
+    rawContent: string,
+    attachmentIds?: string[]
+  ): Promise<void> {
     const active = this.#requireQueueableRun(agentRunId)
     const handle = active.handle
     const content = agentUserMessagePayloadSchema.shape.content.parse(rawContent)
+    const images = await this.#loadImages(active.agentSessionId, attachmentIds)
+    this.#requireQueueableRun(agentRunId)
+    if (!content.trim() && images.length === 0) throw new Error('Enter text or add an image')
+    this.#assertImageModel(active.runtimeModel, images.length > 0)
+    this.#assertQueueImageBudget(active, images)
     const timestamp = this.#now().getTime()
     const modelRequests = new ModelRequestRepository(
       this.options.database,
@@ -2216,11 +2353,27 @@ export class AgentSessionService {
         projectSessionId: this.options.projectSessionId
       })
     ).modelRequestId
+    try {
+      this.#requireQueueableRun(agentRunId)
+      this.#assertQueueImageBudget(active, images)
+    } catch (err) {
+      this.options.log.error(
+        { event: 'agent.run.image_queue_rejected', err, agentRunId, modelRequestId },
+        'Agent image queue authorization failed'
+      )
+      await modelRequests.abort(modelRequestId, 'queue_authorization_failed')
+      throw err
+    }
     await this.#appendAndPublishEvent({
       sessionId: active.agentSessionId,
       runId: active.agentRunId,
       type: 'user_message',
-      payload: agentUserMessagePayloadSchema.parse({ content, delivery: 'steer', timestamp }),
+      payload: agentUserMessagePayloadSchema.parse({
+        content,
+        attachmentIds,
+        delivery: 'steer',
+        timestamp
+      }),
       modelRequestId
     })
     active.pendingModelRequestIds.add(modelRequestId)
@@ -2243,10 +2396,12 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         modelRequestId,
         content,
+        images,
         timestamp,
         systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
       }
       handle.steer(command)
+      this.options.attachments?.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
     } catch (err) {
       this.options.log.error(
         { event: 'agent.run.steer_failed', err, agentRunId, modelRequestId },
@@ -2461,6 +2616,7 @@ export class AgentSessionService {
       type: 'user_message',
       payload: agentUserMessagePayloadSchema.parse({
         content: pending.content,
+        attachmentIds: pending.attachmentIds,
         delivery: 'follow_up',
         timestamp: pending.timestamp
       }),
@@ -3136,6 +3292,8 @@ export class AgentSessionService {
         'Agent run terminated'
       )
       const partialModelRequestId = [...active.pendingModelRequestIds][0] ?? null
+      for (const pending of active.pendingMessages)
+        this.options.attachments?.release(`queue:${pending.pendingMessageId}`)
       await this.#abortPendingModelRequests(active, 'agent_run_ended')
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
@@ -3235,6 +3393,8 @@ export class AgentSessionService {
       requestedOutputTokens: active.maxOutputTokens,
       systemPrompt: active.systemPrompt,
       history: historyBefore,
+      historyImageBytes: this.#historyImageBytes(active.agentSessionId, historyBefore),
+      currentImages: active.currentImages,
       currentRequest: active.currentRequest,
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
@@ -3256,10 +3416,12 @@ export class AgentSessionService {
         config: active.config,
         credential: active.credential,
         modelLimits: active.modelLimits,
+        runtimeModel: active.runtimeModel,
         signal: active.controller.signal,
         conversationBudgetTokens: plan.conversationBudgetTokens,
         estimatedHistoryTokensBefore: plan.historyTokens,
-        requestedOutputTokens: active.maxOutputTokens
+        requestedOutputTokens: active.maxOutputTokens,
+        currentImageBytes: imageDataBytes(active.currentImages)
       })
       if (!compacted) throw new Error('Provider overflow recovery found no history to compact')
     } catch (err) {
@@ -3320,7 +3482,10 @@ export class AgentSessionService {
         agentRunId: active.agentRunId,
         modelRequestId,
         systemPrompt: active.systemPrompt,
-        history: agentHistorySchema.parse(history),
+        history: agentHistorySchema.parse(
+          await this.#hydrateHistory(active.agentSessionId, history)
+        ),
+        images: active.currentImages,
         prompt: active.currentRequest,
         maxOutputTokens: active.maxOutputTokens,
         modelLimits: active.modelLimits,
@@ -3388,6 +3553,7 @@ export class AgentSessionService {
     config: Extract<ProviderConfig, { role: 'agent' }>
     editorContext: AgentEditorContext
     prompt: string
+    attachmentIds?: string[]
     approvalMode: AgentApprovalMode
     interactionMode: AgentInteractionMode
     thinkingLevel: AgentThinkingLevel
@@ -3482,6 +3648,7 @@ export class AgentSessionService {
         type: 'user_message',
         payload: agentUserMessagePayloadSchema.parse({
           content: input.prompt,
+          ...(input.attachmentIds?.length ? { attachmentIds: input.attachmentIds } : {}),
           delivery: 'prompt',
           timestamp: input.now.getTime(),
           ...(input.presentation === undefined ? {} : { presentation: input.presentation })
@@ -4105,10 +4272,13 @@ export class AgentSessionService {
       requestedOutputTokens: input.maxOutputTokens,
       systemPrompt: active.systemPrompt,
       history,
+      historyImageBytes: this.#historyImageBytes(active.agentSessionId, history),
+      currentImages: active.currentImages,
       currentRequest: input.currentRequest,
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
-    if (!plan.requiresCompaction) return agentHistorySchema.parse(history)
+    if (!plan.requiresCompaction)
+      return agentHistorySchema.parse(await this.#hydrateHistory(active.agentSessionId, history))
 
     const compactionId = this.#createId()
     active.phase = 'compacting'
@@ -4128,10 +4298,12 @@ export class AgentSessionService {
         config: active.config,
         credential: input.credential,
         modelLimits: active.modelLimits,
+        runtimeModel: active.runtimeModel,
         signal: active.controller.signal,
         conversationBudgetTokens: plan.conversationBudgetTokens,
         estimatedHistoryTokensBefore: plan.historyTokens,
-        requestedOutputTokens: active.maxOutputTokens
+        requestedOutputTokens: active.maxOutputTokens,
+        currentImageBytes: imageDataBytes(active.currentImages)
       })
       if (!compacted) throw new Error('No historical content was available for compaction')
     } catch (err) {
@@ -4159,7 +4331,7 @@ export class AgentSessionService {
       active.agentSessionId,
       active.agentRunId
     )
-    return agentHistorySchema.parse(history)
+    return agentHistorySchema.parse(await this.#hydrateHistory(active.agentSessionId, history))
   }
 
   #activeToolEnvelope(
@@ -4192,10 +4364,12 @@ export class AgentSessionService {
     config: Extract<ProviderConfig, { role: 'agent' }>
     credential: string
     modelLimits: AgentModelLimits
+    runtimeModel?: AgentRuntimeModel
     signal: AbortSignal
     conversationBudgetTokens: number
     estimatedHistoryTokensBefore: number
     requestedOutputTokens: number
+    currentImageBytes?: number
   }): Promise<boolean> {
     const summarize = this.options.summarizeHistory
     if (summarize === undefined) throw new Error('Agent context compaction is unavailable')
@@ -4229,6 +4403,7 @@ export class AgentSessionService {
       agentSessionId: input.agentSessionId,
       ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
       sourceTokenBudget: agentMessageBudget(outputTokens, input.modelLimits),
+      recentTailMaxImageBytes: AGENT_IMAGES_MAX_BASE64 - (input.currentImageBytes ?? 0),
       recentTailTokenBudget: Math.max(
         0,
         input.conversationBudgetTokens - outputTokens - estimateAgentTokens(wrapper)
@@ -4253,6 +4428,16 @@ export class AgentSessionService {
       },
       'Projected old conversation prefix for one summary'
     )
+    const source = JSON.parse(material.sourcePayloadJson) as {
+      recentTurns: Array<Array<{ attachmentIds?: string[] }>>
+    }
+    const images: AgentImageContent[] = []
+    for (const event of source.recentTurns.flat()) {
+      images.push(...(await this.#loadImages(input.agentSessionId, event.attachmentIds)))
+    }
+    this.#assertImageModel(input.runtimeModel, images.length > 0)
+    if (imageDataBytes(images) > AGENT_IMAGES_MAX_BASE64)
+      throw new Error('Summary images exceed 32 MiB')
     const summarized = await summarize({
       agentSessionId: input.agentSessionId,
       agentRunId: input.agentRunId,
@@ -4262,6 +4447,7 @@ export class AgentSessionService {
       credential: input.credential,
       modelLimits: input.modelLimits,
       sourcePayloadJson: material.sourcePayloadJson,
+      images,
       coveredThroughSequence: material.coveredThroughSequence,
       estimatedInputTokens: material.estimatedPromptTokens,
       maxOutputTokens: outputTokens,

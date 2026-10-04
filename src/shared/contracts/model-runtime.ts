@@ -1,3 +1,4 @@
+import { agentSummaryImagesSchema } from './agent-attachments'
 import { z } from 'zod'
 import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import { imageSizeSchema, providerConfigSchema } from './providers'
@@ -26,7 +27,8 @@ export type ModelExecutionMetadata = z.infer<typeof modelExecutionMetadataSchema
 
 export const agentRunInputSchema = z.object({
   systemPrompt: z.string().max(65_536),
-  prompt: z.string().min(1).max(262_144),
+  prompt: z.string().max(262_144),
+  images: agentSummaryImagesSchema.optional(),
   maxOutputTokens: z.number().int().min(1).max(131_072).default(8_192),
   temperature: z.number().min(0).max(2).optional()
 })

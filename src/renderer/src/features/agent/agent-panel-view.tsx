@@ -1,3 +1,4 @@
+import { AgentImageAttachments, AgentHistoryImages } from './agent-image-attachments'
 import {
   AlertCircle,
   Archive,
@@ -79,6 +80,7 @@ export function AgentPanelView({
     compactionConfirmOpen,
     setCompactionConfirmOpen,
     prompt,
+    imageDraft,
     setPrompt,
     scopePreference,
     reviewFeedback,
@@ -183,6 +185,18 @@ export function AgentPanelView({
         }
         data-testid='agent-panel'
         aria-label='Writing agent side chat'
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault()
+            event.dataTransfer.dropEffect = 'copy'
+          }
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) return
+          event.preventDefault()
+          if (!busy && !activeSessionArchived && activeSession?.compatible !== false)
+            void imageDraft.importFiles(Array.from(event.dataTransfer.files))
+        }}
       >
         <header
           className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 border-b px-3 py-2'
@@ -271,6 +285,7 @@ export function AgentPanelView({
               editingDisabled={activeSessionArchived || !modelReady}
               onEdit={editLastMessageAndRestart}
               projectSessionId={props.projectSessionId}
+              agentSessionId={activeSession.agentSessionId}
               sectionTitles={props.sectionTitles}
               onProposalAction={proposalAction}
               onNew={beginNewConversation}
@@ -485,7 +500,19 @@ export function AgentPanelView({
                             key={message.pendingMessageId}
                             className='flex min-w-0 items-center gap-1 rounded-sm px-1.5 py-1 text-sm hover:bg-muted/60'
                           >
-                            <span className='min-w-0 flex-1 truncate'>{message.content}</span>
+                            <div className='min-w-0 flex-1'>
+                              {message.content ? (
+                                <span className='block truncate'>{message.content}</span>
+                              ) : null}
+                              {message.attachmentIds?.length && activeRun ? (
+                                <AgentHistoryImages
+                                  projectSessionId={props.projectSessionId}
+                                  agentSessionId={activeRun.agentSessionId}
+                                  ids={message.attachmentIds}
+                                  variant='queue'
+                                />
+                              ) : null}
+                            </div>
                             <Button
                               type='button'
                               size='sm'
@@ -549,6 +576,20 @@ export function AgentPanelView({
                       rows={2}
                       className='min-h-20 max-h-48 overflow-y-auto [field-sizing:content]'
                       disabled={busy || choosingSkill || activeSession?.compatible === false}
+                      onPaste={(event) => {
+                        if (busy || activeSessionArchived) return
+                        const images = Array.from(event.clipboardData.files)
+                        if (images.length) {
+                          event.preventDefault()
+                          void imageDraft.importFiles(images)
+                          return
+                        }
+                        if (
+                          !event.clipboardData.getData('text/plain') &&
+                          !event.clipboardData.getData('text/html')
+                        )
+                          void imageDraft.pasteImage()
+                      }}
                       onChange={(event) => {
                         setPrompt(event.target.value)
                         setComposerCaret(event.target.selectionStart ?? event.target.value.length)
@@ -630,6 +671,14 @@ export function AgentPanelView({
                         else void startRun(prompt)
                       }}
                     />
+                    {imageDraft.items.length ? (
+                      <InputGroupAddon align='block-start'>
+                        <AgentImageAttachments
+                          items={imageDraft.items}
+                          onRemove={imageDraft.remove}
+                        />
+                      </InputGroupAddon>
+                    ) : null}
                     <InputGroupAddon align='block-end' className='justify-between gap-2'>
                       <div className='flex shrink-0 items-center gap-1'>
                         <Popover open={composerAddOpen} onOpenChange={setComposerAddOpen}>
@@ -637,7 +686,7 @@ export function AgentPanelView({
                             <InputGroupButton
                               size='icon-sm'
                               aria-label='Add context'
-                              disabled={composerSettingsDisabled}
+                              disabled={busy || conversationLocked}
                               data-testid='agent-add-menu-trigger'
                             >
                               <Plus />
@@ -646,6 +695,16 @@ export function AgentPanelView({
                           <PopoverContent align='start' side='top' className='w-80 p-0'>
                             <ComposerCommandMenu
                               commands={composerCommands}
+                              imagesDisabled={
+                                busy ||
+                                imageDraft.importing ||
+                                imageDraft.items.length >= 4 ||
+                                activeSessionArchived
+                              }
+                              onAddImages={() => {
+                                setComposerAddOpen(false)
+                                void imageDraft.selectImages()
+                              }}
                               onSelect={(command) => runComposerCommand(command, false)}
                             />
                           </PopoverContent>
@@ -714,7 +773,9 @@ export function AgentPanelView({
                             title='Send'
                             disabled={
                               busy ||
-                              prompt.trim().length === 0 ||
+                              imageDraft.importing ||
+                              (prompt.trim().length === 0 &&
+                                imageDraft.attachmentIds.length === 0) ||
                               activeSession?.compatible === false
                             }
                             onClick={() => void startRun(prompt)}

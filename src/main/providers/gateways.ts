@@ -1,3 +1,4 @@
+import type { AgentImageContent } from '../../shared/contracts/agent-attachments'
 import type {
   AgentRunInput,
   AgentRunResult,
@@ -75,6 +76,7 @@ export interface AgentSessionRunInput {
   modelRequestId: string
   systemPrompt: string
   history: AgentHistoryMessage[]
+  images?: AgentImageContent[]
   prompt: string
   maxOutputTokens: number
   modelLimits?: AgentModelLimits
