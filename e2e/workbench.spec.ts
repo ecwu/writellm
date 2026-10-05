@@ -3,6 +3,171 @@ import { agentToggle, openAppMenu, clickAppMenuItem, expectAppMenuItem } from '.
 import { join } from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import type { Page, Locator } from '@playwright/test'
+import type { WorkbenchGridNode } from '../src/shared/contracts/workbench'
+
+async function toolGroups(page: Page) {
+  return page.evaluate(async () => {
+    const lifecycle = await window.desktop.projects.lifecycle()
+    if (lifecycle.state !== 'open') return []
+    const layout = await window.desktop.workbench.read({
+      projectSessionId: lifecycle.activeProject.projectSessionId
+    })
+    const collect = (node: WorkbenchGridNode): { views: string[]; activeView?: string }[] =>
+      node.type === 'branch' ? node.data.flatMap(collect) : [node.data]
+    return layout?.tools ? collect(layout.tools.root) : []
+  })
+}
+
+test(
+  'opens left tools as tabs, preserves widths and restores grouped tools',
+  scenario('workbench.tool-tabs', ['@packaged']),
+  async ({ testRoot }) => {
+    const launched = await launchApp({
+      userData: join(testRoot, 'user-data'),
+      dialogPaths: [testRoot]
+    })
+    const { page } = launched
+    try {
+      await page.getByRole('button', { name: 'Create project', exact: true }).click()
+      const create = page.getByRole('dialog', { name: 'Create project' })
+      await create.getByLabel('Project name').fill('Tool tabs')
+      await create.getByRole('button', { name: 'Choose location' }).click()
+      await expectActiveProject(page, 'Tool tabs')
+      const outline = page.getByTestId('workbench-tool-outline')
+      const agent = page.getByTestId('agent-panel')
+      const width = async (locator: Locator) => {
+        const bounds = await locator.boundingBox()
+        if (!bounds) throw new Error('Tool geometry unavailable')
+        return bounds.width
+      }
+      await expect(outline).toBeVisible()
+      await expect(agent).toBeVisible()
+      const outlineBox = await outline.boundingBox()
+      if (!outlineBox) throw new Error('Outline geometry unavailable')
+      await page.mouse.move(outlineBox.x + outlineBox.width, outlineBox.y + outlineBox.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(
+        outlineBox.x + outlineBox.width + 50,
+        outlineBox.y + outlineBox.height / 2,
+        { steps: 8 }
+      )
+      await page.mouse.up()
+      await expect.poll(() => width(outline)).toBeGreaterThan(outlineBox.width + 25)
+      const leftWidth = await width(outline)
+      const contentWidth = await width(sectionEditor(page))
+      const agentWidth = await width(agent)
+      for (const [id, title] of [
+        ['find', 'Find'],
+        ['references', 'References'],
+        ['writing_rules', 'Writing rules'],
+        ['comments', 'Comments']
+      ]) {
+        await page.getByRole('button', { name: title, exact: true }).click()
+        const tool = page.getByTestId(`workbench-tool-${id}`)
+        await expect(tool).toBeVisible()
+        await expect(outline).toBeHidden()
+        await expect.poll(async () => Math.abs((await width(tool)) - leftWidth)).toBeLessThan(2)
+        await expect
+          .poll(async () => Math.abs((await width(sectionEditor(page))) - contentWidth))
+          .toBeLessThan(2)
+        await expect.poll(async () => Math.abs((await width(agent)) - agentWidth)).toBeLessThan(2)
+        await expect.poll(async () => (await toolGroups(page)).length).toBe(3)
+      }
+      await page.getByRole('button', { name: 'References', exact: true }).click()
+      await page.getByRole('button', { name: 'References', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-references')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Close References', exact: true })).toHaveCount(
+        1
+      )
+      await page.getByRole('button', { name: 'Close Find', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-find')).toHaveCount(0)
+      await expect(page.getByTestId('workbench-tool-references')).toBeVisible()
+      const savedViews = ['outline', 'references', 'writing_rules', 'comments']
+      await expect
+        .poll(async () => (await toolGroups(page)).find((group) => group.views.includes('outline')))
+        .toEqual(expect.objectContaining({ views: savedViews, activeView: 'references' }))
+      await openAppMenu(page, 'Project')
+      await clickAppMenuItem(page, 'Close project and return to chooser', false)
+      await page.getByRole('button', { name: 'Open Tool tabs', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-references')).toBeVisible()
+      await expect(outline).toBeHidden()
+      await expect
+        .poll(async () => (await toolGroups(page)).find((group) => group.views.includes('outline')))
+        .toEqual(expect.objectContaining({ views: savedViews, activeView: 'references' }))
+      await expect
+        .poll(async () =>
+          Math.abs((await width(page.getByTestId('workbench-tool-references'))) - leftWidth)
+        )
+        .toBeLessThan(2)
+
+      // A manually split left group nearest the content receives the next new tool.
+      await page.getByRole('button', { name: 'Move Outline', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Move to left', exact: true }).click()
+      await page.getByRole('button', { name: 'Find', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-find')).toBeVisible()
+      await expect
+        .poll(
+          async () =>
+            (await toolGroups(page)).find((group) => group.views.includes('outline'))?.views
+        )
+        .toEqual(['outline', 'find'])
+      await expect.poll(async () => (await toolGroups(page)).length).toBe(4)
+      const splitGroups = await toolGroups(page)
+      await openAppMenu(page, 'Project')
+      await clickAppMenuItem(page, 'Close project and return to chooser', false)
+      await page.getByRole('button', { name: 'Open Tool tabs', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-find')).toBeVisible()
+      await expect.poll(() => toolGroups(page)).toEqual(splitGroups)
+
+      // Right and bottom groups remain independent when no left tool group exists.
+      for (const title of ['Outline', 'Find', 'References', 'Writing rules', 'Comments']) {
+        await page.getByRole('button', { name: `Move ${title}`, exact: true }).click()
+        await page
+          .getByRole('menuitem', {
+            name: title === 'Find' ? 'Move to bottom' : 'Move to right',
+            exact: true
+          })
+          .click()
+      }
+      await page.getByRole('button', { name: 'Close Outline', exact: true }).click()
+      await page.getByRole('button', { name: 'Manuscript', exact: true }).click()
+      await expect(outline).toBeVisible()
+      await expect
+        .poll(
+          async () =>
+            (await toolGroups(page)).find((group) => group.views.includes('outline'))?.views
+        )
+        .toEqual(['outline'])
+      await page.getByRole('button', { name: 'Find', exact: true }).click()
+      await expect(page.getByTestId('workbench-tool-find')).toBeVisible()
+      await expect
+        .poll(
+          async () => (await toolGroups(page)).find((group) => group.views.includes('find'))?.views
+        )
+        .toEqual(['find'])
+
+      await openAppMenu(page, 'Layout')
+      await clickAppMenuItem(page, 'Reset layout', false)
+      await expect(outline).toBeVisible()
+      await expect(agent).toBeVisible()
+      await expect
+        .poll(async () => (await toolGroups(page)).map((group) => group.views))
+        .toEqual([['outline'], ['content'], ['agent']])
+      await page.getByRole('button', { name: 'References', exact: true }).click()
+      await page.getByRole('button', { name: 'Close References', exact: true }).click()
+      await expect(outline).toBeVisible()
+      const beforeLastClose = await width(sectionEditor(page))
+      const beforeAgent = await width(agent)
+      await page.getByRole('button', { name: 'Close Outline', exact: true }).click()
+      await expect(outline).toHaveCount(0)
+      await expect.poll(() => width(sectionEditor(page))).toBeGreaterThan(beforeLastClose + 100)
+      await expect.poll(async () => Math.abs((await width(agent)) - beforeAgent)).toBeLessThan(2)
+    } finally {
+      await launched.app.close()
+    }
+  }
+)
 
 test(
   'retains section editors and independent Notebook tabs, docks tools and restores local layout',

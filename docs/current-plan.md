@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-10-03
+Recorded: 2026-10-05
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,15 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- Default left tool opening now adds an active tab to the existing left tool group under
+  [ADR 083](adrs/083-tabbed-docking-workbench.md#2026-10-05-default-tool-tab-placement).
+  Agent retains its separate right group. Saved layouts, manual splits, and resized widths remain intact.
+  Restoring a grouped layout retains its active tool tab.
+  Static checks, one source build, and three real Electron scenarios pass in 39.7s on macOS arm64.
+  The final split-layout restoration assertion passes in a focused 9.8s rerun against the same build.
+  Both runs record zero retries or skips. Other-platform runtime coverage remains outstanding.
+  Evidence: [default tool tabs](history/implementation-log.md#2026-10-05-default-tool-tabs).
 
 - Issue 3 Agent image input is locally verified under [ADR 085](adrs/085-agent-image-input.md).
   Selection, drop, paste, previews, history, editing, forks, and queued input retain conversation-owned image attachments.

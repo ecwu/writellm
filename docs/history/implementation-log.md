@@ -4588,3 +4588,57 @@ The existing DMG and ZIP remain from the original image-input acceptance and pre
 The host uses pnpm 11.28.3 and Node 26.10.0. The declared Node range remains 24.x.
 Packaged coverage uses Electron 44.5.1 on macOS arm64. Other platforms are not tested for this refinement.
 The prior persistence and worker acceptance remains applicable because those sources do not change.
+
+## 2026-10-05 Conversation search timestamps
+
+Conversation search rows show elapsed time since `updatedAt` instead of repeated workflow status.
+The labels use `now`, `m`, `h`, `d`, `w`, `mo`, and `y` with whole elapsed units.
+Each row exposes its full local timestamp through the native hover title and semantic `time` element.
+Existing attention groups, status icons, search matching, and conversation actions remain unchanged.
+
+Verification selects `pnpm check:fast` because this maintenance changes only Renderer text presentation.
+All three static stages pass in 2.8s across 864 Biome files and both TypeScript targets.
+One earlier attempt fails the accessibility lint rule for an unsupported `aria-label` on `time`.
+The final source uses screen-reader text and passes the repeated gate.
+Report: `.cache/verification/1791196067321-89871-10cf1588`.
+`git diff --check` passes. No application build or runtime tests run for this text change.
+The sandbox pnpm wrapper stays silent during version selection, so the gate uses approved host access.
+The host uses pnpm 11.28.3 and Node 26.10.0. The project declares Node 24.x.
+Runtime behavior on other platforms remains untested for this maintenance.
+
+## 2026-10-05 Default tool tabs
+
+Outline, Find, References, Writing Rules, and Comments open as tabs in the closest existing left tool group.
+The shared opening path excludes content, right groups, bottom groups, and groups that contain Agent.
+If no eligible group exists, the tool opens in a new left group with its existing default width.
+Agent retains its separate right group by default.
+Opening an existing tool activates its current tab without moving it.
+Adding a tab preserves the group width and the available content width.
+
+Saved layouts retain their tool groups, tab order, and active tool tab.
+Outline visibility synchronization no longer activates an existing Outline tab during restoration.
+Manual splits, movement, resizing, tab closure, and the default layout reset remain available.
+The layout schema, IPC, dependencies, and database migrations do not change.
+ADR 083 records the new placement rule. The current plan records delivery results.
+
+Verification selects the two workbench E2E files because the change affects tool opening and layout interactions.
+`pnpm check:e2e e2e/workbench.spec.ts e2e/workbench-sizing.spec.ts` passes six stages in 39.7s.
+Static checks cover 864 Biome files and both TypeScript targets in 2.8s.
+One production build takes 17.0s. Three real Electron scenarios pass in 18.6s with zero retries or skips.
+Report: `.cache/verification/1791196964294-99979-cda8df1d`.
+
+The added scenario covers grouped opening, resized widths, repeated activation, background closure, and grouped layout restoration.
+It also covers the closest split group, bottom and right exclusions, existing tool placement, reset, and final-tab space release.
+The sizing scenario reads the visible References width while Outline is inactive.
+The final test adds restoration of manually split groups without consolidation.
+`pnpm test:e2e e2e/workbench.spec.ts --grep 'opens left tools as tabs'` passes in 9.8s against the same build.
+That scenario takes 9.0s with zero retries or skips.
+Report: `.cache/verification/1791197043182-1160-a49a820a`.
+
+The host uses pnpm 11.28.3 and Node 26.10.0, outside the declared Node 24.x range.
+The sandbox pnpm wrapper stays silent during version selection. The commands use approved host access.
+Native preparation passes on Electron 44.5.1, ABI 149, and Node-API 10 on macOS arm64.
+It loads better-sqlite3 13.0.3 from `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 from the arm64 resource.
+Other platforms remain untested for this maintenance.
+The existing conversation timestamp edits remain intact. No package, release, commit, or push runs.
+Final `pnpm check` passes across 864 files in 351ms. The diff and updated guidance links also pass inspection.

@@ -48,3 +48,20 @@ User-resized widths take precedence over defaults.
 This rule applies during closing. Pointer and keyboard resizing remain available afterward.
 Bottom groups that span the content can grow with it.
 Closing the final content tab retains the existing empty content surface.
+
+## 2026-10-05 Default tool tab placement
+
+Outline, Find, References, Writing Rules, and Comments share an existing left tool group when opened.
+If multiple left tool groups exist, choose the group closest to the content area.
+Exclude bottom groups, right groups, and groups that contain Agent from this selection.
+Add and activate the new tab without changing the group width.
+If no eligible group exists, create a left group with the existing default width.
+Opening an existing tool activates its tab without moving it.
+Agent continues to open in its own right group by default.
+
+Preserve saved layouts without automatic consolidation.
+Users can still split, move, and resize tool groups.
+Closing a tab removes only that tool.
+Closing the final tab releases its group space to the content area under the sizing rule above.
+New projects and layout reset retain left Outline, central content, and right Agent.
+The existing layout schema supports grouped tabs without a migration.

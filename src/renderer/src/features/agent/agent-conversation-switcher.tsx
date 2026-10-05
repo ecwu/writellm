@@ -34,6 +34,23 @@ import { sessionStatusLabel } from './agent-panel-logic'
 
 type AgentSidebarWorkflowState = AgentSessionRecord['workflowState']
 
+function formatConversationAge(updatedAt: string, now: number): string {
+  const seconds = Math.max(0, (now - Date.parse(updatedAt)) / 1_000)
+  if (seconds < 60) return 'now'
+  const units = [
+    [31_536_000, 'y'],
+    [2_592_000, 'mo'],
+    [604_800, 'w'],
+    [86_400, 'd'],
+    [3_600, 'h'],
+    [60, 'm']
+  ] as const
+  for (const [duration, label] of units) {
+    if (seconds >= duration) return `${Math.floor(seconds / duration)}${label}`
+  }
+  return 'now'
+}
+
 function ConversationStatusIcon(props: {
   workflowState: AgentSidebarWorkflowState
   thinkingVisualState: AgentThinkingVisualState
@@ -185,6 +202,7 @@ function ConversationCommandGroup(props: {
   onRegenerateTitle(session: AgentSessionRecord): Promise<void>
 }): React.JSX.Element | null {
   if (props.sessions.length === 0) return null
+  const now = Date.now()
   return (
     <CommandGroup heading={props.heading}>
       {props.sessions.map((session) => {
@@ -214,7 +232,14 @@ function ConversationCommandGroup(props: {
               <MessageSquarePlus />
             )}
             <span className='min-w-0 flex-1 truncate'>{session.title}</span>
-            <span className='text-xs text-muted-foreground'>{sessionStatusLabel(session)}</span>
+            <time
+              dateTime={session.updatedAt}
+              title={`Last updated: ${new Date(session.updatedAt).toLocaleString()}`}
+              className='shrink-0 whitespace-nowrap text-xs text-muted-foreground'
+            >
+              <span className='sr-only'>Last updated: </span>
+              {formatConversationAge(session.updatedAt, now)}
+            </time>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button

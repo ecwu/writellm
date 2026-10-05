@@ -50,9 +50,10 @@ test(
       await openAppMenu(page, 'Layout')
       await clickAppMenuItem(page, 'References', true)
       await expect(page.getByTestId('workbench-tool-references')).toBeVisible()
-      const beforeClose = await width(outline)
+      const beforeClose = await width(page.getByTestId('workbench-tool-references'))
       await page.getByRole('button', { name: 'Close References', exact: true }).click()
       await expect(page.getByTestId('workbench-tool-references')).toHaveCount(0)
+      await expect(outline).toBeVisible()
       await expect.poll(async () => Math.abs((await width(outline)) - beforeClose)).toBeLessThan(2)
 
       await page.getByRole('button', { name: /^Tab actions / }).click()

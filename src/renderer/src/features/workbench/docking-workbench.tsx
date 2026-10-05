@@ -393,17 +393,45 @@ function addTool(dock: DockviewApi, tool: WorkbenchTool): void {
     existing.api.setActive()
     return
   }
+  const content = dock.getPanel('content')
+  const center = content?.group.api.boundingBox
+  const leftGroup =
+    tool === 'agent' || !center
+      ? undefined
+      : dock.groups
+          .flatMap((group) => {
+            const bounds = group.api.boundingBox
+            if (
+              group !== content?.group &&
+              !group.panels.some((panel) => panel.id === 'agent') &&
+              bounds &&
+              bounds.width > 0 &&
+              bounds.left + bounds.width <= center.left + 1 &&
+              bounds.top < center.top + center.height &&
+              bounds.top + bounds.height > center.top
+            )
+              return [{ group, right: bounds.left + bounds.width }]
+            return []
+          })
+          .sort((a, b) => b.right - a.right)[0]?.group
   dock.addPanel({
     id: tool,
     component: 'slot',
     title: titles[tool],
     renderer: 'always',
     minimumWidth: tool === 'agent' ? 320 : 180,
-    initialWidth:
-      tool === 'agent'
-        ? Math.max(320, Math.min(420, dock.width * 0.32))
-        : Math.max(180, Math.min(240, dock.width * 0.2)),
-    position: { referencePanel: 'content', direction: tool === 'agent' ? 'right' : 'left' }
+    ...(leftGroup
+      ? { position: { referencePanel: leftGroup.panels[0].id, direction: 'within' as const } }
+      : {
+          initialWidth:
+            tool === 'agent'
+              ? Math.max(320, Math.min(420, dock.width * 0.32))
+              : Math.max(180, Math.min(240, dock.width * 0.2)),
+          position: {
+            referencePanel: 'content',
+            direction: tool === 'agent' ? ('right' as const) : ('left' as const)
+          }
+        })
   })
 }
 
@@ -555,8 +583,9 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
   }, [api, props.controller.toolRequest])
   useEffect(() => {
     if (!api || initialVisibility.current) return
-    if (outlineOpen) addTool(api, 'outline')
-    else removeTool(api, 'outline')
+    if (outlineOpen) {
+      if (!api.getPanel('outline')) addTool(api, 'outline')
+    } else removeTool(api, 'outline')
   }, [api, outlineOpen])
   const reset = (): void => {
     if (!api) return
