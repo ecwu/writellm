@@ -38,7 +38,11 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Static checks, one source build, and three real Electron scenarios pass in 39.7s on macOS arm64.
   The final split-layout restoration assertion passes in a focused 9.8s rerun against the same build.
   Both runs record zero retries or skips. Other-platform runtime coverage remains outstanding.
+  Source commit `715f687` is pushed to `origin/main`, including the conversation timestamp presentation.
+  The requested macOS arm64 App rebuild passes four build and inventory stages in 40.1s.
+  The App retains version 0.2026.10.1 and includes these changes. This build runs no functional tests.
   Evidence: [default tool tabs](history/implementation-log.md#2026-10-05-default-tool-tabs).
+  Build evidence: [tool tabs App rebuild](history/implementation-log.md#2026-10-05-tool-tabs-app-rebuild).
 
 - Issue 3 Agent image input is locally verified under [ADR 085](adrs/085-agent-image-input.md).
   Selection, drop, paste, previews, history, editing, forks, and queued input retain conversation-owned image attachments.

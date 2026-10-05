@@ -4642,3 +4642,21 @@ It loads better-sqlite3 13.0.3 from `prebuilds/darwin-arm64.node` and sqlite-vec
 Other platforms remain untested for this maintenance.
 The existing conversation timestamp edits remain intact. No package, release, commit, or push runs.
 Final `pnpm check` passes across 864 files in 351ms. The diff and updated guidance links also pass inspection.
+
+## 2026-10-05 Tool tabs App rebuild
+
+The user requests a code push followed by a new local App build.
+Commit `715f687563a3ce128983c845344a4f8168c91c64` includes default tool tabs and the existing conversation timestamp presentation.
+The push to `origin/main` succeeds before the build. The source tree is clean at build time.
+
+`pnpm package:unpack` passes four build and inventory stages in 40.1s on macOS arm64.
+Production compilation takes 17.0s. App packaging takes 23.0s.
+Signature policy and package inventory both pass. The App retains its permitted no-Team-ID ad-hoc/linker signature.
+The inventory contains 34,434 ASAR entries and arm64 binaries for better-sqlite3 and sqlite-vec.
+The runtime is Electron 44.5.1, ABI 149, with better-sqlite3 13.0.3 and sqlite-vec 0.1.9.
+The host uses pnpm 11.28.3 and Node 26.10.0. The declared Node range remains 24.x.
+Report: `.cache/verification/1791197292618-2395-ece64d0c`.
+
+The App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, version 0.2026.10.1.
+This build runs no functional tests. The preceding static and three-scenario source acceptance remains applicable.
+No version increment, installer, tag, hosted build, or release publication runs.
