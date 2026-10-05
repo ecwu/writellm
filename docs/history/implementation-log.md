@@ -4657,6 +4657,7 @@ The runtime is Electron 44.5.1, ABI 149, with better-sqlite3 13.0.3 and sqlite-v
 The host uses pnpm 11.28.3 and Node 26.10.0. The declared Node range remains 24.x.
 Report: `.cache/verification/1791197292618-2395-ece64d0c`.
 
-The App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, version 0.2026.10.1.
+The App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+Its Info.plist declares package version 0.2026.10 and build number 2026.10.1. Release metadata remains 0.2026.10.1.
 This build runs no functional tests. The preceding static and three-scenario source acceptance remains applicable.
 No version increment, installer, tag, hosted build, or release publication runs.
