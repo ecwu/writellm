@@ -9,6 +9,7 @@ import { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
 import { credentialBindingFingerprint } from './credential-binding'
 import { ProviderService, type ConnectionProbe } from './provider-service'
+import { AgentProviderCatalogService } from './agent-provider-catalog'
 
 const directories: string[] = []
 const log = pino({ level: 'silent' })
@@ -110,6 +111,52 @@ afterEach(async () => {
 })
 
 describe('ProviderService', () => {
+  it('builds one final catalog for real preset, manual-model and availability writes', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const catalog = new AgentProviderCatalogService(
+      appDatabase,
+      credentials,
+      new AppSettingsRepository(appDatabase, log),
+      log
+    )
+    const service = providerService(appDatabase, credentials)
+    service.setAgentCatalog(catalog)
+    const snapshot = vi.spyOn(catalog, 'snapshot')
+    try {
+      const created = await service.saveAgentCustomPreset({
+        presetId: 'custom:once',
+        name: 'Once',
+        api: 'openai-responses',
+        baseUrl: 'https://models.example.test/v1',
+        authMode: 'none'
+      })
+      expect(created.agentCatalog.presets).toEqual(
+        expect.arrayContaining([expect.objectContaining({ presetId: 'custom:once' })])
+      )
+      expect(snapshot).toHaveBeenCalledTimes(1)
+      snapshot.mockClear()
+      const saved = await service.saveAgentManualModel('custom:once', {
+        id: 'manual-once',
+        name: 'Manual Once',
+        api: 'openai-responses',
+        contextWindow: 32768,
+        maxTokens: 4096,
+        reasoning: false,
+        input: ['text']
+      })
+      expect(
+        saved.agentCatalog.presets.find((preset) => preset.presetId === 'custom:once')?.models
+      ).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'manual-once' })]))
+      expect(snapshot).toHaveBeenCalledTimes(1)
+      snapshot.mockClear()
+      await service.setAgentModelEnabled('custom:once', 'manual-once', false)
+      expect(snapshot).toHaveBeenCalledTimes(1)
+    } finally {
+      snapshot.mockRestore()
+      appDatabase.close()
+    }
+  })
   it('persists only ciphertext, reports status, replaces keys, and removes the provider', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')

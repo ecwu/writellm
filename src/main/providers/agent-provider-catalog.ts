@@ -241,7 +241,7 @@ export class AgentProviderCatalogService {
     return this.settings.setLastAgentThinkingLevel(level)
   }
 
-  async saveCustomPreset(input: AgentCustomPresetInput): Promise<AgentProviderCatalog> {
+  async saveCustomPreset(input: AgentCustomPresetInput): Promise<void> {
     const presetId = agentPresetIdSchema.parse(input.presetId ?? `custom:${randomUUID()}`)
     if (presetId.startsWith('builtin:')) throw new Error('Built-in preset IDs are reserved')
     const providerId = `writellm-${presetId}`
@@ -335,10 +335,9 @@ export class AgentProviderCatalogService {
       },
       'Agent provider preset saved'
     )
-    return this.snapshot()
   }
 
-  async removePreset(presetId: string): Promise<AgentProviderCatalog> {
+  async removePreset(presetId: string): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     if (parsed.startsWith('builtin:')) {
       await this.#credentialStore.delete(parsed.slice('builtin:'.length))
@@ -364,10 +363,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.provider_preset.removed', presetId: parsed },
       'Removed Agent preset'
     )
-    return this.snapshot()
   }
 
-  async refreshPreset(presetId: string, signal: AbortSignal): Promise<AgentProviderCatalog> {
+  async refreshPreset(presetId: string, signal: AbortSignal): Promise<void> {
     signal.throwIfAborted()
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
@@ -399,7 +397,6 @@ export class AgentProviderCatalogService {
       await this.#modelsStore.recordAttempt(providerId, attemptedAt, safeRefreshErrorCode(err))
       throw new Error('Agent model catalog refresh failed', { cause: err })
     }
-    return this.snapshot()
   }
 
   async setDefaultSelection(
@@ -409,7 +406,7 @@ export class AgentProviderCatalogService {
     return this.settings.setDefaultAgentModelSelection(selection)
   }
 
-  async setProviderEnabled(presetId: string, enabled: boolean): Promise<AgentProviderCatalog> {
+  async setProviderEnabled(presetId: string, enabled: boolean): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const provider = await this.#provider(parsed)
     await this.#ensureProviderRecord(provider, parsed)
@@ -434,14 +431,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.provider_availability.updated', presetId: parsed, enabled },
       'Updated Agent provider availability'
     )
-    return this.snapshot()
   }
 
-  async setModelEnabled(
-    presetId: string,
-    modelId: string,
-    enabled: boolean
-  ): Promise<AgentProviderCatalog> {
+  async setModelEnabled(presetId: string, modelId: string, enabled: boolean): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
     await models.refresh({ allowNetwork: false })
@@ -475,10 +467,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.model_availability.updated', presetId: parsed, modelId, enabled },
       'Updated Agent model availability'
     )
-    return this.snapshot()
   }
 
-  async saveManualModel(presetId: string, input: AgentManualModel): Promise<AgentProviderCatalog> {
+  async saveManualModel(presetId: string, input: AgentManualModel): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const model = agentManualModelSchema.parse(input)
     const provider = await this.#provider(parsed)
@@ -512,10 +503,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.manual_model.saved', presetId: parsed, modelId: model.id, api: model.api },
       'Saved manual Agent model'
     )
-    return this.snapshot()
   }
 
-  async removeManualModel(presetId: string, modelId: string): Promise<AgentProviderCatalog> {
+  async removeManualModel(presetId: string, modelId: string): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const record = await this.#manualModelRecord(parsed, modelId)
     if (record === null || record.manual_model_json === null) {
@@ -531,10 +521,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.manual_model.removed', presetId: parsed, modelId },
       'Removed manual Agent model'
     )
-    return this.snapshot()
   }
 
-  async setApiKey(presetId: string, apiKey: string): Promise<AgentProviderCatalog> {
+  async setApiKey(presetId: string, apiKey: string): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
     const providerId = await this.#runtimeProviderId(parsed)
@@ -549,10 +538,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.provider_credential.saved', presetId: parsed, providerId },
       'Saved Agent provider credential'
     )
-    return this.snapshot()
   }
 
-  async clearCredential(presetId: string): Promise<AgentProviderCatalog> {
+  async clearCredential(presetId: string): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const providerId = await this.#runtimeProviderId(parsed)
     await this.#credentialStore.delete(providerId)
@@ -561,14 +549,9 @@ export class AgentProviderCatalogService {
       { event: 'agent.provider_credential.cleared', presetId: parsed, providerId },
       'Cleared Agent provider credential'
     )
-    return this.snapshot()
   }
 
-  async login(
-    presetId: string,
-    type: AuthType,
-    interaction: AuthInteraction
-  ): Promise<AgentProviderCatalog> {
+  async login(presetId: string, type: AuthType, interaction: AuthInteraction): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const models = await this.#buildModels()
     const providerId = await this.#runtimeProviderId(parsed)
@@ -585,7 +568,6 @@ export class AgentProviderCatalogService {
       },
       'Agent provider login completed'
     )
-    return this.snapshot()
   }
 
   async autocompleteCredential(): Promise<string | null> {

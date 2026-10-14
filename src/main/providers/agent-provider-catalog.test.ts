@@ -296,7 +296,7 @@ describe('AgentProviderCatalogService', () => {
 
   it('resolves and persists bounded custom Provider logo overrides', async () => {
     const { database, catalog } = await createHarness()
-    const automatic = await catalog.saveCustomPreset({
+    await catalog.saveCustomPreset({
       presetId: 'custom:deepseek',
       name: 'Legacy Agent - DeepSeek',
       baseUrl: 'https://api.deepseek.com',
@@ -304,11 +304,12 @@ describe('AgentProviderCatalogService', () => {
       authMode: 'none',
       timeoutMs: 30_000
     })
+    const automatic = await catalog.snapshot()
     expect(automatic.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject(
       { logoId: 'deepseek', logoOverrideId: null }
     )
 
-    const overridden = await catalog.saveCustomPreset({
+    await catalog.saveCustomPreset({
       presetId: 'custom:deepseek',
       name: 'Legacy Agent - DeepSeek',
       logoOverrideId: 'openai',
@@ -317,11 +318,12 @@ describe('AgentProviderCatalogService', () => {
       authMode: 'none',
       timeoutMs: 30_000
     })
+    const overridden = await catalog.snapshot()
     expect(
       overridden.presets.find((preset) => preset.presetId === 'custom:deepseek')
     ).toMatchObject({ logoId: 'openai', logoOverrideId: 'openai' })
 
-    const preserved = await catalog.saveCustomPreset({
+    await catalog.saveCustomPreset({
       presetId: 'custom:deepseek',
       name: 'DeepSeek renamed',
       baseUrl: 'https://api.deepseek.com',
@@ -329,11 +331,12 @@ describe('AgentProviderCatalogService', () => {
       authMode: 'none',
       timeoutMs: 30_000
     })
+    const preserved = await catalog.snapshot()
     expect(preserved.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject(
       { logoId: 'openai', logoOverrideId: 'openai' }
     )
 
-    const reset = await catalog.saveCustomPreset({
+    await catalog.saveCustomPreset({
       presetId: 'custom:deepseek',
       name: 'DeepSeek renamed',
       logoOverrideId: null,
@@ -342,6 +345,7 @@ describe('AgentProviderCatalogService', () => {
       authMode: 'none',
       timeoutMs: 30_000
     })
+    const reset = await catalog.snapshot()
     expect(reset.presets.find((preset) => preset.presetId === 'custom:deepseek')).toMatchObject({
       logoId: 'deepseek',
       logoOverrideId: null
@@ -378,7 +382,7 @@ describe('AgentProviderCatalogService', () => {
     'discovers and caches %s only on explicit refresh',
     async (baseUrl) => {
       const { database, catalog } = await createHarness()
-      const saved = await catalog.saveCustomPreset({
+      await catalog.saveCustomPreset({
         presetId: 'custom:loopback',
         name: 'Loopback',
         baseUrl,
@@ -387,6 +391,7 @@ describe('AgentProviderCatalogService', () => {
         timeoutMs: 30_000,
         apiKey: 'catalog-secret'
       })
+      const saved = await catalog.snapshot()
       expect(saved.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject({
         authConfigured: true,
         catalogStatus: 'empty',
@@ -410,7 +415,8 @@ describe('AgentProviderCatalogService', () => {
         )
       })
       vi.stubGlobal('fetch', fetchMock)
-      const refreshed = await catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      await catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      const refreshed = await catalog.snapshot()
       expect(fetchMock).toHaveBeenCalledTimes(1)
       expect(
         refreshed.presets.find((preset) => preset.presetId === 'custom:loopback')
@@ -421,7 +427,7 @@ describe('AgentProviderCatalogService', () => {
           { id: 'writer-2', name: 'Writer 2', api: 'openai-responses' }
         ]
       })
-      const renamed = await catalog.saveCustomPreset({
+      await catalog.saveCustomPreset({
         presetId: 'custom:loopback',
         name: 'Loopback Renamed',
         baseUrl,
@@ -429,6 +435,7 @@ describe('AgentProviderCatalogService', () => {
         authMode: 'api_key',
         timeoutMs: 30_000
       })
+      const renamed = await catalog.snapshot()
       expect(renamed.presets.find((preset) => preset.presetId === 'custom:loopback')).toMatchObject(
         {
           name: 'Loopback Renamed',
@@ -448,7 +455,8 @@ describe('AgentProviderCatalogService', () => {
         auth: { auth: { apiKey: 'catalog-secret' } }
       })
       expect(JSON.stringify(await catalog.snapshot())).not.toContain('catalog-secret')
-      const disabled = await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
+      await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
+      const disabled = await catalog.snapshot()
       expect(disabled.defaultSelection).toBeNull()
       await expect(
         catalog.resolve({ presetId: 'custom:loopback', modelId: 'writer-2' })
@@ -497,7 +505,8 @@ describe('AgentProviderCatalogService', () => {
         )
       )
     )
-    const refreshed = await catalog.refreshPreset('custom:overlay', new AbortController().signal)
+    await catalog.refreshPreset('custom:overlay', new AbortController().signal)
+    const refreshed = await catalog.snapshot()
     expect(
       refreshed.presets.find((preset) => preset.presetId === 'custom:overlay')?.models
     ).toEqual(
@@ -516,7 +525,8 @@ describe('AgentProviderCatalogService', () => {
     )
 
     await catalog.setDefaultSelection({ presetId: 'custom:overlay', modelId: 'writer-1' })
-    const disabled = await catalog.setModelEnabled('custom:overlay', 'writer-1', false)
+    await catalog.setModelEnabled('custom:overlay', 'writer-1', false)
+    const disabled = await catalog.snapshot()
     expect(disabled.defaultSelection).toBeNull()
     await expect(
       catalog.resolve({ presetId: 'custom:overlay', modelId: 'writer-1' })
@@ -543,7 +553,8 @@ describe('AgentProviderCatalogService', () => {
         input: ['text']
       }
     })
-    const withoutManual = await catalog.removeManualModel('custom:overlay', 'writer-1')
+    await catalog.removeManualModel('custom:overlay', 'writer-1')
+    const withoutManual = await catalog.snapshot()
     expect(
       withoutManual.presets
         .find((preset) => preset.presetId === 'custom:overlay')
@@ -578,13 +589,14 @@ describe('AgentProviderCatalogService', () => {
       )
       await catalog.refreshPreset('custom:bound', new AbortController().signal)
 
-      const sameOrigin = await catalog.saveCustomPreset({
+      await catalog.saveCustomPreset({
         presetId: 'custom:bound',
         name: 'Bound renamed',
         baseUrl: 'https://models.example.test/v2',
         api: 'openai-responses',
         authMode: 'api_key'
       })
+      const sameOrigin = await catalog.snapshot()
       expect(sameOrigin.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject(
         {
           authConfigured: true,
@@ -604,7 +616,7 @@ describe('AgentProviderCatalogService', () => {
         )
       ).toMatchObject({ timeoutMs: 30_000 })
 
-      const changedOrigin = await catalog.saveCustomPreset({
+      await catalog.saveCustomPreset({
         presetId: 'custom:bound',
         name: 'Bound renamed',
         baseUrl,
@@ -612,6 +624,7 @@ describe('AgentProviderCatalogService', () => {
         authMode: 'api_key',
         timeoutMs: 45_000
       })
+      const changedOrigin = await catalog.snapshot()
       expect(
         changedOrigin.presets.find((preset) => preset.presetId === 'custom:bound')
       ).toMatchObject({
@@ -623,7 +636,7 @@ describe('AgentProviderCatalogService', () => {
         credentials.withCredential('agent:custom:bound', async (value) => value)
       ).rejects.toThrow('missing')
 
-      const replaced = await catalog.saveCustomPreset({
+      await catalog.saveCustomPreset({
         presetId: 'custom:bound',
         name: 'Bound renamed',
         baseUrl,
@@ -632,6 +645,7 @@ describe('AgentProviderCatalogService', () => {
         timeoutMs: 45_000,
         apiKey: 'replacement-secret'
       })
+      const replaced = await catalog.snapshot()
       expect(replaced.presets.find((preset) => preset.presetId === 'custom:bound')).toMatchObject({
         authConfigured: true,
         catalogStatus: 'empty'
@@ -713,7 +727,8 @@ describe('AgentProviderCatalogService', () => {
     await catalog.snapshot()
     await catalog.setProviderEnabled('custom:legacy-agent', false)
 
-    const removed = await catalog.removePreset('custom:legacy-agent')
+    await catalog.removePreset('custom:legacy-agent')
+    const removed = await catalog.snapshot()
     expect(removed.defaultSelection).toBeNull()
     expect(
       removed.presets.find((preset) => preset.presetId === 'custom:legacy-agent')
