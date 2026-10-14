@@ -1,3 +1,4 @@
+import type { ReferenceDialogState } from './use-manuscript-references'
 import { WorkbenchStatusBar } from '../workbench/workbench-status-bar'
 import { RetainedEditors } from '../workbench/retained-editors'
 import { DockingWorkbench } from '../workbench/docking-workbench'
@@ -58,7 +59,7 @@ import { WritingRulesPanel } from '@/features/writing-rules/writing-rules-panel'
 import { ManuscriptBriefDialog } from './manuscript-brief-dialog'
 import { OutlineEditPanel } from './outline-edit-panel'
 import { ManuscriptImportDialog } from './manuscript-import-dialog'
-import { ManuscriptFindPanel } from './manuscript-find-panel'
+import { ManuscriptFindFeature } from './manuscript-find-feature'
 import { SectionEditor, type EditorExactSelectionSnapshot, type SaveState } from './section-editor'
 import { CommentsPanel, type PendingCommentSelection } from './comments-panel'
 import type { WritingWorkspaceProps } from './writing-workspace'
@@ -90,9 +91,13 @@ export function WritingWorkspaceView(input: {
   const [overlappingCommentThreadIds, setOverlappingCommentThreadIds] = useState<string[]>([])
   const {
     workbench,
+    acceptWorkspace,
+    changeMetadataTitle,
+    editorActions,
+    find,
+    manuscriptImport,
+    references,
     alternateWorkspace,
-    queryClient,
-    workspaceKey,
     workspaceQuery,
     referencesQuery,
     versionHistoryStatusQuery,
@@ -104,23 +109,12 @@ export function WritingWorkspaceView(input: {
     setBriefError,
     publicationOpen,
     setPublicationOpen,
-    importOpen,
-    setImportOpen,
-    importPlan,
-    importLoading,
-    importApplying,
-    importError,
     publicationQuery,
     activeWorkspace,
     setActiveWorkspace,
-    setCitationDraft,
-    referenceDialog,
-    setReferenceDialog,
-    referenceRequestSequenceRef,
     editorSaveState,
     setEditorSaveState,
     metadataTitle,
-    setMetadataTitle,
     metadataError,
     setMetadataError,
     outlineEditOpen,
@@ -130,38 +124,11 @@ export function WritingWorkspaceView(input: {
     editorAutoFocus,
     editorRef,
     manuscriptScrollRef,
-    metadataDraftRef,
     selectionContext,
     setSelectionContext,
     quickActionRequest,
     setQuickActionRequest,
-    findQuery,
-    findCaseSensitive,
-    findScope,
-    findStatuses,
-    findResult,
-    findLoading,
-    findLoadingMore,
-    findError,
-    selectedFindMatchId,
-    setSelectedFindMatchId,
-    replaceOpen,
-    replacement,
-    replacementPlan,
-    replacementCandidates,
-    selectedReplacementIds,
-    setSelectedReplacementIds,
-    replacementLoading,
-    replacementLoadingMore,
-    replacementApplying,
-    replacementMessage,
-    replacementUndoCapabilities,
-    createReplacementCheckpoint,
-    setCreateReplacementCheckpoint,
     sectionTitleRef,
-    effectiveReferenceIndex,
-    citationNumberByTitle,
-    openReference,
     editorQuery,
     mutation,
     activeSummary,
@@ -173,18 +140,6 @@ export function WritingWorkspaceView(input: {
     startQuickAction,
     selectSection,
     followAgentSection,
-    runFind,
-    reviewReplacements,
-    loadMoreReplacements,
-    applyReplacements,
-    undoReplacement,
-    changeFindQuery,
-    changeFindCaseSensitive,
-    changeFindScope,
-    changeFindStatuses,
-    changeReplacement,
-    changeReplaceOpen,
-    activateFindHit,
     refreshAfterAgentMutation,
     openFind,
     closeFind,
@@ -194,9 +149,6 @@ export function WritingWorkspaceView(input: {
     createOutlineSection,
     deleteOutlineSection,
     openPreviewWorkspace,
-    openManuscriptImport,
-    cancelManuscriptImport,
-    applyManuscriptImport,
     exportNativeJsonForActiveSection,
     exportMarkdownForActiveSection,
     openPublicationPreflight,
@@ -209,7 +161,7 @@ export function WritingWorkspaceView(input: {
     setSelectedCommentThreadId(thread.threadId)
     void selectSection(thread.sectionId).then((selected) => {
       if (!selected) return
-      requestAnimationFrame(() => editorRef.current?.revealComment(thread.threadId))
+      requestAnimationFrame(() => editorActions.revealComment(thread.threadId))
     })
   }
 
@@ -235,11 +187,11 @@ export function WritingWorkspaceView(input: {
         key={`${props.projectSessionId}:${activeSummary.section.sectionId}`}
         projectSessionId={props.projectSessionId}
         revision={editorQuery.data.revision}
-        citationNumberByTitle={citationNumberByTitle}
+        citationNumberByTitle={references.citationNumberByTitle}
         autoFocus={editorAutoFocus}
         onRevision={updateRevision}
         onCitationDocumentChange={(content) => {
-          setCitationDraft({
+          references.changeCitationDraft({
             sectionId: editorQuery.data.revision.sectionId,
             sectionRevisionId: editorQuery.data.revision.sectionRevisionId,
             content
@@ -256,7 +208,7 @@ export function WritingWorkspaceView(input: {
           void startQuickAction(request, selection)
         }}
         onQuickActionError={props.onError}
-        onSearchTargetInvalidated={() => setSelectedFindMatchId(null)}
+        onSearchTargetInvalidated={() => find.clearSelection()}
         comments={commentHighlightThreads.filter(
           (thread) => thread.sectionId === activeSummary.section.sectionId
         )}
@@ -276,7 +228,7 @@ export function WritingWorkspaceView(input: {
         onAddComment={(selection: EditorExactSelectionSnapshot) => {
           void flushCurrent().then((saved) => {
             if (!saved) return
-            const current = editorRef.current?.captureSelection()
+            const current = editorActions.captureSelection()
             if (
               current === null ||
               current === undefined ||
@@ -300,7 +252,7 @@ export function WritingWorkspaceView(input: {
     <AppSidebar
       projectName={props.projectName}
       workspace={workspace}
-      references={effectiveReferenceIndex}
+      references={references.effectiveReferenceIndex}
       referencesLoading={referencesQuery.isPending}
       referencesError={referencesQuery.isError}
       activeWorkspace={activeWorkspace}
@@ -328,68 +280,24 @@ export function WritingWorkspaceView(input: {
       onOpenFind={openFind}
       onOpenComments={() => setActiveWorkspace('comments')}
       onCloseFind={closeFind}
-      onOpenReference={openReference}
+      onOpenReference={references.openReference}
       onOpenManuscript={() => {
-        editorRef.current?.clearSearchTarget()
-        setSelectedFindMatchId(null)
+        editorActions.clearSearchTarget()
+        find.clearSelection()
         setActiveWorkspace('manuscript')
       }}
       onOpenSettings={props.onOpenSettings}
       findPanel={
-        <ManuscriptFindPanel
-          query={findQuery}
-          onQueryChange={changeFindQuery}
-          caseSensitive={findCaseSensitive}
-          onCaseSensitiveChange={changeFindCaseSensitive}
-          scope={findScope}
-          onScopeChange={changeFindScope}
-          statuses={findStatuses}
-          onStatusesChange={changeFindStatuses}
-          result={findResult}
-          loading={findLoading}
-          loadingMore={findLoadingMore}
-          error={findError}
-          selectedMatchId={selectedFindMatchId}
-          onActivate={(hit) => void activateFindHit(hit)}
-          onLoadMore={() => {
-            if (findResult?.nextCursor) void runFind(findResult.nextCursor)
-          }}
-          replaceOpen={replaceOpen}
-          onReplaceOpenChange={changeReplaceOpen}
-          replacement={replacement}
-          onReplacementChange={changeReplacement}
-          replacementPlan={replacementPlan}
-          replacementCandidates={replacementCandidates}
-          selectedCandidateIds={selectedReplacementIds}
-          onCandidatesChecked={(candidateIds, checked) =>
-            setSelectedReplacementIds((current) => {
-              const next = new Set(current)
-              for (const candidateId of candidateIds) {
-                if (checked) next.add(candidateId)
-                else next.delete(candidateId)
-              }
-              return next
-            })
-          }
-          onReviewReplacements={() => void reviewReplacements()}
-          onLoadMoreReplacements={() => void loadMoreReplacements()}
-          onApplyReplacements={() => void applyReplacements()}
-          onUndoReplacement={() => void undoReplacement()}
-          canUndoReplacement={replacementUndoCapabilities.length > 0}
+        <ManuscriptFindFeature
+          find={find}
           checkpointAvailable={versionHistoryStatusQuery.data?.state === 'ready'}
-          createCheckpoint={createReplacementCheckpoint}
-          onCreateCheckpointChange={setCreateReplacementCheckpoint}
-          replacementLoading={replacementLoading}
-          replacementLoadingMore={replacementLoadingMore}
-          replacementApplying={replacementApplying}
-          replacementMessage={replacementMessage}
         />
       }
       writingRulesPanel={
         <WritingRulesPanel
           projectSessionId={props.projectSessionId}
           workspace={workspace}
-          onWorkspace={(next) => queryClient.setQueryData(workspaceKey, next)}
+          onWorkspace={acceptWorkspace}
           onError={props.onError}
         />
       }
@@ -402,7 +310,7 @@ export function WritingWorkspaceView(input: {
           draftSelection={commentDraftSelection}
           selectedThreadId={selectedCommentThreadId}
           onDraftConsumed={() => setCommentDraftSelection(null)}
-          onCreateSettled={() => editorRef.current?.releaseMutationBarrier()}
+          onCreateSettled={() => editorActions.releaseMutationBarrier()}
           onThreads={setCommentThreads}
           onHighlightThreads={setCommentHighlightThreads}
           onSelect={(thread) => {
@@ -421,7 +329,7 @@ export function WritingWorkspaceView(input: {
               throw new Error('Open the comment section before linking a selection')
             const saved = await flushCurrent()
             if (!saved) throw new Error('Manuscript selection could not be saved')
-            const selection = editorRef.current?.captureSelection()
+            const selection = editorActions.captureSelection()
             if (selection === null || selection === undefined)
               throw new Error('Select manuscript text before linking the comment')
             await window.desktop.manuscript.reanchorComment({
@@ -474,15 +382,14 @@ export function WritingWorkspaceView(input: {
                 onBlur={() => void saveMetadata()}
                 onChange={(event) => {
                   const title = normalizeSectionTitleDraft(event.target.value)
-                  metadataDraftRef.current.title = title
+                  changeMetadataTitle(title)
                   setMetadataError(false)
-                  setMetadataTitle(title)
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
                   event.preventDefault()
                   void saveMetadata().then((saved) => {
-                    if (saved) editorRef.current?.focus()
+                    if (saved) editorActions.focus()
                   })
                 }}
                 className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring md:text-3xl'
@@ -503,10 +410,14 @@ export function WritingWorkspaceView(input: {
                       <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
                         <FileCheck2 /> Publication preflight
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void openManuscriptImport()}>
+                      <DropdownMenuItem
+                        onSelect={() => void manuscriptImport.openManuscriptImport()}
+                      >
                         <Upload /> Import manuscript
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void openManuscriptImport('directory')}>
+                      <DropdownMenuItem
+                        onSelect={() => void manuscriptImport.openManuscriptImport('directory')}
+                      >
                         <FolderOpen /> Import LaTeX project folder
                       </DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
@@ -730,38 +641,31 @@ export function WritingWorkspaceView(input: {
           setPublicationOpen(false)
           void selectSection(target.sectionId).then((selected) => {
             if (!selected || target.blockId === null) return
-            requestAnimationFrame(() => editorRef.current?.revealBlock(target.blockId ?? ''))
+            requestAnimationFrame(() => editorActions.revealBlock(target.blockId ?? ''))
           })
         }}
       />
 
       <ManuscriptImportDialog
-        key={importPlan?.planId ?? 'empty-import-plan'}
-        open={importOpen}
-        plan={importPlan}
-        loading={importLoading}
-        applying={importApplying}
-        error={importError}
-        onOpenChange={(open) => {
-          if (open) setImportOpen(true)
-          else void cancelManuscriptImport()
-        }}
-        onApply={applyManuscriptImport}
-        onCancel={cancelManuscriptImport}
+        key={manuscriptImport.importPlan?.planId ?? 'empty-import-plan'}
+        open={manuscriptImport.importOpen}
+        plan={manuscriptImport.importPlan}
+        loading={manuscriptImport.importLoading}
+        applying={manuscriptImport.importApplying}
+        error={manuscriptImport.importError}
+        onOpenChange={manuscriptImport.changeOpen}
+        onApply={manuscriptImport.applyManuscriptImport}
+        onCancel={manuscriptImport.cancelManuscriptImport}
       />
 
       <ReferenceSourceDialog
         projectSessionId={props.projectSessionId}
-        state={referenceDialog}
+        state={references.referenceDialog}
         onOpenChange={(open) => {
-          if (open) return
-          referenceRequestSequenceRef.current += 1
-          setReferenceDialog(null)
+          if (!open) references.closeReference()
         }}
-        onRetry={openReference}
-        onSelect={(entry, citation) => {
-          setReferenceDialog({ phase: 'resolved', entry, citation })
-        }}
+        onRetry={references.openReference}
+        onSelect={references.selectReference}
       />
     </SidebarProvider>
   )
@@ -1009,14 +913,3 @@ function referenceUnavailableMessage(
 function normalizeSectionTitleDraft(value: string): string {
   return value.replace(/[\r\n]+/g, ' ')
 }
-
-type ReferenceDialogState =
-  | { phase: 'loading'; entry: ManuscriptReferenceEntry }
-  | { phase: 'resolved'; entry: ManuscriptReferenceEntry; citation: ExpandedCitation }
-  | { phase: 'ambiguous'; entry: ManuscriptReferenceEntry; citations: ExpandedCitation[] }
-  | {
-      phase: 'unavailable'
-      entry: ManuscriptReferenceEntry
-      reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
-    }
-  | { phase: 'error'; entry: ManuscriptReferenceEntry }

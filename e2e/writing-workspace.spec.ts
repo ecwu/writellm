@@ -1597,6 +1597,14 @@ test(
       await expect(outline.getByRole('treeitem')).toHaveCount(1)
       await expect(outline.getByRole('button', { name: 'Delete', exact: true })).toBeDisabled()
 
+      // Finish the confirmation's deferred focus restoration before typing a draft.
+      await outline.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+      )
+
       const title = outline.getByLabel('Title', { exact: true })
       await title.fill('Local outline draft')
       await launched.page.evaluate(async () => {
@@ -2775,7 +2783,9 @@ test(
       const unavailable = launched.page.getByRole('dialog', { name: 'Source link unavailable' })
       await expect(unavailable).toContainText('No verifiable source association')
       await launched.page.keyboard.press('Escape')
+      await expect(unavailable).not.toBeVisible()
 
+      await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
       await moveSectionUp(launched.page, 'Second')
       await launched.page.getByRole('button', { name: 'Manuscript', exact: true }).click()
       await launched.page.getByTestId(`outline-section-${ids.firstSectionId}`).click()

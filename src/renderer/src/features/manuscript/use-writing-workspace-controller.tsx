@@ -1,3 +1,7 @@
+import { useManuscriptReferences } from './use-manuscript-references'
+export { resolveReadableCitationOccurrences } from './use-manuscript-references'
+import { useManuscriptImport } from './use-manuscript-import'
+import { useManuscriptFind } from './use-manuscript-find'
 import {
   useWorkbench,
   tabId,
@@ -6,33 +10,12 @@ import {
 } from '../workbench/use-workbench'
 import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import type {
-  BlockNoteDocument,
-  ManuscriptReferenceEntry,
-  ManuscriptReferenceIndex,
   ManuscriptWorkspace,
   SectionRevision,
   SectionStatus
 } from '../../../../shared/contracts/manuscript'
-import type { ManuscriptImportPlan } from '../../../../shared/contracts/manuscript-import'
-import type {
-  ExpandedCitation,
-  ReadableCitationResolutionResult
-} from '../../../../shared/contracts/search'
-import type {
-  ManuscriptSearchHit,
-  ManuscriptSearchResult,
-  ManuscriptSearchTargetContract
-} from '../../../../shared/contracts/manuscript-search'
-import type {
-  ManuscriptReplacementCandidate,
-  ManuscriptReplacementPlanResult
-} from '../../../../shared/contracts/manuscript-replacement'
+import type { ManuscriptSearchTargetContract } from '../../../../shared/contracts/manuscript-search'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
-import {
-  buildReferenceIndexFromOccurrences,
-  findDocumentCitationOccurrences,
-  referenceNumberMap
-} from '../../../../shared/readable-citation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { WorkspaceKind } from '@/components/app-sidebar'
@@ -46,52 +29,8 @@ import { KnowledgeCitationCoverageWorkspace } from '@/features/checks/knowledge-
 import { AssetWorkspace } from './asset-workspace'
 import { adjacentSectionAfterDelete } from './outline-tree'
 import { ManuscriptPreviewWorkspace } from './manuscript-preview'
-import type { ManuscriptFindScope } from './manuscript-find-panel'
 import type { EditorExactSelectionSnapshot, SectionEditorHandle, SaveState } from './section-editor'
 import type { WritingWorkspaceProps } from './writing-workspace'
-
-const REFERENCE_PREVIEW_CONCURRENCY = 4
-
-export async function resolveReadableCitationOccurrences(
-  occurrences: ManuscriptReferenceEntry['occurrences'],
-  resolveOccurrence: (
-    occurrence: ManuscriptReferenceEntry['occurrences'][number]
-  ) => Promise<ReadableCitationResolutionResult>,
-  isCurrent: () => boolean
-): Promise<ReadableCitationResolutionResult | null> {
-  const unavailableReasons = new Set<
-    Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
-  >()
-  for (let offset = 0; offset < occurrences.length; offset += REFERENCE_PREVIEW_CONCURRENCY) {
-    if (!isCurrent()) return null
-    const batch = occurrences.slice(offset, offset + REFERENCE_PREVIEW_CONCURRENCY)
-    const results = await Promise.all(batch.map(resolveOccurrence))
-    if (!isCurrent()) return null
-    const available = results.find(
-      (result) => result.status === 'resolved' || result.status === 'ambiguous'
-    )
-    if (available !== undefined) return available
-    for (const result of results) {
-      if (result.status === 'unavailable') unavailableReasons.add(result.reason)
-    }
-  }
-  const reason =
-    (['index_unavailable', 'resolution_limit', 'source_missing', 'unlinked'] as const).find(
-      (candidate) => unavailableReasons.has(candidate)
-    ) ?? 'unlinked'
-  return { status: 'unavailable', reason }
-}
-
-type ReferenceDialogState =
-  | { phase: 'loading'; entry: ManuscriptReferenceEntry }
-  | { phase: 'resolved'; entry: ManuscriptReferenceEntry; citation: ExpandedCitation }
-  | { phase: 'ambiguous'; entry: ManuscriptReferenceEntry; citations: ExpandedCitation[] }
-  | {
-      phase: 'unavailable'
-      entry: ManuscriptReferenceEntry
-      reason: Extract<ReadableCitationResolutionResult, { status: 'unavailable' }>['reason']
-    }
-  | { phase: 'error'; entry: ManuscriptReferenceEntry }
 
 function sameExactSelection(
   before: EditorExactSelectionSnapshot,
@@ -133,11 +72,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const [briefOpen, setBriefOpen] = useState(false)
   const [briefError, setBriefError] = useState<string | null>(null)
   const [publicationOpen, setPublicationOpen] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
-  const [importPlan, setImportPlan] = useState<ManuscriptImportPlan | null>(null)
-  const [importLoading, setImportLoading] = useState(false)
-  const [importApplying, setImportApplying] = useState(false)
-  const [importError, setImportError] = useState<string | null>(null)
   const publicationQuery = useQuery({
     queryKey: ['publication-preview', props.projectSessionId],
     queryFn: () =>
@@ -177,13 +111,11 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     },
     [workbench.open, workbench.openNotebook, workbench.openRecentSection, workbench.requestTool]
   )
-  const [citationDraft, setCitationDraft] = useState<{
-    sectionId: string
-    sectionRevisionId: string
-    content: BlockNoteDocument
-  } | null>(null)
-  const [referenceDialog, setReferenceDialog] = useState<ReferenceDialogState | null>(null)
-  const referenceRequestSequenceRef = useRef(0)
+  const references = useManuscriptReferences({
+    projectSessionId: props.projectSessionId,
+    workspace,
+    storedIndex: referencesQuery.data
+  })
   const [editorSaveState, setEditorSaveState] = useState<SaveState>('saved')
   const [metadataTitle, setMetadataTitle] = useState('')
   const [metadataError, setMetadataError] = useState(false)
@@ -213,101 +145,11 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const [quickActionRequest, setQuickActionRequest] = useState<AgentPanelQuickActionRequest | null>(
     null
   )
-  const [findQuery, setFindQuery] = useState('')
-  const [findCaseSensitive, setFindCaseSensitive] = useState(false)
-  const [findScope, setFindScope] = useState<ManuscriptFindScope>('manuscript')
-  const [findStatuses, setFindStatuses] = useState<SectionStatus[]>([])
-  const [findResult, setFindResult] = useState<ManuscriptSearchResult | null>(null)
-  const [findLoading, setFindLoading] = useState(false)
-  const [findLoadingMore, setFindLoadingMore] = useState(false)
-  const [findError, setFindError] = useState<string | null>(null)
-  const [selectedFindMatchId, setSelectedFindMatchId] = useState<string | null>(null)
-  const [replaceOpen, setReplaceOpen] = useState(false)
-  const [replacement, setReplacement] = useState('')
-  const [replacementPlan, setReplacementPlan] = useState<ManuscriptReplacementPlanResult | null>(
-    null
-  )
-  const [replacementCandidates, setReplacementCandidates] = useState<
-    ManuscriptReplacementCandidate[]
-  >([])
-  const [selectedReplacementIds, setSelectedReplacementIds] = useState<Set<string>>(new Set())
-  const [replacementLoading, setReplacementLoading] = useState(false)
-  const [replacementLoadingMore, setReplacementLoadingMore] = useState(false)
-  const [replacementApplying, setReplacementApplying] = useState(false)
-  const [replacementMessage, setReplacementMessage] = useState<string | null>(null)
-  const [replacementUndoCapabilities, setReplacementUndoCapabilities] = useState<string[]>([])
-  const [createReplacementCheckpoint, setCreateReplacementCheckpoint] = useState(false)
   const [pendingSearchTarget, setPendingSearchTarget] = useState<{
     target: ManuscriptSearchTargetContract
     revisionId: string | null
   } | null>(null)
-  const findRequestRef = useRef(0)
-  const replacementRequestRef = useRef(0)
-  const replacementPageRequestRef = useRef(0)
-  const replacementPagePendingRef = useRef(false)
-  const workspaceSearchVersionRef = useRef(workspaceSearchVersion)
   const sectionTitleRef = useRef<HTMLTextAreaElement>(null)
-
-  const effectiveReferenceIndex = useMemo<ManuscriptReferenceIndex>(() => {
-    const stored = referencesQuery.data
-    if (stored === undefined) return { outlineVersion: workspace?.outlineVersion ?? 1, entries: [] }
-    if (citationDraft === null || workspace === undefined) return stored
-    const sectionOrder = new Map(
-      workspace.sections.map((item, index) => [item.section.sectionId, index] as const)
-    )
-    const occurrences = stored.entries
-      .flatMap((entry) => entry.occurrences)
-      .filter((occurrence) => occurrence.sectionId !== citationDraft.sectionId)
-    occurrences.push(...findDocumentCitationOccurrences(citationDraft))
-    occurrences.sort((left, right) => {
-      const sectionDelta =
-        (sectionOrder.get(left.sectionId) ?? Number.MAX_SAFE_INTEGER) -
-        (sectionOrder.get(right.sectionId) ?? Number.MAX_SAFE_INTEGER)
-      return sectionDelta === 0 ? left.ordinal - right.ordinal : sectionDelta
-    })
-    return {
-      outlineVersion: workspace.outlineVersion,
-      entries: buildReferenceIndexFromOccurrences(occurrences).entries
-    }
-  }, [citationDraft, referencesQuery.data, workspace])
-  const citationNumberByTitle = useMemo(
-    () => referenceNumberMap(effectiveReferenceIndex),
-    [effectiveReferenceIndex]
-  )
-
-  const openReference = useCallback(
-    (entry: ManuscriptReferenceEntry): void => {
-      const sequence = ++referenceRequestSequenceRef.current
-      setReferenceDialog({ phase: 'loading', entry })
-      void (async () => {
-        const result = await resolveReadableCitationOccurrences(
-          entry.occurrences,
-          (occurrence) =>
-            window.desktop.knowledge.resolveReadableCitation({
-              projectSessionId: props.projectSessionId,
-              sectionRevisionId: occurrence.sectionRevisionId,
-              blockId: occurrence.blockId,
-              title: occurrence.title,
-              ...(occurrence.pageIndex === undefined ? {} : { pageIndex: occurrence.pageIndex })
-            }),
-          () => referenceRequestSequenceRef.current === sequence
-        )
-        if (result === null) return
-        if (result.status === 'resolved') {
-          setReferenceDialog({ phase: 'resolved', entry, citation: result.citation })
-        } else if (result.status === 'ambiguous') {
-          setReferenceDialog({ phase: 'ambiguous', entry, citations: result.citations })
-        } else {
-          setReferenceDialog({ phase: 'unavailable', entry, reason: result.reason })
-        }
-      })().catch(() => {
-        if (referenceRequestSequenceRef.current === sequence) {
-          setReferenceDialog({ phase: 'error', entry })
-        }
-      })
-    },
-    [props.projectSessionId]
-  )
 
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
@@ -354,12 +196,18 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         setMetadataError(false)
       }
       activeSectionIdRef.current = sectionId
-      setCitationDraft(null)
+      references.changeCitationDraft(null)
       setSelectionContext(null)
       setActiveSectionId(sectionId)
       workbench.didActivateSection(sectionId)
     },
-    [props.projectSessionId, queryClient, workspaceKey, workbench.didActivateSection]
+    [
+      props.projectSessionId,
+      queryClient,
+      workspaceKey,
+      workbench.didActivateSection,
+      references.changeCitationDraft
+    ]
   )
 
   const initialTabActivated = useRef(false)
@@ -570,346 +418,52 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     [enqueueSectionSwitch]
   )
 
-  const currentFindScope = useCallback(() => {
-    if (activeSectionIdRef.current === null || findScope === 'manuscript') {
-      return { type: 'manuscript' as const }
-    }
-    return findScope === 'section'
-      ? { type: 'sections' as const, sectionIds: [activeSectionIdRef.current] }
-      : { type: 'subtree' as const, rootSectionId: activeSectionIdRef.current }
-  }, [findScope])
-
-  const runFind = useCallback(
-    async (cursor?: string): Promise<void> => {
-      const query = findQuery
-      if (query.length === 0) {
-        setFindResult(null)
-        setFindError(null)
-        return
-      }
-      const sequence = ++findRequestRef.current
-      cursor === undefined ? setFindLoading(true) : setFindLoadingMore(true)
-      setFindError(null)
-      try {
-        const next = await window.desktop.manuscript.search({
-          projectSessionId: props.projectSessionId,
-          query,
-          caseSensitive: findCaseSensitive,
-          scope: currentFindScope(),
-          statuses: findStatuses,
-          ...(cursor === undefined ? {} : { cursor }),
-          limit: 25
-        })
-        if (findRequestRef.current !== sequence) return
-        setFindResult((current) =>
-          cursor === undefined || current === null
-            ? next
-            : { ...next, hits: [...current.hits, ...next.hits] }
-        )
-      } catch {
-        if (findRequestRef.current === sequence) {
-          setFindError('Find could not scan the current manuscript. Retry or narrow the scope.')
-        }
-      } finally {
-        if (findRequestRef.current === sequence) {
-          setFindLoading(false)
-          setFindLoadingMore(false)
-        }
-      }
-    },
-    [currentFindScope, findCaseSensitive, findQuery, findStatuses, props.projectSessionId]
-  )
-
-  const reviewReplacements = useCallback(async (): Promise<void> => {
-    if (findQuery.length === 0) return
-    replacementPageRequestRef.current += 1
-    replacementPagePendingRef.current = false
-    setReplacementLoadingMore(false)
-    const sequence = ++replacementRequestRef.current
-    setReplacementLoading(true)
-    setReplacementMessage(null)
-    setSelectedReplacementIds(new Set())
-    try {
-      const plan = await window.desktop.manuscript.createReplacementPlan({
-        projectSessionId: props.projectSessionId,
-        query: findQuery,
-        caseSensitive: findCaseSensitive,
-        scope: currentFindScope(),
-        statuses: findStatuses,
-        replacement
-      })
-      if (replacementRequestRef.current !== sequence) {
-        if (plan.status === 'ready') {
-          void window.desktop.manuscript
-            .dismissReplacementPlan({
-              projectSessionId: props.projectSessionId,
-              planId: plan.planId
-            })
-            .catch(() => props.onError('The superseded replacement review could not be dismissed.'))
-        }
-        return
-      }
-      setReplacementPlan(plan)
-      setReplacementCandidates(plan.status === 'ready' ? plan.candidates : [])
-      if (plan.status === 'unavailable') {
-        setReplacementMessage(
-          plan.reason === 'result_limit'
-            ? 'Too many matches for a complete review. Narrow the scope.'
-            : plan.reason === 'plan_size'
-              ? 'This review is too large. Narrow the scope.'
-              : 'Planning exceeded its safe scan budget. Narrow the scope and retry.'
-        )
-      }
-    } catch {
-      if (replacementRequestRef.current === sequence) {
-        setReplacementMessage('Replacement review could not be created. Retry after saving.')
-      }
-    } finally {
-      editorRef.current?.releaseMutationBarrier()
-      if (replacementRequestRef.current === sequence) setReplacementLoading(false)
-    }
-  }, [
-    currentFindScope,
-    findCaseSensitive,
-    findQuery,
-    findStatuses,
-    props.onError,
-    props.projectSessionId,
-    replacement
-  ])
-
-  const loadMoreReplacements = useCallback(async (): Promise<void> => {
-    if (
-      replacementPlan?.status !== 'ready' ||
-      replacementPlan.nextCursor === null ||
-      replacementPagePendingRef.current
-    ) {
-      return
-    }
-    const planId = replacementPlan.planId
-    const cursor = replacementPlan.nextCursor
-    const reviewSequence = replacementRequestRef.current
-    const pageSequence = ++replacementPageRequestRef.current
-    replacementPagePendingRef.current = true
-    setReplacementLoadingMore(true)
-    try {
-      const page = await window.desktop.manuscript.replacementPage({
-        projectSessionId: props.projectSessionId,
-        planId,
-        cursor,
-        limit: 50
-      })
-      if (
-        replacementRequestRef.current !== reviewSequence ||
-        replacementPageRequestRef.current !== pageSequence
-      ) {
-        return
-      }
-      if (page.status !== 'ready') {
-        setReplacementPlan(null)
-        setReplacementMessage('This replacement review expired. Create a fresh review.')
-        return
-      }
-      setReplacementCandidates((current) => [...current, ...page.candidates])
-      setReplacementPlan(page)
-    } catch {
-      if (replacementPageRequestRef.current === pageSequence) {
-        setReplacementMessage('More replacement candidates could not be loaded.')
-      }
-    } finally {
-      if (replacementPageRequestRef.current === pageSequence) {
-        replacementPagePendingRef.current = false
-        setReplacementLoadingMore(false)
-      }
-    }
-  }, [props.projectSessionId, replacementPlan])
-
-  const applyReplacements = useCallback(async (): Promise<void> => {
-    if (replacementPlan?.status !== 'ready' || selectedReplacementIds.size === 0) return
-    replacementPageRequestRef.current += 1
-    replacementPagePendingRef.current = false
-    setReplacementLoadingMore(false)
-    setReplacementApplying(true)
-    setReplacementMessage(null)
-    try {
-      const result = await window.desktop.manuscript.applyReplacement({
-        projectSessionId: props.projectSessionId,
-        planId: replacementPlan.planId,
-        candidateIds: [...selectedReplacementIds],
-        commandId: crypto.randomUUID(),
-        createCheckpoint: createReplacementCheckpoint
-      })
-      if (result.status === 'applied' || result.status === 'already_applied') {
-        setReplacementUndoCapabilities(
-          result.affectedSections.map((section) => section.undoCapability)
-        )
-        setReplacementMessage(
-          result.pendingRepairSectionIds.length > 0
-            ? `Applied ${result.selectedCount} replacements. ${result.pendingRepairSectionIds.length} section mirrors will be repaired automatically.`
-            : `Applied ${result.selectedCount} replacements in ${result.affectedSections.length} sections.`
-        )
-        setReplacementPlan(null)
-        setReplacementCandidates([])
-        setSelectedReplacementIds(new Set())
-      } else if (result.status === 'conflict') {
-        setReplacementMessage(
-          'Manuscript changed — review refreshed. Create a new review before applying.'
-        )
-        setReplacementPlan(null)
-      } else {
-        setReplacementMessage('This replacement review is no longer valid. Create a fresh review.')
-        setReplacementPlan(null)
-      }
-    } catch {
-      setReplacementMessage(
-        'Replacement could not be applied. No partial canonical batch was reported.'
-      )
-    } finally {
-      editorRef.current?.releaseMutationBarrier()
-      setReplacementApplying(false)
-    }
-  }, [createReplacementCheckpoint, props.projectSessionId, replacementPlan, selectedReplacementIds])
-
-  const undoReplacement = useCallback(async (): Promise<void> => {
-    const capability = replacementUndoCapabilities[0]
-    if (capability === undefined) return
-    try {
-      const result = await window.desktop.manuscript.undoReplacement({
-        projectSessionId: props.projectSessionId,
-        undoCapability: capability
-      })
-      setReplacementUndoCapabilities((current) => current.slice(1))
-      setReplacementMessage(
-        result.status === 'undone'
-          ? 'Replacement was undone for one section.'
-          : result.status === 'stale'
-            ? 'This section changed later, so Undo was not applied.'
-            : 'This Undo is no longer available.'
-      )
-    } catch {
-      setReplacementMessage('Replacement Undo could not be completed.')
-    } finally {
-      editorRef.current?.releaseMutationBarrier()
-    }
-  }, [props.projectSessionId, replacementUndoCapabilities])
-
-  const invalidateReplacementReview = useCallback((): void => {
-    replacementRequestRef.current += 1
-    replacementPageRequestRef.current += 1
-    replacementPagePendingRef.current = false
-    const planId = replacementPlan?.status === 'ready' ? replacementPlan.planId : null
-    setReplacementPlan(null)
-    setReplacementCandidates([])
-    setSelectedReplacementIds(new Set())
-    setReplacementMessage(null)
-    setReplacementLoading(false)
-    setReplacementLoadingMore(false)
-    if (planId === null) return
-    void window.desktop.manuscript
-      .dismissReplacementPlan({ projectSessionId: props.projectSessionId, planId })
-      .catch(() => props.onError('The previous replacement review could not be dismissed.'))
-  }, [props.onError, props.projectSessionId, replacementPlan])
-
-  const changeFindQuery = useCallback(
-    (query: string): void => {
-      invalidateReplacementReview()
-      setFindQuery(query)
-    },
-    [invalidateReplacementReview]
-  )
-
-  const changeFindCaseSensitive = useCallback(
-    (value: boolean): void => {
-      invalidateReplacementReview()
-      setFindCaseSensitive(value)
-    },
-    [invalidateReplacementReview]
-  )
-
-  const changeFindScope = useCallback(
-    (scope: ManuscriptFindScope): void => {
-      invalidateReplacementReview()
-      setFindScope(scope)
-    },
-    [invalidateReplacementReview]
-  )
-
-  const changeFindStatuses = useCallback(
-    (statuses: SectionStatus[]): void => {
-      invalidateReplacementReview()
-      setFindStatuses(statuses)
-    },
-    [invalidateReplacementReview]
-  )
-
-  const changeReplacement = useCallback(
-    (value: string): void => {
-      invalidateReplacementReview()
-      setReplacement(value)
-    },
-    [invalidateReplacementReview]
-  )
-
-  const changeReplaceOpen = useCallback(
-    (open: boolean): void => {
-      setReplaceOpen(open)
-      if (!open) invalidateReplacementReview()
-    },
-    [invalidateReplacementReview]
-  )
-
-  useEffect(() => {
-    if (activeWorkspace !== 'find') return
+  const getActiveSectionId = useCallback(() => activeSectionIdRef.current, [])
+  const releaseMutationBarrier = useCallback(() => editorRef.current?.releaseMutationBarrier(), [])
+  const clearSearchTarget = useCallback(() => {
     editorRef.current?.clearSearchTarget()
-    setSelectedFindMatchId(null)
     setPendingSearchTarget(null)
-    const timer = window.setTimeout(() => void runFind(), 200)
-    return () => window.clearTimeout(timer)
-  }, [activeWorkspace, runFind])
-
-  useEffect(() => {
-    if (workspaceSearchVersionRef.current === workspaceSearchVersion) return
-    workspaceSearchVersionRef.current = workspaceSearchVersion
-    if (!findQuery.trim()) return
-    const timer = window.setTimeout(() => void runFind(), 200)
-    return () => window.clearTimeout(timer)
-  }, [findQuery, runFind, workspaceSearchVersion])
-
-  const activateFindHit = useCallback(
-    async (hit: ManuscriptSearchHit): Promise<void> => {
-      if (!(await flushCurrent())) return
-      setFindError(null)
-      try {
-        const validated = await window.desktop.manuscript.revalidateSearch({
-          projectSessionId: props.projectSessionId,
-          query: findQuery,
-          caseSensitive: findCaseSensitive,
-          matchId: hit.matchId,
-          sourceSliceHash: hit.sourceSliceHash,
-          target: hit.target
-        })
-        if (validated.status === 'stale') {
-          setFindError('The manuscript changed at this result. Results were refreshed.')
-          await runFind()
-          return
-        }
-        const switched = await enqueueSectionSwitch(validated.sectionId, 'find')
-        if (!switched) return
-        setSelectedFindMatchId(hit.matchId)
-        setPendingSearchTarget({ target: validated.target, revisionId: validated.revisionId })
-      } catch {
-        setFindError('This result could not be validated. Refresh the search and try again.')
-      }
+  }, [])
+  const navigateToHit = useCallback(
+    async (
+      sectionId: string,
+      target: ManuscriptSearchTargetContract,
+      revisionId: string | null
+    ) => {
+      if (!(await enqueueSectionSwitch(sectionId, 'find'))) return false
+      setPendingSearchTarget({ target, revisionId })
+      return true
     },
-    [
-      enqueueSectionSwitch,
-      findCaseSensitive,
-      findQuery,
-      flushCurrent,
-      props.projectSessionId,
-      runFind
-    ]
+    [enqueueSectionSwitch]
   )
+  const find = useManuscriptFind({
+    projectSessionId: props.projectSessionId,
+    activeWorkspace,
+    workspaceSearchVersion,
+    getActiveSectionId,
+    flushCurrent,
+    releaseMutationBarrier,
+    clearSearchTarget,
+    navigateToHit,
+    onError: props.onError
+  })
+
+  const refreshAfterImport = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: workspaceKey }),
+      queryClient.invalidateQueries({
+        queryKey: ['manuscript-section', props.projectSessionId, activeSectionIdRef.current]
+      }),
+      queryClient.invalidateQueries({ queryKey: ['manuscript-references', props.projectSessionId] })
+    ])
+  }, [props.projectSessionId, queryClient, workspaceKey])
+  const manuscriptImport = useManuscriptImport({
+    projectSessionId: props.projectSessionId,
+    getActiveSectionId,
+    flushCurrent,
+    refreshAfterImport,
+    onError: props.onError
+  })
 
   useEffect(() => {
     if (
@@ -1148,22 +702,20 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
   const closeFind = useCallback((): void => {
     workbench.requestTool('find', false)
     editorRef.current?.clearSearchTarget()
-    setSelectedFindMatchId(null)
+    find.closeReview()
     setPendingSearchTarget(null)
-    setReplaceOpen(false)
-    invalidateReplacementReview()
     setEditorAutoFocus(true)
     if (workbench.activeId?.startsWith('section:')) setActiveWorkspaceRaw('manuscript')
     else setActiveWorkspace('manuscript')
-  }, [invalidateReplacementReview, setActiveWorkspace, workbench.activeId, workbench.requestTool])
+  }, [find.closeReview, setActiveWorkspace, workbench.activeId, workbench.requestTool])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && activeWorkspace === 'find') {
-        if (replaceOpen) {
+        if (find.replaceOpen) {
           event.preventDefault()
           event.stopImmediatePropagation()
-          changeReplaceOpen(false)
+          find.changeReplaceOpen(false)
         } else closeFind()
         return
       }
@@ -1198,13 +750,13 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     orderedIds,
     selectSection,
     closeFind,
-    changeReplaceOpen,
     openFind,
-    replaceOpen
+    find.replaceOpen,
+    find.changeReplaceOpen
   ])
 
   const updateRevision = (revision: SectionRevision, document = revision.content): void => {
-    setCitationDraft({
+    references.changeCitationDraft({
       sectionId: revision.sectionId,
       sectionRevisionId: revision.sectionRevisionId,
       content: document
@@ -1385,78 +937,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     }
   }
 
-  const openManuscriptImport = async (selection: 'file' | 'directory' = 'file'): Promise<void> => {
-    if (!(await flushCurrent())) return
-    const sectionId = activeSectionIdRef.current
-    if (sectionId === null) return
-    setImportOpen(true)
-    setImportPlan(null)
-    setImportError(null)
-    setImportLoading(true)
-    try {
-      const result = await window.desktop.editor.createImportPlan({
-        projectSessionId: props.projectSessionId,
-        activeSectionId: sectionId,
-        selection
-      })
-      if (result.status === 'cancelled') {
-        setImportOpen(false)
-        return
-      }
-      setImportPlan(result.plan)
-    } catch {
-      setImportError('The selected manuscript could not be captured and mapped safely.')
-    } finally {
-      setImportLoading(false)
-    }
-  }
-
-  const cancelManuscriptImport = async (): Promise<void> => {
-    const plan = importPlan
-    setImportOpen(false)
-    setImportPlan(null)
-    setImportError(null)
-    if (plan === null) return
-    try {
-      await window.desktop.editor.cancelImportPlan({
-        projectSessionId: props.projectSessionId,
-        planId: plan.planId
-      })
-    } catch {
-      props.onError('Import staging cleanup will be retried when the project is reopened.')
-    }
-  }
-
-  const applyManuscriptImport = async (
-    mode: 'create_sections' | 'replace_active_section'
-  ): Promise<void> => {
-    if (importPlan === null) return
-    setImportApplying(true)
-    setImportError(null)
-    try {
-      await window.desktop.editor.applyImportPlan({
-        projectSessionId: props.projectSessionId,
-        planId: importPlan.planId,
-        mode
-      })
-      setImportOpen(false)
-      setImportPlan(null)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: workspaceKey }),
-        queryClient.invalidateQueries({
-          queryKey: ['manuscript-section', props.projectSessionId, activeSectionIdRef.current]
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ['manuscript-references', props.projectSessionId]
-        })
-      ])
-    } catch {
-      setImportError('The manuscript changed or the reviewed import could not be applied.')
-    } finally {
-      setImportApplying(false)
-    }
-  }
-
   const exportNativeJsonForActiveSection = (): Promise<void> =>
     runActiveEditorAction(async () => {
       await editorRef.current?.exportNativeJson()
@@ -1629,11 +1109,34 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     )
   }
 
+  const acceptWorkspace = useCallback(
+    (next: ManuscriptWorkspace) => queryClient.setQueryData(workspaceKey, next),
+    [queryClient, workspaceKey]
+  )
+  const changeMetadataTitle = useCallback((title: string) => {
+    metadataDraftRef.current.title = title
+    setMetadataTitle(title)
+  }, [])
+  const editorActions = useMemo(
+    () => ({
+      captureSelection: () => editorRef.current?.captureSelection(),
+      focus: () => editorRef.current?.focus(),
+      revealComment: (threadId: string) => editorRef.current?.revealComment(threadId),
+      revealBlock: (blockId: string) => editorRef.current?.revealBlock(blockId),
+      clearSearchTarget: () => editorRef.current?.clearSearchTarget(),
+      releaseMutationBarrier: () => editorRef.current?.releaseMutationBarrier()
+    }),
+    []
+  )
   return {
     workbench,
+    acceptWorkspace,
+    changeMetadataTitle,
+    editorActions,
+    find,
+    manuscriptImport,
+    references,
     alternateWorkspace,
-    queryClient,
-    workspaceKey,
     workspaceQuery,
     referencesQuery,
     versionHistoryStatusQuery,
@@ -1645,23 +1148,12 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     setBriefError,
     publicationOpen,
     setPublicationOpen,
-    importOpen,
-    setImportOpen,
-    importPlan,
-    importLoading,
-    importApplying,
-    importError,
     publicationQuery,
     activeWorkspace,
     setActiveWorkspace,
-    setCitationDraft,
-    referenceDialog,
-    setReferenceDialog,
-    referenceRequestSequenceRef,
     editorSaveState,
     setEditorSaveState,
     metadataTitle,
-    setMetadataTitle,
     metadataError,
     setMetadataError,
     outlineEditOpen,
@@ -1671,38 +1163,11 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     editorAutoFocus,
     editorRef,
     manuscriptScrollRef,
-    metadataDraftRef,
     selectionContext,
     setSelectionContext,
     quickActionRequest,
     setQuickActionRequest,
-    findQuery,
-    findCaseSensitive,
-    findScope,
-    findStatuses,
-    findResult,
-    findLoading,
-    findLoadingMore,
-    findError,
-    selectedFindMatchId,
-    setSelectedFindMatchId,
-    replaceOpen,
-    replacement,
-    replacementPlan,
-    replacementCandidates,
-    selectedReplacementIds,
-    setSelectedReplacementIds,
-    replacementLoading,
-    replacementLoadingMore,
-    replacementApplying,
-    replacementMessage,
-    replacementUndoCapabilities,
-    createReplacementCheckpoint,
-    setCreateReplacementCheckpoint,
     sectionTitleRef,
-    effectiveReferenceIndex,
-    citationNumberByTitle,
-    openReference,
     editorQuery,
     mutation,
     activeSummary,
@@ -1714,18 +1179,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     startQuickAction,
     selectSection,
     followAgentSection,
-    runFind,
-    reviewReplacements,
-    loadMoreReplacements,
-    applyReplacements,
-    undoReplacement,
-    changeFindQuery,
-    changeFindCaseSensitive,
-    changeFindScope,
-    changeFindStatuses,
-    changeReplacement,
-    changeReplaceOpen,
-    activateFindHit,
     refreshAfterAgentMutation,
     openFind,
     closeFind,
@@ -1735,9 +1188,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     createOutlineSection,
     deleteOutlineSection,
     openPreviewWorkspace,
-    openManuscriptImport,
-    cancelManuscriptImport,
-    applyManuscriptImport,
     exportNativeJsonForActiveSection,
     exportMarkdownForActiveSection,
     openPublicationPreflight,
