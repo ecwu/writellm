@@ -26,6 +26,13 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 8: remove duplicate catalog snapshots. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
+- [x] Issue 10: share matching error, fingerprint, search, and table algorithms. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
+- [x] Issue 11: remove unused close policies and route cancellation through ProjectRuntime. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
+
 - [x] Issue 5: Agent tool definition cleanup passes local acceptance and Claude review.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
 

@@ -31,6 +31,20 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Issues [8](https://github.com/ecwu/writellm/issues/8), [10](https://github.com/ecwu/writellm/issues/10), and [11](https://github.com/ecwu/writellm/issues/11) pass local acceptance as one review batch.
+  Ten internal catalog writes return `void`. ProviderService builds each final catalog once.
+  Shared functions replace duplicate Worker errors, compatible fingerprint serializers, search scopes, and publication table calculations.
+  Fixed legacy hashes and table exports remain unchanged.
+  All jobs use the existing abort-and-requeue close behavior. ProjectRuntime also owns the IPC cancellation entrypoint.
+  All 208 focused Electron tests pass across 22 files in 6.6s.
+  Static stages pass in 2.6s. One macOS arm64 App passes the six-stage package smoke gate in 78.1s.
+  All 12 packaged runtime checks pass. Six selected E2E scenarios pass against that same App in two focused runs.
+  The E2E commands take 21.0s and 3.9s. All final runs record zero retries or skips.
+  Claude review accepts all three issues. Each is committed separately, pushed to `main`, and closed.
+  Later sub-issues remain unstarted.
+  Other-platform runtime coverage remains outstanding.
+  Evidence: [first-batch simplification](history/implementation-log.md#2026-10-14-first-batch-simplification).
+
 - [Issue 5](https://github.com/ecwu/writellm/issues/5) Agent tool cleanup passes local acceptance.
   Worker removes 15 unused parameter exports, their helpers, the commented registry, and the old bridge alias.
   Production source decreases from 1,066 to 215 lines. The active bridge and runtime helpers remain unchanged.
@@ -38,7 +52,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   All 27 focused Electron tests pass across three files in 0.5s.
   Static checks pass in 2.5s across 866 Biome files and both TypeScript targets.
   Final runs record zero automatic retries or skips on macOS arm64.
-  Claude review accepts the implementation, and Issue 5 is closed. Later sub-issues remain unstarted.
+  Claude review accepts the implementation. Commit `1fe7e7a` is pushed to `main`, and Issue 5 is closed.
   Evidence: [Issue 5 implementation](history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
 
 - [Issue 16](https://github.com/ecwu/writellm/issues/16) legacy citation conversion passes local acceptance.

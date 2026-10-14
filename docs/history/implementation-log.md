@@ -4810,3 +4810,173 @@ Claude reviews the Issue 5 working tree on 2026-10-14 and accepts it without sou
 The production diff against `e565309` contains only deletions, and no source reference to the removed exports or alias remains.
 Rerunning `pnpm check:fast` passes in 2.6s. The same three focused Electron test files pass 27 tests in 0.8s with zero retries.
 The change is committed and pushed, and Issue 5 is closed. The untracked dependency audit stays outside this commit.
+
+## 2026-10-14 First-batch simplification
+
+The user reports that Claude accepts Issue 5 and pushes commit `1fe7e7a` to `main`.
+The user then groups Issues 8, 10, and 11 into one implementation and review batch.
+This request replaces the earlier requirement to pause after each individual issue for this batch.
+The batch includes both parts of Issue 11, including its ProjectRuntime cancellation entrypoint.
+That entrypoint does not depend on the Agent fixture changes planned for Issue 7.
+The user retains Claude review before commit and issue closure.
+
+### Issue 8: Catalog snapshot ownership
+
+[Issue 8](https://github.com/ecwu/writellm/issues/8) removes the directory snapshot discarded by each ProviderService write wrapper.
+The ten AgentProviderCatalogService write methods now return `Promise<void>`.
+ProviderService remains the production caller and constructs the final settings response with one catalog snapshot.
+Fifteen catalog test assertions now read snapshots explicitly after writes.
+A regression test uses the real catalog, settings service, and application database.
+It counts one snapshot for each preset save, manual-model save, and model-availability update.
+
+The catalog retains credential binding, encrypted storage, defaults, manual overlays, refresh failure recovery, and frozen model resolution.
+The existing legacy migration remains in its snapshot path.
+This batch does not add caching or move migration into a separate initialization lifecycle.
+ADR 008 remains authoritative for catalog state, credentials, and run snapshots.
+
+### Issue 10: Shared algorithms
+
+[Issue 10](https://github.com/ecwu/writellm/issues/10) shares only implementations with matching behavior.
+The six provider error functions move to `workers/agent-provider-errors.ts`.
+The moved block matches both original Worker implementations byte-for-byte after removal of the export modifiers.
+It retains the original cause object, status precedence, code conversion, and assistant error message.
+The diagnostic module retains its separate defensive property reader because it accepts functions and handles throwing getters.
+Reusing that reader would change the Worker behavior.
+Both request paths now share `traceJsonValue` in the existing trace image redaction module.
+The JSON round trip, image redaction, and nonserializable-root error remain unchanged.
+
+Four matching fingerprint serializers move to `shared/canonical-json.ts`.
+Before the callers change, a probe compares all four old implementations against five fixed inputs.
+The fixtures record literal outputs and SHA-256 hashes, including undefined object members, sparse arrays, and nonfinite numbers.
+A sixth test retains the old undefined-root result.
+The new helper uses the existing implementation without changing its historical output.
+Manuscript content, export, model-request, and trace serializers retain their different validation and omission rules.
+Publication assembly, reference import, bibliography comparison, and citation formatting use the shared compatible helper.
+
+Search and replacement share selection, section projection, and heading paths through `manuscript-search-scope.ts`.
+The shared scope input contains only the existing scope and status fields.
+Traversal, order, revision references, and filtering remain unchanged.
+The Agent snapshot heading helper remains separate because it has a different input boundary.
+No ancestry cache or performance rewrite is added.
+
+PDF and LaTeX share cell placement, column counting, and width normalization through `publication-table-layout.ts`.
+The width function accepts the two existing output units, fractions and percentages.
+Its partial-width branches retain each format's arithmetic order rather than converting one rounded representation into the other.
+Before extraction, 14 snapshots record hashes of the complete LaTeX and PDF HTML outputs across seven width cases.
+The final tests compare those same hashes without updating the snapshots.
+An additional probe compares both old width functions with the shared function over 1,006 inputs.
+All 2,012 comparisons pass with exact numeric equality, including nonfinite aggregate edge cases.
+Header, span, alignment, and format loss behavior remain governed by ADRs 030, 031, and 066.
+
+### Issue 11: Job close and cancellation
+
+[Issue 11](https://github.com/ecwu/writellm/issues/11) removes the unused finish and lease-expiry close choices.
+All seven registered job types already use abort-and-requeue behavior.
+The registry removes the policy type, policy field, and default table.
+Six production registrations stop repeating the same value.
+The scheduler always aborts running handlers when parking and uses one close requeue branch.
+Its unreachable alternate close branch is removed.
+
+JobStore retains the transaction that decides cancellation versus close requeue.
+The entire JobStore source remains unchanged.
+Lease ownership, heartbeat, worker termination, attempt accounting, and recovery semantics remain intact.
+ProjectRuntime retains construction and the five existing lifecycle methods.
+Its new `cancel()` method forwards cancellation to the scheduler.
+Job and Knowledge IPC use this lifecycle entrypoint rather than reaching into the scheduler.
+An integration test cancels real active work through ProjectRuntime and observes the durable cancelled state.
+The ProjectManager runtime replacement seam remains available and covered by its existing tests.
+
+### Verification and review handoff
+
+The batch selects focused Electron tests because it changes catalog writes, shared algorithms, and project lifecycle boundaries.
+Moving Worker runtime code also selects package smoke and affected E2E against the same App.
+There is one App build, with no repeated build between the E2E selections.
+The architecture decisions and application authority boundaries remain unchanged.
+Production TypeScript decreases by 262 lines after inclusion of the new helper modules.
+The removed duplicate definitions and branches provide the structural evidence, rather than the line count alone.
+
+The focused command is:
+
+```sh
+pnpm test \
+  src/main/providers/provider-service.test.ts \
+  src/main/providers/agent-provider-catalog.test.ts \
+  src/main/ipc/provider-ipc.test.ts \
+  src/main/ipc/job-ipc.test.ts \
+  src/main/ipc/knowledge-ipc.test.ts \
+  src/main/jobs/scheduler/job-scheduler.test.ts \
+  src/main/jobs/scheduler/worker-supervisor.test.ts \
+  src/main/jobs/job-store.test.ts \
+  src/main/project/project-manager.test.ts \
+  src/main/search/index-service.test.ts \
+  src/main/manuscript/manuscript-search-service.test.ts \
+  src/main/manuscript/manuscript-replacement-service.test.ts \
+  src/main/manuscript/latex-publication.test.ts \
+  src/main/manuscript/pdf-publication.test.ts \
+  src/main/manuscript/docx-publication.test.ts \
+  src/main/references/reference-import-parser.test.ts \
+  src/main/references/reference-bibliography-export.test.ts \
+  src/shared/canonical-json.test.ts \
+  src/shared/contracts/publication.test.ts \
+  src/workers/agent-model-request.test.ts \
+  src/workers/agent-session-run.test.ts \
+  src/workers/citation-formatter.test.ts
+```
+
+All 208 tests pass across 22 files in 6.12s, with 6.6s for the command.
+There are zero retries or skips.
+Report: `.cache/verification/1792012072034-30617-289004e2`.
+The earlier hash baseline passes 32 tests and records 14 snapshots in 1.0s before extraction.
+Report: `.cache/verification/1792011783100-26919-9f382355`.
+Formatting initially rejects the intentional sparse array literal. A sparse array constructor preserves the fixture while satisfying Biome.
+
+`pnpm check:package:smoke` passes six stages in 78.1s on macOS arm64.
+Its fast static stages cover 871 Biome files and both TypeScript targets in 2.6s.
+Native preparation takes 0.7s, and production compilation takes 15.0s.
+App packaging takes 20.5s. Signature policy and package inventory pass.
+All 12 packaged runtime scenarios pass in 38.7s.
+They cover worker inventory, provider failure fallback, databases, stale sessions, and centralized error logging without private data leaks.
+Report: `.cache/verification/1792012107514-31150-ddb8945d`.
+
+The selected packaged E2E commands use this executable from the repository root:
+
+```sh
+WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
+  pnpm test:e2e e2e/project-lifecycle.spec.ts e2e/parsed-knowledge.spec.ts e2e/agent-table.spec.ts \
+  --grep 'configures provider metadata|creates, removes recent pointers|imports with visible progress|creates, edits, reopens, exports'
+
+WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
+  pnpm test:e2e e2e/writing-workspace.spec.ts \
+  --grep 'finds current manuscript text|previews, selects, and atomically applies'
+```
+
+The first command passes four scenarios in 20.6s, with 21.0s for the command.
+It covers provider settings, project restart, Knowledge cancellation, and Agent table authoring, conflicts, and exports.
+Report: `.cache/verification/1792012249886-33211-1b724bc8`.
+The second command passes search navigation and safe replacement in 3.5s, with 3.9s for the command.
+Report: `.cache/verification/1792012323902-34220-6c0f7ecb`.
+All six scenarios use the same App and record zero retries or skips.
+`node scripts/verify-recovery-fixtures.mjs` passes the inventory for 33 cases across 31 source files.
+This inventory examines source names and test declarations. It does not run another test suite.
+
+The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
+The existing Node engine warning remains because the project declares `>=24.21.0 <25`.
+Native preparation uses Electron 44.5.1, ABI 149, and Node-API 10.
+It selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 from the arm64 resource.
+The App inventory contains 34,434 ASAR entries and arm64 native binaries.
+The App retains the permitted no-Team-ID ad-hoc/linker signature and release metadata `0.2026.10.1`.
+Windows and Linux runtime coverage remains outstanding.
+No dependency, migration, installer, release, commit, push, or issue closure runs for this batch.
+All three issues remain open for the combined Claude review, and the goal pauses at that handoff.
+The pre-existing untracked dependency audit remains untouched.
+
+Claude reviews Issues 8, 10, and 11 on 2026-10-14 and accepts them without source changes.
+ProviderService is the only production caller of the ten catalog write methods.
+The moved Worker provider error block matches both originals byte-for-byte apart from export modifiers.
+Search scope and table layout extractions keep the original logic, and the width function matches both old units on every branch.
+With the previous LaTeX and PDF renderers temporarily restored, all 14 new export hash snapshots pass, which confirms that the snapshots record pre-extraction output.
+The scheduler close branch now precedes cancellation, so the removed close-only return was unreachable. JobStore still decides cancellation versus close requeue.
+No production code accesses `runtime.scheduler` directly.
+Rerunning `pnpm check:fast` passes in 2.6s across 871 Biome files. The same 22 focused Electron test files pass 208 tests in 6.4s with zero retries.
+The package smoke and six packaged E2E scenarios above still cover the unchanged final source.
+Each issue is committed separately and pushed to `main`, and all three issues are closed. The untracked dependency audit stays outside these commits.
