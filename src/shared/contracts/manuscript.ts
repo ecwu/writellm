@@ -518,18 +518,45 @@ export function projectLegacyBlockNoteDocument(document: unknown): BlockNoteDocu
 }
 
 export function normalizePlainBlockContent(document: BlockNoteDocument): BlockNoteDocument {
+  return blockNoteDocumentSchema.parse(normalizeDocumentBlocks(document))
+}
+
+function normalizeDocumentBlocks(
+  document: BlockNoteDocument,
+  sectionId?: string
+): BlockNoteDocument {
   const visit = (blocks: BlockNoteDocument): BlockNoteDocument =>
     blocks.map((block) => {
       const children = visit(block.children)
-      if (block.type !== 'mathBlock' && block.type !== 'diagram') return { ...block, children }
-      const content = plainTextContentSchema.parse(block.content)
+      if (block.type === 'mathBlock' || block.type === 'diagram') {
+        const content = plainTextContentSchema.parse(block.content)
+        return {
+          ...block,
+          content: plainTextContentFromSource(plainTextContentToString(content)),
+          children
+        }
+      }
+      if (block.type !== 'image' || sectionId === undefined) return { ...block, children }
+      const props = block.props as Record<string, unknown>
       return {
         ...block,
-        content: plainTextContentFromSource(plainTextContentToString(content)),
+        props: {
+          ...props,
+          figureId:
+            typeof props.figureId === 'string' && props.figureId.length > 0
+              ? props.figureId
+              : figureIdForBlock(sectionId, block.id),
+          altText:
+            typeof props.altText === 'string'
+              ? props.altText
+              : typeof props.name === 'string'
+                ? props.name
+                : ''
+        },
         children
       }
     })
-  return blockNoteDocumentSchema.parse(visit(document))
+  return visit(document)
 }
 
 export const currentBlockNoteDocumentSchema = blockNoteDocumentSchema.superRefine(
@@ -567,30 +594,7 @@ export function normalizeFigureMetadata(
   document: BlockNoteDocument,
   sectionId: string
 ): BlockNoteDocument {
-  const visit = (blocks: BlockNoteDocument): BlockNoteDocument =>
-    blocks.map((block) => {
-      const children = visit(block.children)
-      if (block.type !== 'image') return { ...block, children }
-      const props = block.props as Record<string, unknown>
-      return {
-        ...block,
-        props: {
-          ...props,
-          figureId:
-            typeof props.figureId === 'string' && props.figureId.length > 0
-              ? props.figureId
-              : figureIdForBlock(sectionId, block.id),
-          altText:
-            typeof props.altText === 'string'
-              ? props.altText
-              : typeof props.name === 'string'
-                ? props.name
-                : ''
-        },
-        children
-      }
-    })
-  return currentBlockNoteDocumentSchema.parse(normalizePlainBlockContent(visit(document)))
+  return currentBlockNoteDocumentSchema.parse(normalizeDocumentBlocks(document, sectionId))
 }
 
 export type BlockNoteDocument = z.infer<typeof blockNoteDocumentSchema>

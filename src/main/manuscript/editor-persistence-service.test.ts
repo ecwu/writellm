@@ -8,6 +8,7 @@ import type { ProjectManifest } from '../project/project-manifest'
 import { resolveProjectPath } from '../project/project-paths'
 import { EditorPersistenceService, sectionMaterializationPath } from './editor-persistence-service'
 import { ManuscriptService } from './manuscript-service'
+import * as sectionContent from './content'
 
 const roots: string[] = []
 const log = pino({ level: 'silent' })
@@ -56,6 +57,58 @@ afterEach(async () => {
 })
 
 describe('EditorPersistenceService', () => {
+  it('reuses normalized content after insertion and decodes stored content for a no-op retry', async () => {
+    const { database, manuscript, persistence } = await fixture()
+    const opened = persistence.openEditor().activeSection
+    if (opened === null) throw new Error('Missing section')
+    const native = database.read((connection) => connection)
+    const decodedInTransaction: boolean[] = []
+    const originalDecode = sectionContent.decodeStoredSectionContent
+    const decode = vi
+      .spyOn(sectionContent, 'decodeStoredSectionContent')
+      .mockImplementation((...args) => {
+        decodedInTransaction.push(native.inTransaction)
+        return originalDecode(...args)
+      })
+    try {
+      const input = {
+        projectSessionId: 'session',
+        sectionId: opened.section.sectionId,
+        baseRevisionId: opened.revision.sectionRevisionId,
+        baseContentHash: opened.revision.contentHash,
+        document: [
+          {
+            id: 'math',
+            type: 'mathBlock' as const,
+            props: {},
+            content: [
+              { type: 'text' as const, text: 'x', styles: {} },
+              { type: 'text' as const, text: '+y', styles: {} }
+            ],
+            children: []
+          }
+        ]
+      }
+      const first = await persistence.save(input)
+      // Comment anchors still decode the committed head inside the write transaction.
+      // Returning the new revision does not decode it again after commit.
+      expect(decodedInTransaction).toEqual([true])
+      expect(first.revision.content[0]?.content).toEqual([
+        { type: 'text', text: 'x+y', styles: {} }
+      ])
+      expect(first.revision).toEqual(manuscript.getRevision(first.revision.sectionRevisionId))
+      decode.mockClear()
+      decodedInTransaction.length = 0
+      const retry = await persistence.save(input)
+      expect(decode).toHaveBeenCalledTimes(1)
+      expect(decodedInTransaction).toEqual([false])
+      expect(retry).toMatchObject({ disposition: 'unchanged', revision: first.revision })
+    } finally {
+      decode.mockRestore()
+      database.close()
+    }
+  })
+
   it('commits canonical JSON, atomically materializes it, and treats a lost-response retry as success', async () => {
     const { projectRoot, database, persistence } = await fixture()
     const opened = persistence.openEditor().activeSection

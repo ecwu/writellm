@@ -1,0 +1,46 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`section content processing > preserves the pre-refactor JSON, hash, and counts for adjacent math and diagram source 1`] = `
+{
+  "characterCount": 6,
+  "contentHash": "03cafba8dfa7ba4e201c59837817cb5f51234018d5aa9c97bbbb86d81b6d6e4a",
+  "contentJson": "[{"children":[],"content":[{"styles":{},"text":"E = mc^2","type":"text"}],"id":"math","props":{},"type":"mathBlock"},{"children":[],"content":[{"styles":{},"text":"flowchart LR\\nA --> B","type":"text"}],"id":"diagram","props":{"altText":"A to B","caption":"Flow 中文","engine":"mermaid"},"type":"diagram"}]",
+  "wordCount": 3,
+}
+`;
+
+exports[`section content processing > preserves the pre-refactor JSON, hash, and counts for empty 1`] = `
+{
+  "characterCount": 0,
+  "contentHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "contentJson": "[]",
+  "wordCount": 0,
+}
+`;
+
+exports[`section content processing > preserves the pre-refactor JSON, hash, and counts for explicit figure identity and empty alternative 1`] = `
+{
+  "characterCount": 0,
+  "contentHash": "b8ff42e2aefbc96bb13a9ff54051b0df0648391873788dc136053252c3bad52e",
+  "contentJson": "[{"children":[],"id":"image","props":{"altText":"","backgroundColor":"default","caption":"","figureId":"figure:original:image","name":"Legacy description","previewWidth":720,"showPreview":false,"textAlignment":"center","url":"writellm-asset:019d0000-0000-4000-8000-000000000454"},"type":"image"}]",
+  "wordCount": 0,
+}
+`;
+
+exports[`section content processing > preserves the pre-refactor JSON, hash, and counts for missing figure metadata 1`] = `
+{
+  "characterCount": 13,
+  "contentHash": "6cb7845838378467fb112430edff636aeb647e46017720604832fa7a9bef9d3f",
+  "contentJson": "[{"children":[],"id":"image","props":{"altText":"Legacy description","backgroundColor":"default","caption":"Figure caption","figureId":"figure:section:image","name":"Legacy description","previewWidth":512,"showPreview":true,"textAlignment":"center","url":"writellm-asset:019d0000-0000-4000-8000-000000000454"},"type":"image"}]",
+  "wordCount": 2,
+}
+`;
+
+exports[`section content processing > preserves the pre-refactor JSON, hash, and counts for nested prose, citations, and inline math 1`] = `
+{
+  "characterCount": 19,
+  "contentHash": "f4c6aed85ff088d351a3ad19b70f90832ccc77ed6c8fe5fe49dd2fc8ed491c60",
+  "contentJson": "[{"children":[{"children":[],"content":[{"styles":{"bold":true},"text":"한국어 🙂","type":"text"}],"id":"child","props":{"backgroundColor":"default","textAlignment":"left","textColor":"default"},"type":"paragraph"}],"content":[{"styles":{},"text":"Café alpha[Source: Research, p. 4]beta 中文 ","type":"text"},{"content":"x+y","type":"math"}],"id":"prose","props":{"backgroundColor":"default","textAlignment":"left","textColor":"default"},"type":"paragraph"}]",
+  "wordCount": 8,
+}
+`;

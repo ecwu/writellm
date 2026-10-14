@@ -108,7 +108,7 @@ export class EditorPersistenceService {
     const previousRevisionId = this.#manuscript.getSection(input.sectionId).currentRevisionId
     let revision: SectionRevision
     try {
-      revision = this.#manuscript.appendRevision({
+      revision = this.#manuscript.appendValidatedRevision({
         sectionId: input.sectionId,
         baseRevisionId: input.baseRevisionId,
         baseContentHash: input.baseContentHash,

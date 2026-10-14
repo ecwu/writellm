@@ -7,6 +7,108 @@ import {
 } from './content'
 
 describe('section content processing', () => {
+  it.each([
+    ['empty', []],
+    [
+      'nested prose, citations, and inline math',
+      [
+        {
+          id: 'prose',
+          type: 'paragraph',
+          props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+          content: [
+            {
+              type: 'text',
+              text: 'Cafe\u0301 alpha[Source: Research, p. 4]beta 中文 ',
+              styles: {}
+            },
+            { type: 'math', content: 'x+y' }
+          ],
+          children: [
+            {
+              id: 'child',
+              type: 'paragraph',
+              props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+              content: [{ type: 'text', text: '한국어 🙂', styles: { bold: true } }],
+              children: []
+            }
+          ]
+        }
+      ]
+    ],
+    [
+      'adjacent math and diagram source',
+      [
+        {
+          id: 'math',
+          type: 'mathBlock',
+          props: {},
+          content: [
+            { type: 'text', text: 'E = ', styles: {} },
+            { type: 'text', text: 'mc^2', styles: {} }
+          ],
+          children: []
+        },
+        {
+          id: 'diagram',
+          type: 'diagram',
+          props: { engine: 'mermaid', caption: 'Flow 中文', altText: 'A to B' },
+          content: [
+            { type: 'text', text: 'flowchart LR\n', styles: {} },
+            { type: 'text', text: 'A --> B', styles: {} }
+          ],
+          children: []
+        }
+      ]
+    ],
+    [
+      'missing figure metadata',
+      [
+        {
+          id: 'image',
+          type: 'image',
+          props: {
+            backgroundColor: 'default',
+            textAlignment: 'center',
+            name: 'Legacy description',
+            url: 'writellm-asset:019d0000-0000-4000-8000-000000000454',
+            caption: 'Figure caption',
+            showPreview: true,
+            previewWidth: 512
+          },
+          children: []
+        }
+      ]
+    ],
+    [
+      'explicit figure identity and empty alternative',
+      [
+        {
+          id: 'image',
+          type: 'image',
+          props: {
+            backgroundColor: 'default',
+            textAlignment: 'center',
+            name: 'Legacy description',
+            url: 'writellm-asset:019d0000-0000-4000-8000-000000000454',
+            caption: '',
+            figureId: 'figure:original:image',
+            altText: '',
+            showPreview: false,
+            previewWidth: 720
+          },
+          children: []
+        }
+      ]
+    ]
+  ])('preserves the pre-refactor JSON, hash, and counts for %s', (_name, content) => {
+    const { contentJson, contentHash, wordCount, characterCount } = prepareSectionContent(
+      content,
+      'section'
+    )
+    expect({ contentJson, contentHash, wordCount, characterCount }).toMatchSnapshot()
+  })
+
   it('canonicalizes object keys without normalizing native string content', () => {
     const decomposed = 'e\u0301'
     const first = prepareSectionContent([

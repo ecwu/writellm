@@ -52,6 +52,7 @@ import { updateCommentAnchors } from './comment-anchor-mapping'
 import { ManuscriptRepository } from './manuscript-repository'
 
 const POSITION_OFFSET = 1_000_000_000
+const appendRevisionMetadataSchema = appendSectionRevisionInputSchema.omit({ content: true })
 
 export interface SectionDeletionGuard {
   assertCanDelete(database: Database.Database, sectionId: string): void
@@ -645,11 +646,32 @@ export class ManuscriptService {
   }
 
   appendRevision(input: AppendSectionRevisionInput): SectionRevision {
+    let content: BlockNoteDocument
+    const startedAt = Date.now()
+    try {
+      content = blockNoteDocumentSchema.parse(input.content)
+    } catch (err) {
+      this.#logFailure('manuscript.revision.append_failed', err, startedAt, {
+        sectionId: typeof input.sectionId === 'string' ? input.sectionId : undefined,
+        sectionRevisionId:
+          typeof input.baseRevisionId === 'string' ? input.baseRevisionId : undefined
+      })
+      throw err
+    }
+    return this.appendValidatedRevision({ ...input, content })
+  }
+
+  // Internal callers validate the document at their input boundary. Metadata and the
+  // normalized document still pass their contracts before the write transaction.
+  appendValidatedRevision(
+    input: Omit<AppendSectionRevisionInput, 'content'> & { content: BlockNoteDocument }
+  ): SectionRevision {
     const revisionId = this.#createId()
     const now = this.#now().toISOString()
     const startedAt = Date.now()
     try {
-      const parsed = appendSectionRevisionInputSchema.parse(input)
+      const { content, ...metadata } = input
+      const parsed = { ...appendRevisionMetadataSchema.parse(metadata), content }
       if (parsed.source !== 'manual' && parsed.source !== 'import') {
         throw new TypeError('Editor persistence only permits manual and import revision appends')
       }
@@ -726,7 +748,10 @@ export class ManuscriptService {
           ? 'Section revision appended'
           : 'Identical section revision skipped'
       )
-      return revisionFromRow(row)
+      return revisionFromRow(
+        row,
+        row.section_revision_id === revisionId ? prepared.content : undefined
+      )
     } catch (err) {
       this.#logFailure('manuscript.revision.append_failed', err, startedAt, {
         sectionId: typeof input.sectionId === 'string' ? input.sectionId : undefined,
@@ -830,7 +855,7 @@ export class ManuscriptService {
       },
       'Replacement revisions applied atomically'
     )
-    return { revisions: rows.map(revisionFromRow), transactionDurationMs }
+    return { revisions: rows.map((row) => revisionFromRow(row)), transactionDurationMs }
   }
 
   undoReplacementRevision(input: {
@@ -1044,9 +1069,14 @@ function sectionFromRow(row: SectionTable): Section {
   }
 }
 
-function revisionFromRow(row: SectionRevisionTable): SectionRevision {
+function revisionFromRow(
+  row: SectionRevisionTable,
+  preparedContent?: BlockNoteDocument
+): SectionRevision {
   const contentSchemaVersion = contentSchemaVersionFromRow(row)
-  const content = decodeStoredSectionContent(row.content_json, contentSchemaVersion, row.section_id)
+  const content =
+    preparedContent ??
+    decodeStoredSectionContent(row.content_json, contentSchemaVersion, row.section_id)
   return {
     sectionRevisionId: row.section_revision_id,
     sectionId: row.section_id,
