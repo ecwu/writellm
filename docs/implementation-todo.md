@@ -26,6 +26,9 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 5: Agent tool definition cleanup passes local acceptance and Claude review.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
+
 - [x] Issue 16: legacy citation conversion passes local acceptance and Claude review.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 

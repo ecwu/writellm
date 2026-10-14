@@ -1,6 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { validateToolArguments } from '@earendil-works/pi-ai/compat'
 import { describe, expect, it, vi } from 'vitest'
+import type { TSchema } from 'typebox'
+import { z } from 'zod'
 import {
   AGENT_INITIAL_WRITING_TOOL_ENVELOPE,
   AGENT_INITIAL_WRITING_TOOL_ENVELOPE_MAX_BYTES,
@@ -12,26 +14,21 @@ import {
 } from '../shared/agent-tool-specs'
 import {
   agentToolRequestSchema,
+  AGENT_TOOL_DESCRIPTORS,
+  getWritingContextArgsSchema,
   readCitationsArgsSchema,
+  readSectionArgsSchema,
   searchKnowledgeArgsSchema,
   type AgentToolName
 } from '../shared/contracts/agent-tools'
 import {
   modelSubmitBriefChangeArgsSchema,
+  modelSubmitOutlineChangeArgsSchema,
   modelSubmitSectionChangeArgsSchema
 } from '../shared/contracts/agent-mutations'
-import {
-  AgentReadToolBridge,
-  getWritingContextParameters,
-  readCitationsParameters,
-  readSectionParameters,
-  searchKnowledgeParameters,
-  submitBriefChangeParameters,
-  submitOutlineChangeParameters,
-  submitSectionChangeParameters
-} from './agent-tools'
+import { AgentToolBridge } from './agent-tools'
 
-describe('Pi Agent tool TypeBox schemas', () => {
+describe('Pi Agent model-visible tool contracts', () => {
   it('partitions writing tools into one bounded core and disjoint capability groups', () => {
     const grouped = Object.values(WRITING_TOOL_GROUP_TOOL_NAMES).flat()
     expect(new Set(grouped).size).toBe(grouped.length)
@@ -45,6 +42,9 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('keeps all 22 Pi-style contracts compact and one-way compatible with Main defaults', () => {
     expect(AGENT_MODEL_VISIBLE_TOOL_SPECS).toHaveLength(22)
+    expect(Object.keys(minimalValidToolArguments()).sort()).toEqual(
+      AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => tool.name).sort()
+    )
     const sizes = Object.fromEntries(
       AGENT_MODEL_VISIBLE_TOOL_SPECS.map((tool) => [
         tool.name,
@@ -180,31 +180,44 @@ describe('Pi Agent tool TypeBox schemas', () => {
   })
 
   it('matches the authoritative Zod field and bound surface', () => {
-    expect(getWritingContextParameters.additionalProperties).toBe(false)
-    expect(Object.keys(getWritingContextParameters.properties).sort()).toEqual([
-      'activeSectionId',
-      'includeBrief',
-      'includeOutline'
-    ])
-    expect(readSectionParameters.additionalProperties).toBe(false)
-    expect(readSectionParameters.properties.limit.maximum).toBe(50)
-    expect(readSectionParameters.properties.blockIds.maxItems).toBe(100)
-    expect(searchKnowledgeParameters.additionalProperties).toBe(false)
-    expect(searchKnowledgeParameters.properties.query.maxLength).toBe(2_000)
-    expect(searchKnowledgeParameters.properties.limit.maximum).toBe(20)
-    expect(readCitationsParameters.properties.citationIds.maxItems).toBe(10)
-    expect(submitBriefChangeParameters.additionalProperties).toBe(false)
-    expect(submitBriefChangeParameters.properties).not.toHaveProperty('baseBriefVersion')
-    expect(submitOutlineChangeParameters.properties.operations.maxItems).toBe(50)
-    const outlineOperations = submitOutlineChangeParameters.properties.operations
-      .items as unknown as {
-      anyOf: Array<{ properties: { type: { const: string }; clientRef: Record<string, unknown> } }>
+    const cases = [
+      ['get_writing_context', getWritingContextArgsSchema, []],
+      ['read_section', readSectionArgsSchema, ['limit', 'blockIds', 'maxChars', 'rowLimit']],
+      ['search_knowledge', searchKnowledgeArgsSchema, ['query', 'limit']],
+      ['read_citations', readCitationsArgsSchema, ['citationIds', 'requests']],
+      ['submit_brief_change', modelSubmitBriefChangeArgsSchema, []],
+      ['submit_outline_change', modelSubmitOutlineChangeArgsSchema, ['operations']],
+      ['submit_section_change', modelSubmitSectionChangeArgsSchema, ['operations']]
+    ] as const
+    for (const [name, schema, boundedFields] of cases) {
+      const actual = modelParameters(name)
+      const authoritative = ensureModelToolObjectRoot(
+        z.toJSONSchema(schema, { target: 'draft-7', unrepresentable: 'any' })
+      ) as TSchema
+      expect(actual.additionalProperties, name).toBe(false)
+      expect(Object.keys(actual.properties).sort(), name).toEqual(
+        Object.keys(authoritative.properties).sort()
+      )
+      for (const field of boundedFields) {
+        const bound = authoritative.properties[field]
+        const limits = Object.fromEntries(
+          Object.entries(bound).filter(([key]) =>
+            ['minimum', 'maximum', 'minLength', 'maxLength', 'minItems', 'maxItems'].includes(key)
+          )
+        )
+        expect(Object.keys(limits).length, `${name}.${field}`).toBeGreaterThan(0)
+        expect(actual.properties[field], `${name}.${field}`).toMatchObject(limits)
+      }
     }
-    const createSection = outlineOperations.anyOf.find(
+    const outlineOperations = modelParameters('submit_outline_change').properties.operations
+      .items as unknown as {
+      oneOf: Array<{ properties: { type: { const: string }; clientRef: Record<string, unknown> } }>
+    }
+    const createSection = outlineOperations.oneOf.find(
       (operation) => operation.properties.type.const === 'createSection'
     )
+    expect(createSection).toBeDefined()
     expect(createSection?.properties.clientRef).not.toHaveProperty('format')
-    expect(submitSectionChangeParameters.properties.operations.maxItems).toBe(50)
   })
 
   it('lets broad Pi schemas reach actionable Main validation for business invariants', () => {
@@ -256,32 +269,24 @@ describe('Pi Agent tool TypeBox schemas', () => {
     }
   })
 
-  it('exposes only the v4 bounded model-facing parameter surfaces without capabilities', () => {
-    for (const schema of [
-      getWritingContextParameters,
-      readSectionParameters,
-      searchKnowledgeParameters,
-      readCitationsParameters,
-      submitBriefChangeParameters,
-      submitOutlineChangeParameters,
-      submitSectionChangeParameters
-    ]) {
-      expect(schema.properties).not.toHaveProperty('projectSessionId')
-      expect(schema.properties).not.toHaveProperty('path')
-      expect(schema.properties).not.toHaveProperty('sql')
-      expect(schema.properties).not.toHaveProperty('command')
+  it('excludes application capabilities from every model-facing tool and nested parameter', () => {
+    for (const tool of AGENT_MODEL_VISIBLE_TOOL_SPECS) {
+      assertNoCapabilities(tool.parameters, tool.name)
     }
   })
 
   it('does not let the Worker assign outline UUIDs or inject source versions', () => {
-    expect(submitOutlineChangeParameters.properties).not.toHaveProperty('manuscriptId')
-    expect(submitOutlineChangeParameters.properties).not.toHaveProperty('baseOutlineVersion')
-    expect(submitSectionChangeParameters.properties).not.toHaveProperty('baseRevisionId')
+    expect(modelParameters('submit_brief_change').properties).not.toHaveProperty('baseBriefVersion')
+    expect(modelParameters('submit_outline_change').properties).not.toHaveProperty('manuscriptId')
+    expect(modelParameters('submit_outline_change').properties).not.toHaveProperty(
+      'baseOutlineVersion'
+    )
+    expect(modelParameters('submit_section_change').properties).not.toHaveProperty('baseRevisionId')
   })
 
   it('marks only read tools parallel and returns the final proposal outcome', async () => {
     const { port1, port2 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc551',
@@ -332,6 +337,14 @@ describe('Pi Agent tool TypeBox schemas', () => {
       expect(tool.name).toBe(shared?.name)
       expect(tool.description).toBe(shared?.description)
       expect(tool.parameters).toBe(shared?.parameters)
+      expect(tool.executionMode, tool.name).toBe(
+        AGENT_TOOL_DESCRIPTORS[tool.name as AgentToolName].executionMode
+      )
+      if (tool.executionMode === 'parallel') {
+        expect(AGENT_TOOL_DESCRIPTORS[tool.name as AgentToolName].effects, tool.name).toEqual([
+          'read'
+        ])
+      }
     })
     const skillReader = tools.find((tool) => tool.name === 'read_writing_skill')
     expect(skillReader?.description).toContain('run-authorized')
@@ -362,7 +375,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('exposes exactly the selected-source Knowledge tools for Notebook runs', () => {
     const { port1 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: UUIDS.project,
@@ -412,7 +425,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
     ]
   ] as const)('advertises the exact %s interaction-mode tools', (mode, expected) => {
     const { port1 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: UUIDS.project,
@@ -430,7 +443,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('keeps concurrent responses correlated and delimits knowledge as untrusted data', async () => {
     const { port1, port2 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc531',
@@ -490,7 +503,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('delimits loaded Writing Skill text as lower-priority guidance', async () => {
     const { port1, port2 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc535',
@@ -535,7 +548,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('returns clarification answers as trusted user decisions rather than manuscript data', async () => {
     const { port1, port2 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: UUIDS.project,
@@ -591,7 +604,7 @@ describe('Pi Agent tool TypeBox schemas', () => {
 
   it('rejects an in-flight tool request when its run capability is revoked', async () => {
     const { port1 } = createFakeMessageChannel()
-    const bridge = new AgentReadToolBridge(
+    const bridge = new AgentToolBridge(
       port1 as never,
       {
         projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc541',
@@ -648,6 +661,15 @@ function minimalValidToolArguments(): Record<AgentToolName, Record<string, unkno
     },
     activate_tool_groups: { groups: ['section'] },
     inspect_change: { proposalId: UUIDS.proposal },
+    list_comments: {},
+    read_comment: { threadId: UUIDS.issue },
+    reply_comment: { threadId: UUIDS.issue, expectedVersion: 1, body: 'Review this section.' },
+    resolve_comment: {
+      threadId: UUIDS.issue,
+      expectedVersion: 1,
+      verificationNote: 'Confirmed against the current section.',
+      operationId: 'fixture-operation'
+    },
     get_writing_task: {},
     create_writing_task: {
       objective: 'Revise two sections',
@@ -721,6 +743,31 @@ function piValidate(
     name: tool.name,
     arguments: args
   })
+}
+
+function modelParameters(name: AgentToolName): TSchema {
+  const tool = AGENT_MODEL_VISIBLE_TOOL_SPECS.find((tool) => tool.name === name)
+  if (tool === undefined) throw new Error(`Missing model-visible tool ${name}`)
+  return tool.parameters
+}
+
+function assertNoCapabilities(value: unknown, toolName: string): void {
+  if (value === null || typeof value !== 'object') return
+  const node = value as Record<string, unknown>
+  if (node.properties && typeof node.properties === 'object') {
+    for (const field of [
+      'projectSessionId',
+      'agentSessionId',
+      'agentRunId',
+      'modelRequestId',
+      'path',
+      'sql',
+      'command'
+    ]) {
+      expect(node.properties, `${toolName}.${field}`).not.toHaveProperty(field)
+    }
+  }
+  for (const child of Object.values(node)) assertNoCapabilities(child, toolName)
 }
 
 function sentenceCount(description: string): number {

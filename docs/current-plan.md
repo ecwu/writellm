@@ -31,6 +31,16 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- [Issue 5](https://github.com/ecwu/writellm/issues/5) Agent tool cleanup passes local acceptance.
+  Worker removes 15 unused parameter exports, their helpers, the commented registry, and the old bridge alias.
+  Production source decreases from 1,066 to 215 lines. The active bridge and runtime helpers remain unchanged.
+  Tests inspect the actual shared schemas and cover all 22 tools, including nested capability exclusions and execution modes.
+  All 27 focused Electron tests pass across three files in 0.5s.
+  Static checks pass in 2.5s across 866 Biome files and both TypeScript targets.
+  Final runs record zero automatic retries or skips on macOS arm64.
+  Claude review accepts the implementation, and Issue 5 is closed. Later sub-issues remain unstarted.
+  Evidence: [Issue 5 implementation](history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
+
 - [Issue 16](https://github.com/ecwu/writellm/issues/16) legacy citation conversion passes local acceptance.
   It is the first implementation in the [Issue 4](https://github.com/ecwu/writellm/issues/4) sequence.
   Converted revisions publish section mirrors without reopening the project.
@@ -41,7 +51,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Three distinct source E2E scenarios pass on macOS arm64 with zero automatic retries or skips.
   The error-message scenario passes in a focused 6.3s rerun after a test-fixture correction.
   Other-platform runtime coverage remains outstanding.
-  Claude review accepts the implementation, and Issue 16 is closed. Later sub-issues remain unstarted.
+  Claude review accepts the implementation. Commit `e477e9a` is pushed to `main`, and Issue 16 is closed.
   Evidence: [Issue 16 implementation](history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 
 - Default left tool opening now adds an active tab to the existing left tool group under

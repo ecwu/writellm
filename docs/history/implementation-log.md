@@ -4751,3 +4751,62 @@ Claude reviews the Issue 16 working tree on 2026-10-14 and accepts it without so
 Rerunning `pnpm check:fast` passes in 2.6s. The same five focused Electron test files pass 43 tests in 5.6s.
 `pnpm test:e2e e2e/legacy-citation-conversion.spec.ts` reuses the matching build and passes all three scenarios in 13.1s with zero retries.
 The change is committed and pushed, and Issue 16 is closed. The untracked dependency audit stays outside this commit.
+
+## 2026-10-14 Issue 5 Agent tool definition cleanup
+
+The user reports that Claude accepts Issue 16 and pushes commit `e477e9a` to `main`.
+GitHub closes Issue 16 through its commit message.
+[Issue 5](https://github.com/ecwu/writellm/issues/5) is the next implementation in the [Issue 4](https://github.com/ecwu/writellm/issues/4) sequence.
+The user requires a pause before each issue closes for Claude review.
+The implementation keeps ADR 067, its union projection amendment, and the subsequent Agent authority rules.
+
+The Worker removes 15 unused TypeBox parameter exports and their supporting definitions.
+It also removes the commented tool registry and the test-only `AgentReadToolBridge` alias.
+Imports for `Type`, mutation limits, result limits, section pagination, and supported Knowledge extensions become unnecessary and are removed.
+Production `agent-tools.ts` decreases from 1,066 to 215 lines, a reduction of 851 lines.
+A comparison against the prior commit proves that the active bridge class and its runtime helpers remain byte-for-byte unchanged.
+A source-wide reference scan finds no remaining use of the removed exports or alias.
+The `typebox` dependency remains necessary for `typebox/value` in session execution and the shared schema type.
+
+Shared Zod contracts retain authoritative argument validation in Main.
+`agentModelVisibleToolSpecs` remains the model parameter projection used by `AgentToolBridge.tools()`.
+The bridge retains capability binding, request correlation, cancellation, closed-port rejection, and trusted or untrusted result envelopes.
+Main retains authorization, version guards, approval authority, and mutation serialization.
+No dependency, migration, shared production contract, Worker entrypoint, or packaging resource changes.
+
+Tests now inspect the actual shared schemas instead of the unused Worker copies.
+Field and limit assertions compare the generated model parameters with the authoritative Zod projection.
+The read-section assertions include the table branch and its row limit.
+The outline test reads the actual `oneOf` branches and proves that the created section reference has no UUID requirement.
+Recursive capability assertions cover all 22 tools and their nested parameters.
+They exclude project, conversation, run, and model-request capabilities, plus filesystem, SQL, and command fields.
+The bridge test compares every execution mode with the shared descriptors and permits parallel execution only for read effects.
+Minimum argument fixtures now cover all 22 tools, including the four comment tools.
+Each fixture passes Pi validation, Main request parsing, and Pi validation after Main defaults.
+Existing Ask, Plan, Write, Notebook, response-correlation, result-envelope, and cancellation tests remain active.
+
+Verification selects `pnpm check:fast` and focused Electron tests, as required by the Issue 5 implementation review.
+The runtime bridge remains unchanged, so this cleanup does not require a build, E2E, or package gate.
+`pnpm test src/workers/agent-tools.test.ts src/shared/agent-tool-specs.test.ts src/shared/contracts/agent-tools.test.ts` passes.
+The canonical runner reports 27 tests across three files in 320ms, with 0.5s for the command.
+There are zero retries or skips.
+Report: `.cache/verification/1792011141960-14908-2bab1984`.
+The same selected baseline passes 27 tests in 1.1s before implementation.
+An intermediate assertion assumes the old `anyOf` structure and fails against the actual generated `oneOf` schema.
+Only the test assertion changes before the successful focused rerun. There is one corrective rerun and no automatic retry.
+
+`pnpm check:fast` passes all three static stages in 2.5s.
+Biome examines 866 files, and both TypeScript targets pass.
+Report: `.cache/verification/1792011144751-15013-aac26768`.
+Biome formatting and the final diff inspection pass.
+The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
+Node remains outside the declared `>=24.21.0 <25` range and emits the existing engine warning.
+Focused tests use the canonical Electron runner on macOS arm64.
+Windows and Linux runtime coverage remains outstanding for this cleanup.
+Changes remain in the working tree for Claude review, without a commit, push, or issue closure.
+The pre-existing untracked dependency audit remains untouched.
+
+Claude reviews the Issue 5 working tree on 2026-10-14 and accepts it without source changes.
+The production diff against `e565309` contains only deletions, and no source reference to the removed exports or alias remains.
+Rerunning `pnpm check:fast` passes in 2.6s. The same three focused Electron test files pass 27 tests in 0.8s with zero retries.
+The change is committed and pushed, and Issue 5 is closed. The untracked dependency audit stays outside this commit.
