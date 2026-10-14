@@ -208,6 +208,7 @@ import type {
   BibliographySnapshot,
   FormattedReferenceSnapshot,
   LegacyCitationConversionPlan,
+  LegacyCitationConversionApplyResult,
   ReferenceItem,
   ReferenceSearchResult,
   ReferenceSettings
@@ -620,7 +621,7 @@ export interface DesktopApi {
     applyLegacyCitationConversion(input: {
       projectSessionId: string
       planId: string
-    }): Promise<{ sectionsChanged: number }>
+    }): Promise<LegacyCitationConversionApplyResult>
     referenceSettings(input: { projectSessionId: string }): Promise<ReferenceSettings>
     setReferenceSettings(input: {
       projectSessionId: string

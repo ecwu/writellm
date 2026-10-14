@@ -26,6 +26,9 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 16: legacy citation conversion passes local acceptance and Claude review.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
+
 - [x] Maintenance: consolidate Agent UTF-8 truncation and verify Unicode-safe previews.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-09-05-ponytail-utf8-cleanup).
 

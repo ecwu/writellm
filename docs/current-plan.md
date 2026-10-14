@@ -22,7 +22,7 @@ packaged-shell startup. Candidate `.42` then completed both macOS rows and Linux
 upload; Windows alone retried one section-title scenario after the test wrote before initial
 project state finished hydrating. Candidate `.43` waits for that initial title state before editing
 and is locally verified pending hosted confirmation.
-Recorded: 2026-10-05
+Recorded: 2026-10-14
 
 This file records only active delivery state. Long-lived system rules live in
 [`architecture.md`](architecture.md) and the ADRs; detailed checkpoint evidence lives in the
@@ -30,6 +30,19 @@ matching Phase file under [`implementation-todo/`](implementation-todo/); comple
 lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
+
+- [Issue 16](https://github.com/ecwu/writellm/issues/16) legacy citation conversion passes local acceptance.
+  It is the first implementation in the [Issue 4](https://github.com/ecwu/writellm/issues/4) sequence.
+  Converted revisions publish section mirrors without reopening the project.
+  Failed publication retains committed revisions and records pending repair with the original error.
+  Partial commits remain visible in the result. Open editors refresh or preserve drafts with an explicit conflict.
+  All 43 focused Electron tests pass across five files in 5.5s.
+  Final static stages pass in 2.5s. The final source build takes 14.7s.
+  Three distinct source E2E scenarios pass on macOS arm64 with zero automatic retries or skips.
+  The error-message scenario passes in a focused 6.3s rerun after a test-fixture correction.
+  Other-platform runtime coverage remains outstanding.
+  Claude review accepts the implementation, and Issue 16 is closed. Later sub-issues remain unstarted.
+  Evidence: [Issue 16 implementation](history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 
 - Default left tool opening now adds an active tab to the existing left tool group under
   [ADR 083](adrs/083-tabbed-docking-workbench.md#2026-10-05-default-tool-tab-placement).

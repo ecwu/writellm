@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { editorSessionInputSchema } from './manuscript'
+import { editorSessionInputSchema, sectionIdSchema } from './manuscript'
 
 export const CITATION_KEY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}$/u
 export const REFERENCE_CSL_MAX_BYTES = 1024 * 1024
@@ -383,7 +383,11 @@ export const legacyCitationConversionApplyInputSchema = editorSessionInputSchema
   .extend({ planId: z.uuid() })
   .strict()
 export const legacyCitationConversionApplyResultSchema = z
-  .object({ sectionsChanged: z.number().int().nonnegative().max(10_000) })
+  .object({
+    status: z.enum(['converted', 'stale_plan', 'failed']),
+    sectionsChanged: z.number().int().nonnegative().max(10_000),
+    pendingRepairSectionIds: z.array(sectionIdSchema).max(10_000)
+  })
   .strict()
 export const formattedReferenceSnapshotSchema = z
   .object({
@@ -427,3 +431,6 @@ export type BibliographyImportOutcome = z.infer<typeof bibliographyImportOutcome
 export type ReferenceSettings = z.infer<typeof referenceSettingsSchema>
 export type FormattedReferenceSnapshot = z.infer<typeof formattedReferenceSnapshotSchema>
 export type LegacyCitationConversionPlan = z.infer<typeof legacyCitationConversionPlanSchema>
+export type LegacyCitationConversionApplyResult = z.infer<
+  typeof legacyCitationConversionApplyResultSchema
+>

@@ -4661,3 +4661,93 @@ The App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
 Its Info.plist declares package version 0.2026.10 and build number 2026.10.1. Release metadata remains 0.2026.10.1.
 This build runs no functional tests. The preceding static and three-scenario source acceptance remains applicable.
 No version increment, installer, tag, hosted build, or release publication runs.
+
+## 2026-10-14 Issue 16 legacy citation conversion
+
+[Issue 16](https://github.com/ecwu/writellm/issues/16) precedes the simplification batches in [Issue 4](https://github.com/ecwu/writellm/issues/4).
+The user authorizes implementation in that order and requires a pause before each issue closes for Claude review.
+The work keeps ADR 070 and the existing editor persistence rules.
+It adds no migration, dependency, Worker entrypoint, event channel, or packaging resource.
+
+Main owns conversion authorization and committed revisions in `project.sqlite`.
+The handler commits sections synchronously and collects changed revisions before the first asynchronous file publication.
+Each changed revision then uses `EditorPersistenceService.materialize`.
+A later append failure keeps the committed prefix and still schedules its publication.
+The result reports `failed` with the committed section count instead of implying a complete rollback.
+
+Publication failures retain database revisions and report pending section IDs.
+The `reference.legacy_conversion.materialization_pending` event records the original `err`, session, section, and revision IDs.
+`repairAll`, ordinary saves, and explicit publication remain recovery paths.
+Per-section publication queues and current-revision comparisons prevent an obsolete conversion from replacing a newer mirror.
+Conversion also passes a session authorization callback into publication.
+The callback runs at queued publication entry, before rename, and after the atomic write before database registration.
+The handler repeats authorization before retention cleanup.
+
+`EditorPersistenceService.pruneRevisionBodies` exposes the existing cleanup and failure log through one shared method.
+Ordinary saves and conversion use that method.
+Its retention SQL stays unchanged, including the current manual checkpoint and protected parent bodies.
+`ManuscriptService.appendRevision` remains the logger for its own failures.
+The handler records its own failures, including invalid plans, without repeating the service error.
+Renderer receives bounded outcome fields through the shared Zod schema and the typed desktop API.
+
+The plan still uses session identity, outline version, a ten-minute lifetime, and a sixteen-plan limit.
+Conversion still creates `manual_checkpoint` revisions and counts only changed sections.
+The conversion algorithm and its English and Chinese locator outputs stay unchanged.
+The handler consumes each plan once.
+This change removes the deferred-mirror gap and the Renderer branch that labels every failure as a manuscript change.
+
+Knowledge invalidates the existing workspace, section, reference, manuscript preview, and publication queries after committed changes.
+The existing editor accepts an external revision when clean.
+With an unsaved draft, it retains the local document, blocks stale saves, and presents the existing canonical reload action.
+Partial conversion and pending mirror repair share one message when both occur.
+Plan expiry and other failures use separate messages.
+
+Verification selects focused Electron tests and source E2E because this change affects IPC, persistence, and editor interactions.
+`pnpm test src/main/ipc/knowledge-ipc.legacy-conversion.test.ts src/main/ipc/knowledge-ipc.test.ts src/main/manuscript/editor-persistence-service.test.ts src/main/references/legacy-citation-conversion.test.ts src/shared/contracts/references.test.ts` passes.
+The canonical runner reports 43 tests across five files in 5.03s, with 5.5s for the command.
+There are no retries or skips.
+Report: `.cache/verification/1792009689021-92834-7ed271ae`.
+
+The eleven new integration cases use real project databases, revision writes, and materialization files.
+They cover publication, plan expiry, consumed plans, outline changes, session rejection, handler errors, and repair.
+They also cover synchronous commit ordering, partial commits with and without pending mirrors, session revocation, newer revisions, and retention.
+A SQLite trigger produces the partial append failure through the real service and its original-error logger.
+The initial regression reproduces the database/file mismatch after correction of a malformed paragraph fixture.
+An earlier focused run passes 35 tests in 5.3s.
+Static preflight failures expose fixture logger typing and formatting, both corrected before acceptance.
+
+`pnpm check:e2e e2e/legacy-citation-conversion.spec.ts` supplies the final static stages and one matching source build.
+Biome examines 866 files. Both TypeScript targets pass.
+The three static stages take 2.5s, and production compilation takes 14.7s.
+The final-source clean-editor and draft-conflict scenarios pass in 5.5s and 6.9s, respectively.
+The error-message scenario initially fails because its fixture uses dynamic import inside a Playwright callback.
+This is a fixture failure after successful Electron launch, rather than a sandbox or product failure.
+The callback then uses the documented Node builtin loader within Main.
+Sources: [Playwright Electron evaluation](https://github.com/microsoft/playwright/blob/v1.63.0/docs/src/electron-api/class-electronapplication.md)
+and [Node builtin loading](https://nodejs.org/api/process.html#processgetbuiltinmoduleid).
+Report: `.cache/verification/1792009763949-93813-fb176fe9`.
+
+`pnpm test:e2e e2e/legacy-citation-conversion.spec.ts --grep 'distinguishes an expired conversion review'` reuses that build.
+The corrected scenario passes in 5.6s, with 6.3s for the command.
+It uses real stale-plan rejection and a real SQLite append failure to exercise both UI messages.
+Report: `.cache/verification/1792009860886-95305-b684a625`.
+All three distinct scenarios pass across retained results with zero automatic retries or skips.
+The draft scenario crosses the autosave interval and proves that an old base cannot replace the conversion.
+It also proves that explicit canonical reload replaces the preserved draft only after the user action.
+Two source builds run during this task, one per combined invocation.
+The second build includes the final combined error message. The fixture-only rerun adds no build.
+
+The host uses Node 26.11.1 and project-pinned pnpm 11.28.3.
+The declared Node range remains `>=24.21.0 <25`, so the host emits an engine warning.
+The installed pnpm entry reports 11.17.0 before selecting the project version through approved host access.
+Native preparation passes with Electron 44.5.1, ABI 149, and Node-API 10 on macOS arm64.
+It selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 at the arm64 resource.
+Windows and Linux runtime behavior remains untested for this maintenance.
+The changed boundaries do not require a package gate under the repository rules.
+The changes remain in the local working tree for review, without a commit, push, or issue closure.
+The pre-existing untracked dependency audit remains untouched.
+
+Claude reviews the Issue 16 working tree on 2026-10-14 and accepts it without source changes.
+Rerunning `pnpm check:fast` passes in 2.6s. The same five focused Electron test files pass 43 tests in 5.6s.
+`pnpm test:e2e e2e/legacy-citation-conversion.spec.ts` reuses the matching build and passes all three scenarios in 13.1s with zero retries.
+The change is committed and pushed, and Issue 16 is closed. The untracked dependency audit stays outside this commit.

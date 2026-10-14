@@ -133,14 +133,7 @@ export class EditorPersistenceService {
     try {
       await this.#faults.afterDatabaseCommit?.()
       await this.materialize(revision)
-      try {
-        this.#pruneRevisionBodies(input.sectionId)
-      } catch (err) {
-        this.#log.warn(
-          { event: 'editor.revision_retention.cleanup_failed', err, projectId: this.#projectId },
-          'Revision retention cleanup failed; canonical revision remains available'
-        )
-      }
+      this.pruneRevisionBodies(input.sectionId)
       this.#log.info(
         {
           event: unchanged ? 'editor.persistence.unchanged' : 'editor.persistence.saved',
@@ -195,11 +188,14 @@ export class EditorPersistenceService {
     })
   }
 
-  async materialize(revision: SectionRevision): Promise<void> {
-    await this.#serializePublication(revision.sectionId, () => this.#materialize(revision))
+  async materialize(revision: SectionRevision, assertAuthorized?: () => void): Promise<void> {
+    await this.#serializePublication(revision.sectionId, () =>
+      this.#materialize(revision, assertAuthorized)
+    )
   }
 
-  async #materialize(revision: SectionRevision): Promise<void> {
+  async #materialize(revision: SectionRevision, assertAuthorized?: () => void): Promise<void> {
+    assertAuthorized?.()
     const relativePath = sectionMaterializationPath(revision.sectionId)
     const destination = resolveProjectPath(this.#projectRoot, relativePath)
     const envelope = {
@@ -215,11 +211,14 @@ export class EditorPersistenceService {
     const fileSha256 = sha256(bytes)
     const published = await writeAtomicFile(destination, bytes, {
       beforeRename: this.#faults.beforeMaterializationRename,
-      shouldRename: () =>
-        this.#currentRevisionId(revision.sectionId) === revision.sectionRevisionId,
+      shouldRename: () => {
+        assertAuthorized?.()
+        return this.#currentRevisionId(revision.sectionId) === revision.sectionRevisionId
+      },
       afterRename: this.#faults.afterMaterializationRename
     })
     if (!published) return
+    assertAuthorized?.()
     if (this.#currentRevisionId(revision.sectionId) !== revision.sectionRevisionId) {
       await rm(destination, { force: true })
       return
@@ -320,6 +319,17 @@ export class EditorPersistenceService {
       )
     } catch {
       return false
+    }
+  }
+
+  pruneRevisionBodies(sectionId: string): void {
+    try {
+      this.#pruneRevisionBodies(sectionId)
+    } catch (err) {
+      this.#log.warn(
+        { event: 'editor.revision_retention.cleanup_failed', err, projectId: this.#projectId },
+        'Revision retention cleanup failed. Canonical revision remains available'
+      )
     }
   }
 

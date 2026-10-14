@@ -521,13 +521,53 @@ export function KnowledgeManager(props: {
     if (conversionPlan === null) return
     setBusy(true)
     try {
-      await window.desktop.knowledge.applyLegacyCitationConversion({
+      const result = await window.desktop.knowledge.applyLegacyCitationConversion({
         projectSessionId: props.projectSessionId,
         planId: conversionPlan.planId
       })
       setConversionPlan(null)
+      if (result.sectionsChanged > 0) {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ['manuscript-workspace', props.projectSessionId]
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ['manuscript-section', props.projectSessionId]
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ['manuscript-references', props.projectSessionId]
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ['manuscript-preview', props.projectSessionId]
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ['publication-preview', props.projectSessionId]
+          })
+        ])
+      }
+      if (result.status === 'stale_plan') {
+        props.onError(
+          'The manuscript changed or the plan expired. Create and review a new conversion plan.'
+        )
+      } else if (result.status === 'failed') {
+        const failureMessage =
+          result.sectionsChanged > 0
+            ? `Conversion stopped after ${result.sectionsChanged} sections. Committed changes remain saved. Review a new plan for the remaining citations.`
+            : 'Legacy citations could not be converted. Try again or open Diagnostics.'
+        props.onError(
+          result.pendingRepairSectionIds.length > 0
+            ? `${failureMessage} ${result.pendingRepairSectionIds.length} section mirrors also need repair.`
+            : failureMessage
+        )
+      } else if (result.pendingRepairSectionIds.length > 0) {
+        props.onError(
+          `${result.pendingRepairSectionIds.length} converted section mirrors need repair. The database changes remain saved.`
+        )
+      }
     } catch {
-      props.onError('The manuscript changed; create and review a new conversion plan.')
+      props.onError(
+        'Legacy citation conversion could not finish. Reload the manuscript before trying again.'
+      )
     } finally {
       setBusy(false)
     }

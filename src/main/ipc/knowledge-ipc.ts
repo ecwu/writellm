@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { SectionRevision } from '../../shared/contracts/manuscript'
 import {
   knowledgeCitationCoveragePageInputSchema,
   knowledgeCitationCoveragePageResultSchema,
@@ -360,42 +361,122 @@ export function registerKnowledgeIpc(options: {
     return legacyCitationConversionPlanSchema.parse({ planId, ...planned })
   })
 
-  ipc.handle(IPC_CHANNELS.referenceApplyLegacyConversion, (event, input: unknown) => {
+  ipc.handle(IPC_CHANNELS.referenceApplyLegacyConversion, async (event, input: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = legacyCitationConversionApplyInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const plan = legacyConversionPlans.get(parsed.planId)
     legacyConversionPlans.delete(parsed.planId)
-    if (
-      plan === undefined ||
-      plan.projectSessionId !== parsed.projectSessionId ||
-      plan.expiresAt < Date.now() ||
-      context.manuscript.getReferenceIndex().outlineVersion !== plan.outlineVersion
-    ) {
-      throw new Error('Legacy citation conversion plan is stale')
+    let context: ProjectContext
+    try {
+      context = options.manager.assertMutationSession(parsed.projectSessionId)
+    } catch (err) {
+      options.logger.error(
+        {
+          event: 'reference.legacy_conversion.failed',
+          err,
+          projectSessionId: parsed.projectSessionId
+        },
+        'Legacy citation conversion could not start'
+      )
+      throw new Error('Legacy citations could not be converted', { cause: err })
     }
-    let sectionsChanged = 0
-    for (const entry of context.manuscript.assemble().sections) {
-      const content = convertLegacyCitations(entry.revision.content, plan.citationKeyByTitle)
-      const revision = context.manuscript.appendRevision({
-        sectionId: entry.section.sectionId,
-        baseRevisionId: entry.revision.sectionRevisionId,
-        baseContentHash: entry.revision.contentHash,
-        content,
-        source: 'manual',
-        sourceClass: 'manual_checkpoint'
-      })
-      if (revision.sectionRevisionId !== entry.revision.sectionRevisionId) sectionsChanged += 1
+    let status: 'converted' | 'failed' = 'converted'
+    const revisions: SectionRevision[] = []
+    const pendingRepairSectionIds: string[] = []
+    let failureOwner: 'handler' | 'manuscript' = 'handler'
+    try {
+      if (
+        plan === undefined ||
+        plan.projectSessionId !== parsed.projectSessionId ||
+        plan.expiresAt < Date.now() ||
+        context.manuscript.getReferenceIndex().outlineVersion !== plan.outlineVersion
+      ) {
+        const err = new Error('Legacy citation conversion plan is stale')
+        options.logger.error(
+          {
+            event: 'reference.legacy_conversion.stale_plan',
+            err,
+            projectSessionId: parsed.projectSessionId
+          },
+          'Legacy citation conversion needs a new plan'
+        )
+        return legacyCitationConversionApplyResultSchema.parse({
+          status: 'stale_plan',
+          sectionsChanged: 0,
+          pendingRepairSectionIds: []
+        })
+      }
+      for (const entry of context.manuscript.assemble().sections) {
+        const content = convertLegacyCitations(entry.revision.content, plan.citationKeyByTitle)
+        // appendRevision records its original failure. The handler owns other failures.
+        failureOwner = 'manuscript'
+        const revision = context.manuscript.appendRevision({
+          sectionId: entry.section.sectionId,
+          baseRevisionId: entry.revision.sectionRevisionId,
+          baseContentHash: entry.revision.contentHash,
+          content,
+          source: 'manual',
+          sourceClass: 'manual_checkpoint'
+        })
+        failureOwner = 'handler'
+        if (revision.sectionRevisionId !== entry.revision.sectionRevisionId)
+          revisions.push(revision)
+      }
+    } catch (err) {
+      if (failureOwner === 'handler') {
+        options.logger.error(
+          {
+            event: 'reference.legacy_conversion.failed',
+            err,
+            projectSessionId: parsed.projectSessionId,
+            sectionsChanged: revisions.length
+          },
+          'Legacy citation conversion stopped. Committed revisions remain saved'
+        )
+      }
+      status = 'failed'
+    }
+    // Finish all synchronous commits before publication can yield to another mutation.
+    for (const revision of revisions) {
+      try {
+        const assertAuthorized = (): void => {
+          options.manager.assertActiveSession(parsed.projectSessionId)
+        }
+        assertAuthorized()
+        await context.editorPersistence.materialize(revision, assertAuthorized)
+        assertAuthorized()
+        context.editorPersistence.pruneRevisionBodies(revision.sectionId)
+      } catch (err) {
+        pendingRepairSectionIds.push(revision.sectionId)
+        options.logger.error(
+          {
+            event: 'reference.legacy_conversion.materialization_pending',
+            err,
+            projectSessionId: parsed.projectSessionId,
+            sectionId: revision.sectionId,
+            sectionRevisionId: revision.sectionRevisionId
+          },
+          'Converted revision remains saved. Its section mirror needs repair'
+        )
+      }
     }
     options.logger.info(
       {
-        event: 'reference.legacy_conversion.completed',
-        sectionsChanged,
-        replacementCount: plan.citationKeyByTitle.size
+        event:
+          status === 'converted'
+            ? 'reference.legacy_conversion.completed'
+            : 'reference.legacy_conversion.partial',
+        sectionsChanged: revisions.length,
+        pendingRepairCount: pendingRepairSectionIds.length,
+        replacementCount: plan?.citationKeyByTitle.size ?? 0
       },
-      'Legacy citations converted after explicit confirmation'
+      'Legacy citation conversion result recorded'
     )
-    return legacyCitationConversionApplyResultSchema.parse({ sectionsChanged })
+    return legacyCitationConversionApplyResultSchema.parse({
+      status,
+      sectionsChanged: revisions.length,
+      pendingRepairSectionIds
+    })
   })
 
   ipc.handle(IPC_CHANNELS.referenceGetSettings, (event, input: unknown) => {
