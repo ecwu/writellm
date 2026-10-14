@@ -18,7 +18,7 @@ import { ReferenceLibraryService } from '../references/reference-library-service
 import type { MineruWorkflowService } from '../knowledge/mineru-workflow-service'
 import type { KnowledgeNormalizationService } from '../knowledge/knowledge-normalization-service'
 import type { KnowledgeMappingService } from '../knowledge/knowledge-mapping-service'
-import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
+import type { NotebookRegistry } from '../knowledge/notebook-registry'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import {
@@ -200,7 +200,7 @@ export interface ProjectManagerOptions {
     knowledgeMapping: KnowledgeMappingService
     projectIndex: ProjectIndexService
     retrieval: RetrievalService
-    knowledgeChat: KnowledgeChatService
+    knowledgeChat: NotebookRegistry
     agentSessions: AgentSessionService
     agentMutations: MutationProposalService
     agentChangeSets: ChangeSetBatchService

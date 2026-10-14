@@ -20,7 +20,7 @@ import type { ProjectVersionStore } from './project-version-store'
 import type { ProjectFilesystem } from './project-filesystem'
 import type { WritingTaskService } from '../agent/writing-task-service'
 import type { ChangeSetBatchService } from '../agent/change-set-batch-service'
-import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
+import type { NotebookRegistry } from '../knowledge/notebook-registry'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
 
 /** Main-only authority for the currently open project. */
@@ -45,7 +45,7 @@ export interface ProjectContext {
   readonly knowledgeMapping: KnowledgeMappingService
   readonly projectIndex: ProjectIndexService
   readonly retrieval: RetrievalService
-  readonly knowledgeChat: KnowledgeChatService
+  readonly knowledgeChat: NotebookRegistry
   readonly agentSessions: AgentSessionService
   readonly agentMutations: MutationProposalService
   readonly agentChangeSets: ChangeSetBatchService

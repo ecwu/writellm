@@ -96,7 +96,7 @@ import {
   registerNormalizationHandler
 } from './knowledge/knowledge-normalization-service'
 import { KnowledgeMappingService } from './knowledge/knowledge-mapping-service'
-import { KnowledgeChatService } from './knowledge/knowledge-chat-service'
+import { NotebookRegistry } from './knowledge/notebook-registry'
 import { KnowledgeChatEventBroker } from './knowledge/knowledge-chat-event-broker'
 import { IndexClient } from './search/index-client'
 import {
@@ -450,7 +450,7 @@ if (!hasSingleInstanceLock) {
               ),
             log: loggerSystem.createModuleLogger('search', 'retrieval')
           })
-          const knowledgeChat = new KnowledgeChatService({
+          const knowledgeChat = new NotebookRegistry({
             projectId,
             projectSessionId,
             database,

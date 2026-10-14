@@ -109,7 +109,6 @@ export class NotebookChatCapacityError extends Error {
 
 export class KnowledgeChatService {
   readonly notebookId: string
-  readonly #instances = new Map<string, KnowledgeChatService>()
   readonly #now: () => Date
   readonly #createId: () => string
   #revision = 0
@@ -134,36 +133,6 @@ export class KnowledgeChatService {
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
     this.#agentSessionId = this.#createId()
-  }
-
-  createInstance(): KnowledgeChatService {
-    this.#assertOpen()
-    if (this.#instances.size >= 10) throw new Error('Up to 10 Notebooks may be open')
-    const notebookId = randomUUID()
-    const instance = new KnowledgeChatService({ ...this.options, notebookId })
-    this.#instances.set(notebookId, instance)
-    this.options.log.info(
-      {
-        event: 'knowledge.notebook.created',
-        notebookId,
-        projectSessionId: this.options.projectSessionId
-      },
-      'Notebook instance created'
-    )
-    return instance
-  }
-
-  instance(notebookId: string): KnowledgeChatService {
-    this.#assertOpen()
-    const instance = this.#instances.get(notebookId)
-    if (!instance) throw new Error('Notebook is closed or unavailable')
-    return instance
-  }
-
-  async destroyInstance(notebookId: string): Promise<void> {
-    const instance = this.instance(notebookId)
-    this.#instances.delete(notebookId)
-    await instance.close()
   }
 
   async snapshot(): Promise<NotebookChatSnapshot> {
@@ -344,8 +313,6 @@ export class KnowledgeChatService {
   async close(): Promise<void> {
     if (this.#closed) return
     this.#closed = true
-    await Promise.all([...this.#instances.values()].map((instance) => instance.close()))
-    this.#instances.clear()
     await this.#cancelActive('project_close', false)
     this.#messages = []
     this.#sourceScope = { mode: 'all', knowledgeItemIds: [] }

@@ -16,7 +16,8 @@ import type {
 } from '../providers/gateways'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import type { CurrentIndexedSourceSnapshot } from '../search/index-service'
-import { KnowledgeChatService } from './knowledge-chat-service'
+import { KnowledgeChatService, type KnowledgeChatServiceOptions } from './knowledge-chat-service'
+import { NotebookRegistry } from './notebook-registry'
 
 const projectId = '019d0000-0000-7000-8000-000000000410'
 const projectSessionId = '019d0000-0000-7000-8000-000000000411'
@@ -330,7 +331,7 @@ async function harness(
     log
   })
   databases.push(database)
-  const service = new KnowledgeChatService({
+  const serviceOptions: KnowledgeChatServiceOptions = {
     projectId,
     projectSessionId,
     database,
@@ -348,8 +349,19 @@ async function harness(
     agentCatalog: agentCatalog as never,
     runtime,
     log: logger
-  })
-  return { service, retrieval, currentIndexedSources, agentCatalog, runtime, logger, database }
+  }
+  const service = new KnowledgeChatService(serviceOptions)
+  const registry = new NotebookRegistry(serviceOptions)
+  return {
+    registry,
+    service,
+    retrieval,
+    currentIndexedSources,
+    agentCatalog,
+    runtime,
+    logger,
+    database
+  }
 }
 
 function notebookReference(knowledgeItemId: string, citationKey: string, title: string) {
@@ -684,10 +696,10 @@ describe('KnowledgeChatService', () => {
 
 describe('Notebook instance ownership', () => {
   it('keeps background turns isolated and cancels only the destroyed instance', async () => {
-    const { service, runtime } = await harness()
+    const { registry, runtime } = await harness()
     runtime.block = true
-    const first = service.createInstance()
-    const second = service.createInstance()
+    const first = registry.createInstance()
+    const second = registry.createInstance()
     const concurrent = await Promise.allSettled([
       first.startTurn('First ongoing answer'),
       first.startTurn('Duplicate preparation')
@@ -697,19 +709,44 @@ describe('Notebook instance ownership', () => {
     await second.startTurn('Second ongoing answer')
     await vi.waitFor(() => expect(runtime.calls).toHaveLength(2))
     await expect(first.startTurn('Duplicate')).rejects.toThrow()
-    await service.destroyInstance(first.notebookId)
+    await registry.destroyInstance(first.notebookId)
     await expect(first.snapshot()).rejects.toThrow('closed')
     const ongoing = await second.snapshot()
     expect(ongoing.phase).not.toBe('idle')
     expect(JSON.stringify(ongoing.messages)).not.toContain('First ongoing answer')
-    await service.close()
+    const closing = registry.close()
+    expect(registry.close()).toBe(closing)
+    expect(() => registry.instance(second.notebookId)).toThrow('closed')
+    await closing
     await expect(second.snapshot()).rejects.toThrow('closed')
   })
 
+  it('waits for a detached Notebook cleanup when the project closes concurrently', async () => {
+    const { registry } = await harness()
+    const notebook = registry.createInstance()
+    let finish!: () => void
+    const cleanup = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    vi.spyOn(notebook, 'close').mockReturnValue(cleanup)
+    const destroying = registry.destroyInstance(notebook.notebookId)
+    expect(() => registry.instance(notebook.notebookId)).toThrow('unavailable')
+    let closed = false
+    const closing = registry.close().then(() => {
+      closed = true
+    })
+    await Promise.resolve()
+    expect(closed).toBe(false)
+    finish()
+    await Promise.all([destroying, closing])
+    expect(closed).toBe(true)
+    expect(notebook.close).toHaveBeenCalledTimes(1)
+  })
+
   it('isolates source scopes and messages, limits instances, and revokes all children on close', async () => {
-    const { service } = await harness()
-    const first = service.createInstance()
-    const second = service.createInstance()
+    const { registry } = await harness()
+    const first = registry.createInstance()
+    const second = registry.createInstance()
     expect(first.notebookId).not.toBe(second.notebookId)
     await first.setSources({ mode: 'selected', knowledgeItemIds: [sourceA] })
     expect((await second.snapshot()).sourceScope).toEqual({ mode: 'all', knowledgeItemIds: [] })
@@ -717,15 +754,15 @@ describe('Notebook instance ownership', () => {
     await completed(first)
     expect((await first.snapshot()).messages.length).toBeGreaterThan(0)
     expect((await second.snapshot()).messages).toEqual([])
-    for (let index = 2; index < 10; index++) service.createInstance()
-    expect(() => service.createInstance()).toThrow('10 Notebooks')
-    await service.destroyInstance(first.notebookId)
-    expect(() => service.instance(first.notebookId)).toThrow('unavailable')
+    for (let index = 2; index < 10; index++) registry.createInstance()
+    expect(() => registry.createInstance()).toThrow('10 Notebooks')
+    await registry.destroyInstance(first.notebookId)
+    expect(() => registry.instance(first.notebookId)).toThrow('unavailable')
     await expect(first.snapshot()).rejects.toThrow('closed')
     expect((await second.snapshot()).messages).toEqual([])
-    service.createInstance()
-    await service.close()
+    registry.createInstance()
+    await registry.close()
     await expect(second.snapshot()).rejects.toThrow('closed')
-    expect(() => service.createInstance()).toThrow('closed')
+    expect(() => registry.createInstance()).toThrow('closed')
   })
 })
