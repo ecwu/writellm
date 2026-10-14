@@ -26,6 +26,13 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 12: separate the Notebook registry from individual conversations. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
+- [x] Issue 13: separate workspace find, import, and reference state. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
+- [x] Issue 14: separate Agent queries, titles, compaction, and run registrations. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
+
 - [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and Claude review pass; a baseline quick-action UI failure stays open.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-third-batch-simplification).
 

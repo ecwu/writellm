@@ -31,6 +31,22 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and [14](https://github.com/ecwu/writellm/issues/14) pass local acceptance as the fourth batch.
+  NotebookRegistry owns collections and project cleanup. Each KnowledgeChatService owns one conversation.
+  Workspace features own find, replacement, import, and reference state through business commands.
+  Agent queries, titles, checkpoint generation, and run registration have separate owners.
+  Run state writers and Map entry writers are listed separately in the evidence.
+  The approved default-model behavior, shared admission limit, save barriers, and model authorization remain intact.
+  Final results cover 227 distinct Electron-hosted tests across 24 files and 20 source E2E scenarios on one fresh build.
+  Static stages pass in 2.5s. Source compilation takes 16.0s.
+  Two E2E fixture corrections pass in a focused 4.3s rerun against that same build.
+  Final accepted results record zero automatic retries or skips. Earlier failures and manual reruns remain in the evidence.
+  The known quick-action floating-menu failure remains open and outside this batch.
+  Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
+  Claude review accepts all three issues. Each is committed separately, pushed to `main`, and closed.
+  Issues 15 and 17 remain unstarted.
+  Evidence: [fourth-batch simplification](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
+
 - [Issue 7](https://github.com/ecwu/writellm/issues/7) passes local acceptance and Claude review as the third batch.
   The project factory returns all required feature services. Agent dependencies are required at construction.
   Runs derive their model descriptor and limits from one catalog resolution.
@@ -41,7 +57,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   All final runs record zero retries or skips.
   The quick-action menu scenario also fails on the first-batch App and remains an open baseline UI failure.
   [Issue 11](https://github.com/ecwu/writellm/issues/11) already contains the third-batch lifecycle changes in `df3d1f89` and remains closed.
-  Issue 7 is committed, pushed to `main`, and closed. Later sub-issues remain unstarted.
+  Issue 7 is committed, pushed to `main`, and closed. The fourth batch appears above.
   Verification covers macOS arm64 only. Other-platform runtime coverage remains outstanding.
   Evidence: [third-batch simplification](history/implementation-log.md#2026-10-14-third-batch-simplification).
 

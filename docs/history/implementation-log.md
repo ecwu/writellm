@@ -5321,3 +5321,183 @@ Report: `.cache/verification/1792015764553-5967-fb79aa7a`.
 That quick-action failure remains an open baseline UI defect for later work.
 Coverage remains macOS arm64 only.
 Issue 7 is committed, pushed to `main`, and closed. The untracked dependency audit stays outside the commit.
+
+## 2026-10-14 Fourth-Batch Simplification
+
+The user authorizes Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and [14](https://github.com/ecwu/writellm/issues/14) as one implementation batch.
+The starting commit is `46290a2`. Claude review remains the next gate before commits and issue closure.
+The user cancels the proposed Ghostty review handoff and asks the implementation to stop at this gate.
+The existing untracked dependency audit remains untouched.
+
+### Notebook collection and conversation ownership
+
+`NotebookRegistry` owns the project collection, its ten-instance limit, and its close promise.
+`KnowledgeChatService` owns one transient Notebook conversation and supports independent construction.
+A conversation no longer creates child conversations or stores a child registry.
+ProjectContext and both project shutdown paths use the registry through the existing `knowledgeChat` property.
+Notebook IPC retains the same capability checks, identifiers, schemas, and event routing.
+The registry revokes lookup before destruction and waits for detached cleanup when project close overlaps destruction.
+Repeated project close calls return the same cleanup promise.
+Main's existing model client retains the three shared Agent/Notebook execution slots under ADR 083.
+The registry adds no admission policy, provider dependency, database table, or migration.
+
+### Workspace feature ownership
+
+The workspace controller delegates find and replacement state to `useManuscriptFind`.
+`ManuscriptFindFeature` receives that feature controller rather than the whole workspace controller.
+`useManuscriptImport` owns the import dialog and the staging commands.
+`useManuscriptReferences` owns citation drafts, numbering, preview requests, and the reference dialog.
+The workspace retains section navigation, metadata drafts, pending search targets, query refresh, and editor save coordination.
+Features receive business commands for saves, navigation, barrier release, and query refresh.
+They receive no QueryClient or mutable editor reference.
+The view uses editor commands and retains the editor reference only to attach SectionEditor.
+Replacement request and page sequences remain local to find state.
+Reference close, replacement, and capability cleanup invalidate pending previews.
+Moved error handlers report the original error through existing Renderer diagnostics before displaying safe messages.
+The existing quick-action failure occurs inside SectionEditor's floating menu, outside these feature slices.
+This batch leaves that baseline defect open and excludes its scenario from acceptance.
+
+### Agent responsibilities
+
+`AgentSessionQueries` owns bounded event and run history reads.
+It uses `ProjectDatabase.read()` and preserves event byte limits, ordering, payload selection, and schema parsing.
+`AgentSessionTitles` owns title generation, title request cleanup, bounded context reads, and conditional title writes.
+`AgentSessionCompactor` owns summary material, image loading, checkpoint fitting, and compaction event commands.
+It reuses the existing checkpoint, context budget, and summary helpers.
+`AgentRunCoordinator` owns registrations and conversation work slots.
+AgentSessionService retains run preparation, model choice, tool authorization, queues, settlement, and run-specific recovery.
+Manual compaction retains its slot and cancellation coordination in that facade.
+The compactor receives explicit callbacks for image checks and persist-before-publish events.
+The approved default-model adoption from Issue 7 remains inside `#withSessionProvider` and `#adoptDefaultModelSelection`.
+Each awaited execution path retains its authorization and state checks.
+The tool request handler remains intact. The refactor adds no general workflow layer or recovery authority.
+
+### Map entry writers
+
+The following table lists registration writes separately from object mutation.
+Readonly Map views permit lookup and iteration without exposing insertion or deletion methods.
+
+| Map | Insertion and deletion owner | Calling responsibility |
+| --- | --- | --- |
+| Starting runs | `AgentRunCoordinator.registerStarting/finishStarting` | `startRun` reserves preparation and releases it in its completion callback. |
+| Active runs | `AgentRunCoordinator.registerRun/finishRun` | `#startReservedRun` registers work. Preparation cleanup and `#settleRun` remove only their own object. |
+| Manual compactions | `AgentRunCoordinator.registerCompaction/finishCompaction` | `compactSession` registers work. Failure and completion callbacks remove their own object. |
+| Conversation slots | `AgentRunCoordinator.reserve/release` | Facade slot commands retain lifecycle logs and activity publication. |
+| Title requests | `AgentSessionTitles.track` and its completion callback | Title begin and manual generation register requests. Cleanup compares the completion promise before deletion. |
+
+`isBusy()` answers only whether a conversation holds work.
+`release()` separately compares the stored work ID before deletion.
+Registration cleanup compares object identity before removal.
+A stale completion cannot release a later owner's slot or remove a replacement registration.
+
+### Activity object writers
+
+The coordinator owns registration, not each object's fields.
+AgentSessionService's named execution callbacks retain the following mutations.
+Neither queries, titles, nor the compactor mutate ActiveRun objects.
+
+| Mutable field or collection | Writer |
+| --- | --- |
+| StartingRun `completion` | `startRun` assigns the reserved preparation promise. |
+| ActiveRun `completion` | `#startReservedRun` assigns preparation and settlement callbacks. |
+| ActiveRun `handle` | `#prepareAndRun` and `#restartAfterContextOverflow` create the runtime handle. |
+| ActiveRun `phase` | Preparation, history compaction, overflow recovery, and clarification wait/complete callbacks update execution phases. |
+| ActiveRun `currentRequest` | `#prepareAndRun` adopts the built request. `currentImages` receives its initial value during registration. |
+| ActiveRun `skillSnapshot` | Preparation, setup failure, Skill reads in `#handleToolRequest`, and settlement update the snapshot. |
+| ActiveRun `skillState` | `#prepareAndRun` adopts routed Skill state. Skill reads retain the router-owned state updates. |
+| ActiveRun `skillPrompt` | Preparation and Skill reads in `#handleToolRequest` update the prompt. |
+| ActiveRun `skillTraceToolCallId` | `#handleToolRequest` sets the trace link. `#handleRuntimeEvent` clears it after persistence. |
+| ActiveRun `systemPrompt` | Preparation, steer preparation, follow-up consumption, and tool continuation adopt refreshed context. |
+| ActiveRun `partialText` | `#handleRuntimeEvent` accumulates bounded deltas and clears text after a durable terminal message. |
+| ActiveRun `activeToolGroups` | `#handleToolRequest` adopts groups after runtime activation succeeds. |
+| ActiveRun `citationRecoveryState` | `#handleToolRequest` updates it from the tool result. |
+| ActiveRun `reviewPause` | `#handleToolRequest` records a pending proposal. |
+| ActiveRun `pendingQuestion` | `#waitForUserAnswer` creates it. `#completePendingUserQuestion` clears it. |
+| PendingUserQuestion `submitting` | `answerUserQuestion` sets it before the durable answer and restores it after a failed write. |
+| ActiveRun `overflowRetryAttempted` | `#settleRun` sets it before the one permitted recovery attempt. |
+| ActiveRun `authorizedModelRequestIds` | Preparation, queued messages, steer, follow-up, continuation, and overflow callbacks add authorized request IDs. Queue removal removes revoked IDs. |
+| ActiveRun `pendingModelRequestIds` | Those authorization callbacks add IDs. Delivery failure, terminal events, queue removal, and abort cleanup remove IDs. |
+| ActiveRun `pendingMessages` | `followUp` appends. `#removePendingMessage` removes consumed or deleted messages. Abort cleanup clears the queue. |
+| ActiveRun `snapshots` | Preparation and message/continuation authorization store snapshots. Queue removal and failed queue dispatch remove them. |
+| ActiveCompaction `phase` | `#executeManualCompaction` changes planning to summarizing. |
+| ActiveCompaction `completion` | `compactSession` attaches execution, slot release, and session publication. |
+
+Controllers remain request-owned. Stop and project close abort the existing controllers without transferring ownership.
+Clarification completion callbacks retain their existing one-shot answers and durable publication ordering.
+
+### Verification
+
+The selected scope covers Notebook isolation and cleanup, history reads, Agent execution, manuscript persistence, and the extracted Renderer interactions.
+Existing title and compaction coverage passes before extraction: 66 tests across five Electron-hosted files in 6.8s.
+That baseline includes automatic compaction, in-progress manual compaction Stop, and title cancellation during project close.
+It also covers cleanup when session delivery lookup fails. No cancellation coverage gap requires a new scenario.
+Report: `.cache/verification/1792016540854-17950-5df7685d`.
+
+After extraction, one focused run passes 183 tests across 16 files in 7.9s.
+It covers the Agent session variants, checkpoint and planner logic, Agent IPC, Notebook IPC, and citation resolution.
+Report: `.cache/verification/1792016673680-23039-4b566933`.
+A second focused run passes 67 tests across 11 files in 4.0s.
+It covers populated history without write transactions, overlapping Notebook destruction, import and replacement persistence, editor IPC, and Renderer projections.
+Report: `.cache/verification/1792016737413-23985-2cd80408`.
+Together the final selections cover 227 distinct tests across 24 files. Both runs record zero retries or skips.
+The second run replaces the first run's Notebook result after the overlapping cleanup test and registry correction.
+
+Static stages pass across 884 Biome files and both TypeScript targets in 2.5s.
+Native preparation passes in 0.9s. One fresh source compilation passes in 16.0s.
+The first composite E2E command selects scenario annotations, but Playwright matches titles and selects no tests.
+Its static and build results remain valid. Its E2E stage fails before any scenario runs.
+Report: `.cache/verification/1792016763913-24385-610373b8`.
+A corrected title selector reuses that same build.
+The corrected initial E2E run passes 18 of 20 scenarios and takes 93.4s.
+The two failures concern outline conflict setup and a hidden outline tool in the citation scenario.
+Report: `.cache/verification/1792016824016-25366-3cbd094f`.
+The retained first-batch App also fails the citation scenario at the same intercepted click.
+Its outline conflict scenario passes. That comparison takes 34.4s.
+Report: `.cache/verification/1792016969522-27381-13a41a1b`.
+The unchanged outline conflict scenario also passes alone on the new source build in 3.4s.
+Report: `.cache/verification/1792017015621-28023-af579603`.
+
+The citation test now activates the visible Manuscript tool before requesting Edit outline.
+It also waits for the reference dialog to close after Escape.
+The outline test waits for deferred confirmation focus restoration before typing its local draft.
+These fixture corrections change no product code or interaction rules.
+Both corrected scenarios pass in a focused 4.3s rerun against the same build.
+Report: `.cache/verification/1792017047361-28551-2e2a1d89`.
+Final acceptance covers 20 distinct source E2E scenarios with zero automatic retries or skips.
+It covers Notebook reset, save races, find navigation, replacement, three import paths, outline conflicts, references, and project restart.
+It also covers Agent titles, manual compaction, image compaction, Stop/edit, fork, concurrency, proposal refresh, and active tool context.
+The 18 earlier passing results remain valid. Only the two affected tests rerun after fixture corrections.
+
+The host uses Node 26.11.1 and pinned pnpm 11.28.3. The existing project engine warning remains unchanged.
+Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
+It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
+Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
+No dependency, migration, Worker entrypoint, native binary, package resource, or installer changes.
+The selected gate uses one fresh source build. It does not rebuild the packaged App.
+Issues 12, 13, and 14 pass local acceptance and await Claude review as one batch.
+No commit, push, issue closure, or Claude message runs. The goal pauses at this review handoff.
+
+### Claude review
+
+Claude reviews Issues 12, 13, and 14 against the working tree and accepts them without source changes.
+Issue 12: Notebook IPC is the only consumer of the project registry. Conversations no longer create children.
+Registry close revokes lookup first and waits for overlapping destruction.
+Issue 13: the find, replacement, import, and reference code matches the original controller logic.
+Request sequences, mutation-barrier releases, and active-section scope resolution are unchanged.
+The deliberate differences are original-error reporting before safe messages and reference preview invalidation on close, selection, and capability change.
+The two E2E edits change only fixture steps. The citation step also fails on the first-batch App.
+Issue 14: normalized diffs show that the title, compaction, and query code match the original apart from names, injected callbacks, and `read()` for history reads.
+Each history read previously used its own `immediate()` callback, so read consistency is unchanged.
+AgentRunCoordinator keeps the busy predicate separate from the release ownership check.
+Every registration removal compares object identity. Slot logs and activity publication stay in the service.
+The Issue 7 default-model adoption remains in `#withSessionProvider`.
+
+`pnpm check:fast` passes in 2.6s.
+A focused Electron run passes 296 tests across 34 files in 8.8s with zero retries.
+It covers Agent sessions, queries, the coordinator, checkpoint and planner logic, Notebook service and IPC, Agent, editor, and search IPC, ProjectManager, import and replacement services, and all Renderer manuscript tests.
+Report: `.cache/verification/1792018082843-46185-4e46da02`.
+`pnpm check:e2e` performs one fresh build in 15.2s. The same 20 source scenarios pass on the first attempt in 57.8s, with zero retries or skips.
+The combined gate passes in 75.8s.
+Report: `.cache/verification/1792018097726-46469-90b2bbcc`.
+The quick-action floating-menu failure remains open. Coverage remains macOS arm64 only.
+Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
