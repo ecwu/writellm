@@ -1,4 +1,15 @@
 import {
+  AgentRunCoordinator,
+  type ActiveRun,
+  type StartingRun,
+  type ActiveCompaction,
+  type PendingUserQuestion,
+  type PendingFollowUpMessage
+} from './session-run-coordinator'
+import { AgentSessionCompactor } from './session-compactor'
+import { AgentSessionTitles } from './session-titles'
+import { AgentSessionQueries } from './session-queries'
+import {
   agentAttachmentIdsSchema,
   AGENT_IMAGES_MAX_BASE64,
   imageDataBytes,
@@ -16,8 +27,7 @@ import { randomUUID } from 'node:crypto'
 import {
   reconstructAgentDiagnosticError,
   serializeAgentDiagnosticError,
-  agentDiagnosticSensitiveValues,
-  type AgentDiagnosticError
+  agentDiagnosticSensitiveValues
 } from '../../shared/agent-diagnostic-error'
 import type { Logger } from 'pino'
 import {
@@ -26,9 +36,7 @@ import {
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
   agentAssistantMessagePayloadSchema,
-  agentCompactionCheckpointV4PayloadSchema,
   agentCompactionFailedPayloadSchema,
-  agentCompactionStartedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
   agentUserMessagePayloadSchema,
@@ -46,7 +54,6 @@ import {
   type WritingToolGroup
 } from '../../shared/contracts/agent'
 import {
-  AGENT_RUNTIME_HISTORY_MAX_BYTES,
   agentMessageBudget,
   agentOutputLimit,
   agentRuntimeMessageBudget,
@@ -60,11 +67,7 @@ import {
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
-  AGENT_EVENT_PAGE_MAX_BYTES,
   agentProjectActivitySnapshotSchema,
-  agentEventPageSchema,
-  agentEventRecordSchema,
-  agentRunRecordSchema,
   agentSessionRecordSchema,
   type AgentEventPage,
   type AgentEventRecord,
@@ -80,7 +83,6 @@ import {
   agentToolResultPayloadSchema,
   askUserResultSchema,
   type AskUserAnswer,
-  type AskUserArgs,
   type AskUserResult,
   type AgentToolRequest,
   type AgentToolResponse
@@ -114,45 +116,27 @@ import {
   SkillPromptBudgetError,
   MAX_SYSTEM_PROMPT_BYTES,
   type AgentContextBuilder,
-  type AgentSkillPromptInput,
   type WritingSnapshot
 } from './context'
 import { SKILL_COMPANION_NOTE } from './prompts/skill-companion'
 import { formatPromptBlock } from './prompts/prompt-block'
-import {
-  SkillRouteError,
-  type SkillRunState,
-  type WritingSkillRuntime
-} from '../skills/skill-router'
+import { SkillRouteError, type WritingSkillRuntime } from '../skills/skill-router'
 import { AgentToolDomainError } from './read-tools'
 import type { WritingTaskService } from './writing-task-service'
 import type { AgentToolExecutor } from './tools'
 import {
   buildSessionTitleContext,
   fallbackSessionTitle,
-  isGenericSessionTitle,
-  sanitizeGeneratedSessionTitle,
-  type SessionTitleMessage
+  isGenericSessionTitle
 } from './session-title'
-import {
-  FALLBACK_AGENT_SYSTEM_PROMPT,
-  formatSessionTitleInput,
-  SESSION_TITLE_SYSTEM_PROMPT,
-  TOOL_CONTINUATION_REQUEST
-} from './prompts/task-prompts'
+import { FALLBACK_AGENT_SYSTEM_PROMPT, TOOL_CONTINUATION_REQUEST } from './prompts/task-prompts'
 import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
 import { AgentTraceRepository } from './trace-repository'
-import {
-  buildNextCompactionMaterial,
-  loadContinuousRuntimeHistory,
-  checkpointHistoryMessage
-} from './context-checkpoint'
+import { loadContinuousRuntimeHistory } from './context-checkpoint'
 import {
   pendingSkillSnapshot,
   insertEvent,
   fingerprint,
-  safeErrorCode,
-  readErrorDetails,
   emptyMetadata
 } from './session-event-utils'
 import {
@@ -171,16 +155,12 @@ import {
   structuredToolError,
   submitResultFromOutcome
 } from './session-run-errors'
-import { truncateUtf8, fitCheckpointSummary } from './session-history'
+import { truncateUtf8 } from './session-history'
 import {
   extractToolProvenance,
   skillResultProjection,
   safeSkillActivityProjection
 } from './session-projections'
-
-const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
-const SESSION_TITLE_OUTPUT_TOKENS = 64
-const SESSION_TITLE_REASONING_OUTPUT_TOKENS = 512
 
 function skillPromptOverhead(): string {
   return `\n\n${SKILL_COMPANION_NOTE}\n\n${formatPromptBlock({
@@ -217,85 +197,6 @@ function citationRecoveryStateAfterToolResult(
 export interface StartedAgentRun {
   agentRunId: string
   completion: Promise<void>
-}
-
-interface ActiveRun {
-  readonly agentSessionId: string
-  readonly agentRunId: string
-  readonly operationId: string
-  readonly controller: AbortController
-  handle: AgentSessionRunHandle | null
-  phase: 'routing' | 'compacting' | 'running' | 'awaiting_input'
-  readonly config: Extract<ProviderConfig, { role: 'agent' }>
-  readonly editorContext: AgentEditorContext
-  readonly approvalMode: AgentApprovalMode
-  readonly interactionMode: AgentInteractionMode
-  readonly thinkingLevel: AgentThinkingLevel
-  readonly runtimeModel: AgentRuntimeModel
-  readonly modelLimits: AgentModelLimits
-  readonly credential: string
-  currentRequest: string
-  currentImages?: AgentImageContent[]
-  readonly maxOutputTokens: number
-  readonly temperature?: number
-  readonly authorizedModelRequestIds: Set<string>
-  readonly pendingModelRequestIds: Set<string>
-  readonly pendingMessages: PendingFollowUpMessage[]
-  activeToolGroups: WritingToolGroup[]
-  citationRecoveryState: 'none' | 'searched' | 'expanded'
-  readonly snapshots: Map<string, WritingSnapshot>
-  skillSnapshot: SkillRunSnapshot
-  skillState: SkillRunState | null
-  skillPrompt: AgentSkillPromptInput
-  skillTraceToolCallId?: string
-  systemPrompt: string
-  partialText: string
-  reviewPause: { proposalId: string; kind: string } | null
-  pendingQuestion: PendingUserQuestion | null
-  overflowRetryAttempted: boolean
-  completion: Promise<void>
-}
-
-interface PendingUserQuestion {
-  readonly toolCallId: string
-  readonly modelRequestId: string
-  readonly args: AskUserArgs
-  readonly startedAt: string
-  submitting: boolean
-  readonly resolveAnswers: (result: AskUserResult) => void
-  readonly rejectAnswers: (error: Error) => void
-  readonly completion: Promise<{ ok: boolean }>
-  readonly complete: (result: { ok: boolean }) => void
-}
-
-interface PendingFollowUpMessage {
-  readonly attachmentIds?: string[]
-  readonly images?: AgentImageContent[]
-  readonly pendingMessageId: string
-  readonly modelRequestId: string
-  readonly content: string
-  readonly timestamp: number
-  readonly queuedAt: string
-  readonly systemPrompt: string
-  readonly snapshot?: WritingSnapshot
-}
-
-interface ActiveCompaction {
-  readonly compactionId: string
-  readonly agentSessionId: string
-  readonly trigger: 'manual'
-  phase: 'planning' | 'summarizing'
-  readonly startedAt: string
-  readonly controller: AbortController
-  completion: Promise<void>
-}
-
-interface StartingRun {
-  readonly agentSessionId: string
-  readonly agentRunId: string
-  readonly startedAt: string
-  readonly controller: AbortController
-  completion: Promise<StartedAgentRun>
 }
 
 type ModelCallFinishedEvent = Extract<AgentRuntimeEvent, { type: 'model_call_finished' }>
@@ -381,14 +282,10 @@ export interface AgentSessionServiceOptions {
 export class AgentSessionService {
   readonly #now: () => Date
   readonly #createId: () => string
-  readonly #titleRequests = new Map<
-    string,
-    { controller: AbortController; completion: Promise<AgentSessionRecord> }
-  >()
-  readonly #startingRuns = new Map<string, StartingRun>()
-  readonly #activeRuns = new Map<string, ActiveRun>()
-  readonly #activeCompactions = new Map<string, ActiveCompaction>()
-  readonly #workBySession = new Map<string, string>()
+  readonly #coordinator = new AgentRunCoordinator()
+  readonly #queries: AgentSessionQueries
+  readonly #titles: AgentSessionTitles
+  readonly #compactor: AgentSessionCompactor
   readonly #contextPlanner = new AgentContextPlanner()
 
   constructor(private readonly options: AgentSessionServiceOptions) {
@@ -405,6 +302,26 @@ export class AgentSessionService {
     }
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
+    this.#queries = new AgentSessionQueries(options.database)
+    this.#titles = new AgentSessionTitles({
+      database: options.database,
+      log: options.log,
+      projectSessionId: options.projectSessionId,
+      generateTitle: options.generateTitle,
+      now: this.#now,
+      createId: this.#createId,
+      requireSession: (id) => this.#requireSessionRecord(id),
+      publishSession: (session, titleGenerating) => this.#publishSession(session, titleGenerating)
+    })
+    this.#compactor = new AgentSessionCompactor({
+      database: options.database,
+      log: options.log,
+      summarizeHistory: options.summarizeHistory,
+      now: this.#now,
+      loadImages: (id, attachments) => this.#loadImages(id, attachments),
+      assertImageModel: (model, hasImages) => this.#assertImageModel(model, hasImages),
+      appendAndPublishEvent: (event) => this.#appendAndPublishEvent(event)
+    })
   }
 
   createSession(
@@ -632,7 +549,7 @@ export class AgentSessionService {
           messageEdit: messageEditState(
             database,
             row.agent_session_id,
-            this.#workBySession.has(row.agent_session_id)
+            this.#coordinator.isBusy(row.agent_session_id)
           ),
           status: row.status,
           compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
@@ -662,7 +579,7 @@ export class AgentSessionService {
     this.#assertSessionIdle(agentSessionId, 'generating another title')
     const run = this.listRuns(agentSessionId, 1)[0]
     if (run === undefined) throw new Error('Send a message before generating a conversation title')
-    const context = this.#loadSessionTitleContext(agentSessionId)
+    const context = this.#titles.loadContext(agentSessionId)
     if (context.length === 0) {
       throw new Error('Send a message before generating a conversation title')
     }
@@ -672,7 +589,7 @@ export class AgentSessionService {
       agentSessionId,
       async (config, credential, resolved) => {
         const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
-        return this.#executeTitleRequest({
+        return this.#titles.execute({
           agentSessionId,
           agentRunId: run.agentRunId,
           operationId: this.#createId(),
@@ -687,7 +604,7 @@ export class AgentSessionService {
         })
       }
     )
-    return this.#trackTitleRequest(agentSessionId, controller, completion)
+    return this.#titles.track(agentSessionId, controller, completion)
   }
 
   archiveSession(agentSessionId: string): AgentSessionRecord {
@@ -757,7 +674,7 @@ export class AgentSessionService {
   }
 
   setInteractionMode(agentSessionId: string, mode: AgentInteractionMode): AgentSessionRecord {
-    if (this.#workBySession.has(agentSessionId)) {
+    if (this.#coordinator.isBusy(agentSessionId)) {
       throw new Error('Agent interaction mode cannot change while work is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -784,7 +701,7 @@ export class AgentSessionService {
     selection: AgentModelSelection,
     thinkingLevel: AgentThinkingLevel = 'off'
   ): AgentSessionRecord {
-    if (this.#workBySession.has(agentSessionId)) {
+    if (this.#coordinator.isBusy(agentSessionId)) {
       throw new Error('Agent model cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -815,7 +732,7 @@ export class AgentSessionService {
   }
 
   setThinkingLevel(agentSessionId: string, level: AgentThinkingLevel): AgentSessionRecord {
-    if (this.#workBySession.has(agentSessionId)) {
+    if (this.#coordinator.isBusy(agentSessionId)) {
       throw new Error('Agent Thinking level cannot change while a run is active')
     }
     this.#assertCompatibleSession(agentSessionId)
@@ -839,19 +756,7 @@ export class AgentSessionService {
   }
 
   listEvents(agentSessionId: string): AgentEventRecord[] {
-    const events: AgentEventRecord[] = []
-    let afterSequence = 0
-    while (events.length < 1_000) {
-      const page = this.listEventPage(
-        agentSessionId,
-        afterSequence,
-        Math.min(AGENT_EVENT_PAGE_LIMIT, 1_000 - events.length)
-      )
-      events.push(...page.events)
-      if (!page.hasMore || page.nextAfterSequence <= afterSequence) break
-      afterSequence = page.nextAfterSequence
-    }
-    return events
+    return this.#queries.listEvents(agentSessionId)
   }
 
   listEventPage(
@@ -859,218 +764,15 @@ export class AgentSessionService {
     afterSequence = 0,
     limit = AGENT_EVENT_PAGE_LIMIT
   ): AgentEventPage {
-    this.#assertSessionExists(agentSessionId)
-    const boundedLimit = Math.min(AGENT_EVENT_PAGE_LIMIT, Math.max(1, Math.floor(limit)))
-    const candidateRows = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT agent_event_id, agent_session_id, agent_run_id, sequence, type,
-                    length(CAST(payload_json AS BLOB)) AS payload_bytes, model_request_id,
-                    source_event_id, source_session_id, forkable,
-                    created_at
-               FROM agent_conversation_history
-              WHERE agent_session_id = ? AND sequence > ?
-              ORDER BY sequence
-              LIMIT ?`
-          )
-          .all(agentSessionId, Math.max(0, Math.floor(afterSequence)), boundedLimit + 1) as Array<{
-          agent_event_id: string
-          agent_session_id: string
-          agent_run_id: string | null
-          sequence: number
-          type: AgentEventType
-          payload_bytes: number
-          source_event_id: string | null
-          source_session_id: string | null
-          forkable: number
-          model_request_id: string | null
-          created_at: string
-        }>
-    )
-    const selectedRows: typeof candidateRows = []
-    let selectedPayloadBytes = 0
-    for (const row of candidateRows) {
-      if (
-        selectedRows.length > 0 &&
-        selectedPayloadBytes + row.payload_bytes + AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES >
-          AGENT_EVENT_PAGE_MAX_BYTES
-      ) {
-        break
-      }
-      selectedRows.push(row)
-      selectedPayloadBytes += row.payload_bytes
-      if (selectedRows.length >= boundedLimit) break
-    }
-    const payloadById =
-      selectedRows.length === 0
-        ? new Map<string, string>()
-        : this.options.database.immediate((database) => {
-            const placeholders = selectedRows.map(() => '?').join(', ')
-            const payloadRows = database
-              .prepare(
-                `SELECT agent_event_id, payload_json
-                   FROM agent_conversation_history
-                  WHERE agent_event_id IN (${placeholders})`
-              )
-              .all(...selectedRows.map((row) => row.agent_event_id)) as Array<{
-              agent_event_id: string
-              payload_json: string
-            }>
-            return new Map(payloadRows.map((row) => [row.agent_event_id, row.payload_json]))
-          })
-    const pageEvents: AgentEventRecord[] = []
-    let returnedBytes = 0
-    for (const row of selectedRows) {
-      const payloadJson = payloadById.get(row.agent_event_id)
-      if (payloadJson === undefined) throw new Error('Selected Agent event payload is missing')
-      const event = agentEventRecordSchema.parse({
-        inheritedFrom:
-          row.source_event_id === null
-            ? null
-            : {
-                agentSessionId: row.source_session_id,
-                agentEventId: row.source_event_id
-              },
-        forkable: row.forkable === 1,
-        agentEventId: row.agent_event_id,
-        agentSessionId: row.agent_session_id,
-        agentRunId: row.agent_run_id,
-        sequence: row.sequence,
-        type: row.type,
-        payload: JSON.parse(payloadJson) as Record<string, unknown>,
-        modelRequestId: row.model_request_id,
-        createdAt: row.created_at
-      })
-      const eventBytes = Buffer.byteLength(JSON.stringify(event))
-      if (
-        pageEvents.length > 0 &&
-        returnedBytes + eventBytes >
-          AGENT_EVENT_PAGE_MAX_BYTES - AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES
-      ) {
-        break
-      }
-      pageEvents.push(event)
-      returnedBytes += eventBytes
-      if (pageEvents.length >= boundedLimit) break
-    }
-    return agentEventPageSchema.parse({
-      events: pageEvents,
-      nextAfterSequence: pageEvents.at(-1)?.sequence ?? Math.max(0, Math.floor(afterSequence)),
-      hasMore: candidateRows.length > pageEvents.length,
-      returnedBytes
-    })
+    return this.#queries.listEventPage(agentSessionId, afterSequence, limit)
   }
 
   listRuns(agentSessionId: string, limit = 200): AgentRunRecord[] {
-    this.#assertSessionExists(agentSessionId)
-    const boundedLimit = Math.min(200, Math.max(1, Math.floor(limit)))
-    return this.options.database.immediate((database) =>
-      (
-        database
-          .prepare(
-            `SELECT run.agent_run_id, run.agent_session_id, run.status, run.provider_id, run.model_id,
-                    run.provider_preset_id, run.provider_label, run.model_label, run.api_id,
-                    run.approval_mode, run.interaction_mode, run.thinking_level, run.model_limits_json,
-                    run.editor_context_json, run.error_json, run.skill_snapshot_json,
-                    run.writing_task_id, run.writing_task_step_id,
-                    skill_route.model_request_id AS skill_route_model_request_id,
-                    skill_route.input_tokens AS skill_route_input_tokens,
-                    skill_route.output_tokens AS skill_route_output_tokens,
-                    skill_route.cache_read_tokens AS skill_route_cache_read_tokens,
-                    skill_route.cache_write_tokens AS skill_route_cache_write_tokens,
-                    skill_route.estimated_cost_usd_micros AS skill_route_estimated_cost_usd_micros,
-                    skill_route.retry_count AS skill_route_retry_count,
-                    run.started_at, run.completed_at, run.updated_at
-               FROM agent_runs AS run
-               LEFT JOIN model_requests AS skill_route
-                 ON skill_route.model_request_id = run.skill_route_model_request_id
-                AND skill_route.delivery = 'skill_route'
-              WHERE run.agent_session_id = ?
-              ORDER BY run.started_at DESC, run.agent_run_id DESC
-              LIMIT ?`
-          )
-          .all(agentSessionId, boundedLimit) as Array<{
-          agent_run_id: string
-          agent_session_id: string
-          status: 'running' | 'completed' | 'interrupted' | 'failed'
-          provider_id: string
-          model_id: string
-          provider_preset_id: string | null
-          provider_label: string
-          model_label: string
-          api_id: string
-          approval_mode: AgentApprovalMode
-          interaction_mode: AgentInteractionMode
-          thinking_level: AgentThinkingLevel
-          model_limits_json: string
-          editor_context_json: string
-          error_json: string | null
-          skill_snapshot_json: string
-          writing_task_id: string | null
-          writing_task_step_id: string | null
-          skill_route_model_request_id: string | null
-          skill_route_input_tokens: number | null
-          skill_route_output_tokens: number | null
-          skill_route_cache_read_tokens: number | null
-          skill_route_cache_write_tokens: number | null
-          skill_route_estimated_cost_usd_micros: number | null
-          skill_route_retry_count: number | null
-          started_at: string
-          completed_at: string | null
-          updated_at: string
-        }>
-      ).map((row) =>
-        agentRunRecordSchema.parse({
-          agentRunId: row.agent_run_id,
-          agentSessionId: row.agent_session_id,
-          status: row.status,
-          providerId: row.provider_id,
-          modelId: row.model_id,
-          providerPresetId: row.provider_preset_id,
-          providerLabel: row.provider_label || row.provider_id,
-          modelLabel: row.model_label || row.model_id,
-          api: row.api_id,
-          approvalMode: row.approval_mode,
-          interactionMode: row.interaction_mode,
-          thinkingLevel: row.thinking_level,
-          modelLimits: JSON.parse(row.model_limits_json),
-          editorContext: JSON.parse(row.editor_context_json),
-          skillSnapshot: JSON.parse(row.skill_snapshot_json),
-          skillRouteUsage:
-            row.skill_route_model_request_id === null
-              ? null
-              : {
-                  inputTokens: row.skill_route_input_tokens,
-                  outputTokens: row.skill_route_output_tokens,
-                  cacheReadTokens: row.skill_route_cache_read_tokens,
-                  cacheWriteTokens: row.skill_route_cache_write_tokens,
-                  estimatedCostUsdMicros: row.skill_route_estimated_cost_usd_micros,
-                  retryCount: row.skill_route_retry_count ?? 0
-                },
-          errorCode: safeErrorCode(row.error_json),
-          errorDetails: readErrorDetails(row.error_json),
-          writingTaskId: row.writing_task_id,
-          writingTaskStepId: row.writing_task_step_id,
-          startedAt: row.started_at,
-          completedAt: row.completed_at,
-          updatedAt: row.updated_at
-        })
-      )
-    )
+    return this.#queries.listRuns(agentSessionId, limit)
   }
 
   requireRun(agentRunId: string): AgentRunRecord {
-    const row = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare('SELECT agent_session_id FROM agent_runs WHERE agent_run_id = ?')
-          .get(agentRunId) as { agent_session_id: string } | undefined
-    )
-    if (row === undefined) throw new Error('Agent run does not exist')
-    const run = this.listRuns(row.agent_session_id).find((item) => item.agentRunId === agentRunId)
-    if (run === undefined) throw new Error('Agent run is outside the bounded session history')
-    return run
+    return this.#queries.requireRun(agentRunId)
   }
 
   get attachments(): AgentAttachmentService {
@@ -1190,7 +892,7 @@ export class AgentSessionService {
         controller,
         completion: Promise.resolve({ agentRunId, completion: Promise.resolve() })
       }
-      this.#startingRuns.set(agentRunId, starting)
+      this.#coordinator.registerStarting(starting)
       void this.#publishActivitySnapshot()
       starting.completion = this.#startReservedRun({
         ...input,
@@ -1200,8 +902,8 @@ export class AgentSessionService {
         agentRunId,
         controller
       }).finally(() => {
-        this.#startingRuns.delete(agentRunId)
-        if (!this.#activeRuns.has(agentRunId)) {
+        this.#coordinator.finishStarting(starting)
+        if (!this.#coordinator.runs.has(agentRunId)) {
           this.#releaseRunSlot(input.agentSessionId, agentRunId)
         }
       })
@@ -1321,13 +1023,13 @@ export class AgentSessionService {
           })
             .catch((err) => this.#settleSetupFailure(active, err))
             .finally(() => {
-              if (this.#activeRuns.get(active.agentRunId) === active) {
-                this.#activeRuns.delete(active.agentRunId)
+              if (this.#coordinator.runs.get(active.agentRunId) === active) {
+                this.#coordinator.finishRun(active)
               }
               this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
               void this.#publishSession(active.agentSessionId, false)
             })
-          this.#activeRuns.set(active.agentRunId, active)
+          this.#coordinator.registerRun(active)
           void this.#publishActivitySnapshot()
           void this.#publishSession(
             input.agentSessionId,
@@ -1336,21 +1038,23 @@ export class AgentSessionService {
           if (automaticTitle !== null) {
             if (this.options.generateTitle !== undefined) {
               const titleController = new AbortController()
-              void this.#beginTitleRequest({
-                agentSessionId: input.agentSessionId,
-                agentRunId: input.agentRunId,
-                operationId: input.operationId,
-                config,
-                credential,
-                modelLimits,
-                context: buildSessionTitleContext([
-                  { sequence: 1, role: 'user', content: input.prompt }
-                ]),
-                expectedTitle: automaticTitle,
-                controller: titleController,
-                automatic: true,
-                reasoningModel: resolved.model.reasoning
-              }).catch(() => undefined)
+              void this.#titles
+                .begin({
+                  agentSessionId: input.agentSessionId,
+                  agentRunId: input.agentRunId,
+                  operationId: input.operationId,
+                  config,
+                  credential,
+                  modelLimits,
+                  context: buildSessionTitleContext([
+                    { sequence: 1, role: 'user', content: input.prompt }
+                  ]),
+                  expectedTitle: automaticTitle,
+                  controller: titleController,
+                  automatic: true,
+                  reasoningModel: resolved.model.reasoning
+                })
+                .catch(() => undefined)
             }
           }
           this.options.log.info(
@@ -1362,7 +1066,7 @@ export class AgentSessionService {
               phase: 'skill_preparation',
               interactionMode,
               thinkingLevel,
-              activeCount: this.#workBySession.size
+              activeCount: this.#coordinator.activeCount
             },
             'Agent run started and entered writing skill preparation'
           )
@@ -1497,7 +1201,7 @@ export class AgentSessionService {
     this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
     active.systemPrompt = builtContext.systemPrompt
     let history: AgentHistoryMessage[]
-    const currentRequest = builtContext?.userRequest ?? input.prompt
+    const currentRequest = builtContext.userRequest ?? input.prompt
     active.currentRequest = currentRequest
     try {
       history = await this.#prepareRuntimeHistory({
@@ -1849,7 +1553,7 @@ export class AgentSessionService {
   }
 
   async abort(agentRunId: string): Promise<void> {
-    const active = this.#activeRuns.get(agentRunId)
+    const active = this.#coordinator.runs.get(agentRunId)
     if (active === undefined) {
       const run = this.requireRun(agentRunId)
       if (run.status !== 'running') return
@@ -1863,7 +1567,7 @@ export class AgentSessionService {
         event: 'agent.run.stop_requested',
         agentSessionId: active.agentSessionId,
         agentRunId,
-        activeCount: this.#workBySession.size
+        activeCount: this.#coordinator.activeCount
       },
       'Agent run stop requested'
     )
@@ -1966,22 +1670,22 @@ export class AgentSessionService {
       controller,
       completion: Promise.resolve()
     }
-    this.#activeCompactions.set(compactionId, active)
+    this.#coordinator.registerCompaction(active)
     try {
-      await this.#appendCompactionStarted({
+      await this.#compactor.started({
         agentSessionId,
         agentRunId: null,
         compactionId,
         trigger: 'manual'
       })
     } catch (err) {
-      this.#activeCompactions.delete(compactionId)
+      this.#coordinator.finishCompaction(active)
       this.#releaseWorkSlot(agentSessionId, compactionId, 'manual_compaction')
       throw err
     }
     active.completion = this.#executeManualCompaction(active).finally(() => {
-      if (this.#activeCompactions.get(compactionId) === active) {
-        this.#activeCompactions.delete(compactionId)
+      if (this.#coordinator.compactions.get(compactionId) === active) {
+        this.#coordinator.finishCompaction(active)
       }
       this.#releaseWorkSlot(agentSessionId, compactionId, 'manual_compaction')
       void this.#publishSession(agentSessionId, false)
@@ -1993,7 +1697,7 @@ export class AgentSessionService {
   }
 
   async stopCompaction(agentSessionId: string, compactionId: string): Promise<void> {
-    const active = this.#activeCompactions.get(compactionId)
+    const active = this.#coordinator.compactions.get(compactionId)
     if (active === undefined || active.agentSessionId !== agentSessionId) {
       throw new Error('Conversation compaction is not active')
     }
@@ -2009,7 +1713,7 @@ export class AgentSessionService {
           const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
           active.phase = 'summarizing'
           void this.#publishActivitySnapshot()
-          const compacted = await this.#runCompaction({
+          const compacted = await this.#compactor.run({
             agentSessionId: active.agentSessionId,
             agentRunId: null,
             compactionId: active.compactionId,
@@ -2047,7 +1751,7 @@ export class AgentSessionService {
         },
         'Manual Agent context compaction failed'
       )
-      await this.#appendCompactionFailed({
+      await this.#compactor.failed({
         agentSessionId: active.agentSessionId,
         agentRunId: null,
         compactionId: active.compactionId,
@@ -2060,30 +1764,27 @@ export class AgentSessionService {
 
   async close(): Promise<void> {
     const cancellation = new AgentRunCancellationError('project_closed', 'Project is closing')
-    const startingRuns = [...this.#startingRuns.values()]
+    const startingRuns = [...this.#coordinator.starting.values()]
     for (const starting of startingRuns) starting.controller.abort(cancellation)
-    for (const active of this.#activeRuns.values()) active.controller.abort(cancellation)
-    const titleRequests = [...this.#titleRequests.values()]
-    for (const request of titleRequests) {
-      request.controller.abort(new Error('Project is closing'))
-    }
-    const compactions = [...this.#activeCompactions.values()]
+    for (const active of this.#coordinator.runs.values()) active.controller.abort(cancellation)
+    const titleCompletions = this.#titles.abortAll()
+    const compactions = [...this.#coordinator.compactions.values()]
     for (const compaction of compactions) {
       compaction.controller.abort(new Error('Project is closing'))
     }
     await Promise.allSettled(startingRuns.map((starting) => starting.completion))
-    const activeRuns = [...this.#activeRuns.values()]
+    const activeRuns = [...this.#coordinator.runs.values()]
     for (const active of activeRuns) active.controller.abort(cancellation)
     await Promise.allSettled([
       ...activeRuns.map((active) => active.completion),
-      ...titleRequests.map((request) => request.completion),
+      ...titleCompletions,
       ...compactions.map((compaction) => compaction.completion)
     ])
     this.options.attachments.releaseAll()
   }
 
   projectActivitySnapshot(): AgentProjectActivitySnapshot {
-    const activeRuns = [...this.#activeRuns.values()].map((active) => {
+    const activeRuns = [...this.#coordinator.runs.values()].map((active) => {
       const persisted = this.requireRun(active.agentRunId)
       return {
         agentSessionId: active.agentSessionId,
@@ -2108,8 +1809,8 @@ export class AgentSessionService {
         startedAt: persisted.startedAt
       }
     })
-    const startingRuns = [...this.#startingRuns.values()]
-      .filter((starting) => !this.#activeRuns.has(starting.agentRunId))
+    const startingRuns = [...this.#coordinator.starting.values()]
+      .filter((starting) => !this.#coordinator.runs.has(starting.agentRunId))
       .map((starting) => ({
         agentSessionId: starting.agentSessionId,
         agentRunId: starting.agentRunId,
@@ -2118,7 +1819,7 @@ export class AgentSessionService {
         pendingMessages: [],
         startedAt: starting.startedAt
       }))
-    const compactions = [...this.#activeCompactions.values()].map((compaction) => ({
+    const compactions = [...this.#coordinator.compactions.values()].map((compaction) => ({
       compactionId: compaction.compactionId,
       agentSessionId: compaction.agentSessionId,
       trigger: compaction.trigger,
@@ -2126,7 +1827,7 @@ export class AgentSessionService {
       startedAt: compaction.startedAt
     }))
     return agentProjectActivitySnapshotSchema.parse({
-      activeCount: this.#workBySession.size,
+      activeCount: this.#coordinator.activeCount,
       runs: [...startingRuns, ...activeRuns],
       compactions
     })
@@ -3297,8 +2998,8 @@ export class AgentSessionService {
         }
       })
     } finally {
-      if (this.#activeRuns.get(active.agentRunId) === active) {
-        this.#activeRuns.delete(active.agentRunId)
+      if (this.#coordinator.runs.get(active.agentRunId) === active) {
+        this.#coordinator.finishRun(active)
       }
       this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
     }
@@ -3365,14 +3066,14 @@ export class AgentSessionService {
     const compactionId = this.#createId()
     active.phase = 'compacting'
     void this.#publishActivitySnapshot()
-    await this.#appendCompactionStarted({
+    await this.#compactor.started({
       agentSessionId: active.agentSessionId,
       agentRunId: active.agentRunId,
       compactionId,
       trigger: 'provider_overflow'
     })
     try {
-      const compacted = await this.#runCompaction({
+      const compacted = await this.#compactor.run({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -3400,7 +3101,7 @@ export class AgentSessionService {
         },
         'Overflow context compaction failed'
       )
-      await this.#appendCompactionFailed({
+      await this.#compactor.failed({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -3645,261 +3346,6 @@ export class AgentSessionService {
     })
   }
 
-  #beginTitleRequest(input: {
-    agentSessionId: string
-    agentRunId: string
-    operationId: string
-    config: Extract<ProviderConfig, { role: 'agent' }>
-    credential: string
-    modelLimits: AgentModelLimits
-    context: string
-    expectedTitle: string
-    controller: AbortController
-    automatic: boolean
-    reasoningModel: boolean
-  }): Promise<AgentSessionRecord> {
-    if (this.#titleRequests.has(input.agentSessionId)) {
-      return Promise.reject(new Error('Conversation title is already being generated'))
-    }
-    const completion = this.#executeTitleRequest(input)
-    return this.#trackTitleRequest(input.agentSessionId, input.controller, completion)
-  }
-
-  #trackTitleRequest(
-    agentSessionId: string,
-    controller: AbortController,
-    completion: Promise<AgentSessionRecord>
-  ): Promise<AgentSessionRecord> {
-    if (this.#titleRequests.has(agentSessionId)) {
-      controller.abort(new Error('Conversation title is already being generated'))
-      return Promise.reject(new Error('Conversation title is already being generated'))
-    }
-    this.#titleRequests.set(agentSessionId, { controller, completion })
-    void completion
-      .finally(() => {
-        const active = this.#titleRequests.get(agentSessionId)
-        if (active?.completion === completion) this.#titleRequests.delete(agentSessionId)
-      })
-      .catch(() => undefined)
-    return completion
-  }
-
-  async #executeTitleRequest(input: {
-    agentSessionId: string
-    agentRunId: string
-    operationId: string
-    config: Extract<ProviderConfig, { role: 'agent' }>
-    credential: string
-    modelLimits: AgentModelLimits
-    context: string
-    expectedTitle: string
-    controller: AbortController
-    automatic: boolean
-    reasoningModel: boolean
-  }): Promise<AgentSessionRecord> {
-    const generate = this.options.generateTitle
-    if (generate === undefined) return this.#requireSessionRecord(input.agentSessionId)
-    const repository = new ModelRequestRepository(
-      this.options.database,
-      this.options.log,
-      this.#now,
-      this.#createId
-    )
-    let modelRequestId: string | undefined
-    const startedAt = Date.now()
-    try {
-      modelRequestId = (
-        await repository.start({
-          operation: 'agent',
-          provider: input.config,
-          request: {
-            purpose: 'session_title',
-            systemPrompt: SESSION_TITLE_SYSTEM_PROMPT,
-            context: input.context
-          },
-          inputItems: 1,
-          operationId: input.operationId,
-          agentRunId: input.agentRunId,
-          projectSessionId: this.options.projectSessionId
-        })
-      ).modelRequestId
-      this.options.log.info(
-        {
-          event: 'agent.session.title_generation_started',
-          agentSessionId: input.agentSessionId,
-          agentRunId: input.agentRunId,
-          modelRequestId,
-          automatic: input.automatic,
-          inputCharacters: Array.from(input.context).length
-        },
-        'Agent session title generation started'
-      )
-      const result = await generate({
-        modelRequestId,
-        agentSessionId: input.agentSessionId,
-        agentRunId: input.agentRunId,
-        operationId: input.operationId,
-        config: input.config,
-        credential: input.credential,
-        request: {
-          systemPrompt: SESSION_TITLE_SYSTEM_PROMPT,
-          prompt: formatSessionTitleInput(input.context),
-          maxOutputTokens: input.reasoningModel
-            ? SESSION_TITLE_REASONING_OUTPUT_TOKENS
-            : SESSION_TITLE_OUTPUT_TOKENS,
-          ...(input.reasoningModel ? {} : { temperature: 0 })
-        },
-        modelLimits: input.modelLimits,
-        signal: input.controller.signal
-      })
-      const title = sanitizeGeneratedSessionTitle(result.text)
-      if (title.length === 0) throw new Error('Agent title model returned an empty title')
-      await repository.succeed(modelRequestId, {
-        metadata: result.metadata,
-        outputItems: 1
-      })
-      const trace = new AgentTraceRepository(
-        this.options.database,
-        this.options.log,
-        this.#now,
-        this.#createId
-      )
-      if (trace.exists(modelRequestId)) {
-        trace.complete({
-          modelRequestId,
-          physicalAttemptCount: result.metadata.retryCount + 1
-        })
-      }
-      const now = this.#now().toISOString()
-      const changes = this.options.database.immediate(
-        (database) =>
-          database
-            .prepare(
-              `UPDATE agent_sessions
-                SET title = ?, updated_at = ?
-              WHERE agent_session_id = ? AND status = 'active' AND title = ?`
-            )
-            .run(title, now, input.agentSessionId, input.expectedTitle).changes
-      )
-      const session = this.#requireSessionRecord(input.agentSessionId)
-      this.options.log.info(
-        {
-          event:
-            changes === 1
-              ? 'agent.session.title_generation_completed'
-              : 'agent.session.title_generation_superseded',
-          agentSessionId: input.agentSessionId,
-          agentRunId: input.agentRunId,
-          modelRequestId,
-          automatic: input.automatic,
-          outputCharacters: Array.from(title).length,
-          durationMs: Date.now() - startedAt
-        },
-        changes === 1
-          ? 'Agent session title generation completed'
-          : 'Agent session title generation was superseded by newer state'
-      )
-      await this.#publishSession(session, false)
-      return session
-    } catch (err) {
-      this.options.log.error(
-        {
-          event: 'agent.session.title_generation_failed',
-          err,
-          agentSessionId: input.agentSessionId,
-          agentRunId: input.agentRunId,
-          modelRequestId,
-          automatic: input.automatic,
-          durationMs: Date.now() - startedAt
-        },
-        'Agent session title generation failed'
-      )
-      if (modelRequestId !== undefined) {
-        try {
-          if (input.controller.signal.aborted) {
-            await repository.abort(modelRequestId, 'session_title_cancelled')
-          } else {
-            await repository.fail(modelRequestId, {
-              code: 'session_title_failed',
-              retryable: false
-            })
-          }
-        } catch (recordErr) {
-          this.options.log.error(
-            {
-              event: 'agent.session.title_generation_record_failed',
-              err: recordErr,
-              agentSessionId: input.agentSessionId,
-              modelRequestId
-            },
-            'Failed to record Agent session title request outcome'
-          )
-        }
-        const trace = new AgentTraceRepository(
-          this.options.database,
-          this.options.log,
-          this.#now,
-          this.#createId
-        )
-        if (trace.exists(modelRequestId)) {
-          trace.fail({
-            modelRequestId,
-            physicalAttemptCount: 1,
-            failureCode:
-              err instanceof Error && 'code' in err && typeof err.code === 'string'
-                ? err.code
-                : 'session_title_failed'
-          })
-        }
-      }
-      const session = this.#requireSessionRecord(input.agentSessionId)
-      await this.#publishSession(session, false)
-      if (input.automatic) return session
-      throw new Error('Conversation title could not be generated', { cause: err })
-    }
-  }
-
-  #loadSessionTitleContext(agentSessionId: string): string {
-    const rows = this.options.database.immediate((database) => {
-      const first = database
-        .prepare(
-          `SELECT sequence, 'user' AS role,
-                  substr(json_extract(payload_json, '$.content'), 1, 16384) AS content
-             FROM agent_conversation_history
-            WHERE agent_session_id = ? AND type = 'user_message'
-            ORDER BY sequence
-            LIMIT 1`
-        )
-        .get(agentSessionId) as SessionTitleMessage | undefined
-      const summary = database
-        .prepare(
-          `SELECT sequence, 'summary' AS role,
-                  substr(json_extract(payload_json, '$.summary'), 1, 16384) AS content
-             FROM agent_conversation_history
-            WHERE agent_session_id = ? AND type = 'compaction_summary'
-            ORDER BY sequence DESC
-            LIMIT 1`
-        )
-        .get(agentSessionId) as SessionTitleMessage | undefined
-      const recent = database
-        .prepare(
-          `SELECT sequence,
-                  CASE type WHEN 'user_message' THEN 'user' ELSE 'assistant' END AS role,
-                  substr(json_extract(payload_json, '$.content'), 1, 16384) AS content
-             FROM agent_conversation_history
-            WHERE agent_session_id = ? AND type IN ('user_message', 'assistant_message')
-            ORDER BY sequence DESC
-            LIMIT 24`
-        )
-        .all(agentSessionId) as SessionTitleMessage[]
-      return [first, summary, ...recent.reverse()].filter(
-        (row): row is SessionTitleMessage =>
-          row !== undefined && typeof row.content === 'string' && row.content.length > 0
-      )
-    })
-    return buildSessionTitleContext(rows)
-  }
-
   #requireSessionRecord(agentSessionId: string): AgentSessionRecord {
     const session = this.#querySessions({ agentSessionId, limit: 1 })[0]
     if (session === undefined) throw new Error('Agent session does not exist')
@@ -3908,10 +3354,10 @@ export class AgentSessionService {
 
   #assertSessionIdle(agentSessionId: string, action: string): void {
     const session = this.#requireSessionRecord(agentSessionId)
-    if (this.#titleRequests.has(agentSessionId)) {
+    if (this.#titles.has(agentSessionId)) {
       throw new Error(`Conversation title must finish before ${action}`)
     }
-    if (this.#workBySession.has(agentSessionId) || session.workflowState === 'running') {
+    if (this.#coordinator.isBusy(agentSessionId) || session.workflowState === 'running') {
       throw new Error(`Agent run must finish before ${action}`)
     }
     if (session.workflowState === 'generating') {
@@ -4268,14 +3714,14 @@ export class AgentSessionService {
     const compactionId = this.#createId()
     active.phase = 'compacting'
     void this.#publishActivitySnapshot()
-    await this.#appendCompactionStarted({
+    await this.#compactor.started({
       agentSessionId: active.agentSessionId,
       agentRunId: active.agentRunId,
       compactionId,
       trigger: 'auto_threshold'
     })
     try {
-      const compacted = await this.#runCompaction({
+      const compacted = await this.#compactor.run({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -4298,7 +3744,7 @@ export class AgentSessionService {
         { event: 'agent.compaction.failed', err, agentRunId: active.agentRunId, compactionId },
         'Automatic Agent context compaction failed'
       )
-      await this.#appendCompactionFailed({
+      await this.#compactor.failed({
         agentSessionId: active.agentSessionId,
         agentRunId: active.agentRunId,
         compactionId,
@@ -4341,219 +3787,6 @@ export class AgentSessionService {
     })
   }
 
-  async #runCompaction(input: {
-    agentSessionId: string
-    agentRunId: string | null
-    compactionId: string
-    trigger: AgentCompactionTrigger
-    config: Extract<ProviderConfig, { role: 'agent' }>
-    credential: string
-    modelLimits: AgentModelLimits
-    runtimeModel: AgentRuntimeModel
-    signal: AbortSignal
-    conversationBudgetTokens: number
-    estimatedHistoryTokensBefore: number
-    requestedOutputTokens: number
-    currentImageBytes?: number
-  }): Promise<boolean> {
-    const summarize = this.options.summarizeHistory
-    if (summarize === undefined) throw new Error('Agent context compaction is unavailable')
-    input.signal.throwIfAborted()
-    const timestamp = this.#now().getTime()
-    const checkpoint = {
-      eventId: input.compactionId,
-      summary: '',
-      coveredThroughSequence: Number.MAX_SAFE_INTEGER,
-      timestamp,
-      schemaVersion: 4 as const,
-      handoffMode: 'bounded_conversation_memory' as const,
-      omittedEventCount: Number.MAX_SAFE_INTEGER,
-      estimatedTokensBefore: null,
-      estimatedTokensAfter: null
-    }
-    const wrapper = checkpointHistoryMessage(checkpoint)
-    const wrapperTokens = estimateAgentTokens(wrapper)
-    const summaryCapacity = input.conversationBudgetTokens - wrapperTokens
-    if (summaryCapacity <= 0) {
-      throw new Error(
-        `Agent context summary needs more than ${wrapperTokens} tokens for its checkpoint envelope, but only ${input.conversationBudgetTokens} history tokens are available`
-      )
-    }
-    const outputTokens = Math.min(
-      agentOutputLimit(input.requestedOutputTokens, input.modelLimits),
-      summaryCapacity
-    )
-    const material = buildNextCompactionMaterial({
-      database: this.options.database,
-      agentSessionId: input.agentSessionId,
-      ...(input.agentRunId === null ? {} : { excludeRunId: input.agentRunId }),
-      sourceTokenBudget: agentMessageBudget(outputTokens, input.modelLimits),
-      recentTailMaxImageBytes: AGENT_IMAGES_MAX_BASE64 - (input.currentImageBytes ?? 0),
-      recentTailTokenBudget: Math.max(
-        0,
-        input.conversationBudgetTokens - outputTokens - estimateAgentTokens(wrapper)
-      ),
-      recentTailMaxBytes: Math.max(
-        0,
-        AGENT_RUNTIME_HISTORY_MAX_BYTES -
-          Buffer.byteLength(JSON.stringify(wrapper)) -
-          outputTokens * 4
-      )
-    })
-    if (material === null) return false
-    this.options.log.info(
-      {
-        event: 'agent.compaction.projection_completed',
-        agentRunId: input.agentRunId,
-        compactionId: input.compactionId,
-        sourceEventCount: material.sourceEventCount,
-        sourcePayloadBytes: material.sourcePayloadBytes,
-        omittedEventCount: material.omittedEventCount,
-        estimatedPromptTokens: material.estimatedPromptTokens
-      },
-      'Projected old conversation prefix for one summary'
-    )
-    const source = JSON.parse(material.sourcePayloadJson) as {
-      recentTurns: Array<Array<{ attachmentIds?: string[] }>>
-    }
-    const images: AgentImageContent[] = []
-    for (const event of source.recentTurns.flat()) {
-      images.push(...(await this.#loadImages(input.agentSessionId, event.attachmentIds)))
-    }
-    this.#assertImageModel(input.runtimeModel, images.length > 0)
-    if (imageDataBytes(images) > AGENT_IMAGES_MAX_BASE64)
-      throw new Error('Summary images exceed 32 MiB')
-    const summarized = await summarize({
-      agentSessionId: input.agentSessionId,
-      agentRunId: input.agentRunId,
-      compactionId: input.compactionId,
-      trigger: input.trigger,
-      config: input.config,
-      credential: input.credential,
-      modelLimits: input.modelLimits,
-      sourcePayloadJson: material.sourcePayloadJson,
-      images,
-      coveredThroughSequence: material.coveredThroughSequence,
-      estimatedInputTokens: material.estimatedPromptTokens,
-      maxOutputTokens: outputTokens,
-      signal: input.signal
-    }).catch((err: unknown) => {
-      const source = JSON.parse(material.sourcePayloadJson) as {
-        recentTurns: Array<Array<{ content?: unknown }>>
-      }
-      serializeAgentDiagnosticError(err, 'compaction', {
-        knownSensitiveValues: agentDiagnosticSensitiveValues(input.credential),
-        privateBodies: [
-          material.sourcePayloadJson,
-          material.previousCheckpoint?.summary ?? '',
-          ...source.recentTurns
-            .flat()
-            .flatMap((event) => (typeof event.content === 'string' ? [event.content] : []))
-        ]
-      })
-      throw err
-    })
-    input.signal.throwIfAborted()
-    checkpoint.coveredThroughSequence = material.coveredThroughSequence
-    checkpoint.omittedEventCount =
-      material.omittedEventCount + (material.previousCheckpoint?.omittedEventCount ?? 0)
-    const historyWithSummary = (summary: string): AgentHistoryMessage[] => [
-      checkpointHistoryMessage({ ...checkpoint, summary }),
-      ...material.retainedTail
-    ]
-    const summary = fitCheckpointSummary(summarized.summary.trim(), (candidate) => {
-      const history = historyWithSummary(candidate)
-      return (
-        estimateAgentTokens(history) <= input.conversationBudgetTokens &&
-        agentHistorySchema.safeParse(history).success
-      )
-    })
-    if (summary.length === 0)
-      throw new Error('Agent compaction returned no summary that fits the model input window')
-    const payload = agentCompactionCheckpointV4PayloadSchema.parse({
-      schemaVersion: 4,
-      compactionId: input.compactionId,
-      trigger: input.trigger,
-      previousCheckpointEventId: material.previousCheckpoint?.eventId ?? null,
-      coveredFromSequence: material.coveredFromSequence,
-      coveredThroughSequence: material.coveredThroughSequence,
-      summary,
-      omittedEventCount: checkpoint.omittedEventCount,
-      estimatedTokensBefore: input.estimatedHistoryTokensBefore,
-      estimatedTokensAfter: estimateAgentTokens(historyWithSummary(summary)),
-      timestamp
-    })
-    await this.#appendAndPublishEvent({
-      sessionId: input.agentSessionId,
-      runId: input.agentRunId,
-      type: 'compaction_summary',
-      payload,
-      modelRequestId: summarized.modelRequestId
-    })
-    this.options.log.info(
-      {
-        event: 'agent.compaction.completed',
-        agentRunId: input.agentRunId,
-        compactionId: input.compactionId,
-        coveredThroughSequence: payload.coveredThroughSequence,
-        omittedEventCount: payload.omittedEventCount,
-        estimatedTokensBefore: payload.estimatedTokensBefore,
-        estimatedTokensAfter: payload.estimatedTokensAfter
-      },
-      'Agent context checkpoint completed'
-    )
-    return true
-  }
-
-  async #appendCompactionStarted(input: {
-    agentSessionId: string
-    agentRunId: string | null
-    compactionId: string
-    trigger: AgentCompactionTrigger
-  }): Promise<void> {
-    await this.#appendAndPublishEvent({
-      sessionId: input.agentSessionId,
-      runId: input.agentRunId,
-      type: 'compaction_started',
-      payload: agentCompactionStartedPayloadSchema.parse({
-        schemaVersion: 2,
-        compactionId: input.compactionId,
-        trigger: input.trigger,
-        phase: 'planning',
-        timestamp: this.#now().getTime()
-      }),
-      modelRequestId: null
-    })
-  }
-
-  async #appendCompactionFailed(input: {
-    agentSessionId: string
-    agentRunId: string | null
-    compactionId: string
-    trigger: AgentCompactionTrigger
-    code: string
-    retryable: boolean
-    aborted: boolean
-    diagnostic?: AgentDiagnosticError
-  }): Promise<void> {
-    await this.#appendAndPublishEvent({
-      sessionId: input.agentSessionId,
-      runId: input.agentRunId,
-      type: 'compaction_failed',
-      payload: agentCompactionFailedPayloadSchema.parse({
-        schemaVersion: 2,
-        compactionId: input.compactionId,
-        trigger: input.trigger,
-        code: input.code,
-        retryable: input.retryable,
-        aborted: input.aborted,
-        ...(input.diagnostic === undefined ? {} : { diagnostic: input.diagnostic }),
-        timestamp: this.#now().getTime()
-      }),
-      modelRequestId: null
-    })
-  }
-
   async #publishDelta(agentSessionId: string, agentRunId: string, delta: string): Promise<void> {
     try {
       await this.options.publishDelta?.({ agentSessionId, agentRunId, delta })
@@ -4566,7 +3799,7 @@ export class AgentSessionService {
   }
 
   #requireActive(agentRunId: string): ActiveRun {
-    const active = this.#activeRuns.get(agentRunId)
+    const active = this.#coordinator.runs.get(agentRunId)
     if (active === undefined) {
       throw new Error('Agent run is not active')
     }
@@ -4583,7 +3816,7 @@ export class AgentSessionService {
     kind: 'run' | 'manual_compaction',
     controller: AbortController
   ): void {
-    if (this.#workBySession.has(agentSessionId)) {
+    if (this.#coordinator.isBusy(agentSessionId)) {
       this.options.log.warn(
         {
           event: 'agent.work.slot_rejected',
@@ -4591,21 +3824,20 @@ export class AgentSessionService {
           workId,
           kind,
           reason: 'conversation_active',
-          activeCount: this.#workBySession.size
+          activeCount: this.#coordinator.activeCount
         },
         'Agent work slot rejected because the conversation is already active'
       )
       throw new Error('Agent work is already active in this conversation')
     }
-    controller.signal.throwIfAborted()
-    this.#workBySession.set(agentSessionId, workId)
+    this.#coordinator.reserve(agentSessionId, workId, controller.signal)
     this.options.log.info(
       {
         event: 'agent.work.slot_acquired',
         agentSessionId,
         workId,
         kind,
-        activeCount: this.#workBySession.size
+        activeCount: this.#coordinator.activeCount
       },
       'Agent work slot acquired'
     )
@@ -4620,8 +3852,7 @@ export class AgentSessionService {
     workId: string,
     kind: 'run' | 'manual_compaction'
   ): void {
-    if (this.#workBySession.get(agentSessionId) !== workId) return
-    this.#workBySession.delete(agentSessionId)
+    if (!this.#coordinator.release(agentSessionId, workId)) return
     void this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -4629,7 +3860,7 @@ export class AgentSessionService {
         agentSessionId,
         workId,
         kind,
-        activeCount: this.#workBySession.size
+        activeCount: this.#coordinator.activeCount
       },
       'Agent work slot released'
     )
@@ -4640,35 +3871,29 @@ export class AgentSessionService {
       await this.options.publishActivity?.(this.projectActivitySnapshot())
     } catch (err) {
       this.options.log.warn(
-        { event: 'agent.activity.delivery_failed', err, activeCount: this.#workBySession.size },
+        {
+          event: 'agent.activity.delivery_failed',
+          err,
+          activeCount: this.#coordinator.activeCount
+        },
         'Agent project activity delivery failed without changing run truth'
       )
     }
   }
 
-  #assertSessionExists(agentSessionId: string): void {
-    const exists = this.options.database.immediate((database) =>
-      database
-        .prepare('SELECT 1 FROM agent_sessions WHERE agent_session_id = ?')
-        .pluck()
-        .get(agentSessionId)
-    )
-    if (exists !== 1) throw new Error('Agent session does not exist')
-  }
-
   #sessionIsCompacting(agentSessionId: string): boolean {
     return (
-      [...this.#activeCompactions.values()].some(
+      [...this.#coordinator.compactions.values()].some(
         (compaction) => compaction.agentSessionId === agentSessionId
       ) ||
-      [...this.#activeRuns.values()].some(
+      [...this.#coordinator.runs.values()].some(
         (run) => run.agentSessionId === agentSessionId && run.phase === 'compacting'
       )
     )
   }
 
   #sessionIsAwaitingInput(agentSessionId: string): boolean {
-    return [...this.#activeRuns.values()].some(
+    return [...this.#coordinator.runs.values()].some(
       (run) => run.agentSessionId === agentSessionId && run.pendingQuestion !== null
     )
   }
