@@ -274,6 +274,7 @@ function logger() {
 function projectDatabase(native: Database.Database): ProjectDatabase {
   return {
     kysely: new Kysely<ProjectDatabaseSchema>({ dialect: new SqliteDialect({ database: native }) }),
+    read: (operation) => operation(native),
     immediate: (operation) => native.transaction(operation).immediate(native),
     backup: (destination, options) => native.backup(destination, options),
     close: () => native.close()

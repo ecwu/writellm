@@ -20,6 +20,8 @@ export interface OpenDatabaseOptions {
 
 export interface OpenedDatabase<Schema> {
   readonly kysely: Kysely<Schema>
+  // Keep related reads in one synchronous callback on the Main-owned connection.
+  read<T>(operation: (database: Database.Database) => T): T
   immediate<T>(operation: (database: Database.Database) => T): T
   backup(
     destinationFile: string,
@@ -94,6 +96,10 @@ export async function openDatabase<Schema>(
     let closed = false
     return {
       kysely,
+      read(operation) {
+        if (closed || nativeDatabase === undefined) throw new Error('Database closed')
+        return operation(nativeDatabase)
+      },
       immediate(operation) {
         if (closed || nativeDatabase === undefined) throw new Error('Database closed')
         return nativeDatabase.transaction(operation).immediate(nativeDatabase)

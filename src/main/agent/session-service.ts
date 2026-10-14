@@ -569,7 +569,7 @@ export class AgentSessionService {
     }
     const whereSql = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`
     values.push(input.limit)
-    return this.options.database.immediate((database) =>
+    return this.options.database.read((database) =>
       (
         database
           .prepare(
@@ -4012,7 +4012,7 @@ export class AgentSessionService {
   }
 
   #sessionModelSelection(agentSessionId: string): AgentModelSelection | null {
-    const row = this.options.database.immediate(
+    const row = this.options.database.read(
       (database) =>
         database
           .prepare(
@@ -4217,7 +4217,8 @@ export class AgentSessionService {
   }
 
   #assertCompatibleSession(agentSessionId: string): void {
-    const row = this.options.database.immediate(
+    // This preflight does not reserve the session across later asynchronous work.
+    const row = this.options.database.read(
       (database) =>
         database
           .prepare(

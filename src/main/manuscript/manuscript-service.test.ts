@@ -58,6 +58,37 @@ afterEach(async () => {
 })
 
 describe('ManuscriptService', () => {
+  it('assembles related records in one ordinary read and keeps append checks in the write transaction', async () => {
+    const { database, service } = await fixture()
+    const read = vi.spyOn(database, 'read')
+    const immediate = vi.spyOn(database, 'immediate')
+    try {
+      const assembly = service.assemble()
+      expect(read).toHaveBeenCalledTimes(1)
+      const workspace = service.getWorkspace()
+      expect(workspace.sections[0]?.revision.sectionRevisionId).toBe(
+        assembly.sections[0]?.revision.sectionRevisionId
+      )
+      expect(read).toHaveBeenCalledTimes(2)
+      expect(immediate).not.toHaveBeenCalled()
+      const first = assembly.sections[0]
+      if (first === undefined) throw new Error('Missing section')
+      read.mockClear()
+      service.appendRevision({
+        sectionId: first.section.sectionId,
+        baseRevisionId: first.revision.sectionRevisionId,
+        baseContentHash: first.revision.contentHash,
+        content: [paragraph('ordinary read')]
+      })
+      expect(immediate).toHaveBeenCalledTimes(1)
+      expect(read).not.toHaveBeenCalled()
+    } finally {
+      read.mockRestore()
+      immediate.mockRestore()
+      database.close()
+    }
+  })
+
   it('keeps figure identity through metadata edits and replacement undo', async () => {
     const { database, service } = await fixture()
     const root = service.assemble().sections[0]

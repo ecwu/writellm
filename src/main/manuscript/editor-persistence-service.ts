@@ -260,7 +260,8 @@ export class EditorPersistenceService {
   }
 
   #currentRevisionId(sectionId: string): string | undefined {
-    return this.#database.immediate(
+    // This publication guard is advisory. Registration repeats it inside immediate().
+    return this.#database.read(
       (database) =>
         database
           .prepare(
@@ -289,7 +290,7 @@ export class EditorPersistenceService {
   }
 
   async #isCurrentMaterialization(revision: SectionRevision): Promise<boolean> {
-    const row = this.#database.immediate(
+    const row = this.#database.read(
       (database) =>
         database
           .prepare('SELECT * FROM section_materializations WHERE section_id = ?')

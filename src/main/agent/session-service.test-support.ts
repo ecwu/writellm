@@ -233,17 +233,17 @@ export async function createDatabase(): Promise<ProjectDatabase> {
   })
 }
 
-export function faultNextImmediate(database: ProjectDatabase): {
+export function faultNextRead(database: ProjectDatabase): {
   database: ProjectDatabase
   failNext(error: Error): void
 } {
   let nextFailure: Error | null = null
   const faulting = Object.create(database) as ProjectDatabase
-  faulting.immediate = <T>(operation: Parameters<ProjectDatabase['immediate']>[0]): T => {
+  faulting.read = <T>(operation: Parameters<ProjectDatabase['read']>[0]): T => {
     const failure = nextFailure
     nextFailure = null
     if (failure !== null) throw failure
-    return database.immediate(operation) as T
+    return database.read(operation) as T
   }
   return {
     database: faulting,

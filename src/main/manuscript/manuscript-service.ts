@@ -914,7 +914,7 @@ export class ManuscriptService {
   }
 
   assemble(): ManuscriptAssembly {
-    const snapshot = this.#database.immediate((database) => {
+    const snapshot = this.#database.read((database) => {
       const manuscript = this.#primary(database)
       const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
       if (brief === undefined) throw new Error('Primary manuscript brief is missing')
@@ -943,7 +943,7 @@ export class ManuscriptService {
   }
 
   getWorkspace(): ManuscriptWorkspace {
-    const snapshot = this.#database.immediate((database) => {
+    const snapshot = this.#database.read((database) => {
       const manuscript = this.#primary(database)
       const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
       if (brief === undefined) throw new Error('Primary manuscript brief is missing')

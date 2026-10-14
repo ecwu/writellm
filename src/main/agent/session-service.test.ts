@@ -7,12 +7,32 @@ import {
   FakeAgentRuntime,
   createService,
   createDatabase,
-  faultNextImmediate,
+  faultNextRead,
   metadata,
   assistant
 } from './session-service.test-support'
 
 describe('AgentSessionService: runtime', () => {
+  it('loads the complete session projection without opening a write transaction', async () => {
+    const database = await createDatabase()
+    const service = createService(database, new FakeAgentRuntime())
+    const session = service.createSession('Read fixture')
+    const immediate = vi.spyOn(database, 'immediate')
+    const read = vi.spyOn(database, 'read')
+    try {
+      const loaded = service.getSession(session.agentSessionId)
+      expect(loaded).toMatchObject(session)
+      expect(loaded).toMatchObject({ fork: null, lastReplacement: null, writingTask: null })
+      expect(service.listSessions()).toEqual([loaded])
+      expect(read).toHaveBeenCalledTimes(2)
+      expect(immediate).not.toHaveBeenCalled()
+    } finally {
+      read.mockRestore()
+      immediate.mockRestore()
+      database.close()
+    }
+  })
+
   it('uses refreshed selected-model limits on the next run while retaining the active snapshot', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -390,7 +410,7 @@ describe('AgentSessionService: runtime', () => {
 
   it('keeps run cleanup registered when current-session delivery lookup fails', async () => {
     const opened = await createDatabase()
-    const fault = faultNextImmediate(opened)
+    const fault = faultNextRead(opened)
     const runtime = new FakeAgentRuntime()
     const original = new Error('simulated current-session lookup failure')
     const warn = vi.fn()
@@ -434,7 +454,7 @@ describe('AgentSessionService: runtime', () => {
 
   it('keeps manual-compaction cleanup registered when session delivery lookup fails', async () => {
     const opened = await createDatabase()
-    const fault = faultNextImmediate(opened)
+    const fault = faultNextRead(opened)
     const runtime = new FakeAgentRuntime()
     const original = new Error('simulated compaction session lookup failure')
     const warn = vi.fn()

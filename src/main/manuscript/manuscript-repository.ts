@@ -75,6 +75,6 @@ export class ManuscriptRepository {
     database: Database.Database | undefined,
     operation: (database: Database.Database) => T
   ): T {
-    return database === undefined ? this.database.immediate(operation) : operation(database)
+    return database === undefined ? this.database.read(operation) : operation(database)
   }
 }
