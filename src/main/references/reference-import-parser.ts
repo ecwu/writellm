@@ -1,3 +1,4 @@
+import { canonicalJson } from '../../shared/canonical-json'
 import { createHash } from 'node:crypto'
 import { Cite } from '@citation-js/core'
 import '@citation-js/plugin-bibtex'
@@ -261,17 +262,6 @@ function approximateUpstreamKey(value: unknown): string | null {
   const record = value as Record<string, unknown>
   const key = record['citation-key'] ?? record['id']
   return typeof key === 'string' ? key.slice(0, 1024) : null
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  return `{${Object.keys(value)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`
-    )
-    .join(',')}}`
 }
 
 function sha256(value: string): string {

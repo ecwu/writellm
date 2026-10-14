@@ -1,3 +1,8 @@
+import {
+  publicationTableCellPlacements as latexTableCellPlacements,
+  publicationTableColumnCount as latexTableColumnCount,
+  normalizedPublicationTableWidths
+} from './publication-table-layout'
 import katex from 'katex'
 import type { Logger } from 'pino'
 import type {
@@ -219,11 +224,6 @@ function convertNode(
 type LatexTableNode = Extract<PublicationNode, { type: 'table' }>
 type LatexTableCell = LatexTableNode['rows'][number][number]
 
-interface LatexTableCellPlacement {
-  cell: LatexTableCell
-  column: number
-}
-
 function renderLatexTable(node: LatexTableNode, losses: LatexPublicationLoss[]): string[] {
   const columns = latexTableColumnCount(node)
   const columnSpec = latexTableColumnSpec(node, columns)
@@ -272,53 +272,9 @@ function renderLatexTable(node: LatexTableNode, losses: LatexPublicationLoss[]):
   return lines
 }
 
-function latexTableCellPlacements(node: LatexTableNode): LatexTableCellPlacement[][] {
-  const occupied: boolean[][] = []
-  const placements: LatexTableCellPlacement[][] = []
-  node.rows.forEach((row, rowIndex) => {
-    const current: LatexTableCellPlacement[] = []
-    let rowOccupancy = occupied[rowIndex]
-    if (rowOccupancy === undefined) {
-      rowOccupancy = []
-      occupied[rowIndex] = rowOccupancy
-    }
-    let column = 0
-    for (const cell of row) {
-      while (rowOccupancy[column] === true) column += 1
-      current.push({ cell, column })
-      const colspan = Math.max(1, cell.colspan)
-      const rowspan = Math.max(1, cell.rowspan)
-      for (let targetRow = rowIndex; targetRow < rowIndex + rowspan; targetRow += 1) {
-        let targetOccupancy = occupied[targetRow]
-        if (targetOccupancy === undefined) {
-          targetOccupancy = []
-          occupied[targetRow] = targetOccupancy
-        }
-        for (let targetColumn = column; targetColumn < column + colspan; targetColumn += 1) {
-          targetOccupancy[targetColumn] = true
-        }
-      }
-      column += colspan
-    }
-    placements.push(current)
-  })
-  return placements
-}
-
-function latexTableColumnCount(node: LatexTableNode): number {
-  const placements = latexTableCellPlacements(node)
-  return Math.max(
-    1,
-    node.columnWidths.length,
-    ...placements.flatMap((row) =>
-      row.map(({ cell, column }) => column + Math.max(1, cell.colspan))
-    )
-  )
-}
-
 function latexTableColumnSpec(node: LatexTableNode, columns: number): string {
   const alignments = latexTableColumnAlignments(node, columns)
-  const widths = normalizedLatexTableWidths(node.columnWidths, columns)
+  const widths = normalizedPublicationTableWidths(node.columnWidths, columns, 'fraction')
   if (widths === null) return alignments.map(latexAlignmentChar).join('')
   return widths
     .map(
@@ -333,7 +289,11 @@ function latexTableColumnSpec(node: LatexTableNode, columns: number): string {
 
 function latexMulticolumnSpec(node: LatexTableNode, cell: LatexTableCell, column: number): string {
   const alignment = latexCellAlignment(cell)
-  const widths = normalizedLatexTableWidths(node.columnWidths, latexTableColumnCount(node))
+  const widths = normalizedPublicationTableWidths(
+    node.columnWidths,
+    latexTableColumnCount(node),
+    'fraction'
+  )
   if (widths === null) return latexAlignmentChar(alignment)
   const total = widths
     .slice(column, column + Math.max(1, cell.colspan))
@@ -379,28 +339,6 @@ function latexAlignmentPrefix(alignment: 'left' | 'center' | 'right' | 'justify'
   if (alignment === 'right') return '>{\\raggedleft\\arraybackslash}'
   if (alignment === 'justify') return '>{\\arraybackslash}'
   return '>{\\raggedright\\arraybackslash}'
-}
-
-function normalizedLatexTableWidths(
-  source: readonly (number | null)[],
-  columns: number
-): number[] | null {
-  const values = Array.from({ length: columns }, (_, index) => {
-    const value = source[index]
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
-  })
-  const explicit = values.filter((value): value is number => value !== null)
-  if (explicit.length === 0) return null
-  const explicitTotal = explicit.reduce((sum, value) => sum + value, 0)
-  const missing = values.filter((value) => value === null).length
-  if (missing === 0) return values.map((value) => (value ?? 0) / explicitTotal)
-  if (explicitTotal < 100) {
-    const remainder = (1 - explicitTotal / 100) / missing
-    return values.map((value) => (value ?? remainder * 100) / 100)
-  }
-  const fallback = explicitTotal / explicit.length
-  const total = explicitTotal + fallback * missing
-  return values.map((value) => (value ?? fallback) / total)
 }
 
 function formatLatexFraction(value: number): string {

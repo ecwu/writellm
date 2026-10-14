@@ -1,3 +1,7 @@
+import {
+  selectSearchableSections as selectSections,
+  manuscriptHeadingPath as headingPath
+} from './manuscript-search-scope'
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from 'pino'
@@ -30,7 +34,6 @@ import {
   SearchProjectionSliceLimitError,
   targetForSurfaceMatch,
   type ManuscriptSearchSurface,
-  type SearchableSection,
   type Utf16Range
 } from '../../shared/manuscript-search'
 import {
@@ -648,46 +651,6 @@ function preview(value: string, from: number, to: number): string {
   const before = Math.min(240, from)
   const after = Math.min(600, value.length - to)
   return value.slice(from - before, to + after)
-}
-
-function selectSections(
-  assembly: ManuscriptAssembly,
-  input: ManuscriptReplacementPlanInput
-): SearchableSection[] {
-  return assembly.sections
-    .filter(({ section }) => {
-      if (input.statuses.length > 0 && !input.statuses.includes(section.status)) return false
-      if (input.scope.type === 'manuscript') return true
-      if (input.scope.type === 'sections') return input.scope.sectionIds.includes(section.sectionId)
-      let current: Section | undefined = section
-      while (current !== undefined) {
-        if (current.sectionId === input.scope.rootSectionId) return true
-        current = assembly.sections.find(
-          (entry) => entry.section.sectionId === current?.parentSectionId
-        )?.section
-      }
-      return false
-    })
-    .map((entry) => ({
-      sectionId: entry.section.sectionId,
-      revisionId: entry.revision.sectionRevisionId,
-      title: entry.section.title,
-      objective: entry.section.objective,
-      status: entry.section.status,
-      content: entry.revision.content
-    }))
-}
-
-function headingPath(assembly: ManuscriptAssembly, section: Section): string[] {
-  const path: string[] = []
-  let current: Section | undefined = section
-  while (current !== undefined) {
-    path.unshift(current.title)
-    current = assembly.sections.find(
-      (entry) => entry.section.sectionId === current?.parentSectionId
-    )?.section
-  }
-  return path
 }
 
 function fingerprintSelection(candidateIds: readonly string[]): string {

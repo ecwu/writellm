@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import type { PublicationAssembly } from '../../shared/contracts/publication'
 import { createPdfPublicationRenderer, renderPublicationHtml } from './pdf-publication'
 
@@ -8,6 +9,26 @@ const assetId = '019d0000-0000-7000-8000-000000000803'
 const target = { sectionId, revisionId, blockId: 'block' }
 
 describe('PDF publication', () => {
+  it.each([
+    [null, null],
+    [40, 60],
+    [17, null, 13],
+    [120, null],
+    [33.333333333333336, null, 31.25],
+    [1, 2, 3],
+    [0, NaN, null]
+  ])('retains the fixed table export hash for widths %j', (...widths) => {
+    const assembly = fixtureAssembly()
+    const table = assembly.nodes.find((node) => node.type === 'table')
+    if (table?.type !== 'table') throw new Error('Fixture table is missing')
+    table.columnWidths = widths
+    const { html } = renderPublicationHtml({
+      assembly,
+      resolveAssetUrl: (id) => `writellm-pdf-asset://asset/${id}`,
+      tableOfContents: false
+    })
+    expect(createHash('sha256').update(html).digest('hex')).toMatchSnapshot()
+  })
   it('renders a print-only, escaped, accessible publication document', () => {
     const result = renderPublicationHtml({
       assembly: fixtureAssembly(),

@@ -1,3 +1,4 @@
+import { canonicalJson } from '../../shared/canonical-json'
 import { Cite } from '@citation-js/core'
 import '@citation-js/plugin-bibtex'
 import type { CslItem, ReferenceItem } from '../../shared/contracts/references'
@@ -55,15 +56,4 @@ function changedCriticalFields(source: CslItem, restored: CslItem): string[] {
   compare('ISBN', source.ISBN, restored.ISBN)
   compare('URL', source.URL, restored.URL)
   return fields
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  return `{${Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`
-    )
-    .join(',')}}`
 }

@@ -1,3 +1,9 @@
+import {
+  publicationTableCellPlacements as tableCellPlacements,
+  publicationTableColumnCount as tableColumnCount,
+  normalizedPublicationTableWidths,
+  type PublicationTableCellPlacement as TableCellPlacement
+} from './publication-table-layout'
 import { randomUUID } from 'node:crypto'
 import type { BrowserWindowConstructorOptions, PrintToPDFOptions } from 'electron'
 import katex from 'katex'
@@ -370,11 +376,6 @@ function htmlNode(
   }
 }
 
-interface TableCellPlacement {
-  cell: Extract<PublicationNode, { type: 'table' }>['rows'][number][number]
-  column: number
-}
-
 function renderHtmlTable(
   node: Extract<PublicationNode, { type: 'table' }>,
   losses: PdfPublicationLoss[]
@@ -409,84 +410,13 @@ function renderHtmlTable(
   return `<table${tableClass}>${colgroup}${head}${body}</table>`
 }
 
-function tableCellPlacements(
-  node: Extract<PublicationNode, { type: 'table' }>
-): TableCellPlacement[][] {
-  const occupied: boolean[][] = []
-  const placements: TableCellPlacement[][] = []
-  node.rows.forEach((row, rowIndex) => {
-    const current: TableCellPlacement[] = []
-    let rowOccupancy = occupied[rowIndex]
-    if (rowOccupancy === undefined) {
-      rowOccupancy = []
-      occupied[rowIndex] = rowOccupancy
-    }
-    let column = 0
-    for (const cell of row) {
-      while (rowOccupancy[column] === true) column += 1
-      current.push({ cell, column })
-      const colspan = Math.max(1, cell.colspan)
-      const rowspan = Math.max(1, cell.rowspan)
-      for (let targetRow = rowIndex; targetRow < rowIndex + rowspan; targetRow += 1) {
-        let targetOccupancy = occupied[targetRow]
-        if (targetOccupancy === undefined) {
-          targetOccupancy = []
-          occupied[targetRow] = targetOccupancy
-        }
-        for (let targetColumn = column; targetColumn < column + colspan; targetColumn += 1) {
-          targetOccupancy[targetColumn] = true
-        }
-      }
-      column += colspan
-    }
-    placements.push(current)
-  })
-  return placements
-}
-
-function tableColumnCount(node: Extract<PublicationNode, { type: 'table' }>): number {
-  const placements = tableCellPlacements(node)
-  return Math.max(
-    1,
-    node.columnWidths.length,
-    ...placements.flatMap((row) =>
-      row.map(({ cell, column }) => column + Math.max(1, cell.colspan))
-    )
-  )
-}
-
 function tableColgroup(
   node: Extract<PublicationNode, { type: 'table' }>,
   columnCount: number
 ): string {
-  const widths = normalizedTableWidths(node.columnWidths, columnCount)
+  const widths = normalizedPublicationTableWidths(node.columnWidths, columnCount, 'percent')
   if (widths === null) return ''
   return `<colgroup>${widths.map((width) => `<col style="width:${formatPercent(width)}">`).join('')}</colgroup>`
-}
-
-function normalizedTableWidths(
-  source: readonly (number | null)[],
-  columnCount: number
-): number[] | null {
-  const values = Array.from({ length: columnCount }, (_, index) => {
-    const value = source[index]
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
-  })
-  const explicit = values.filter((value): value is number => value !== null)
-  if (explicit.length === 0) return null
-  const explicitTotal = explicit.reduce((sum, value) => sum + value, 0)
-  const missing = values.filter((value) => value === null).length
-  if (missing === 0) return values.map((value) => ((value ?? 0) / explicitTotal) * 100)
-  if (explicitTotal < 100) {
-    const remainder = (100 - explicitTotal) / missing
-    return values.map((value) => value ?? remainder)
-  }
-  // BlockNote widths are relative measurements, commonly pixels. When they already consume the
-  // available percentage range, give each unspecified column the mean explicit share and then
-  // normalize every column together.
-  const fallback = explicitTotal / explicit.length
-  const total = explicitTotal + fallback * missing
-  return values.map((value) => ((value ?? fallback) / total) * 100)
 }
 
 function formatPercent(value: number): string {

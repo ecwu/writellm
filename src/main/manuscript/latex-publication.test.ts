@@ -1,4 +1,5 @@
 import { parse } from '@unified-latex/unified-latex-util-parse'
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import type { PublicationAssembly } from '../../shared/contracts/publication'
 import { escapeLatex, renderLatexPublication } from './latex-publication'
@@ -9,6 +10,22 @@ const assetId = '019d0000-0000-7000-8000-000000000703'
 const target = { sectionId, revisionId, blockId: 'block' }
 
 describe('LaTeX publication renderer', () => {
+  it.each([
+    [null, null],
+    [40, 60],
+    [17, null, 13],
+    [120, null],
+    [33.333333333333336, null, 31.25],
+    [1, 2, 3],
+    [0, NaN, null]
+  ])('retains the fixed table export hash for widths %j', (...widths) => {
+    const assembly = fixtureAssembly()
+    const table = assembly.nodes.find((node) => node.type === 'table')
+    if (table?.type !== 'table') throw new Error('Fixture table is missing')
+    table.columnWidths = widths
+    const { tex } = renderLatexPublication({ assembly, assetRelativePath: () => 'assets/abc.png' })
+    expect(createHash('sha256').update(tex).digest('hex')).toMatchSnapshot()
+  })
   it('emits deterministic, independently parseable XeLaTeX with bounded fallbacks', () => {
     const assembly = fixtureAssembly()
     const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }

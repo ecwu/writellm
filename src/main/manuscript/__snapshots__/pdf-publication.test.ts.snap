@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`PDF publication > retains the fixed table export hash for widths 0 1`] = `"ea874a129094f13e13f41807da010ae17ba10d05048e146443c4655874e13744"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths 1 1`] = `"621f0478fb2d05cbc4f17fc254b6325d2fc3e9539e88d52b32f5ee3bf2eff3d7"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths 17 1`] = `"40ab78ac2cce54ae04bb6d805ec80ac2ac598871430e78274196e1afaa72059b"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths 33.333333333333336 1`] = `"e0566727ac97efab782da589b68cb79682830d0f87b0c14fe7028dd95e07f038"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths 40 1`] = `"455f44e190c0905c7b1be451db02570f8aff004a7527fd0f102a8efb1a96ebb4"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths 120 1`] = `"871482e4553c63ee38dd2f12054e9b3116c58844aea65b931786ec32b1d0524f"`;
+
+exports[`PDF publication > retains the fixed table export hash for widths null 1`] = `"ea874a129094f13e13f41807da010ae17ba10d05048e146443c4655874e13744"`;

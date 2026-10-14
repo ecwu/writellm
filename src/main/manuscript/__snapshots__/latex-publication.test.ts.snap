@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 0 1`] = `"6ca2c5f49f15d21b1d55e0e96cc8b9e1f2004ce09ada651067b27ac2bc58f8b3"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 1 1`] = `"d6cf28ad9a07e907f33a3cfe73161824fe883ca96093ed067e50b889199472e2"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 17 1`] = `"e6d5391190e7a1ee8bdb1896f519233545ca970163c4096cbe9a4030eeddd874"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 33.333333333333336 1`] = `"41370bfbc9046ecaabaaea30cc873d359a3ae749419d573bf28c3620b6c4a347"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 40 1`] = `"fbad076d7bb83f009b2f95e5544fc4a7aedd90a6c90b406376a6ba045ff28011"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths 120 1`] = `"dadbe5f077e8ee5076985144578467eedf5172d6c5c275284bd00de0635049fd"`;
+
+exports[`LaTeX publication renderer > retains the fixed table export hash for widths null 1`] = `"a3499348b595e673b466cce59d5cf1f6d569e34d048671f042dd41ce1ae9c783"`;

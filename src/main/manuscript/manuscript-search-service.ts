@@ -1,3 +1,8 @@
+import {
+  selectSearchableSections as selectSections,
+  manuscriptHeadingPath as headingPath,
+  toSearchable
+} from './manuscript-search-scope'
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from 'pino'
@@ -21,7 +26,6 @@ import {
   type ManuscriptSearchSurface,
   type ManuscriptSearchTarget,
   type ProjectionMatch,
-  type SearchableSection,
   type Utf16Range
 } from '../../shared/manuscript-search'
 import type { ManuscriptService } from './manuscript-service'
@@ -415,49 +419,6 @@ function decodeCursor(
     throw new ManuscriptSearchError('stale_cursor', 'Search cursor is stale')
   }
   return parsed.offset
-}
-
-function selectSections(
-  assembly: ManuscriptAssembly,
-  input: ParsedManuscriptSearchInput
-): SearchableSection[] {
-  const sections = assembly.sections.filter(({ section }) => {
-    if (input.statuses.length > 0 && !input.statuses.includes(section.status)) return false
-    if (input.scope.type === 'manuscript') return true
-    if (input.scope.type === 'sections') return input.scope.sectionIds.includes(section.sectionId)
-    let current: Section | undefined = section
-    while (current !== undefined) {
-      if (current.sectionId === input.scope.rootSectionId) return true
-      current = assembly.sections.find(
-        (entry) => entry.section.sectionId === current?.parentSectionId
-      )?.section
-    }
-    return false
-  })
-  return sections.map(toSearchable)
-}
-
-function toSearchable(entry: ManuscriptAssembly['sections'][number]): SearchableSection {
-  return {
-    sectionId: entry.section.sectionId,
-    revisionId: entry.revision.sectionRevisionId,
-    title: entry.section.title,
-    objective: entry.section.objective,
-    status: entry.section.status,
-    content: entry.revision.content
-  }
-}
-
-function headingPath(assembly: ManuscriptAssembly, section: Section): string[] {
-  const path: string[] = []
-  let current: Section | undefined = section
-  while (current !== undefined) {
-    path.unshift(current.title)
-    current = assembly.sections.find(
-      (entry) => entry.section.sectionId === current?.parentSectionId
-    )?.section
-  }
-  return path
 }
 
 function matchRange(target: ManuscriptSearchTarget): Utf16Range {

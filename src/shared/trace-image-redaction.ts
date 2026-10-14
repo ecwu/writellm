@@ -1,3 +1,4 @@
+import type { JSONType } from 'zod'
 import { createHash } from 'node:crypto'
 
 export function redactTraceImages(value: unknown): unknown {
@@ -43,4 +44,10 @@ function metadata(data: string, mimeType: string): Record<string, unknown> {
     base64Bytes: data.length,
     ...dimensions
   }
+}
+
+export function traceJsonValue(value: unknown): JSONType {
+  const serialized = JSON.stringify(redactTraceImages(value))
+  if (serialized === undefined) throw new Error('Agent trace payload is not JSON serializable')
+  return JSON.parse(serialized) as JSONType
 }

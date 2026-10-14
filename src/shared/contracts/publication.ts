@@ -1,3 +1,4 @@
+import { canonicalJson } from '../canonical-json'
 import { z } from 'zod'
 import {
   figureIdSchema,
@@ -729,15 +730,4 @@ function style(styles: Record<string, unknown>): z.infer<typeof publicationTextS
 
 function plainText(text: string): z.infer<typeof publicationInlineNodeSchema> {
   return { type: 'text', text, style: style({}) }
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
-  return `{${Object.keys(value as Record<string, unknown>)
-    .sort()
-    .map(
-      (key) => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`
-    )
-    .join(',')}}`
 }
