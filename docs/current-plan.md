@@ -31,6 +31,19 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) pass local acceptance as the second review batch.
+  Editor saves reuse validated input and freshly prepared revision content. One traversal normalizes plain source and figure metadata.
+  Five snapshots preserve pre-refactor JSON, hashes, and counts. Historical reads and migrations retain their existing entrypoints.
+  OpenedDatabase exposes synchronous `read()`. The named manuscript, editor, and Agent reads use it without opening write transactions.
+  Version comparisons, asset protection, comment anchors, and materialization registration retain their write transactions.
+  Final results cover 271 passing Electron tests across 27 files after focused fixture corrections.
+  Static stages pass in 2.5s. One fresh source build takes 15.2s.
+  Ten selected source E2E scenarios pass in 27.0s. The combined gate takes 45.9s.
+  Final results record zero automatic retries or skips on macOS arm64. Other-platform runtime coverage remains outstanding.
+  Claude review accepts both issues. Each is committed separately, pushed to `main`, and closed.
+  Later sub-issues remain unstarted.
+  Evidence: [second-batch simplification](history/implementation-log.md#2026-10-14-second-batch-simplification).
+
 - Issues [8](https://github.com/ecwu/writellm/issues/8), [10](https://github.com/ecwu/writellm/issues/10), and [11](https://github.com/ecwu/writellm/issues/11) pass local acceptance as one review batch.
   Ten internal catalog writes return `void`. ProviderService builds each final catalog once.
   Shared functions replace duplicate Worker errors, compatible fingerprint serializers, search scopes, and publication table calculations.
@@ -41,7 +54,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   All 12 packaged runtime checks pass. Six selected E2E scenarios pass against that same App in two focused runs.
   The E2E commands take 21.0s and 3.9s. All final runs record zero retries or skips.
   Claude review accepts all three issues. Each is committed separately, pushed to `main`, and closed.
-  Later sub-issues remain unstarted.
+  The second batch appears above.
   Other-platform runtime coverage remains outstanding.
   Evidence: [first-batch simplification](history/implementation-log.md#2026-10-14-first-batch-simplification).
 

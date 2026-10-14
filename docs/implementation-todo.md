@@ -26,6 +26,11 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 6: consolidate save normalization and reuse prepared revision content. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-second-batch-simplification).
+- [x] Issue 9: separate ordinary reads from immediate write transactions. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-second-batch-simplification).
+
 - [x] Issue 8: remove duplicate catalog snapshots. Local acceptance and Claude review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
 - [x] Issue 10: share matching error, fingerprint, search, and table algorithms. Local acceptance and Claude review pass.

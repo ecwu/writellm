@@ -4980,3 +4980,157 @@ No production code accesses `runtime.scheduler` directly.
 Rerunning `pnpm check:fast` passes in 2.6s across 871 Biome files. The same 22 focused Electron test files pass 208 tests in 6.4s with zero retries.
 The package smoke and six packaged E2E scenarios above still cover the unchanged final source.
 Each issue is committed separately and pushed to `main`, and all three issues are closed. The untracked dependency audit stays outside these commits.
+
+
+## 2026-10-14 Second-Batch Simplification
+
+The user authorizes Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) together under the Issue 4 sequence.
+Claude accepts and closes the first batch before this work starts.
+Both second-batch issues await combined Claude review before commit or closure.
+
+### Issue 6: Save validation and normalization
+
+Editor IPC validates each incoming document with `saveSectionDocumentInputSchema`.
+Final flush IPC uses `finalFlushSaveInputSchema` and retains sender, session, and token authorization.
+Main import plans pass their contracts, and active-section flattening passes `blockNoteDocumentSchema` before persistence.
+These callers enter `EditorPersistenceService.save()` with a validated document.
+Persistence now uses the typed `ManuscriptService.appendValidatedRevision()` entrypoint.
+That method still parses revision metadata, restricts source classes and lineage, and validates the final normalized document before writing.
+
+`appendRevision()` remains the validating entrypoint for direct callers, including legacy citation conversion.
+Agent mutation storage retains its existing document boundary and `prepareSectionContent()` entrypoint.
+Creation, import batches, replacement, undo, and migrations retain their existing preparation calls.
+`prepareSectionContent(unknown, sectionId?)` keeps its signature and behavior.
+No historical hashes, schema versions, or migration sources change.
+
+One recursive traversal now normalizes plain Math and Diagram source plus figure metadata.
+Each plain source block still passes its strict local contract before adjacent text merges.
+One final document contract replaces the two consecutive whole-document parses in figure normalization.
+The canonical serializer, hash function, citation filtering, and counting rules remain unchanged.
+
+Freshly inserted revisions reuse the prepared document after commit.
+No-op retries and historical reads still decode the authoritative stored row.
+Metadata, counts, source, lineage, and revision identity still come from that row.
+The regression test compares the fresh result with a separately decoded stored revision.
+It also proves that retries return the same revision and decode the stored body.
+
+For a new editor save, the main chain drops from eight whole-document contract parses to three.
+Those three belong to inbound IPC, final normalization, and outbound IPC.
+This count excludes serialization, text extraction, contract refinements, and comment-anchor reconciliation.
+Comment anchors still decode the current head inside the write transaction, even when the section contains no comments.
+That decode now uses two whole-document parses instead of three because it shares the combined normalizer.
+The observed no-comment save therefore drops from eleven whole-document parses to five.
+The test observes one decode inside the transaction and none for the returned fresh revision after commit.
+No benchmark or wall-clock performance claim follows from these counts.
+
+Before production edits, five fixed snapshots record JSON, SHA-256, word count, and character count from the old implementation.
+They cover an empty document, nested Unicode prose with citations and inline Math, split Math and Diagram source, and two figure metadata cases.
+The figures cover deterministic missing metadata plus preserved explicit identity and empty alternative text.
+The same snapshots pass after refactoring without regeneration.
+Baseline command: `pnpm test src/main/manuscript/content.test.ts --update`.
+All 16 tests pass in 0.7s, and five snapshots are written before the implementation changes.
+Report: `.cache/verification/1792013307818-53340-ff8c87ba`.
+
+Version and hash comparisons, asset reference protection, current-pointer updates, and comment anchor changes remain inside the original immediate transaction.
+Identical-content retries retain their existing behavior before stale-base rejection.
+Materialization, retention, repair, and project-session authority retain their existing behavior.
+
+### Issue 9: Ordinary reads and write transactions
+
+`OpenedDatabase.read(callback)` invokes one synchronous callback on the existing Main-owned connection.
+It does not open a transaction or reserve a write lock.
+It retains the same closed-database rejection as `immediate()`.
+Related reads stay together in one callback with no asynchronous boundary.
+This choice relies on the supported Main sole-writer ownership of `project.sqlite`.
+It adds no snapshot API, generic query framework, performance promise, or stronger isolation claim.
+
+`ManuscriptRepository` uses `read()` by default.
+When a caller supplies an existing transaction connection, repository reads use that connection directly.
+`ManuscriptService.assemble()` and `getWorkspace()` each collect related records in one synchronous read callback.
+Agent session projections retain their related fork, replacement, edit, and writing-task queries in their existing synchronous callback.
+`#requireSessionRecord()` uses that projection. `#assertCompatibleSession()` and `#sessionModelSelection()` also use ordinary reads.
+Other Agent query paths and all Agent write transactions stay outside this narrow migration.
+
+Editor `#currentRevisionId()` and `#isCurrentMaterialization()` use ordinary reads.
+The publication guard remains advisory, and materialization registration repeats the current-revision comparison inside its write transaction.
+The Agent compatibility preflight also remains advisory across later asynchronous work.
+Its previous immediate read ended before that work and provided no reservation across it.
+These changes preserve that behavior rather than introduce a new atomicity guarantee.
+
+Real-database tests read committed values while another connection holds an immediate write reservation.
+They also prove that `read()` joins an existing write transaction on the same connection and preserves complete rollback.
+Manuscript tests prove that assembly and workspace projection each use one read callback.
+They also prove that append checks use one write transaction with no separate repository read callback.
+Agent tests prove that complete session projections use reads rather than write transactions.
+The two delivery-failure tests now inject failures through `read()`, which remains the same operational failure boundary.
+The explicit ProjectDatabase fixture in trace tests gains the new read method.
+
+### Verification
+
+The selected scope covers contracts, canonical content, migrations, database access, persistence, imports, assets, comments, IPC, Agent sessions, and project lifecycle.
+These changes affect persistence and IPC. They require focused Electron tests plus real Electron scenarios against one fresh build.
+They do not alter native modules, worker entrypoints, package resources, dependencies, or packaging configuration.
+No package gate or installer build runs for this batch.
+
+The first Electron selection runs 233 tests across 23 files in 9.7s.
+It records 229 passes and four test failures.
+The failures expose two delivery tests that inject at the old transaction entrypoint and two incorrect new assertions.
+The new assertions used the wrong public session method and omitted the transaction-owned comment-anchor decode.
+After those corrections, the focused rerun covers 74 tests across six files in 5.7s.
+It records 73 passes and one session assertion mismatch because the read result includes existing projection metadata.
+The final `pnpm test src/main/agent/session-service.test.ts` run passes all 21 tests in 3.6s.
+Final results across these selections cover 271 distinct passing tests across 27 files, with zero automatic retries or skips.
+Results from unchanged passing tests remain valid. Only affected checks repeat.
+Reports:
+
+- `.cache/verification/1792013455781-55402-4d5a6f97`
+- `.cache/verification/1792013532212-56436-4770c124`
+- `.cache/verification/1792013571855-57019-ab0a70c1`
+
+The selections include `src/main/db/`, shared manuscript contracts, content, manuscript services, persistence, imports, assets, comments, and replacement.
+They also include editor, manuscript, and Knowledge IPC, all eight Agent session test files, trace tests, and ProjectManager.
+Migration tests cover 0028 citation counts, 0033 figure metadata, and 0038 Math and Diagram content.
+The initial type check exposes a missing validated-input type and a mapper that receives an array index as its new optional argument.
+Both are corrected before the passing combined gate.
+
+The repository-root command runs static checks, one build, and selected source E2E:
+
+```sh
+pnpm check:e2e e2e/writing-workspace.spec.ts e2e/legacy-citation-conversion.spec.ts e2e/agent-model-configuration.spec.ts \
+  --grep 'preserves editor selection|retains input and serializes saves|edits a brief and nested outline|surfaces a stale section conflict|reviews and applies a Main-owned hashed Markdown import plan|renders and reopens project images|conversion|uses edited model metadata'
+```
+
+All six stages pass in 45.9s.
+Static stages cover 872 Biome files and both TypeScript targets in 2.5s.
+Native preparation takes 0.8s. The single source build takes 15.2s.
+All ten source scenarios pass in 27.0s, with 27.4s for the E2E stage and zero retries or skips.
+They cover save continuity, delayed responses, conflicts, import, outline and content reopening, and rich media.
+They also cover all three legacy conversion outcomes and Agent model configuration.
+Report: `.cache/verification/1792013574897-57101-ed799e76`.
+
+The final diff and new documentation links pass inspection.
+Biome excludes Markdown, so its file-specific invocation reports no processed files.
+The passing combined gate covers every supported source file.
+
+The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
+The existing engine warning remains because the project declares `>=24.21.0 <25`.
+Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
+It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
+Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
+Both issues remain open and uncommitted, and the goal pauses for Claude review.
+The pre-existing untracked dependency audit remains untouched.
+
+### Claude review
+
+Claude reviews both issues against the working tree and accepts them without code changes.
+Issue 6: every `EditorPersistenceService.save()` caller validates the document first.
+Editor and final-flush IPC parse `blockNoteDocumentSchema`. Import plans parse their plan contract, and multi-section flattening parses the document again.
+`appendValidatedRevision()` still parses metadata and applies the final `currentBlockNoteDocumentSchema` before the write transaction.
+Reusing `prepared.content` matches the stored decode: the canonical JSON differs only in key order, `canonicalize()` rejects `undefined`, and figure normalization is idempotent.
+Issue 9: only Main opens `project.sqlite`, and Workers open only `index.sqlite`. Synchronous `read()` callbacks therefore cannot interleave with another writer.
+Materialization registration repeats its current-revision check inside `immediate()`.
+`pnpm check:fast` passes in 2.5s across 872 Biome files. Focused Electron tests pass 248 of 248 tests across 30 files in 6.0s with zero retries.
+They cover `src/main/db`, content, manuscript service, persistence, import, Agent sessions, traces, editor IPC, legacy conversion, and shared contracts.
+The fresh-build E2E gate above still covers the final production source, so it is not rerun. Coverage remains macOS arm64 only.
+Report: `.cache/verification/1792013914881-66674-19e9e182`.
+Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
