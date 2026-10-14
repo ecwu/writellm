@@ -163,7 +163,7 @@ function harness() {
     jobs: {
       requestCancellationForPayload: vi.fn(() => [])
     },
-    runtime: { scheduler: { cancel: vi.fn() } },
+    runtime: { cancel: vi.fn() },
     knowledgeNormalization,
     projectIndex,
     operations: { track: vi.fn(() => releaseOperation) },

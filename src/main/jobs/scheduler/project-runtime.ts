@@ -50,6 +50,10 @@ export class ProjectRuntime {
     this.scheduler.resumeClaims()
   }
 
+  cancel(jobId: string): void {
+    this.scheduler.cancel(jobId)
+  }
+
   park(): Promise<void> {
     return this.scheduler.park()
   }

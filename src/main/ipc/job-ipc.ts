@@ -69,7 +69,7 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
     const parsed = jobStatusInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const job = context.jobs.requestCancellation(parsed.jobId)
-    context.runtime.scheduler.cancel(parsed.jobId)
+    context.runtime.cancel(parsed.jobId)
     options.manager.assertActiveSession(parsed.projectSessionId)
     return jobStatusSchema.parse(toJobStatus(job, context.database))
   })

@@ -1020,7 +1020,7 @@ function cancelMineruJobs(context: ProjectContext, references: MineruWorkReferen
       values: references.parseRevisionIds
     })
   ]
-  for (const job of cancelled) context.runtime.scheduler.cancel(job.jobId)
+  for (const job of cancelled) context.runtime.cancel(job.jobId)
 }
 
 async function chooseFiles(owner: BrowserWindow | null): Promise<string[]> {

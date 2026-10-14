@@ -8,6 +8,7 @@ import type { ProjectManifest } from '../../project/project-manifest'
 import { JobStore, type JobLease } from '../job-store'
 import { JobHandlerRegistry } from './job-handler-registry'
 import { JobScheduler } from './job-scheduler'
+import { ProjectRuntime } from './project-runtime'
 import { WorkerSupervisor } from './worker-supervisor'
 
 const directories: string[] = []
@@ -44,6 +45,35 @@ afterEach(async () => {
 })
 
 describe('JobScheduler', () => {
+  it('cancels active work through the project lifecycle boundary', async () => {
+    const { database, jobs, registry, projectId } = await setup()
+    registry.register('artifact_cleanup', async ({ signal }) => {
+      await new Promise<void>((_, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      })
+    })
+    const runtime = new ProjectRuntime({
+      projectId,
+      projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc809',
+      jobs,
+      registry,
+      log
+    })
+    const job = jobs.enqueue({
+      type: 'artifact_cleanup',
+      payload: { cleanupId: 'cancel-runtime' }
+    }).job
+    try {
+      runtime.start()
+      await waitFor(() => jobs.require(job.jobId).state === 'running')
+      jobs.requestCancellation(job.jobId)
+      runtime.cancel(job.jobId)
+      await waitFor(() => jobs.require(job.jobId).state === 'cancelled')
+    } finally {
+      await runtime.stop()
+      database.close()
+    }
+  })
   it('claims only idle resource slots and never exceeds resource concurrency', async () => {
     const { database, jobs, registry, supervisor, projectId } = await setup()
     const releases: Array<() => void> = []

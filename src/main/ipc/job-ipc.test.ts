@@ -47,7 +47,7 @@ function harness() {
       return unsubscribe
     })
   }
-  const runtime = { scheduler: { cancel: vi.fn() } }
+  const runtime = { cancel: vi.fn() }
   const manager = {
     snapshot: vi.fn(() => ({
       state: 'open',
@@ -130,7 +130,7 @@ describe('job IPC', () => {
     expect(
       invoke(IPC_CHANNELS.jobsRequestCancellation, { projectSessionId, jobId: job.jobId })
     ).toMatchObject({ cancellationRequested: true })
-    expect(runtime.scheduler.cancel).toHaveBeenCalledWith(job.jobId)
+    expect(runtime.cancel).toHaveBeenCalledWith(job.jobId)
   })
 
   it('ignores stale unsubscriptions and revokes even after the active project changed', () => {

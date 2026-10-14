@@ -145,9 +145,7 @@ export class JobScheduler {
     this.stopClaims()
     for (const execution of this.#executions.values()) {
       execution.closeRequested = true
-      if (execution.definition.closePolicy !== 'finish') {
-        execution.controller.abort(new Error('Project is closing'))
-      }
+      execution.controller.abort(new Error('Project is closing'))
     }
     try {
       await withTimeout(
@@ -286,7 +284,7 @@ export class JobScheduler {
       )
     } catch (err) {
       if (this.#stopped) return
-      if (execution.closeRequested && definition.closePolicy === 'abort-and-requeue') {
+      if (execution.closeRequested) {
         this.#transitionIgnoringLostLease(claimed.job.jobId, execution.executionId, () =>
           this.#jobs.requeueForProjectClose(claimed.lease)
         )
@@ -297,8 +295,6 @@ export class JobScheduler {
         this.#transitionIgnoringLostLease(claimed.job.jobId, execution.executionId, () =>
           this.#jobs.acknowledgeCancellation(claimed.lease)
         )
-      } else if (execution.closeRequested) {
-        return
       } else {
         this.#transitionIgnoringLostLease(claimed.job.jobId, execution.executionId, () =>
           this.#jobs.fail(claimed.lease, err)

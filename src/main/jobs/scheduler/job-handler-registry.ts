@@ -2,7 +2,6 @@ import type { JobRecord } from '../job-store'
 import type { JobProgress, JobType } from '../job-schemas'
 
 export type JobResource = 'mineru' | 'embedding' | 'index' | 'local-io'
-export type JobClosePolicy = 'finish' | 'abort-and-requeue' | 'recover-by-lease-expiry'
 
 export interface JobHandlerContext {
   readonly job: JobRecord
@@ -18,7 +17,6 @@ export interface JobHandlerDefinition {
   readonly timeoutMs: number
   readonly leaseMs: number
   readonly heartbeatMs: number
-  readonly closePolicy: JobClosePolicy
   readonly handler: JobHandler
 }
 
@@ -39,16 +37,6 @@ const resourceByType: Readonly<Record<JobType, JobResource>> = {
   artifact_cleanup: 'local-io'
 }
 
-const closePolicyByType: Readonly<Record<JobType, JobClosePolicy>> = {
-  mineru_parse: 'abort-and-requeue',
-  normalize_parse_revision: 'abort-and-requeue',
-  build_index_generation: 'abort-and-requeue',
-  build_embedding_generation: 'abort-and-requeue',
-  remove_index_item: 'abort-and-requeue',
-  rebuild_index: 'abort-and-requeue',
-  artifact_cleanup: 'abort-and-requeue'
-}
-
 export class JobHandlerRegistry {
   readonly #definitions = new Map<JobType, JobHandlerDefinition>()
 
@@ -64,7 +52,6 @@ export class JobHandlerRegistry {
       timeoutMs: options.timeoutMs ?? 60_000,
       leaseMs: options.leaseMs ?? 30_000,
       heartbeatMs: options.heartbeatMs ?? 10_000,
-      closePolicy: options.closePolicy ?? closePolicyByType[type],
       handler
     })
   }

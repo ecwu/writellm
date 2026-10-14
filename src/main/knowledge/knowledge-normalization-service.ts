@@ -731,8 +731,7 @@ export function registerNormalizationHandler(
   registry.register('normalize_parse_revision', (context) => service.handle(context), {
     timeoutMs: 10 * 60_000,
     leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'abort-and-requeue'
+    heartbeatMs: 15_000
   })
 }
 

@@ -605,21 +605,18 @@ export function registerIndexHandlers(
 ): void {
   for (const type of ['remove_index_item', 'rebuild_index'] as const) {
     registry.register(type, (context) => service.handleRefresh(context), {
-      timeoutMs: 60_000,
-      closePolicy: 'abort-and-requeue'
+      timeoutMs: 60_000
     })
   }
   registry.register('build_index_generation', (context) => service.handleBuild(context), {
     timeoutMs: 10 * 60_000,
     leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'abort-and-requeue'
+    heartbeatMs: 15_000
   })
   registry.register('build_embedding_generation', (context) => service.handleEmbedding(context), {
     timeoutMs: 30 * 60_000,
     leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'abort-and-requeue'
+    heartbeatMs: 15_000
   })
 }
 

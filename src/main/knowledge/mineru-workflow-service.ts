@@ -1152,8 +1152,7 @@ export function registerMineruHandlers(
   registry.register('mineru_parse', (context) => audited(service, context), {
     timeoutMs: 30 * 60_000,
     leaseMs: 60_000,
-    heartbeatMs: 15_000,
-    closePolicy: 'abort-and-requeue'
+    heartbeatMs: 15_000
   })
   registry.register(
     'artifact_cleanup',
@@ -1168,8 +1167,7 @@ export function registerMineruHandlers(
     {
       timeoutMs: 10 * 60_000,
       leaseMs: 60_000,
-      heartbeatMs: 15_000,
-      closePolicy: 'abort-and-requeue'
+      heartbeatMs: 15_000
     }
   )
 }
