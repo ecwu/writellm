@@ -46,3 +46,15 @@ lists evolve across ADR 005/006/013/024/025 toward Protocol v6.
 Both Pi packages are pinned to exactly 1.0.0 under Issue 1.
 Agent and Notebook selection accepts chat models only. Legacy caches without a model type remain readable.
 Image and classifier models remain outside interactive chat selection.
+
+## 2026-10-14 Required runtime dependencies
+
+Issue 7 makes the catalog and the other production Agent services required dependencies.
+AgentSessionService resolves each selected model through the catalog and derives its runtime descriptor and limits from that result.
+It no longer executes through the singleton Agent provider or a separate metadata fallback.
+Catalog snapshot initialization still converts old singleton configuration into the cached legacy preset and preserves encrypted credential bindings.
+Project sessions with no model selection remain readable, including sessions from older projects.
+Starting work in such a session uses the catalog default selection, which the Renderer already displays for it.
+Main resolves that default first and stores it on the session only after resolution succeeds.
+Starting work with neither a stored nor a default selection fails with `agent_model_not_configured`.
+No project history or schema migration changes.

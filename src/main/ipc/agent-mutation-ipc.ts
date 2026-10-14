@@ -34,12 +34,10 @@ export function registerAgentMutationIpc(options: {
   const ipc = options.ipc ?? ipcMain
   const service = (projectSessionId: string) => {
     const context = options.manager.assertMutationSession(projectSessionId)
-    if (context.agentMutations === null) throw new Error('Agent mutations are unavailable')
     return context.agentMutations
   }
   const assertWritableSession = (projectSessionId: string, agentSessionId: string): void => {
     const sessions = options.manager.assertActiveSession(projectSessionId).agentSessions
-    if (sessions === null) throw new Error('Agent sessions are unavailable')
     if (
       !sessions.listSessions('active').some((session) => session.agentSessionId === agentSessionId)
     ) {
@@ -140,7 +138,6 @@ export function registerAgentMutationIpc(options: {
     return lifecycle('agent.change_set.batch', input.commandId, async () => {
       assertWritableSession(input.projectSessionId, input.agentSessionId)
       const context = options.manager.assertActiveSession(input.projectSessionId)
-      if (context.agentChangeSets === null) throw new Error('Agent change sets are unavailable')
       return changeSetBatchResultSchema.parse(
         await context.agentChangeSets.execute(input, async () => {
           const state = await options.manager.versionHistoryState(input.projectSessionId)

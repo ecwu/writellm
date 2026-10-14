@@ -370,14 +370,7 @@ describe('AgentSessionService: review', () => {
       }
     )
     service = createService(database, runtime, undefined, {
-      resolveModelLimits: async () => ({
-        contextWindowTokens: 32_768,
-        inputLimitTokens: 24_576,
-        outputLimitTokens: 4_096,
-        source: 'models_dev',
-        catalogModelKey: 'test/compaction',
-        resolvedAt: '2026-08-12T00:00:00.000Z'
-      }),
+      model: { contextWindow: 32_768, maxTokens: 4_096 },
       summarizeHistory
     })
     const session = service.createSession()
@@ -461,14 +454,7 @@ describe('AgentSessionService: review', () => {
       throw new Error('summary provider unavailable')
     })
     const service = createService(database, runtime, undefined, {
-      resolveModelLimits: async () => ({
-        contextWindowTokens: 32_768,
-        inputLimitTokens: 24_576,
-        outputLimitTokens: 4_096,
-        source: 'models_dev',
-        catalogModelKey: 'test/compaction-failure',
-        resolvedAt: '2026-08-12T00:00:00.000Z'
-      }),
+      model: { contextWindow: 32_768, maxTokens: 4_096 },
       summarizeHistory
     })
     const session = service.createSession('Automatic compaction failure')

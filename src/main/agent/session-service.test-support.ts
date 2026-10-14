@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import pino from 'pino'
-import { afterEach, expect } from 'vitest'
+import { afterEach, expect, vi } from 'vitest'
 import type { AgentRuntimeEvent, WritingToolGroup } from '../../shared/contracts/agent'
 import type { AgentToolRequest, AgentToolResponse } from '../../shared/contracts/agent-tools'
 import type { ProviderConfig } from '../../shared/contracts/providers'
@@ -13,6 +13,40 @@ import type {
 } from '../providers/gateways'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { AgentSessionService, type AgentSessionServiceOptions } from './session-service'
+import type { ResolvedAgentCatalogModel } from '../providers/agent-provider-catalog'
+import { ManuscriptService } from '../manuscript/manuscript-service'
+import { AgentContextBuilder } from './context'
+import { AgentAttachmentService } from './attachment-service'
+import { WritingTaskService } from './writing-task-service'
+import { AgentToolDomainError } from './read-tools'
+import { pendingSkillSnapshot } from './session-event-utils'
+
+export const defaultModelSelection = { presetId: 'custom:fixture', modelId: 'writer' }
+
+export function resolvedFixtureModel(
+  model: Partial<ResolvedAgentCatalogModel['model']> = {}
+): ResolvedAgentCatalogModel {
+  return {
+    presetId: defaultModelSelection.presetId,
+    presetName: 'Fixture',
+    providerId: 'writellm-fixture',
+    timeoutMs: 30_000,
+    model: {
+      id: 'writer',
+      name: 'Writer',
+      api: 'openai-completions',
+      provider: 'writellm-fixture',
+      baseUrl: 'https://agent.example.test/v1',
+      reasoning: false,
+      input: ['text', 'image'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 131_072,
+      maxTokens: 8_192,
+      ...model
+    },
+    auth: { auth: { apiKey: 'agent-secret' }, source: 'Fixture credential' }
+  }
+}
 
 export const temporaryDirectories: string[] = []
 
@@ -106,9 +140,8 @@ export class FakeAgentRuntime implements AgentSessionRuntime {
     onEvent: (event: AgentRuntimeEvent) => void | Promise<void>,
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
   ): AgentSessionRunHandle {
-    if (_config.role === 'agent' && _config.presetId === undefined) {
-      expect(credential).toBe('agent-secret')
-    }
+    expect(_config).toMatchObject({ role: 'agent', presetId: expect.any(String) })
+    expect(input.runtimeModel).toBeDefined()
     let resolve: (outcome?: 'finished' | 'awaiting_review') => void = () => undefined
     let reject: (error: Error) => void = () => undefined
     const completion = new Promise<{ outcome: 'finished' | 'awaiting_review' }>(
@@ -196,23 +229,75 @@ export function createService(
       | 'publishSession'
       | 'publishActivity'
       | 'generateTitle'
-      | 'resolveModelLimits'
       | 'skillRouter'
     >
-  > = {}
+  > & { model?: Partial<ResolvedAgentCatalogModel['model']> } = {}
 ): AgentSessionService {
-  return new AgentSessionService({
+  const { model, ...serviceOverrides } = overrides
+  const projectRoot = database.read((native) =>
+    dirname(
+      dirname(
+        (native.pragma('database_list') as Array<{ name: string; file: string }>).find(
+          (row) => row.name === 'main'
+        )?.file ?? ''
+      )
+    )
+  )
+  const manuscript = new ManuscriptService({
+    database,
+    projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+    log
+  })
+  const service = new AgentSessionService({
     projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
     projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
     database,
     runtime,
-    providers: {
-      withConfiguredProvider: async (_role, operation) => operation(config, 'agent-secret')
-    } as never,
+    agentCatalog: {
+      defaultSelection: vi.fn(async () => null),
+      resolve: vi.fn(async (selection) => ({
+        ...resolvedFixtureModel({ ...model, id: selection.modelId }),
+        presetId: selection.presetId
+      }))
+    },
+    contextBuilder: new AgentContextBuilder(manuscript),
+    skillRouter: {
+      route: async () => ({
+        snapshot: { ...pendingSkillSnapshot(), routingStatus: 'not_needed' },
+        prompt: { mode: 'auto', mandatory: '', references: [] },
+        modelRequestId: null
+      })
+    },
+    tools: {
+      execute: async () => {
+        throw new AgentToolDomainError('unavailable', 'Fixture tool result is not configured', true)
+      }
+    },
+    attachments: new AgentAttachmentService({ projectRoot, database, log }),
+    writingTasks: new WritingTaskService({ database, log }),
     log,
     ...(typeof publishEvent === 'function' ? { publishEvent } : {}),
-    ...overrides
+    ...serviceOverrides
   })
+  const createSession = service.createSession.bind(service)
+  service.createSession = (title, mode, selection = defaultModelSelection, thinkingLevel) =>
+    createSession(title, mode, selection, thinkingLevel)
+  // Most unit cases need a ready fake run. Routing-state cases supply their own
+  // router and observe the production pending-on-return behavior directly.
+  if (overrides.skillRouter === undefined) {
+    const startRun = service.startRun.bind(service)
+    service.startRun = async (input) => {
+      const started = await startRun(input)
+      await vi.waitFor(() => {
+        const active = service
+          .projectActivitySnapshot()
+          .runs.find((run) => run.agentRunId === started.agentRunId)
+        expect(active?.phase).not.toBe('routing')
+      })
+      return started
+    }
+  }
+  return service
 }
 
 export async function createDatabase(): Promise<ProjectDatabase> {

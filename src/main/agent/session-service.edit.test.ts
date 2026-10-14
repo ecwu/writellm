@@ -13,7 +13,8 @@ import {
   createDatabase,
   createService,
   FakeAgentRuntime,
-  log
+  log,
+  resolvedFixtureModel
 } from './session-service.test-support'
 
 const editorContext = { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
@@ -341,8 +342,11 @@ describe('Agent message editing', () => {
     await f.finish(await f.send('Original'))
     const before = f.service.listEvents(f.agentSessionId)
     const failing = createService(f.database, f.runtime, undefined, {
-      resolveModelLimits: async () => {
-        throw new Error('Unavailable model')
+      agentCatalog: {
+        defaultSelection: async () => null,
+        resolve: async () => {
+          throw new Error('Unavailable model')
+        }
       }
     })
     await expect(failing.editLastMessageAndRestart(f.editInput())).rejects.toThrow(
@@ -360,15 +364,17 @@ describe('Agent message editing', () => {
   it('rechecks history after asynchronous preparation and before committing', async () => {
     const f = await fixture()
     await f.finish(await f.send('Original'))
-    const limits = f.service.listRuns(f.agentSessionId)[0].modelLimits
     const racing = createService(f.database, f.runtime, undefined, {
-      resolveModelLimits: async () => {
-        f.event('user_message', {
-          content: 'Newer message',
-          delivery: 'prompt',
-          timestamp: Date.now()
-        })
-        return limits
+      agentCatalog: {
+        defaultSelection: async () => null,
+        resolve: async () => {
+          f.event('user_message', {
+            content: 'Newer message',
+            delivery: 'prompt',
+            timestamp: Date.now()
+          })
+          return resolvedFixtureModel()
+        }
       }
     })
     await expect(racing.editLastMessageAndRestart(f.editInput())).rejects.toThrow(

@@ -33,6 +33,8 @@ import {
   resolveProjectPath
 } from './project-paths'
 
+import { createTestKnowledgeRuntime } from './project-runtime.test-support'
+
 const temporaryDirectories: string[] = []
 const silentLog = pino({ level: 'silent' })
 
@@ -46,6 +48,7 @@ async function testEnvironment(options?: { renderPdfPublication?: PdfPublication
   })
   const recentProjects = new RecentProjectsRepository(appDatabase)
   const manager = new ProjectManager({
+    createKnowledgeRuntime: createTestKnowledgeRuntime,
     applicationVersion: '1.0.0-test',
     logger: silentLog,
     recentProjects,
@@ -75,6 +78,38 @@ afterEach(async () => {
 })
 
 describe('ProjectManager', () => {
+  it('requires the feature factory and releases project resources when assembly fails', async () => {
+    const { parent, recentProjects, appDatabase, manager } = await testEnvironment()
+    expect(
+      () =>
+        new ProjectManager({
+          applicationVersion: 'test',
+          logger: silentLog,
+          recentProjects
+        } as never)
+    ).toThrow('requires a complete feature runtime factory')
+    const created = await existingProject(parent, 'assembly-failure')
+    const original = new Error('Feature assembly failed')
+    const error = vi.fn()
+    const failing = new ProjectManager({
+      applicationVersion: 'test',
+      logger: { info: vi.fn(), warn: vi.fn(), error },
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      createKnowledgeRuntime: () => {
+        throw original
+      }
+    })
+    await expect(failing.open(created.projectRoot)).rejects.toThrow('Failed to open project')
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).toBeNull()
+    expect(error.mock.calls.some(([fields]) => fields.err === original)).toBe(true)
+    expect(failing.snapshot().state).toBe('recovery-required')
+    // A fresh manager opens the same database and lock after failed assembly.
+    await expect(manager.open(created.projectRoot)).resolves.toMatchObject({ state: 'open' })
+    await manager.close()
+    appDatabase.close()
+  })
+
   it('creates through staging and immediately opens with a path-free public snapshot', async () => {
     const { parent, appDatabase, recentProjects, manager } = await testEnvironment()
     const destination = join(parent, '新项目.writellm')
@@ -148,6 +183,7 @@ describe('ProjectManager', () => {
     const { parent, appDatabase, recentProjects } = await testEnvironment()
     let attempts = 0
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -277,6 +313,7 @@ describe('ProjectManager', () => {
 
   it('keeps ambiguous create failures in recovery-required', async () => {
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects: { upsert: vi.fn() },
@@ -320,6 +357,7 @@ describe('ProjectManager', () => {
       })
     }
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -401,10 +439,8 @@ describe('ProjectManager', () => {
       recentProjects,
       lockOptions: { heartbeatIntervalMs: 0 },
       createKnowledgeRuntime: () => ({
-        mineruWorkflow: {} as never,
-        knowledgeNormalization: {} as never,
-        projectIndex: projectIndex as never,
-        registry: new JobHandlerRegistry()
+        ...createTestKnowledgeRuntime(),
+        projectIndex: projectIndex as never
       }),
       closeParticipants: {
         stopWorkersAndIndex: async (context) => context.projectIndex?.close()
@@ -628,6 +664,7 @@ describe('ProjectManager', () => {
       resolveFlush = resolve
     })
     const closeManager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects: { upsert: vi.fn() },
@@ -659,6 +696,7 @@ describe('ProjectManager', () => {
     const created = await existingProject(parent, 'ordered')
     const order: string[] = []
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -720,6 +758,7 @@ describe('ProjectManager', () => {
       | undefined
     let verifiedAuthorization: typeof authorization
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -761,6 +800,7 @@ describe('ProjectManager', () => {
     appDatabase.close()
 
     const timedOut = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects: { upsert: vi.fn() },
@@ -780,6 +820,7 @@ describe('ProjectManager', () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     const revoke = vi.fn()
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger,
       recentProjects,
@@ -816,6 +857,7 @@ describe('ProjectManager', () => {
     const created = await existingProject(parent, 'retry-close')
     const stopWorkers = vi.fn().mockRejectedValueOnce(new Error('worker stop failed'))
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -835,6 +877,7 @@ describe('ProjectManager', () => {
     const created = await existingProject(parent, 'recovery-exits')
     let failOpen = true
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -871,6 +914,7 @@ describe('ProjectManager', () => {
     await mkdir(incompleteRoot, { recursive: true })
     await mkdir(join(incompleteRoot, '.writellm'), { recursive: true })
     const discardManager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -926,6 +970,7 @@ describe('ProjectManager', () => {
     const second = await existingProject(parent, 'second')
     const events: string[] = []
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -964,6 +1009,7 @@ describe('ProjectManager', () => {
       })
     })
     const firstManager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -991,6 +1037,7 @@ describe('ProjectManager', () => {
       resumedExecutions += 1
     })
     const secondManager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
@@ -1039,6 +1086,7 @@ describe('ProjectManager', () => {
   it('exposes stale-lock recovery only as an explicit root and observed-owner operation', async () => {
     const recover = vi.fn(async () => true)
     const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects: { upsert: vi.fn() },

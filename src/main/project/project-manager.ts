@@ -22,7 +22,7 @@ import type { KnowledgeChatService } from '../knowledge/knowledge-chat-service'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import {
-  createProjectHandlerRegistry,
+  type createProjectHandlerRegistry,
   ProjectRuntime,
   type ProjectRuntimeOptions
 } from '../jobs/scheduler/project-runtime'
@@ -181,7 +181,7 @@ export interface ProjectManagerOptions {
   createManuscriptService?: (
     options: ConstructorParameters<typeof ManuscriptService>[0]
   ) => ManuscriptService
-  createKnowledgeRuntime?: (options: {
+  createKnowledgeRuntime: (options: {
     projectRoot: string
     filesystem: ProjectFilesystem
     projectId: string
@@ -197,16 +197,16 @@ export interface ProjectManagerOptions {
   }) => {
     mineruWorkflow: MineruWorkflowService
     knowledgeNormalization: KnowledgeNormalizationService
-    knowledgeMapping?: KnowledgeMappingService
-    projectIndex?: ProjectIndexService
-    retrieval?: RetrievalService
-    knowledgeChat?: KnowledgeChatService
-    agentSessions?: AgentSessionService
-    agentMutations?: MutationProposalService
-    agentChangeSets?: ChangeSetBatchService
-    writingTasks?: WritingTaskService
+    knowledgeMapping: KnowledgeMappingService
+    projectIndex: ProjectIndexService
+    retrieval: RetrievalService
+    knowledgeChat: KnowledgeChatService
+    agentSessions: AgentSessionService
+    agentMutations: MutationProposalService
+    agentChangeSets: ChangeSetBatchService
+    writingTasks: WritingTaskService
     registry: ReturnType<typeof createProjectHandlerRegistry>
-    terminateWorkers?: () => void | Promise<void>
+    terminateWorkers: () => void | Promise<void>
   }
 }
 
@@ -239,7 +239,7 @@ export class ProjectManager {
   readonly #createManuscriptService: (
     options: ConstructorParameters<typeof ManuscriptService>[0]
   ) => ManuscriptService
-  readonly #createKnowledgeRuntime?: ProjectManagerOptions['createKnowledgeRuntime']
+  readonly #createKnowledgeRuntime: ProjectManagerOptions['createKnowledgeRuntime']
   #state: ProjectLifecycleState = 'closed'
   #context: ProjectContext | null = null
   #transition: Promise<void> = Promise.resolve()
@@ -265,6 +265,9 @@ export class ProjectManager {
     | null = null
 
   constructor(options: ProjectManagerOptions) {
+    if (typeof options.createKnowledgeRuntime !== 'function') {
+      throw new TypeError('Project manager requires a complete feature runtime factory')
+    }
     this.#applicationVersion = options.applicationVersion
     this.#logger = options.logger
     this.#recentProjects = options.recentProjects
@@ -1534,9 +1537,7 @@ export class ProjectManager {
         log: this.#logger
       })
       await editorPersistence.repairAll()
-      let knowledgeRuntime:
-        | ReturnType<NonNullable<ProjectManagerOptions['createKnowledgeRuntime']>>
-        | undefined
+      let knowledgeRuntime: ReturnType<ProjectManagerOptions['createKnowledgeRuntime']> | undefined
       const references = new ReferenceLibraryService({ database, log: this.#logger })
       const knowledgeImports = new KnowledgeImportService({
         projectRoot: canonicalRoot,
@@ -1562,9 +1563,9 @@ export class ProjectManager {
           }
         },
         onDeleted: async (knowledgeItemId) =>
-          knowledgeRuntime?.projectIndex?.requestItemDelete(knowledgeItemId)
+          knowledgeRuntime?.projectIndex.requestItemDelete(knowledgeItemId)
       })
-      knowledgeRuntime = this.#createKnowledgeRuntime?.({
+      knowledgeRuntime = this.#createKnowledgeRuntime({
         projectRoot: canonicalRoot,
         filesystem,
         projectId: manifest.projectId,
@@ -1578,14 +1579,14 @@ export class ProjectManager {
         references,
         log: this.#logger
       })
-      const projectIndex = knowledgeRuntime?.projectIndex
+      const projectIndex = knowledgeRuntime.projectIndex
       runtime = this.#createRuntime({
         projectId: manifest.projectId,
         projectSessionId,
         jobs,
-        registry: knowledgeRuntime?.registry ?? createProjectHandlerRegistry(),
+        registry: knowledgeRuntime.registry,
         log: this.#logger,
-        terminateWorkers: knowledgeRuntime?.terminateWorkers
+        terminateWorkers: knowledgeRuntime.terminateWorkers
       })
       const context: ProjectContext = {
         projectRoot: canonicalRoot,
@@ -1602,16 +1603,16 @@ export class ProjectManager {
         manuscriptAssets,
         knowledgeImports,
         references,
-        mineruWorkflow: knowledgeRuntime?.mineruWorkflow ?? null,
-        knowledgeNormalization: knowledgeRuntime?.knowledgeNormalization ?? null,
-        knowledgeMapping: knowledgeRuntime?.knowledgeMapping ?? null,
-        projectIndex: projectIndex ?? null,
-        retrieval: knowledgeRuntime?.retrieval ?? null,
-        knowledgeChat: knowledgeRuntime?.knowledgeChat ?? null,
-        agentSessions: knowledgeRuntime?.agentSessions ?? null,
-        agentMutations: knowledgeRuntime?.agentMutations ?? null,
-        agentChangeSets: knowledgeRuntime?.agentChangeSets ?? null,
-        writingTasks: knowledgeRuntime?.writingTasks ?? null,
+        mineruWorkflow: knowledgeRuntime.mineruWorkflow,
+        knowledgeNormalization: knowledgeRuntime.knowledgeNormalization,
+        knowledgeMapping: knowledgeRuntime.knowledgeMapping,
+        projectIndex,
+        retrieval: knowledgeRuntime.retrieval,
+        knowledgeChat: knowledgeRuntime.knowledgeChat,
+        agentSessions: knowledgeRuntime.agentSessions,
+        agentMutations: knowledgeRuntime.agentMutations,
+        agentChangeSets: knowledgeRuntime.agentChangeSets,
+        writingTasks: knowledgeRuntime.writingTasks,
         runtime,
         writeLock,
         versionHistory: new IsomorphicGitProjectVersionStore({
@@ -1624,7 +1625,7 @@ export class ProjectManager {
       runtime.start()
       this.#context = context
       this.#state = 'open'
-      projectIndex?.startInitialization()
+      projectIndex.startInitialization()
       try {
         await this.#recentProjects.upsert({
           projectId: manifest.projectId,
@@ -1648,7 +1649,7 @@ export class ProjectManager {
           projectId: manifest.projectId,
           projectSessionId: context.projectSessionId,
           durationMs: Date.now() - startedAt,
-          indexReadiness: projectIndex?.readiness() ?? 'unavailable'
+          indexReadiness: projectIndex.readiness()
         },
         'Project open transition completed'
       )

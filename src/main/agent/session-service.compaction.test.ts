@@ -24,14 +24,7 @@ describe('AgentSessionService: compaction', () => {
     }))
     const service = createService(database, new FakeAgentRuntime(), undefined, {
       summarizeHistory,
-      resolveModelLimits: async () => ({
-        contextWindowTokens: 8_192,
-        inputLimitTokens: 1,
-        outputLimitTokens: 255,
-        source: 'models_dev',
-        catalogModelKey: 'test/tiny-window',
-        resolvedAt: '2026-08-12T00:00:00.000Z'
-      })
+      model: { contextWindow: 8_192, maxTokens: 8_191 }
     })
     const session = service.createSession('Tiny history window')
     database.immediate((native) =>
@@ -311,7 +304,7 @@ describe('AgentSessionService: compaction', () => {
     expect(service.listSessions()[0]?.title).toBe('分析第三季度欧洲市场的增长机会与主要风险')
     expect(generateTitle).toHaveBeenCalledOnce()
     expect(generateTitle.mock.calls[0]?.[0]).toMatchObject({
-      credential: 'agent-secret',
+      credential: JSON.stringify({ apiKey: 'agent-secret' }),
       request: { maxOutputTokens: 64, temperature: 0 }
     })
     expect(Buffer.byteLength(generateTitle.mock.calls[0]?.[0].request.prompt ?? '')).toBeLessThan(

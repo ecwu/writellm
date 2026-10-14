@@ -101,7 +101,6 @@ import { withLogContext } from '../observability/log-context'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentSessionRunHandle, AgentSessionRuntime } from '../providers/gateways'
 import { ModelRequestRepository } from '../providers/model-request-repository'
-import type { ProviderService } from '../providers/provider-service'
 import {
   agentCredentialFromResolved,
   agentModelLimitsFromResolved,
@@ -149,7 +148,6 @@ import {
   checkpointHistoryMessage
 } from './context-checkpoint'
 import {
-  legacyModelLimits,
   pendingSkillSnapshot,
   insertEvent,
   fingerprint,
@@ -233,7 +231,7 @@ interface ActiveRun {
   readonly approvalMode: AgentApprovalMode
   readonly interactionMode: AgentInteractionMode
   readonly thinkingLevel: AgentThinkingLevel
-  readonly runtimeModel?: AgentRuntimeModel
+  readonly runtimeModel: AgentRuntimeModel
   readonly modelLimits: AgentModelLimits
   readonly credential: string
   currentRequest: string
@@ -329,15 +327,14 @@ export interface AgentSessionServiceOptions {
   projectId: string
   projectSessionId: string
   database: ProjectDatabase
-  providers: Pick<ProviderService, 'withConfiguredProvider'>
-  attachments?: AgentAttachmentService
-  agentCatalog?: Pick<AgentProviderCatalogService, 'resolve'>
+  attachments: AgentAttachmentService
+  agentCatalog: Pick<AgentProviderCatalogService, 'resolve' | 'defaultSelection'>
   runtime: AgentSessionRuntime
-  contextBuilder?: Pick<AgentContextBuilder, 'build'>
-  skillRouter?: Pick<WritingSkillRuntime, 'route'> &
+  contextBuilder: Pick<AgentContextBuilder, 'build'>
+  skillRouter: Pick<WritingSkillRuntime, 'route'> &
     Partial<Pick<WritingSkillRuntime, 'displayNameForUri' | 'read'>>
-  tools?: AgentToolExecutor
-  writingTasks?: Pick<WritingTaskService, 'activeCorrelation' | 'getView'>
+  tools: AgentToolExecutor
+  writingTasks: Pick<WritingTaskService, 'activeCorrelation' | 'getView'>
   log: Pick<Logger, 'info' | 'warn' | 'error'>
   publishEvent?: (event: AgentEventRecord) => void | Promise<void>
   publishDelta?: (event: {
@@ -379,10 +376,6 @@ export interface AgentSessionServiceOptions {
   now?: () => Date
   createId?: () => string
   defaultApprovalMode?: () => AgentApprovalMode
-  resolveModelLimits?: (
-    config: Extract<ProviderConfig, { role: 'agent' }>,
-    signal: AbortSignal
-  ) => Promise<AgentModelLimits>
 }
 
 export class AgentSessionService {
@@ -399,6 +392,17 @@ export class AgentSessionService {
   readonly #contextPlanner = new AgentContextPlanner()
 
   constructor(private readonly options: AgentSessionServiceOptions) {
+    for (const dependency of [
+      'runtime',
+      'agentCatalog',
+      'contextBuilder',
+      'skillRouter',
+      'tools',
+      'writingTasks',
+      'attachments'
+    ] as const) {
+      if (options[dependency] == null) throw new TypeError(`Agent runtime requires ${dependency}`)
+    }
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
   }
@@ -644,7 +648,7 @@ export class AgentSessionService {
               ? null
               : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
           thinkingLevel: row.thinking_level,
-          writingTask: this.options.writingTasks?.getView(row.agent_session_id, database) ?? null,
+          writingTask: this.options.writingTasks.getView(row.agent_session_id, database) ?? null,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
           archivedAt: row.archived_at
@@ -667,7 +671,7 @@ export class AgentSessionService {
     const completion = this.#withSessionProvider(
       agentSessionId,
       async (config, credential, resolved) => {
-        const modelLimits = await this.#resolveModelLimits(config, controller.signal, resolved)
+        const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
         return this.#executeTitleRequest({
           agentSessionId,
           agentRunId: run.agentRunId,
@@ -679,7 +683,7 @@ export class AgentSessionService {
           expectedTitle,
           controller,
           automatic: false,
-          reasoningModel: resolved?.model.reasoning ?? false
+          reasoningModel: resolved.model.reasoning
         })
       }
     )
@@ -1070,7 +1074,6 @@ export class AgentSessionService {
   }
 
   get attachments(): AgentAttachmentService {
-    if (!this.options.attachments) throw new Error('Agent image attachments are unavailable')
     return this.options.attachments
   }
 
@@ -1122,8 +1125,8 @@ export class AgentSessionService {
       )
   }
 
-  #assertImageModel(model: AgentRuntimeModel | undefined, hasImages: boolean): void {
-    if (hasImages && !model?.input.includes('image'))
+  #assertImageModel(model: AgentRuntimeModel, hasImages: boolean): void {
+    if (hasImages && !model.input.includes('image'))
       throw new Error(
         'The selected model does not support image input. Choose a model with image input.'
       )
@@ -1234,25 +1237,17 @@ export class AgentSessionService {
       },
       () =>
         this.#withSessionProvider(input.agentSessionId, async (config, credential, resolved) => {
-          const modelLimits = await this.#resolveModelLimits(
-            config,
-            input.controller.signal,
-            resolved
-          )
+          const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
           const maxOutputTokens = agentOutputLimit(input.maxOutputTokens, modelLimits)
           const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
           const interactionMode =
             input.interactionMode ?? this.#sessionInteractionMode(input.agentSessionId)
           const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
-          const thinkingLevel =
-            resolved === undefined
-              ? 'off'
-              : clampResolvedAgentThinkingLevel(resolved, storedThinkingLevel)
+          const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, storedThinkingLevel)
           if (thinkingLevel !== storedThinkingLevel) {
             this.#reconcileThinkingLevel(input.agentSessionId, storedThinkingLevel, thinkingLevel)
           }
-          const runtimeModel =
-            resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved)
+          const runtimeModel = agentRuntimeModelFromResolved(resolved)
           const currentImages = await this.#loadImages(input.agentSessionId, input.attachmentIds)
           const history = loadContinuousRuntimeHistory(this.options.database, input.agentSessionId)
           this.#assertImageModel(
@@ -1279,7 +1274,7 @@ export class AgentSessionService {
             replacement: input.replacement,
             now
           })
-          this.options.attachments?.release(
+          this.options.attachments.release(
             `draft:${input.agentSessionId}`,
             input.attachmentIds ?? []
           )
@@ -1318,21 +1313,13 @@ export class AgentSessionService {
             overflowRetryAttempted: false,
             completion: Promise.resolve()
           }
-          let markPrepared: () => void = () => undefined
-          const prepared = new Promise<void>((resolve) => {
-            markPrepared = resolve
-          })
           active.completion = this.#prepareAndRun(active, {
             credential,
             prompt: input.prompt,
             maxOutputTokens,
-            ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
-            markPrepared
+            ...(input.temperature === undefined ? {} : { temperature: input.temperature })
           })
-            .catch((err) => {
-              markPrepared()
-              return this.#settleSetupFailure(active, err)
-            })
+            .catch((err) => this.#settleSetupFailure(active, err))
             .finally(() => {
               if (this.#activeRuns.get(active.agentRunId) === active) {
                 this.#activeRuns.delete(active.agentRunId)
@@ -1362,7 +1349,7 @@ export class AgentSessionService {
                 expectedTitle: automaticTitle,
                 controller: titleController,
                 automatic: true,
-                reasoningModel: resolved?.model.reasoning ?? false
+                reasoningModel: resolved.model.reasoning
               }).catch(() => undefined)
             }
           }
@@ -1379,9 +1366,6 @@ export class AgentSessionService {
             },
             'Agent run started and entered writing skill preparation'
           )
-          // Legacy/test integrations without a skill runtime have no observable preparation phase.
-          // Keep their existing ready-on-return contract while production returns immediately.
-          if (this.options.skillRouter === undefined) await prepared
           return { agentRunId: input.agentRunId, completion: active.completion }
         })
     )
@@ -1394,7 +1378,6 @@ export class AgentSessionService {
       prompt: string
       maxOutputTokens: number
       temperature?: number
-      markPrepared: () => void
     }
   ): Promise<void> {
     const modelRequests = new ModelRequestRepository(
@@ -1432,14 +1415,14 @@ export class AgentSessionService {
     )
     await this.#publishDurable(initialEvent)
 
-    const baselineContext = this.options.contextBuilder?.build({
+    const baselineContext = this.options.contextBuilder.build({
       prompt: input.prompt,
       editorContext: active.editorContext,
       snapshotId: modelRequestId,
       interactionMode: active.interactionMode
     })
-    const baselineSystemPrompt = baselineContext?.systemPrompt ?? active.systemPrompt
-    if (this.options.skillRouter !== undefined && active.interactionMode !== 'ask') {
+    const baselineSystemPrompt = baselineContext.systemPrompt
+    if (active.interactionMode !== 'ask') {
       const catalogPlan = this.#contextPlanner.plan({
         modelLimits: active.modelLimits,
         requestedOutputTokens: active.maxOutputTokens,
@@ -1491,9 +1474,9 @@ export class AgentSessionService {
     active.controller.signal.throwIfAborted()
     this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
 
-    let builtContext: ReturnType<AgentContextBuilder['build']> | undefined
+    let builtContext: ReturnType<AgentContextBuilder['build']>
     try {
-      builtContext = this.options.contextBuilder?.build({
+      builtContext = this.options.contextBuilder.build({
         prompt: input.prompt,
         editorContext: active.editorContext,
         snapshotId: modelRequestId,
@@ -1508,14 +1491,11 @@ export class AgentSessionService {
         err
       )
     }
-    if (builtContext !== undefined) {
-      active.snapshots.set(modelRequestId, builtContext.snapshot)
-      if (builtContext.skillPromptDropped)
-        active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
-    }
+    active.snapshots.set(modelRequestId, builtContext.snapshot)
+    if (builtContext.skillPromptDropped)
+      active.skillPrompt = { mode: 'auto', mandatory: '', references: [] }
     this.#updateSkillSnapshot(active.agentRunId, active.skillSnapshot)
-    active.systemPrompt =
-      builtContext?.systemPrompt ?? active.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT
+    active.systemPrompt = builtContext.systemPrompt
     let history: AgentHistoryMessage[]
     const currentRequest = builtContext?.userRequest ?? input.prompt
     active.currentRequest = currentRequest
@@ -1563,7 +1543,7 @@ export class AgentSessionService {
         ),
         traceCapture: true,
         thinkingLevel: active.thinkingLevel,
-        ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
+        runtimeModel: active.runtimeModel,
         ...(input.temperature === undefined ? {} : { temperature: input.temperature })
       },
       active.controller.signal,
@@ -1571,7 +1551,6 @@ export class AgentSessionService {
       (request, signal) => this.#handleToolRequest(active.agentRunId, request, signal)
     )
     active.phase = 'running'
-    input.markPrepared()
     this.options.log.info(
       {
         event: 'skill.route.completed',
@@ -1591,7 +1570,7 @@ export class AgentSessionService {
       'Agent run failed before provider generation started'
     )
     for (const pending of active.pendingMessages)
-      this.options.attachments?.release(`queue:${pending.pendingMessageId}`)
+      this.options.attachments.release(`queue:${pending.pendingMessageId}`)
     await this.#abortPendingModelRequests(active, 'agent_run_setup_failed')
     const cancellation = classifyRunFailure(err, active.controller.signal)
     const code = err instanceof AgentRunSetupError ? err.code : cancellation.code
@@ -1675,7 +1654,7 @@ export class AgentSessionService {
       await repository.abort(modelRequestId, 'queue_authorization_failed')
       throw err
     }
-    const refreshedContext = this.options.contextBuilder?.build({
+    const refreshedContext = this.options.contextBuilder.build({
       prompt: parsedContent,
       editorContext: active.editorContext,
       snapshotId: modelRequestId,
@@ -1690,10 +1669,10 @@ export class AgentSessionService {
       images,
       timestamp,
       queuedAt,
-      systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt,
-      ...(refreshedContext === undefined ? {} : { snapshot: refreshedContext.snapshot })
+      systemPrompt: refreshedContext.systemPrompt,
+      snapshot: refreshedContext.snapshot
     }
-    this.options.attachments?.retain(
+    this.options.attachments.retain(
       `queue:${pendingMessageId}`,
       active.agentSessionId,
       attachmentIds ?? []
@@ -1727,7 +1706,7 @@ export class AgentSessionService {
       active.controller.abort(err)
       throw err
     }
-    this.options.attachments?.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
+    this.options.attachments.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
     await this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -2027,11 +2006,7 @@ export class AgentSessionService {
       await this.#withSessionProvider(
         active.agentSessionId,
         async (config, credential, resolved) => {
-          const modelLimits = await this.#resolveModelLimits(
-            config,
-            active.controller.signal,
-            resolved
-          )
+          const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
           active.phase = 'summarizing'
           void this.#publishActivitySnapshot()
           const compacted = await this.#runCompaction({
@@ -2042,8 +2017,7 @@ export class AgentSessionService {
             config,
             credential,
             modelLimits,
-            runtimeModel:
-              resolved === undefined ? undefined : agentRuntimeModelFromResolved(resolved),
+            runtimeModel: agentRuntimeModelFromResolved(resolved),
             signal: active.controller.signal,
             conversationBudgetTokens: agentMessageBudget(8_192, modelLimits),
             estimatedHistoryTokensBefore: estimateAgentTokens(
@@ -2105,7 +2079,7 @@ export class AgentSessionService {
       ...titleRequests.map((request) => request.completion),
       ...compactions.map((compaction) => compaction.completion)
     ])
-    this.options.attachments?.releaseAll()
+    this.options.attachments.releaseAll()
   }
 
   projectActivitySnapshot(): AgentProjectActivitySnapshot {
@@ -2317,7 +2291,7 @@ export class AgentSessionService {
     )
     if (index >= 0) {
       active.pendingMessages.splice(index, 1)
-      this.options.attachments?.release(`queue:${pendingMessageId}`)
+      this.options.attachments.release(`queue:${pendingMessageId}`)
     }
   }
 
@@ -2378,17 +2352,15 @@ export class AgentSessionService {
     })
     active.pendingModelRequestIds.add(modelRequestId)
     active.authorizedModelRequestIds.add(modelRequestId)
-    const refreshedContext = this.options.contextBuilder?.build({
+    const refreshedContext = this.options.contextBuilder.build({
       prompt: content,
       editorContext: active.editorContext,
       snapshotId: modelRequestId,
       skillPrompt: active.skillPrompt,
       interactionMode: active.interactionMode
     })
-    if (refreshedContext !== undefined) {
-      active.snapshots.set(modelRequestId, refreshedContext.snapshot)
-      active.systemPrompt = refreshedContext.systemPrompt
-    }
+    active.snapshots.set(modelRequestId, refreshedContext.snapshot)
+    active.systemPrompt = refreshedContext.systemPrompt
     try {
       const command = {
         projectSessionId: this.options.projectSessionId,
@@ -2398,10 +2370,10 @@ export class AgentSessionService {
         content,
         images,
         timestamp,
-        systemPrompt: refreshedContext?.systemPrompt ?? active.systemPrompt
+        systemPrompt: refreshedContext.systemPrompt
       }
       handle.steer(command)
-      this.options.attachments?.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
+      this.options.attachments.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
     } catch (err) {
       this.options.log.error(
         { event: 'agent.run.steer_failed', err, agentRunId, modelRequestId },
@@ -2681,18 +2653,16 @@ export class AgentSessionService {
       ).modelRequestId
       active.authorizedModelRequestIds.add(modelRequestId)
       active.pendingModelRequestIds.add(modelRequestId)
-      const refreshedContext = this.options.contextBuilder?.build({
+      const refreshedContext = this.options.contextBuilder.build({
         prompt: TOOL_CONTINUATION_REQUEST,
         editorContext: active.editorContext,
         snapshotId: modelRequestId,
         skillPrompt: active.skillPrompt,
         interactionMode: active.interactionMode
       })
-      if (refreshedContext !== undefined) {
-        active.snapshots.set(modelRequestId, refreshedContext.snapshot)
-        active.systemPrompt = refreshedContext.systemPrompt
-      }
-      const systemPrompt = refreshedContext?.systemPrompt ?? active.systemPrompt
+      active.snapshots.set(modelRequestId, refreshedContext.snapshot)
+      active.systemPrompt = refreshedContext.systemPrompt
+      const systemPrompt = refreshedContext.systemPrompt
       handle.authorizeModelCall({
         projectSessionId: this.options.projectSessionId,
         agentSessionId: active.agentSessionId,
@@ -2798,7 +2768,7 @@ export class AgentSessionService {
     const skillDisplayName =
       request.toolName === 'read_writing_skill' &&
       active.skillState !== null &&
-      this.options.skillRouter?.displayNameForUri !== undefined
+      this.options.skillRouter.displayNameForUri !== undefined
         ? this.options.skillRouter.displayNameForUri(active.skillState, request.args.uri)
         : null
     const callArgs =
@@ -2856,11 +2826,7 @@ export class AgentSessionService {
           'Activated writing tool groups for the current Agent run'
         )
       } else if (request.toolName === 'read_writing_skill') {
-        if (
-          this.options.skillRouter === undefined ||
-          this.options.skillRouter.read === undefined ||
-          active.skillState === null
-        ) {
+        if (this.options.skillRouter.read === undefined || active.skillState === null) {
           throw new AgentToolDomainError('unavailable', 'Writing Skills are unavailable', true)
         }
         const read = await this.options.skillRouter.read(
@@ -2883,7 +2849,7 @@ export class AgentSessionService {
         trace.capture({
           modelRequestId: request.modelRequestId,
           purpose: 'tool_continuation',
-          apiId: active.runtimeModel?.api ?? active.config.api ?? 'openai-completions',
+          apiId: active.runtimeModel.api,
           traceId: active.agentRunId,
           spanId: request.modelRequestId,
           agentSessionId: active.agentSessionId,
@@ -2905,8 +2871,6 @@ export class AgentSessionService {
             }
           ]
         })
-      } else if (this.options.tools === undefined) {
-        throw new AgentToolDomainError('unavailable', 'Agent read tools are unavailable', true)
       } else {
         data = await this.options.tools.execute({
           toolName: request.toolName,
@@ -2928,13 +2892,13 @@ export class AgentSessionService {
         // run-start snapshot so mid-run mode changes apply to the next proposal.
         const currentApprovalMode = this.#sessionApprovalMode(active.agentSessionId)
         const shouldAutoApprove =
-          tools?.shouldAutoApprove?.(
+          tools.shouldAutoApprove?.(
             active.agentSessionId,
             proposal.data.proposalId,
             currentApprovalMode
           ) ?? false
         if (shouldAutoApprove) {
-          if (tools?.approveProposalAutomatically === undefined) {
+          if (tools.approveProposalAutomatically === undefined) {
             throw new AgentToolDomainError('unavailable', 'Automatic approval is unavailable', true)
           }
           this.options.log.info(
@@ -3293,7 +3257,7 @@ export class AgentSessionService {
       )
       const partialModelRequestId = [...active.pendingModelRequestIds][0] ?? null
       for (const pending of active.pendingMessages)
-        this.options.attachments?.release(`queue:${pending.pendingMessageId}`)
+        this.options.attachments.release(`queue:${pending.pendingMessageId}`)
       await this.#abortPendingModelRequests(active, 'agent_run_ended')
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
@@ -3499,7 +3463,7 @@ export class AgentSessionService {
         ),
         traceCapture: true,
         thinkingLevel: active.thinkingLevel,
-        ...(active.runtimeModel === undefined ? {} : { runtimeModel: active.runtimeModel }),
+        runtimeModel: active.runtimeModel,
         ...(active.temperature === undefined ? {} : { temperature: active.temperature })
       },
       active.controller.signal,
@@ -3585,7 +3549,7 @@ export class AgentSessionService {
         session.is_first_prompt === 1 && isGenericSessionTitle(session.title)
           ? fallbackSessionTitle(input.prompt)
           : null
-      const taskCorrelation = this.options.writingTasks?.activeCorrelation(
+      const taskCorrelation = this.options.writingTasks.activeCorrelation(
         input.agentSessionId,
         database
       )
@@ -3985,30 +3949,50 @@ export class AgentSessionService {
     operation: (
       config: Extract<ProviderConfig, { role: 'agent' }>,
       credential: string,
-      resolved?: ResolvedAgentCatalogModel
+      resolved: ResolvedAgentCatalogModel
     ) => Promise<T>
   ): Promise<T> {
-    const selection = this.#sessionModelSelection(agentSessionId)
-    if (selection !== null && this.options.agentCatalog !== undefined) {
-      const resolved = await this.options.agentCatalog.resolve(selection)
-      return operation(
-        agentProviderConfigFromResolved(resolved),
-        agentCredentialFromResolved(resolved),
-        resolved
+    const stored = this.#sessionModelSelection(agentSessionId)
+    // Conversations without a stored model use the catalog default, matching the Renderer.
+    const selection = stored ?? (await this.options.agentCatalog.defaultSelection())
+    if (selection === null) {
+      throw new AgentRunSetupError(
+        'agent_model_not_configured',
+        new Error('Choose an Agent model before starting work')
       )
     }
-    return this.options.providers.withConfiguredProvider('agent', (config, credential) =>
-      operation(config, credential)
+    const resolved = await this.options.agentCatalog.resolve(selection)
+    if (stored === null) this.#adoptDefaultModelSelection(agentSessionId, selection)
+    return operation(
+      agentProviderConfigFromResolved(resolved),
+      agentCredentialFromResolved(resolved),
+      resolved
     )
   }
 
-  async #resolveModelLimits(
-    config: Extract<ProviderConfig, { role: 'agent' }>,
-    signal: AbortSignal,
-    resolved?: ResolvedAgentCatalogModel
-  ): Promise<AgentModelLimits> {
-    if (resolved !== undefined) return agentModelLimitsFromResolved(resolved, this.#now())
-    return (await this.options.resolveModelLimits?.(config, signal)) ?? legacyModelLimits()
+  #adoptDefaultModelSelection(agentSessionId: string, selection: AgentModelSelection): void {
+    const adopted = this.options.database.immediate(
+      (database) =>
+        database
+          .prepare(
+            `UPDATE agent_sessions
+                SET provider_preset_id = ?, selected_model_id = ?, updated_at = ?
+              WHERE agent_session_id = ?
+                AND (provider_preset_id IS NULL OR selected_model_id IS NULL)`
+          )
+          .run(selection.presetId, selection.modelId, this.#now().toISOString(), agentSessionId)
+          .changes === 1
+    )
+    if (!adopted) return
+    this.options.log.info(
+      {
+        event: 'agent.session.model_selection_defaulted',
+        agentSessionId,
+        presetId: selection.presetId,
+        modelId: selection.modelId
+      },
+      'Agent session adopted the default model selection'
+    )
   }
 
   #sessionModelSelection(agentSessionId: string): AgentModelSelection | null {
@@ -4365,7 +4349,7 @@ export class AgentSessionService {
     config: Extract<ProviderConfig, { role: 'agent' }>
     credential: string
     modelLimits: AgentModelLimits
-    runtimeModel?: AgentRuntimeModel
+    runtimeModel: AgentRuntimeModel
     signal: AbortSignal
     conversationBudgetTokens: number
     estimatedHistoryTokensBefore: number

@@ -3,24 +3,9 @@ import {
   agentDiagnosticErrorSchema,
   type AgentDiagnosticError
 } from '../../shared/agent-diagnostic-error'
-import type {
-  AgentAssistantMessagePayload,
-  AgentEventType,
-  AgentModelLimits
-} from '../../shared/contracts/agent'
+import type { AgentAssistantMessagePayload, AgentEventType } from '../../shared/contracts/agent'
 import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import { skillRunSnapshotSchema, type SkillRunSnapshot } from '../../shared/contracts/skills'
-
-export function legacyModelLimits(): AgentModelLimits {
-  return {
-    contextWindowTokens: 131_072,
-    inputLimitTokens: null,
-    outputLimitTokens: null,
-    source: 'legacy_fallback',
-    catalogModelKey: null,
-    resolvedAt: null
-  }
-}
 
 export function pendingSkillSnapshot(): SkillRunSnapshot {
   return skillRunSnapshotSchema.parse({

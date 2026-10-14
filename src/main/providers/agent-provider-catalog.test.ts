@@ -721,6 +721,19 @@ describe('AgentProviderCatalogService', () => {
     database.close()
   })
 
+  it('returns the migrated legacy default without building a catalog snapshot', async () => {
+    const { database, credentials, catalog } = await createHarness()
+    try {
+      expect(await catalog.defaultSelection()).toBeNull()
+      await seedLegacyAgentConfig(database, credentials)
+      const selection = { presetId: 'custom:legacy-agent', modelId: 'legacy-writer' }
+      expect(await catalog.defaultSelection()).toEqual(selection)
+      expect(await catalog.resolve(selection)).toMatchObject({ presetId: selection.presetId })
+    } finally {
+      database.close()
+    }
+  })
+
   it('permanently removes a disabled migrated legacy Agent configuration', async () => {
     const { database, credentials, catalog } = await createHarness()
     await seedLegacyAgentConfig(database, credentials)

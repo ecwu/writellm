@@ -26,6 +26,9 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and Claude review pass; a baseline quick-action UI failure stays open.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-third-batch-simplification).
+
 - [x] Issue 6: consolidate save normalization and reuse prepared revision content. Local acceptance and Claude review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-second-batch-simplification).
 - [x] Issue 9: separate ordinary reads from immediate write transactions. Local acceptance and Claude review pass.

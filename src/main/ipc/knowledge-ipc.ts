@@ -559,7 +559,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeListInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.projectIndex === null) throw new Error('Knowledge index status is unavailable')
     const readiness = context.projectIndex.readiness()
     if (readiness !== 'available') {
       return knowledgeIndexStatusSchema.parse({ readiness, indexed: false })
@@ -582,23 +581,6 @@ export function registerKnowledgeIpc(options: {
     const parsed = knowledgeCitationCoveragePageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const startedAt = Date.now()
-    if (context.projectIndex === null) {
-      const result = knowledgeCitationCoveragePageResultSchema.parse({
-        state: 'unavailable',
-        reason: 'index_unavailable'
-      })
-      options.logger.info(
-        {
-          event: 'knowledge.citation_coverage.completed',
-          projectSessionId: parsed.projectSessionId,
-          filter: parsed.filter,
-          state: result.state,
-          durationMs: Date.now() - startedAt
-        },
-        'Knowledge citation coverage page loaded'
-      )
-      return result
-    }
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     try {
@@ -707,11 +689,9 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    if (context.mineruWorkflow !== null) {
-      const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
-      cancelMineruJobs(context, references)
-      await context.mineruWorkflow.cleanupAllArtifacts(parsed.knowledgeItemId, references)
-    }
+    const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
+    cancelMineruJobs(context, references)
+    await context.mineruWorkflow.cleanupAllArtifacts(parsed.knowledgeItemId, references)
     await context.knowledgeImports.delete(parsed.knowledgeItemId)
     options.manager.assertActiveSession(parsed.projectSessionId)
     return knowledgeListResultSchema.parse(context.knowledgeImports.list())
@@ -756,7 +736,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    if (context.mineruWorkflow === null) throw new Error('MinerU parsing is unavailable')
     try {
       await context.mineruWorkflow.start(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -773,7 +752,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    if (context.mineruWorkflow === null) throw new Error('MinerU parsing is unavailable')
     try {
       const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
       cancelMineruJobs(context, references)
@@ -792,7 +770,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeEmbeddingRefreshInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
-    if (context.projectIndex === null) throw new Error('Knowledge embeddings are unavailable')
     try {
       await context.projectIndex.requestEmbeddingRefresh(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -860,9 +837,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeMappingPageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.knowledgeMapping === null || context.knowledgeMapping === undefined) {
-      throw new Error('Knowledge mapping is unavailable')
-    }
     try {
       const result = await context.knowledgeMapping.page(parsed.knowledgeItemId, parsed.pageIndex)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -886,7 +860,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
       const result = await context.knowledgeNormalization.metadata(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -904,7 +877,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = parsedKnowledgeBlockPageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
       const result = await context.knowledgeNormalization.blockPage(
         parsed.knowledgeItemId,
@@ -927,7 +899,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = parsedKnowledgeMarkdownInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
       const result = await context.knowledgeNormalization.markdown(
         parsed.knowledgeItemId,
@@ -948,7 +919,6 @@ export function registerKnowledgeIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const parsed = parsedKnowledgeAssetInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    if (context.knowledgeNormalization === null) throw new Error('Parsed knowledge is unavailable')
     try {
       const result = await context.knowledgeNormalization.asset(
         parsed.knowledgeItemId,

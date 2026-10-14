@@ -71,7 +71,7 @@ export function registerAgentIpc(options: {
   manager: ProjectManager
   broker: AgentEventBroker
   logger: Pick<Logger, 'info' | 'warn' | 'error'>
-  catalog?: Pick<
+  catalog: Pick<
     AgentProviderCatalogService,
     'snapshot' | 'resolve' | 'setDefaultSelection' | 'getLastThinkingLevel' | 'setLastThinkingLevel'
   >
@@ -81,12 +81,10 @@ export function registerAgentIpc(options: {
   const ipc = options.ipc ?? ipcMain
   const readService = (projectSessionId: string) => {
     const context = options.manager.assertActiveSession(projectSessionId)
-    if (context.agentSessions === null) throw new Error('Agent sessions are unavailable')
     return context.agentSessions
   }
   const mutationContext = (projectSessionId: string) => {
     const context = options.manager.assertMutationSession(projectSessionId)
-    if (context.agentSessions === null) throw new Error('Agent sessions are unavailable')
     return context
   }
   const lifecycle = async <T>(event: string, operation: () => T | Promise<T>): Promise<T> => {
@@ -126,7 +124,7 @@ export function registerAgentIpc(options: {
     const input = agentForkConversationInputSchema.parse(raw)
     return lifecycle('agent.session.fork', () =>
       agentForkConversationResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.forkConversation(input)
+        mutationContext(input.projectSessionId).agentSessions.forkConversation(input)
       )
     )
   })
@@ -134,18 +132,16 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentCreateSessionInputSchema.parse(raw)
     return lifecycle('agent.session.create', async () => {
-      const selection =
-        input.modelSelection ??
-        (options.catalog === undefined ? null : (await options.catalog.snapshot()).defaultSelection)
+      const selection = input.modelSelection ?? (await options.catalog.snapshot()).defaultSelection
       const thinkingLevel =
         selection === null
           ? 'off'
           : clampResolvedAgentThinkingLevel(
-              await requireCatalog(options.catalog).resolve(selection),
-              await requireCatalog(options.catalog).getLastThinkingLevel()
+              await options.catalog.resolve(selection),
+              await options.catalog.getLastThinkingLevel()
             )
       return agentCreateSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.createSession(
+        mutationContext(input.projectSessionId).agentSessions.createSession(
           input.title,
           undefined,
           selection,
@@ -159,7 +155,6 @@ export function registerAgentIpc(options: {
     const input = agentGenerateSessionTitleInputSchema.parse(raw)
     return lifecycle('agent.session.generate_title', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       return agentGenerateSessionTitleResultSchema.parse(
         await service.generateSessionTitle(input.agentSessionId)
       )
@@ -170,7 +165,7 @@ export function registerAgentIpc(options: {
     const input = agentArchiveSessionInputSchema.parse(raw)
     return lifecycle('agent.session.archive', () =>
       agentArchiveSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.archiveSession(input.agentSessionId)
+        mutationContext(input.projectSessionId).agentSessions.archiveSession(input.agentSessionId)
       )
     )
   })
@@ -179,7 +174,7 @@ export function registerAgentIpc(options: {
     const input = agentRestoreSessionInputSchema.parse(raw)
     return lifecycle('agent.session.restore', () =>
       agentRestoreSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.restoreSession(input.agentSessionId)
+        mutationContext(input.projectSessionId).agentSessions.restoreSession(input.agentSessionId)
       )
     )
   })
@@ -187,11 +182,9 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentSetModelSelectionInputSchema.parse(raw)
     return lifecycle('agent.session.set_model_selection', async () => {
-      if (options.catalog === undefined) throw new Error('Agent provider catalog is unavailable')
-      const catalog = requireCatalog(options.catalog)
+      const catalog = options.catalog
       const resolved = await catalog.resolve(input.selection)
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       const current = service
         .listSessions()
         .find((session) => session.agentSessionId === input.agentSessionId)
@@ -212,9 +205,8 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentSetThinkingLevelInputSchema.parse(raw)
     return lifecycle('agent.session.set_thinking_level', async () => {
-      const catalog = requireCatalog(options.catalog)
+      const catalog = options.catalog
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       const session = service
         .listSessions()
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
@@ -236,7 +228,7 @@ export function registerAgentIpc(options: {
     const input = agentSetApprovalModeInputSchema.parse(raw)
     return lifecycle('agent.session.set_approval_mode', () =>
       agentSetApprovalModeResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.setApprovalMode(
+        mutationContext(input.projectSessionId).agentSessions.setApprovalMode(
           input.agentSessionId,
           input.mode
         )
@@ -248,7 +240,7 @@ export function registerAgentIpc(options: {
     const input = agentSetInteractionModeInputSchema.parse(raw)
     return lifecycle('agent.session.set_interaction_mode', () =>
       agentSetInteractionModeResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions?.setInteractionMode(
+        mutationContext(input.projectSessionId).agentSessions.setInteractionMode(
           input.agentSessionId,
           input.mode
         )
@@ -260,9 +252,6 @@ export function registerAgentIpc(options: {
     const input = userUpdateWritingTaskInputSchema.parse(raw)
     return lifecycle('agent.writing_task.user_update', () => {
       const context = mutationContext(input.projectSessionId)
-      if (context.writingTasks === null || context.agentSessions === null) {
-        throw new Error('Agent writing tasks are unavailable')
-      }
       const session = context.agentSessions
         .listSessions()
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
@@ -294,7 +283,6 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentListRunsInputSchema.omit({ limit: true }).parse(raw)
     const context = options.manager.assertActiveSession(input.projectSessionId)
-    if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
     return agentListProposalsResultSchema.parse(context.agentMutations.list(input.agentSessionId))
   })
   ipc.handle(IPC_CHANNELS.agentEditLastMessage, (event, raw: unknown) => {
@@ -302,7 +290,6 @@ export function registerAgentIpc(options: {
     const input = agentEditLastMessageInputSchema.parse(raw)
     return lifecycle('agent.message.edit', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       const started = await service.editLastMessageAndRestart(input)
       options.manager.assertActiveSession(input.projectSessionId)
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
@@ -314,7 +301,6 @@ export function registerAgentIpc(options: {
     return lifecycle('agent.run.start', async () => {
       const context = mutationContext(input.projectSessionId)
       const service = context.agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       const session = service
         .listSessions()
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
@@ -360,7 +346,6 @@ export function registerAgentIpc(options: {
           if (interactionMode !== 'write') {
             throw new Error('Writing task resume requires Write mode')
           }
-          if (context.writingTasks === null) throw new Error('Agent writing tasks are unavailable')
           const correlation = context.writingTasks.activeCorrelation(input.agentSessionId)
           if (correlation === null) throw new Error('Writing task has no active step to resume')
           prompt = buildWritingTaskResumePrompt(correlation)
@@ -383,7 +368,6 @@ export function registerAgentIpc(options: {
         }
       }
       if (input.approvedProposalId !== undefined) {
-        if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
         const proposal = context.agentMutations
           .list(input.agentSessionId)
           .find((candidate) => candidate.proposalId === input.approvedProposalId)
@@ -425,7 +409,6 @@ export function registerAgentIpc(options: {
           'Authorized Agent review continuation'
         )
       } else if (input.rejectedProposalId !== undefined) {
-        if (context.agentMutations === null) throw new Error('Agent proposals are unavailable')
         const proposal = context.agentMutations
           .list(input.agentSessionId)
           .find((candidate) => candidate.proposalId === input.rejectedProposalId)
@@ -482,7 +465,7 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentQueueInputSchema.parse(raw)
     return lifecycle('agent.run.steer', () =>
-      mutationContext(input.projectSessionId).agentSessions?.steer(
+      mutationContext(input.projectSessionId).agentSessions.steer(
         input.agentRunId,
         input.content,
         input.attachmentIds
@@ -493,7 +476,7 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentQueueInputSchema.parse(raw)
     return lifecycle('agent.run.follow_up', () =>
-      mutationContext(input.projectSessionId).agentSessions?.followUp(
+      mutationContext(input.projectSessionId).agentSessions.followUp(
         input.agentRunId,
         input.content,
         input.attachmentIds
@@ -504,7 +487,7 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentPendingMessageActionInputSchema.parse(raw)
     return lifecycle('agent.run.pending_follow_up_steer', () =>
-      mutationContext(input.projectSessionId).agentSessions?.steerPendingFollowUp(
+      mutationContext(input.projectSessionId).agentSessions.steerPendingFollowUp(
         input.agentRunId,
         input.pendingMessageId
       )
@@ -514,7 +497,7 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentPendingMessageActionInputSchema.parse(raw)
     return lifecycle('agent.run.pending_follow_up_delete', () =>
-      mutationContext(input.projectSessionId).agentSessions?.deletePendingFollowUp(
+      mutationContext(input.projectSessionId).agentSessions.deletePendingFollowUp(
         input.agentRunId,
         input.pendingMessageId
       )
@@ -524,7 +507,7 @@ export function registerAgentIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentRunInputSchema.parse(raw)
     return lifecycle('agent.run.abort', () =>
-      mutationContext(input.projectSessionId).agentSessions?.abort(input.agentRunId)
+      mutationContext(input.projectSessionId).agentSessions.abort(input.agentRunId)
     )
   })
   ipc.handle(IPC_CHANNELS.agentAnswerUserQuestion, (event, raw: unknown) => {
@@ -532,7 +515,6 @@ export function registerAgentIpc(options: {
     const input = agentAnswerUserQuestionInputSchema.parse(raw)
     return lifecycle('agent.question.answer', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       await service.answerUserQuestion(input)
       return agentAnswerUserQuestionResultSchema.parse({})
     })
@@ -542,7 +524,6 @@ export function registerAgentIpc(options: {
     const input = agentCompactSessionInputSchema.parse(raw)
     return lifecycle('agent.compaction.start', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       return agentCompactSessionResultSchema.parse(
         await service.compactSession(input.agentSessionId)
       )
@@ -553,7 +534,6 @@ export function registerAgentIpc(options: {
     const input = agentStopCompactionInputSchema.parse(raw)
     return lifecycle('agent.compaction.stop', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
-      if (service === null) throw new Error('Agent sessions are unavailable')
       await service.stopCompaction(input.agentSessionId, input.compactionId)
       return agentStopCompactionResultSchema.parse({})
     })
@@ -658,11 +638,4 @@ export function registerAgentIpc(options: {
       for (const channel of channels) ipc.removeHandler(channel)
     }
   }
-}
-
-function requireCatalog(
-  catalog: Parameters<typeof registerAgentIpc>[0]['catalog']
-): NonNullable<Parameters<typeof registerAgentIpc>[0]['catalog']> {
-  if (catalog === undefined) throw new Error('Agent provider catalog is unavailable')
-  return catalog
 }

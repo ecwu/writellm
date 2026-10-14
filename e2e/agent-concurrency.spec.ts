@@ -265,7 +265,13 @@ test(
       await expect(panel).toContainText('Keep the first conversation running.')
 
       await panel.getByTestId('agent-conversation-switcher').click()
-      await expect(launched.page.getByRole('option').filter({ hasText: 'Working' })).toHaveCount(2)
+      const workingConversations = launched.page
+        .getByRole('option')
+        .filter({ hasText: /Parallel conversation/ })
+      await expect(workingConversations).toHaveCount(2)
+      for (const option of await workingConversations.all()) {
+        await expect(option).toHaveAttribute('data-value', /Working$/)
+      }
       await launched.page.getByRole('option', { name: /Parallel conversation 1/ }).click()
 
       const secondResponse = pendingAgentResponses[1]

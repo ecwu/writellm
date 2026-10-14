@@ -505,7 +505,6 @@ if (!hasSingleInstanceLock) {
             projectId,
             projectSessionId,
             database,
-            providers,
             agentCatalog: agentProviderCatalog,
             attachments: agentAttachments,
             runtime: agentModel,
@@ -514,7 +513,6 @@ if (!hasSingleInstanceLock) {
             tools: agentTools,
             writingTasks,
             defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
-            resolveModelLimits: (config, signal) => modelMetadata.resolve(config, signal),
             publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
             publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
             publishSession: (event) => agentEvents.publishSession(projectSessionId, event),
@@ -848,8 +846,8 @@ if (!hasSingleInstanceLock) {
         stopJobClaims: async (context) => context.knowledgeImports.cancelAll(),
         stopWorkersAndIndex: async (context) => {
           await agentAttachmentIpc.revokeSession(context.projectSessionId)
-          await context.knowledgeChat?.close()
-          await context.projectIndex?.close()
+          await context.knowledgeChat.close()
+          await context.projectIndex.close()
         },
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)

@@ -9,10 +9,148 @@ import {
   createDatabase,
   faultNextRead,
   metadata,
-  assistant
+  assistant,
+  defaultModelSelection,
+  resolvedFixtureModel
 } from './session-service.test-support'
 
 describe('AgentSessionService: runtime', () => {
+  it.each([
+    'agentCatalog',
+    'contextBuilder',
+    'skillRouter',
+    'tools',
+    'writingTasks',
+    'attachments'
+  ] as const)('rejects a missing %s during construction', async (dependency) => {
+    const database = await createDatabase()
+    try {
+      expect(() =>
+        createService(database, new FakeAgentRuntime(), undefined, { [dependency]: undefined })
+      ).toThrow(`Agent runtime requires ${dependency}`)
+    } finally {
+      database.close()
+    }
+  })
+
+  it('keeps an unconfigured conversation readable and rejects execution without a default model', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const resolve = vi.fn(async () => resolvedFixtureModel())
+    const defaultSelection = vi.fn(async () => null)
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve, defaultSelection }
+    })
+    const session = service.createSession('No configured model', undefined, null)
+    expect(service.getSession(session.agentSessionId).modelSelection).toBeNull()
+    const input = {
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    await expect(service.startRun(input)).rejects.toMatchObject({
+      code: 'agent_model_not_configured',
+      message: 'Choose an Agent model before starting work'
+    })
+    expect(resolve).not.toHaveBeenCalled()
+    expect(service.listRuns(session.agentSessionId)).toEqual([])
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    expect(defaultSelection).toHaveBeenCalledOnce()
+    // Without a catalog default, NULL-selection sessions keep their history and need a choice.
+    const reopened = createService(database, runtime)
+    expect(reopened.getSession(session.agentSessionId).modelSelection).toBeNull()
+    reopened.setModelSelection(session.agentSessionId, defaultModelSelection)
+    const run = await reopened.startRun(input)
+    runtime.active().resolve()
+    await run.completion
+    database.close()
+  })
+
+  it('runs a conversation without a stored model on the catalog default and persists it', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const resolve = vi.fn(async () => resolvedFixtureModel())
+    const defaultSelection = vi.fn(async () => defaultModelSelection)
+    const info = vi.fn()
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve, defaultSelection },
+      log: { info, warn: vi.fn(), error: vi.fn() }
+    })
+    const session = service.createSession('Legacy conversation', undefined, null)
+    const input = {
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    }
+    const first = await service.startRun(input)
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(defaultModelSelection)
+    expect(runtime.active().input.runtimeModel).toMatchObject({ id: defaultModelSelection.modelId })
+    expect(service.getSession(session.agentSessionId).modelSelection).toEqual(defaultModelSelection)
+    expect(info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'agent.session.model_selection_defaulted',
+        agentSessionId: session.agentSessionId
+      }),
+      expect.any(String)
+    )
+    runtime.active().resolve()
+    await first.completion
+    // Later runs use the stored selection rather than the current default.
+    const second = await service.startRun(input)
+    expect(defaultSelection).toHaveBeenCalledOnce()
+    runtime.active().resolve()
+    await second.completion
+    database.close()
+  })
+
+  it('does not store the catalog default when resolving it fails', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: {
+        defaultSelection: async () => defaultModelSelection,
+        resolve: async () => {
+          throw new Error('Default model is unavailable')
+        }
+      }
+    })
+    const session = service.createSession('Legacy conversation', undefined, null)
+    await expect(
+      service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Draft.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+    ).rejects.toThrow('Default model is unavailable')
+    expect(service.getSession(session.agentSessionId).modelSelection).toBeNull()
+    expect(service.listRuns(session.agentSessionId)).toEqual([])
+    expect(service.projectActivitySnapshot().activeCount).toBe(0)
+    database.close()
+  })
+
+  it('uses the selected catalog model through the default fixture instead of the singleton provider', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const resolve = vi.fn(async () => resolvedFixtureModel())
+    const service = createService(database, runtime, undefined, {
+      agentCatalog: { resolve, defaultSelection: async () => null }
+    })
+    const session = service.createSession('Catalog fixture')
+    expect(session.modelSelection).toEqual(defaultModelSelection)
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Draft.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    expect(resolve).toHaveBeenCalledExactlyOnceWith(defaultModelSelection)
+    expect(runtime.active().config).toMatchObject({ presetId: defaultModelSelection.presetId })
+    expect(runtime.active().input.runtimeModel).toMatchObject({ id: defaultModelSelection.modelId })
+    expect(service.requireRun(run.agentRunId).modelLimits.source).toBe('models_dev')
+    runtime.active().resolve()
+    await run.completion
+    database.close()
+  })
+
   it('loads the complete session projection without opening a write transaction', async () => {
     const database = await createDatabase()
     const service = createService(database, new FakeAgentRuntime())
@@ -56,12 +194,8 @@ describe('AgentSessionService: runtime', () => {
       model,
       auth: { auth: { apiKey: 'fixture-secret' }, source: 'Stored API key' }
     }))
-    const resolveModelLimits = vi.fn(async () => {
-      throw new Error('Catalog selections must not use the legacy limits cache')
-    })
     const service = createService(database, runtime, undefined, {
-      agentCatalog: { resolve } as never,
-      resolveModelLimits
+      agentCatalog: { resolve } as never
     })
     const session = service.createSession('Current model', undefined, {
       presetId: 'builtin:google-vertex',
@@ -102,7 +236,6 @@ describe('AgentSessionService: runtime', () => {
     expect(runtime.active().input.maxOutputTokens).toBe(4_096)
     runtime.active().resolve()
     await smaller.completion
-    expect(resolveModelLimits).not.toHaveBeenCalled()
     expect(resolve).toHaveBeenCalledTimes(3)
     database.close()
   })
@@ -512,14 +645,7 @@ describe('AgentSessionService: runtime', () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const service = createService(database, runtime, undefined, {
-      resolveModelLimits: async () => ({
-        contextWindowTokens: 32_000,
-        inputLimitTokens: 24_000,
-        outputLimitTokens: 4_096,
-        source: 'models_dev',
-        catalogModelKey: 'test/small-model',
-        resolvedAt: '2026-08-12T00:00:00.000Z'
-      })
+      model: { contextWindow: 32_000, maxTokens: 4_096 }
     })
     const session = service.createSession('Oversized current turn')
     const started = await service.startRun({
@@ -853,14 +979,7 @@ describe('AgentSessionService: runtime', () => {
         })
     )
     const service = createService(database, runtime, undefined, {
-      resolveModelLimits: async () => ({
-        contextWindowTokens: 32_768,
-        inputLimitTokens: 24_576,
-        outputLimitTokens: 4_096,
-        source: 'models_dev',
-        catalogModelKey: 'test/compaction-stop',
-        resolvedAt: '2026-08-12T00:00:00.000Z'
-      }),
+      model: { contextWindow: 32_768, maxTokens: 4_096 },
       summarizeHistory,
       skillRouter: {
         route: async () => ({

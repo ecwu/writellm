@@ -32,7 +32,6 @@ export function registerNotebookChatIpc(options: {
   const ipc = options.ipc ?? ipcMain
   const registry = (projectSessionId: string) => {
     const context = options.manager.assertActiveSession(projectSessionId)
-    if (context.knowledgeChat === null) throw new Error('Notebook chat is unavailable')
     return context.knowledgeChat
   }
   const service = (projectSessionId: string, notebookId: string) =>

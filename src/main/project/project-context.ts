@@ -40,16 +40,16 @@ export interface ProjectContext {
   readonly manuscriptAssets: ManuscriptAssetService
   readonly knowledgeImports: KnowledgeImportService
   readonly references: ReferenceLibraryService
-  readonly mineruWorkflow: MineruWorkflowService | null
-  readonly knowledgeNormalization: KnowledgeNormalizationService | null
-  readonly knowledgeMapping?: KnowledgeMappingService | null
-  readonly projectIndex: ProjectIndexService | null
-  readonly retrieval: RetrievalService | null
-  readonly knowledgeChat: KnowledgeChatService | null
-  readonly agentSessions: AgentSessionService | null
-  readonly agentMutations: MutationProposalService | null
-  readonly agentChangeSets: ChangeSetBatchService | null
-  readonly writingTasks: WritingTaskService | null
+  readonly mineruWorkflow: MineruWorkflowService
+  readonly knowledgeNormalization: KnowledgeNormalizationService
+  readonly knowledgeMapping: KnowledgeMappingService
+  readonly projectIndex: ProjectIndexService
+  readonly retrieval: RetrievalService
+  readonly knowledgeChat: KnowledgeChatService
+  readonly agentSessions: AgentSessionService
+  readonly agentMutations: MutationProposalService
+  readonly agentChangeSets: ChangeSetBatchService
+  readonly writingTasks: WritingTaskService
   readonly writeLock: ProjectWriteLock
   readonly versionHistory?: ProjectVersionStore
 }

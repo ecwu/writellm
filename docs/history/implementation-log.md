@@ -5134,3 +5134,190 @@ They cover `src/main/db`, content, manuscript service, persistence, import, Agen
 The fresh-build E2E gate above still covers the final production source, so it is not rerun. Coverage remains macOS arm64 only.
 Report: `.cache/verification/1792013914881-66674-19e9e182`.
 Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
+
+
+## 2026-10-14 Third-Batch Simplification
+
+The user authorizes the third batch, Issues [7](https://github.com/ecwu/writellm/issues/7) and [11](https://github.com/ecwu/writellm/issues/11).
+Issue 11 already includes both its first-batch policy removal and third-batch lifecycle boundary in commit `df3d1f89`.
+That issue remains closed. This batch examines its final implementation and repeats its affected tests without another source change.
+Issue 7 remains open and uncommitted for Claude review.
+
+### Issue 7: Production service ownership
+
+The sole production `createKnowledgeRuntime` implementation creates the complete feature graph in Main.
+ProjectManager now requires that factory, all ten feature services, the handler registry, and worker termination.
+ProjectContext no longer represents those services as missing or nullable.
+ProjectManager rejects an absent factory during construction.
+A service assembly failure still follows the existing cleanup path for the database and project write lock.
+A new test injects that failure, observes the original logged error, and opens the same project through a fresh manager.
+Lifecycle tests use one complete fake runtime factory. The deferred-index test replaces only its index service.
+
+AgentSessionService requires its runtime, catalog, context builder, Skill router, tool executor, Writing Task service, and attachment service.
+Its constructor rejects a missing dependency before any session work.
+Agent IPC also requires its catalog and returns non-null session services from the existing project authority helpers.
+Agent, mutation, Notebook, Knowledge, and search IPC remove repeated service-presence guards and optional calls.
+Index preparation and unavailable state still belong to ProjectIndexService.
+MinerU and provider configuration failures still belong to their services.
+All sender authorization, project-session revocation, mutation permission, and post-await state checks remain intact.
+The local construction closure still waits for the runtime assignment before import callbacks use it.
+
+### Catalog execution and compatibility
+
+The Agent test factory first gains a selected default catalog model, a real context builder, explicit tools, attachments, and Writing Task dependencies.
+The catalog-use test observes exactly one resolution and requires the Worker descriptor and persisted catalog limits.
+Custom capacity tests now change catalog model metadata rather than inject a legacy limits resolver.
+The edit preparation tests inject catalog resolution failures and history races at the production boundary.
+Every FakeAgentRuntime execution asserts that it receives a preset and runtime model descriptor.
+
+The fixture also supplies an empty Skill router.
+Most unit cases wait for the fake run to leave routing before using its synchronous test controls.
+Cases with an explicit router observe the production pending-on-return behavior directly.
+This readiness wait belongs only to the test helper.
+Production removes its separate no-Skill-runtime ready-on-return branch and its preparation barrier.
+Skill preparation, cancellation, title generation, compaction, and admission ownership retain the existing production order.
+
+Every writing run, title request, and compaction resolves the selected catalog model.
+The same resolved result supplies provider configuration, credentials, model limits, and the runtime descriptor.
+The singleton `withConfiguredProvider('agent')` branch and separate limits-resolver dependency are removed from AgentSessionService.
+The now-unused `legacyModelLimits()` helper is removed.
+No methods move into new service files, and no new execution coordinator or dependency container is introduced.
+
+A session with no selection remains a valid, readable conversation.
+Starting work rejects it with `agent_model_not_configured`, records no run, and releases the reserved work slot.
+A regression test also reads that NULL selection through another service instance and then starts work after an explicit choice.
+Catalog snapshot initialization still converts old singleton configuration into `custom:legacy-agent`, seeds its offline model, and preserves encrypted credential bindings.
+The existing migration tests prove that conversion and removal behavior.
+Historical project sessions, run records, provider configuration, and migrations remain unchanged.
+ADR 008 records the explicit selection requirement and the retained compatibility boundary.
+
+### Issue 11: Completed lifecycle boundary
+
+ProjectRuntime still assembles its supervisor and scheduler and exposes `start`, `stopClaims`, `resumeClaims`, `park`, and `stop`.
+It already exposes `cancel()`, and Job and Knowledge IPC use that method.
+No production caller accesses `runtime.scheduler`.
+All seven job types retain abort-and-requeue behavior.
+JobStore still decides cancellation versus close requeue inside its transaction.
+Scheduler tests cover direct runtime cancellation and the close/cancel race.
+ProjectManager tests cover closing, requeuing without spending an attempt, and completion after reopening.
+The `createRuntime` test replacement remains available.
+
+### Verification
+
+The selected scope covers Agent catalog execution, model configuration, service construction, project lifecycle, Notebook, IPC, cancellation, and recovery.
+Native modules, Worker entrypoints, package resources, dependencies, and packaging configuration remain unchanged.
+The batch uses focused Electron tests and one source build with real Electron scenarios.
+The retained older App serves only as a baseline UI comparison. It does not prove the new dependency graph.
+
+The initial fixture run covers 110 tests across eight Agent files before production fallback removal.
+It passes 108 tests and identifies two legacy-fixture assumptions about credentials and impossible model limits.
+Credentials now use the structured catalog envelope.
+The capacity fixture uses a valid 8,192-token context and an 8,191-token output allowance, leaving one history token.
+A focused capacity rerun passes before production branch removal.
+
+After the new required Skill router, old unit cases expose readiness assumptions that their helper now handles explicitly.
+A subsequent combined run passes Agent and IPC coverage but exposes one test import removed in error during fixture cleanup.
+The JobHandlerRegistry import remains necessary for the reopen recovery test and is restored.
+These are test adaptation failures. The reports retain them rather than report a clean first run.
+
+The expanded Electron command passes 246 tests across 22 files in 8.2s:
+
+```sh
+pnpm test src/main/agent/session-service*.test.ts \
+  src/main/ipc/agent-ipc.test.ts src/main/ipc/knowledge-ipc.test.ts \
+  src/main/ipc/agent-mutation-ipc.test.ts src/main/ipc/notebook-chat-ipc.test.ts \
+  src/main/ipc/search-ipc.test.ts src/main/project/project-manager.test.ts \
+  src/main/project/migrations/0046-agent-message-replacements.test.ts \
+  src/main/project/migrations/0047-conversation-fork.test.ts \
+  src/main/project/migrations/0048-agent-image-attachments.test.ts \
+  src/main/providers/agent-provider-catalog.test.ts \
+  src/main/knowledge/knowledge-chat-service.test.ts src/main/jobs/job-store.test.ts src/main/jobs/scheduler
+```
+
+Report: `.cache/verification/1792014528564-76907-d5cf9d08`.
+After adding construction and cleanup coverage, the affected rerun passes 63 tests across three files in 7.1s.
+Command: `pnpm test src/main/agent/session-service.test.ts src/main/project/project-manager.test.ts src/main/ipc/job-ipc.test.ts`.
+Report: `.cache/verification/1792014583634-77684-45de668e`.
+The final shared-fixture assertions pass 124 tests across eleven Agent and migration files in 7.4s.
+Report: `.cache/verification/1792014693786-79370-23a44c36`.
+Final results cover 258 distinct passing tests across 23 files, with zero automatic retries or skips.
+Unchanged passing results remain valid. Only affected coverage repeats.
+
+The repository-root combined command performs static checks, one native preparation, one source build, and eight expanded E2E scenarios:
+
+```sh
+pnpm check:e2e e2e/agent-writing.spec.ts e2e/agent-concurrency.spec.ts \
+  e2e/agent-quick-actions.spec.ts e2e/agent-model-configuration.spec.ts \
+  e2e/agent-thinking-level.spec.ts e2e/notebook.spec.ts e2e/project-lifecycle.spec.ts \
+  --grep 'grounded Agent proposal|exhausted Agent diagnostic|two Agent conversations|exact selection quick|edited model metadata|explicit Thinking|Notebook independent|creates, removes recent'
+```
+
+Static stages pass in 2.6s across 873 Biome files and both TypeScript targets.
+Native preparation takes 0.7s. The single source build takes 15.6s.
+Six E2E scenarios pass, and two fail. The overall gate fails in 112.7s.
+The six passes cover current model metadata, Thinking isolation, diagnostic recovery, proposal approval and reopening, Notebook reset, and project restart.
+Report: `.cache/verification/1792014638699-78425-e20f2346`.
+Initial failure traces remain under that report directory.
+
+The concurrency assertion expects visible `Working` text, but the current UI stores that status in each Command item's value.
+The corrected assertion requires two conversation options and a `Working` suffix on each value.
+That scenario then passes in 6.0s against the same source build.
+Report: `.cache/verification/1792014914911-85528-6e9c0096`.
+The remaining seven relevant E2E results pass with zero automatic retries or skips.
+
+### Baseline UI verification limit
+
+The extra quick-action scenario fails before any writing Agent request, at the floating menu opening step.
+Changing the menu locator and using the supported keyboard shortcut do not resolve it.
+Those attempted test changes are reverted. The quick-action test remains byte-for-byte equal to its starting source.
+The unchanged scenario also fails at the same step against the retained first-batch App:
+
+```sh
+WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
+  pnpm test:e2e e2e/agent-quick-actions.spec.ts --grep 'exact selection quick'
+```
+
+The baseline scenario fails in 13.7s, with 14.4s for the command and zero automatic retries.
+Report: `.cache/verification/1792015073206-87613-a56767e0`.
+The baseline screenshot and trace remain under that report directory.
+This isolates a pre-existing UI failure from Issue 7's service dependency change.
+The batch leaves it recorded for review rather than change the Renderer during the dependency refactor.
+It does not claim that the expanded E2E gate passes.
+
+The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
+The existing Node engine warning remains because the project declares `>=24.21.0 <25`.
+Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
+It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
+Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
+No dependency, migration, installer, package rebuild, commit, push, or issue closure runs for this batch.
+Issue 7 awaits Claude review, and the goal pauses at that handoff.
+The pre-existing untracked dependency audit remains untouched.
+
+### Claude review and default-model correction
+
+Claude reviews Issue 7 and finds one regression in the strict selection rule.
+Sessions with a NULL selection previously ran on the singleton Agent configuration, which remains stored.
+The Renderer displays the catalog default for those sessions and keeps Send enabled.
+The strict rule therefore rejected a send whose displayed model looked ready.
+The user approves the recommended correction: run such sessions on the catalog default.
+
+`AgentProviderCatalogService.defaultSelection()` runs the existing legacy conversion and returns the stored default without building a snapshot.
+AgentSessionService reads the stored selection first.
+For a NULL selection, it resolves the catalog default and then stores it on the session with a conditional update.
+That update applies only while the session selection remains NULL. It logs `agent.session.model_selection_defaulted`.
+A failed resolution leaves the session selection NULL and records no run.
+Later runs use the stored selection rather than the current default.
+`agent_model_not_configured` remains for sessions with no stored or default selection.
+ADR 008 records the corrected compatibility rule.
+
+New tests cover default adoption and persistence, no persistence after a failed resolution, the retained unconfigured rejection, and catalog default lookup after legacy conversion.
+`pnpm check:fast` passes in 2.5s.
+The focused Electron selection above passes 261 tests across 23 files in 8.7s with zero retries.
+Report: `.cache/verification/1792015748873-5683-302f36b9`.
+`pnpm check:e2e` builds once in 14.7s, and seven related source scenarios pass in 34.1s. The gate passes in 51.7s with zero retries or skips.
+It covers the agent-writing, agent-concurrency, agent-model-configuration, agent-thinking-level, notebook, and project-lifecycle specs.
+It excludes the quick-action scenario, which also fails on the first-batch App.
+Report: `.cache/verification/1792015764553-5967-fb79aa7a`.
+That quick-action failure remains an open baseline UI defect for later work.
+Coverage remains macOS arm64 only.
+Issue 7 is committed, pushed to `main`, and closed. The untracked dependency audit stays outside the commit.

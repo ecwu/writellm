@@ -24,8 +24,7 @@ export function registerSearchIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = knowledgeSearchInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
-    if (context.retrieval === null) throw new Error('Knowledge search is unavailable')
-    if (!context.projectIndex?.isRetrievalAvailable()) {
+    if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge search is still preparing')
     }
     const controller = new AbortController()
@@ -52,8 +51,7 @@ export function registerSearchIpc(options: {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = citationExpansionInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
-    if (context.retrieval === null) throw new Error('Citation expansion is unavailable')
-    if (!context.projectIndex?.isRetrievalAvailable()) {
+    if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge citations are still preparing')
     }
     const controller = new AbortController()
@@ -87,7 +85,7 @@ export function registerSearchIpc(options: {
       const result = await resolveReadableCitation({
         database: context.database,
         retrieval: context.retrieval,
-        retrievalAvailable: context.projectIndex?.isRetrievalAvailable() === true,
+        retrievalAvailable: context.projectIndex.isRetrievalAvailable() === true,
         input,
         signal: controller.signal
       })

@@ -399,6 +399,11 @@ export class AgentProviderCatalogService {
     }
   }
 
+  async defaultSelection(): Promise<AgentModelSelection | null> {
+    await this.#migrateLegacyAgentConfig()
+    return this.settings.getDefaultAgentModelSelection()
+  }
+
   async setDefaultSelection(
     selection: AgentModelSelection | null
   ): Promise<AgentModelSelection | null> {

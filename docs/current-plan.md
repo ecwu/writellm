@@ -31,6 +31,20 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
 
 ## Current state
 
+- [Issue 7](https://github.com/ecwu/writellm/issues/7) passes local acceptance and Claude review as the third batch.
+  The project factory returns all required feature services. Agent dependencies are required at construction.
+  Runs derive their model descriptor and limits from one catalog resolution.
+  Sessions without a stored model run on the catalog default and store it after successful resolution.
+  Work without any stored or default model fails with `agent_model_not_configured`.
+  Old singleton configuration still converts into the cached legacy preset and default through catalog initialization.
+  Final results cover 261 passing Electron tests across 23 files and seven source E2E scenarios on one fresh build.
+  All final runs record zero retries or skips.
+  The quick-action menu scenario also fails on the first-batch App and remains an open baseline UI failure.
+  [Issue 11](https://github.com/ecwu/writellm/issues/11) already contains the third-batch lifecycle changes in `df3d1f89` and remains closed.
+  Issue 7 is committed, pushed to `main`, and closed. Later sub-issues remain unstarted.
+  Verification covers macOS arm64 only. Other-platform runtime coverage remains outstanding.
+  Evidence: [third-batch simplification](history/implementation-log.md#2026-10-14-third-batch-simplification).
+
 - Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) pass local acceptance as the second review batch.
   Editor saves reuse validated input and freshly prepared revision content. One traversal normalizes plain source and figure metadata.
   Five snapshots preserve pre-refactor JSON, hashes, and counts. Historical reads and migrations retain their existing entrypoints.
@@ -41,7 +55,7 @@ lives in [`history/implementation-log.md`](history/implementation-log.md).
   Ten selected source E2E scenarios pass in 27.0s. The combined gate takes 45.9s.
   Final results record zero automatic retries or skips on macOS arm64. Other-platform runtime coverage remains outstanding.
   Claude review accepts both issues. Each is committed separately, pushed to `main`, and closed.
-  Later sub-issues remain unstarted.
+  The third batch appears above. Remaining sub-issues stay unstarted.
   Evidence: [second-batch simplification](history/implementation-log.md#2026-10-14-second-batch-simplification).
 
 - Issues [8](https://github.com/ecwu/writellm/issues/8), [10](https://github.com/ecwu/writellm/issues/10), and [11](https://github.com/ecwu/writellm/issues/11) pass local acceptance as one review batch.
