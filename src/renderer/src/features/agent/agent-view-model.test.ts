@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentEventRecord, AgentRunRecord } from '../../../../shared/contracts/agent-ipc'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
-import type { AgentToolActivity } from './agent-view-model'
+import {
+  agentToolActivityLabel,
+  citationDisplaysForToolResult,
+  type AgentToolActivity
+} from './agent-tool-presentation'
 import {
   aggregateAgentUsage,
   agentActivityDefaultOpen,
   agentReviewState,
   agentThinkingVisualState,
-  agentToolActivityLabel,
   agentTerminalDetail,
   agentTerminalLabel,
   agentTimelineScrollAnchorIndex,
   applyAgentTerminalEvent,
   buildWritingTaskChangeSet,
-  citationDisplaysForToolResult,
   formatAgentDuration,
   findLatestPrompt,
   findToolResult,
@@ -1216,7 +1218,7 @@ describe('Agent renderer view model', () => {
     })
   })
 
-  it('keeps the in-progress marker until a rolling compaction reaches a terminal outcome', () => {
+  it('keeps historical rolling compaction pending until its terminal outcome', () => {
     const compactionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc499'
     const started = {
       ...record(1, 'compaction_started', {
@@ -1744,6 +1746,24 @@ describe('Unified Agent presentation', () => {
     expect(done.timeline.filter((item) => item.runDurationMs !== undefined)).toHaveLength(1)
     expect(done.timeline).toHaveLength(2)
     expect(done.timeline.at(-1)).toMatchObject({ streaming: false })
+  })
+
+  it('does not duplicate a streamed answer that a history reload already persisted', () => {
+    const first = assistantRecord(1, 'A progress update.')
+    const reloaded = projectAgentPresentation({
+      events: [first, assistantRecord(2, 'Final answer.')],
+      streaming: { [base.agentRunId]: 'Final answer.' }
+    })
+    expect(
+      reloaded.timeline.filter(
+        (item) => item.type === 'message' && item.payload.content === 'Final answer.'
+      )
+    ).toHaveLength(1)
+    const nextMessage = projectAgentPresentation({
+      events: [first, assistantRecord(2, 'Final answer.')],
+      streaming: { [base.agentRunId]: 'A follow-up message.' }
+    })
+    expect(nextMessage.timeline.at(-1)).toMatchObject({ streaming: true })
   })
 
   it('leaves a live question in the answer dock and stops an unresolved change without a spinner', () => {

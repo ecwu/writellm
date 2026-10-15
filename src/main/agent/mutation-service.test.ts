@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { MutationProposalError, MutationProposalService } from './mutation-service'
+import { MutationProposalService } from './mutation-service'
+import { MutationProposalError } from './mutation-errors'
 import {
   log,
   projectSessionId,

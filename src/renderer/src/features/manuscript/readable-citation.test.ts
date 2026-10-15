@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findReadableCitations } from './readable-citation'
+import { findReadableCitations } from '../../../../shared/readable-citation'
 
 describe('readable citation parser', () => {
   it('parses canonical English and Chinese labels with optional one-based pages', () => {

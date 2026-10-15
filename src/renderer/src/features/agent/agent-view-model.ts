@@ -408,6 +408,7 @@ export function projectAgentPresentation(input: {
   const items: AgentContent[] = []
   const toolsById = new Map<string, AgentToolPresentation>()
   const messageCounts = new Map<string, number>()
+  const lastAssistantContentByRun = new Map<string, string>()
   let providerMetadata: AgentAssistantMessagePayload['metadata'] | null = null
   let pendingTools: AgentToolPresentation[] = []
   const flushTools = (): void => {
@@ -471,6 +472,7 @@ export function projectAgentPresentation(input: {
       flushTools()
       const count = (messageCounts.get(event.agentRunId ?? '') ?? 0) + 1
       messageCounts.set(event.agentRunId ?? '', count)
+      lastAssistantContentByRun.set(event.agentRunId ?? '', parsed.data.content)
       items.push({
         type: 'message',
         role: 'assistant',
@@ -733,7 +735,9 @@ export function projectAgentPresentation(input: {
     if (
       !content.trim() ||
       terminalsByRunId.has(runId) ||
-      (runsById.has(runId) && runsById.get(runId)?.status !== 'running')
+      (runsById.has(runId) && runsById.get(runId)?.status !== 'running') ||
+      // A history reload can deliver the durable message before its live settle event.
+      lastAssistantContentByRun.get(runId) === content
     )
       continue
     items.push({

@@ -42,8 +42,8 @@ function setup(options: { projectState?: 'closed' | 'open'; closeRejects?: boole
   return { calls, coordinator, logger, projectManager }
 }
 
-const settleShutdown = async (): Promise<void> => {
-  await new Promise((resolve) => setTimeout(resolve, 0))
+const settleShutdown = async (calls: string[]): Promise<void> => {
+  await vi.waitFor(() => expect(calls.at(-1)).toBe('quit'))
 }
 
 describe('shutdown coordinator', () => {
@@ -52,7 +52,7 @@ describe('shutdown coordinator', () => {
     const firstEvent = { preventDefault: vi.fn() }
 
     coordinator.handleBeforeQuit(firstEvent)
-    await settleShutdown()
+    await settleShutdown(calls)
 
     expect(firstEvent.preventDefault).toHaveBeenCalledOnce()
     expect(calls).toEqual([
@@ -77,7 +77,7 @@ describe('shutdown coordinator', () => {
     const { calls, coordinator, logger } = setup({ closeRejects: true })
 
     coordinator.handleBeforeQuit({ preventDefault: vi.fn() })
-    await settleShutdown()
+    await settleShutdown(calls)
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({

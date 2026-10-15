@@ -29,6 +29,7 @@ import {
   getFormattingToolbarItems,
   getDefaultReactSlashMenuItems,
   SuggestionMenuController,
+  usePortalElement,
   useCreateBlockNote
 } from '@blocknote/react'
 import { BlockNoteView } from '@blocknote/shadcn'
@@ -1361,6 +1362,7 @@ function QuickActionFormattingToolbar(props: {
   onAction(action: AgentQuickActionId): void
   onAddComment(): void
 }): React.JSX.Element {
+  const portalElement = usePortalElement()
   return (
     <FormattingToolbar>
       {getFormattingToolbarItems()}
@@ -1379,7 +1381,9 @@ function QuickActionFormattingToolbar(props: {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align='start'
+          container={portalElement}
           aria-label='Quick AI actions'
+          aria-labelledby={undefined}
           className='w-64 max-w-[calc(100vw-2rem)]'
         >
           <DropdownMenuLabel>Quick AI actions</DropdownMenuLabel>

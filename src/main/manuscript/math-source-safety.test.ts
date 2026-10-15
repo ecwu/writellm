@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isMathSourceStructurallySafe } from './math-source-safety'
+import { isMathSourceStructurallySafe } from '../../shared/math-source-safety'
 
 describe('math source safety', () => {
   it.each([

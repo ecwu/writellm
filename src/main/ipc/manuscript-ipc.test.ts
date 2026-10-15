@@ -1,8 +1,8 @@
 import type { IpcMainInvokeEvent } from 'electron'
-import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { ManuscriptWorkspace } from '../../shared/contracts/manuscript'
+import { withIpcLogging } from '../observability/ipc-context'
 import { registerManuscriptIpc, type ManuscriptIpcMain } from './manuscript-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
@@ -126,18 +126,19 @@ function harness() {
       return context
     })
   }
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   registerManuscriptIpc({
     manager: manager as never,
-    logger: pino({ level: 'silent' }),
+    logger,
     developmentUrl: 'http://localhost:5173',
-    ipc
+    ipc: withIpcLogging(ipc, logger)
   })
   const event = {
     senderFrame: { url: 'http://localhost:5173/' }
   } as unknown as IpcMainInvokeEvent
   const invoke = (channel: string, input: unknown) =>
     handlers.get(channel)?.(event as never, input as never)
-  return { handlers, invoke, manager, manuscript, editorPersistence }
+  return { handlers, invoke, manager, manuscript, editorPersistence, logger }
 }
 
 describe('manuscript IPC', () => {
@@ -228,4 +229,71 @@ describe('manuscript IPC', () => {
     expect(manuscript.deleteSection).toHaveBeenCalledOnce()
     expect(editorPersistence.removeMaterialization).toHaveBeenCalledWith('section-1')
   })
+})
+
+it.each(['brief_version_conflict', 'outline_version_conflict'] as const)(
+  'preserves the %s message and original cause and reports the failure once',
+  async (code) => {
+    const { invoke, manuscript, logger } = harness()
+    const failure = Object.assign(new Error('Version changed elsewhere'), { code })
+    const {
+      manuscriptBriefId: _briefId,
+      manuscriptId: _manuscriptId,
+      version: _version,
+      schemaVersion: _schema,
+      createdAt: _created,
+      ...fields
+    } = workspace.brief
+    const brief = code === 'brief_version_conflict'
+    if (brief)
+      manuscript.updateBrief.mockImplementationOnce(() => {
+        throw failure
+      })
+    else
+      manuscript.updateSection.mockImplementationOnce(() => {
+        throw failure
+      })
+    const channel = brief
+      ? IPC_CHANNELS.manuscriptUpdateBrief
+      : IPC_CHANNELS.manuscriptUpdateSection
+    const input = {
+      projectSessionId,
+      update: brief
+        ? { ...fields, baseVersion: 1 }
+        : { sectionId: 'section-1', baseOutlineVersion: 1, title: 'Changed title' }
+    }
+    await expect(invoke(channel, input)).rejects.toMatchObject({
+      message: `[${code}] Version changed elsewhere`,
+      cause: failure
+    })
+    expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        event: brief ? 'manuscript.brief.update.failed' : 'manuscript.section.update.failed',
+        err: failure,
+        projectSessionId
+      }),
+      expect.any(String)
+    )
+    expect(
+      logger.error.mock.calls.some(([fields]) => fields.event === 'ipc.operation.failed')
+    ).toBe(false)
+  }
+)
+
+it('rethrows non-conflict mutation failures unchanged and reports them once', async () => {
+  const { invoke, manuscript, logger } = harness()
+  const failure = new Error('Persistence unavailable')
+  manuscript.updateSection.mockImplementationOnce(() => {
+    throw failure
+  })
+  await expect(
+    invoke(IPC_CHANNELS.manuscriptUpdateSection, {
+      projectSessionId,
+      update: { sectionId: 'section-1', baseOutlineVersion: 1, title: 'Changed' }
+    })
+  ).rejects.toBe(failure)
+  expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ event: 'manuscript.section.update.failed', err: failure }),
+    expect.any(String)
+  )
 })

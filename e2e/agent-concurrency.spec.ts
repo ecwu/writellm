@@ -270,7 +270,7 @@ test(
         .filter({ hasText: /Parallel conversation/ })
       await expect(workingConversations).toHaveCount(2)
       for (const option of await workingConversations.all()) {
-        await expect(option).toHaveAttribute('data-value', /Working$/)
+        await expect(option).toHaveAccessibleName(/Working/)
       }
       await launched.page.getByRole('option', { name: /Parallel conversation 1/ }).click()
 

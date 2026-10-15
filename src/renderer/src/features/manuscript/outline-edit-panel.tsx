@@ -117,7 +117,8 @@ export function OutlineEditPanel(props: {
   onRequestClose(): void
   onUpdateSection(
     sectionId: string,
-    update: { title?: string; objective?: string | null; status?: SectionStatus }
+    update: { title?: string; objective?: string | null; status?: SectionStatus },
+    baseOutlineVersion?: number
   ): Promise<boolean>
   onMoveSection(
     sectionId: string,
@@ -143,6 +144,11 @@ export function OutlineEditPanel(props: {
   const draftRef = useRef<MetadataDraft | null>(null)
   draftRef.current = draft
   const canonicalRef = useRef<CanonicalMetadata | null>(null)
+  // A metadata draft saves against the outline version it was edited from, so a later
+  // automatic save cannot silently overwrite a concurrent change after a conflict.
+  const canonicalOutlineVersionRef = useRef<number | null>(null)
+  const workspaceOutlineVersionRef = useRef(props.workspace.outlineVersion)
+  workspaceOutlineVersionRef.current = props.workspace.outlineVersion
   const [saveState, setSaveState] = useState<OutlineSaveState>('saved')
   const [externalConflict, setExternalConflict] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -217,6 +223,7 @@ export function OutlineEditPanel(props: {
       currentCanonical.sectionId !== selectedSection.sectionId
     ) {
       canonicalRef.current = next
+      canonicalOutlineVersionRef.current = workspaceOutlineVersionRef.current
       setDraft(next)
       setExternalConflict(false)
       setSaveState('saved')
@@ -230,6 +237,7 @@ export function OutlineEditPanel(props: {
       return
     }
     canonicalRef.current = next
+    canonicalOutlineVersionRef.current = workspaceOutlineVersionRef.current
     if (!locallyDirty || matchesNext) setDraft(next)
     setExternalConflict(false)
     setSaveState('saved')
@@ -267,10 +275,11 @@ export function OutlineEditPanel(props: {
     }
     setOperationBusy(true)
     setSaveState('saving')
-    const saved = await props.onUpdateSection(currentDraft.sectionId, {
-      title,
-      objective: objective.length === 0 ? null : objective
-    })
+    const saved = await props.onUpdateSection(
+      currentDraft.sectionId,
+      { title, objective: objective.length === 0 ? null : objective },
+      canonicalOutlineVersionRef.current ?? undefined
+    )
     setOperationBusy(false)
     if (!saved) {
       setSaveState('failed')
@@ -333,10 +342,20 @@ export function OutlineEditPanel(props: {
     })
   }
 
+  // Retry is the explicit choice to apply the draft over the latest outline.
+  const retryDraft = (): void => {
+    if (selectedSection !== undefined) {
+      canonicalRef.current = metadataFromSection(selectedSection)
+      canonicalOutlineVersionRef.current = workspaceOutlineVersionRef.current
+    }
+    void saveDraft()
+  }
+
   const reloadSelected = (): void => {
     if (selectedSection === undefined) return
     const next = metadataFromSection(selectedSection)
     canonicalRef.current = next
+    canonicalOutlineVersionRef.current = workspaceOutlineVersionRef.current
     setDraft(next)
     setExternalConflict(false)
     setSaveState('saved')
@@ -611,7 +630,7 @@ export function OutlineEditPanel(props: {
                             <Button
                               variant='outline'
                               disabled={busy || titleInvalid}
-                              onClick={() => void saveDraft()}
+                              onClick={retryDraft}
                             >
                               {busy ? (
                                 <Spinner data-icon='inline-start' />

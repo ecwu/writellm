@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { AgentModelLimits } from '../../shared/contracts/agent'
+import type { AgentModelLimits } from '../../shared/contracts/agent-model-limits'
 import { estimateAgentTokens } from '../../shared/agent-context-budget'
 import { AgentContextPlanner, AgentCurrentTurnTooLargeError } from './context-planner'
 

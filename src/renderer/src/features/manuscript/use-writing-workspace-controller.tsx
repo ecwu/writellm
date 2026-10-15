@@ -1,6 +1,5 @@
 import { manuscriptFailureMessage, reportRendererOperationError } from '../../diagnostics'
 import { useManuscriptReferences } from './use-manuscript-references'
-export { resolveReadableCitationOccurrences } from './use-manuscript-references'
 import { useManuscriptImport } from './use-manuscript-import'
 import { useManuscriptFind } from './use-manuscript-find'
 import {
@@ -812,7 +811,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
 
   const updateOutlineSection = (
     sectionId: string,
-    update: { title?: string; objective?: string | null; status?: SectionStatus }
+    update: { title?: string; objective?: string | null; status?: SectionStatus },
+    baseOutlineVersion?: number
   ): Promise<boolean> =>
     enqueueOutlineMutation(async () => {
       const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
@@ -821,7 +821,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         window.desktop.manuscript.updateSection({
           projectSessionId: props.projectSessionId,
           update: {
-            baseOutlineVersion: current.outlineVersion,
+            baseOutlineVersion: baseOutlineVersion ?? current.outlineVersion,
             sectionId,
             ...update
           }

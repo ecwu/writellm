@@ -1864,7 +1864,7 @@ describe('runAgentSession', () => {
       stopController.signal,
       new FakeMessagePort() as never
     )
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
     stopController.abort()
     await expect(stopping).rejects.toMatchObject({ name: 'AbortError' })
     expect(stopEvents).not.toContainEqual(

@@ -225,9 +225,10 @@ test(
       await expect(panel.getByTestId('agent-status')).toContainText('Waiting for your answer')
       await expect(panel.getByTestId('agent-conversation-switcher')).toBeEnabled()
       await panel.getByTestId('agent-conversation-switcher').click()
-      await expect(launched.page.getByText('Needs answer', { exact: true })).toBeVisible()
+      const needsAnswer = launched.page.getByRole('option', { name: /Needs answer/ })
+      await expect(needsAnswer).toBeVisible()
       await panel.getByTestId('agent-conversation-switcher').click()
-      await expect(launched.page.getByText('Needs answer', { exact: true })).toBeHidden()
+      await expect(needsAnswer).toBeHidden()
       await expect(questionnaire.getByRole('progressbar')).toHaveText('Question 1 of 2')
       const conclusion = questionnaire.getByRole('radio', { name: /Conclusion \(Recommended\)/ })
       await expect(async () => {

@@ -84,33 +84,47 @@ test(
       await composer.fill('')
       await launched.page.getByRole('button', { name: 'Close writing agent' }).click()
 
+      const quickActionTrigger = launched.page.getByRole('button', {
+        name: 'Open Agent quick actions'
+      })
+      const selectClaim = async (): Promise<void> => {
+        await editor.locator('p').first().click()
+        await launched.page.keyboard.press(
+          process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home'
+        )
+        await launched.page.keyboard.press(
+          process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End'
+        )
+        await expect
+          .poll(() => launched.page.evaluate(() => window.getSelection()?.toString()))
+          .toBe('This exact claim needs evidence.')
+        await expect(quickActionTrigger).toBeVisible()
+      }
+      const quickActions = launched.page.getByRole('menu', {
+        name: 'Quick AI actions',
+        exact: true
+      })
+
       await editor.click()
-      await editor.locator('p').first().click()
-      await launched.page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
-      await launched.page.keyboard.press(
-        process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End'
-      )
-      await expect
-        .poll(() => launched.page.evaluate(() => window.getSelection()?.toString()))
-        .toBe('This exact claim needs evidence.')
-      await expect(
-        launched.page.getByRole('button', { name: 'Open Agent quick actions' })
-      ).toBeVisible()
+      await selectClaim()
+      // An extra modifier is not the quick-action shortcut.
       await launched.page.keyboard.press('ControlOrMeta+Alt+Shift+k')
       await expect(launched.page.getByRole('menuitem', { name: /Check evidence/ })).toHaveCount(0)
-      await editor.locator('p').first().click()
-      await launched.page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowLeft' : 'Home')
-      await launched.page.keyboard.press(
-        process.platform === 'darwin' ? 'Meta+Shift+ArrowRight' : 'Shift+End'
-      )
-      await expect
-        .poll(() => launched.page.evaluate(() => window.getSelection()?.toString()))
-        .toBe('This exact claim needs evidence.')
-      await launched.page.getByRole('button', { name: 'Open Agent quick actions' }).click()
-      await expect(
-        launched.page.getByRole('menu', { name: 'Open Agent quick actions' })
-      ).toBeVisible()
-      await launched.page.getByRole('menuitem', { name: /Check evidence/ }).dispatchEvent('click')
+
+      await selectClaim()
+      // ProseMirror adopts the DOM selection asynchronously; retry only until it registers.
+      await expect(async () => {
+        await launched.page.keyboard.press('ControlOrMeta+Shift+k')
+        await expect(quickActions).toBeVisible({ timeout: 1_000 })
+      }).toPass()
+      await launched.page.keyboard.press('Escape')
+      await expect(quickActions).toBeHidden()
+
+      // A mouse click on the toolbar trigger must keep the toolbar and its menu mounted.
+      await selectClaim()
+      await quickActionTrigger.click()
+      await expect(quickActions).toBeVisible()
+      await launched.page.getByRole('menuitem', { name: /Check evidence/ }).click()
 
       await expect(panel).toBeVisible()
       await expect(panel.getByText('Quick action · Check evidence', { exact: true })).toBeVisible()

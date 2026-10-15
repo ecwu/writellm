@@ -1,6 +1,6 @@
 import type { ManuscriptReferenceOccurrence } from '../../../../shared/contracts/manuscript'
 import { describe, expect, it, vi } from 'vitest'
-import { resolveReadableCitationOccurrences } from './use-writing-workspace-controller'
+import { resolveReadableCitationOccurrences } from './use-manuscript-references'
 
 function occurrences(count: number): ManuscriptReferenceOccurrence[] {
   return Array.from({ length: count }, (_, ordinal) => ({

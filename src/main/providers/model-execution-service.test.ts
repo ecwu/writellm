@@ -139,11 +139,15 @@ function service(options?: {
 describe('ModelExecutionService', () => {
   it('returns the exact model request ID for concurrent resolved-model calls', async () => {
     const project = await database()
+    let releaseCompaction!: () => void
+    const compactionGate = new Promise<void>((resolve) => {
+      releaseCompaction = resolve
+    })
     const agent: AgentModelRuntime = {
       run: vi.fn(
         async (_config, _credential, input, _signal, _onEvent, _session, _limits, trace) => {
           if (input.prompt === 'slow compaction') {
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await compactionGate
           }
           await trace?.capture({
             ...trace.context,
@@ -194,28 +198,29 @@ describe('ModelExecutionService', () => {
       }
     }
     const signal = new AbortController().signal
-    const [compaction, title] = await Promise.all([
-      execution.runAgentWithResolvedProvider(
-        project,
-        { systemPrompt: 'summarize', prompt: 'slow compaction', maxOutputTokens: 1_000 },
-        { operationId: 'compaction-id', projectSessionId: 'project-session-id' },
-        resolved,
-        signal,
-        () => undefined,
-        {
-          tracePurpose: 'compaction',
-          compactionId: 'compaction-id',
-          compactionSource: { trigger: 'automatic', coveredThroughSequence: 9 }
-        }
-      ),
-      execution.runAgentWithResolvedProvider(
+    const compactionPending = execution.runAgentWithResolvedProvider(
+      project,
+      { systemPrompt: 'summarize', prompt: 'slow compaction', maxOutputTokens: 1_000 },
+      { operationId: 'compaction-id', projectSessionId: 'project-session-id' },
+      resolved,
+      signal,
+      () => undefined,
+      {
+        tracePurpose: 'compaction',
+        compactionId: 'compaction-id',
+        compactionSource: { trigger: 'automatic', coveredThroughSequence: 9 }
+      }
+    )
+    const title = await execution
+      .runAgentWithResolvedProvider(
         project,
         { systemPrompt: 'title', prompt: 'fast title', maxOutputTokens: 64 },
         { operationId: 'title-id', projectSessionId: 'project-session-id' },
         resolved,
         signal
       )
-    ])
+      .finally(releaseCompaction)
+    const compaction = await compactionPending
 
     expect(compaction.result.text).toBe('slow compaction')
     expect(title.result.text).toBe('fast title')

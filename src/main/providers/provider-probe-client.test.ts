@@ -88,7 +88,7 @@ describe('ProviderProbeClient', () => {
     client.terminate()
   })
 
-  it('revokes a running utility process when the request is aborted', async () => {
+  it('aborts a running probe without terminating the persistent utility process', async () => {
     const child = new FakeUtilityProcess()
     child.postMessage.mockImplementation(() => undefined)
     const client = new ProviderProbeClient(

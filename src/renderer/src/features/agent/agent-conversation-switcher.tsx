@@ -227,11 +227,12 @@ function ConversationCommandGroup(props: {
             ) : session.status === 'archived' ? (
               <Archive />
             ) : session.fork ? (
-              <GitBranch aria-label='分支' />
+              <GitBranch aria-label='Branch' />
             ) : (
               <MessageSquarePlus />
             )}
             <span className='min-w-0 flex-1 truncate'>{session.title}</span>
+            <span className='sr-only'>{sessionStatusLabel(session)}</span>
             <time
               dateTime={session.updatedAt}
               title={`Last updated: ${new Date(session.updatedAt).toLocaleString()}`}

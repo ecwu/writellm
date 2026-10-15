@@ -1614,9 +1614,9 @@ test(
       )
 
       const title = outline.getByLabel('Title', { exact: true })
-      await title.fill('Local outline draft')
       // Commit a competing write after the UI request captures its base version.
       // This avoids a race with pending workspace refetches after section deletion.
+      // Install the interception before typing so an early draft save cannot bypass it.
       await launched.app.evaluate(
         ({ ipcMain }, { updateChannel, workspaceChannel }) => {
           const handlers = (
@@ -1656,6 +1656,7 @@ test(
           workspaceChannel: IPC_CHANNELS.manuscriptGetWorkspace
         }
       )
+      await title.fill('Local outline draft')
       await title.press('Tab')
       await expect(outline.getByText(/Outline changed elsewhere|Changes not saved/)).toBeVisible()
       await expect(title).toHaveValue('Local outline draft')
@@ -2388,6 +2389,7 @@ test(
       await expect(citationSearch).toBeVisible()
       await launched.page.keyboard.press('Escape')
       await expect(citationSearch).not.toBeVisible()
+      await expect(editor).toBeFocused()
       await launched.page.keyboard.type('Cancelled ')
 
       await launched.page.keyboard.type('/cite')

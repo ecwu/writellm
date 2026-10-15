@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isTrustedRendererUrl } from './authorize-sender'
+import { isTrustedRendererUrl } from '../../shared/security/urls'
 
 describe('isTrustedRendererUrl', () => {
   it('accepts only the application origin in production', () => {

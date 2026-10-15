@@ -128,7 +128,7 @@ describe('AgentSessionService: runtime', () => {
     database.close()
   })
 
-  it('uses the selected catalog model through the default fixture instead of the singleton provider', async () => {
+  it('uses the selected catalog model through the default fixture', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
     const resolve = vi.fn(async () => resolvedFixtureModel())

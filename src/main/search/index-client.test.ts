@@ -151,9 +151,7 @@ describe('IndexClient protocol boundaries', () => {
         projectSessionId: sessionId,
         error: { name: 'Error', message: 'Index database integrity check failed' }
       } satisfies IndexUtilityResponse)
-      for (let attempt = 0; attempt < 100 && children[1]?.posts.length === 0; attempt += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1))
-      }
+      await vi.waitFor(() => expect(children[1]?.posts).toHaveLength(1))
       expect(forkCount).toBe(2)
       const secondRequest = children[1]?.posts[0] as { requestId: string }
       children[1]?.emit('message', {

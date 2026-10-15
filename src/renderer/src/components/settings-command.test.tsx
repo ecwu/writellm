@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 import type { ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
 import {
   AboutDiagnosticsSettings,
   GeneralSettings,
   KeyboardShortcutsSettings,
-  keyboardShortcuts,
   settingsSections
 } from './settings-command'
 

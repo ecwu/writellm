@@ -22,11 +22,8 @@ import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { inspectProjectWriteLock } from './project-lock'
 import type { PdfPublicationRenderer } from '../manuscript/pdf-publication'
-import {
-  ProjectManager,
-  ProjectSessionError,
-  recoverIncompleteHistoryRestore
-} from './project-manager'
+import { ProjectManager, ProjectSessionError } from './project-manager'
+import { recoverIncompleteHistoryRestore } from './history-restore-recovery'
 import {
   INDEX_DATABASE_RELATIVE_PATH,
   PROJECT_LOCK_RELATIVE_PATH,
