@@ -57,7 +57,7 @@ import { BibliographyConnectorRepository } from './app-db/repositories/bibliogra
 import { BibliographyConnectorService } from './references/bibliography-connector-service'
 import { CitationFormatterClient } from './references/citation-formatter-client'
 import { CitationFormattingService } from './references/citation-formatting-service'
-import { ProjectManager } from './project/project-manager'
+import { ProjectManager, ProjectSessionError } from './project/project-manager'
 import { createPdfPublicationRenderer } from './manuscript/pdf-publication'
 import { LatexImportClient } from './manuscript/latex-import-client'
 import { CredentialService } from './providers/credential-service'
@@ -658,7 +658,9 @@ if (!hasSingleInstanceLock) {
         join(__dirname, '../renderer'),
         async (request) => (await assetPreview.handle(request)) ?? pdfPreview.handle(request)
       )
-      const ipc = withIpcLogging(ipcMain, loggerSystem.createModuleLogger('ipc', 'operations'))
+      const ipc = withIpcLogging(ipcMain, loggerSystem.createModuleLogger('ipc', 'operations'), {
+        isExpectedRejection: (err) => err instanceof ProjectSessionError
+      })
       const unregisterAppIpc = registerIpcHandlers({
         projectManager,
         appSettings,

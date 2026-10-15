@@ -18,7 +18,7 @@ export interface WritingRulesIpcMain extends Pick<IpcMain, 'handle' | 'removeHan
 
 export function registerWritingRulesIpc(options: {
   manager: ProjectManager
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: WritingRulesIpcMain
 }): { unregister(): void } {

@@ -24,7 +24,7 @@ export interface AgentMutationIpcMain extends Pick<IpcMain, 'handle' | 'removeHa
 
 export function registerAgentMutationIpc(options: {
   manager: ProjectManager
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   broker?: MutationEventBroker
   developmentUrl?: string
   ipc?: AgentMutationIpcMain

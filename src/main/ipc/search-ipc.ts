@@ -16,7 +16,7 @@ import { authorizeSender } from './authorize-sender'
 
 export function registerSearchIpc(options: {
   manager: ProjectManager
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): () => void {

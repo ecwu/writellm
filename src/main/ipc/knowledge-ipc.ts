@@ -77,7 +77,7 @@ export interface KnowledgeIpcMain extends Pick<IpcMain, 'handle' | 'removeHandle
 export function registerKnowledgeIpc(options: {
   manager: ProjectManager
   getWindow: () => BrowserWindow | null
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: KnowledgeIpcMain
   selectFilesForTest?: () => Promise<string[]>

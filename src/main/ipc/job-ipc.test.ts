@@ -72,7 +72,7 @@ function harness() {
   }
   const registration = registerJobIpc({
     manager: manager as never,
-    logger: { error: vi.fn() },
+    logger: { warn: vi.fn(), error: vi.fn() },
     developmentUrl: 'http://localhost:5173',
     ipc
   })

@@ -19,7 +19,7 @@ export interface JobIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
 export interface RegisterJobIpcOptions {
   manager: ProjectManager
-  logger: Pick<Logger, 'error'>
+  logger: Pick<Logger, 'warn' | 'error'>
   developmentUrl?: string
   ipc?: JobIpcMain
 }

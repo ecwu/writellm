@@ -93,7 +93,7 @@ describe('withIpcLogging', () => {
 it.each(['sync', 'async'] as const)(
   'reports a previously unhandled %s IPC failure with its original cause and context',
   async (mode) => {
-    const log = { error: vi.fn() }
+    const log = { warn: vi.fn(), error: vi.fn() }
     let invoke!: Listener
     const ipc = withIpcLogging(
       {
@@ -140,6 +140,7 @@ it('retains the original failure when its logging channel throws', () => {
       removeHandler: vi.fn()
     },
     {
+      warn: vi.fn(),
       error: () => {
         throw new Error('Logger closed')
       }
@@ -227,7 +228,7 @@ it('attempts the original report even when an exception blocks cause inspection'
       }
     }
   )
-  const log = { error: vi.fn() }
+  const log = { warn: vi.fn(), error: vi.fn() }
   const ipc = withIpcLogging(
     {
       handle: (_channel, listener) => {
@@ -249,4 +250,115 @@ it('attempts the original report even when an exception blocks cause inspection'
   expect(caught === original).toBe(true)
   expect(log.error).toHaveBeenCalledOnce()
   expect(log.error.mock.calls[0]?.[0].err === original).toBe(true)
+})
+
+it('logs expected rejections, including wrapped ones, at warn with the original error', async () => {
+  class SessionClosed extends Error {}
+  const log = { warn: vi.fn(), error: vi.fn() }
+  const handlers = new Map<string, Listener>()
+  const ipc = withIpcLogging(
+    {
+      handle: (channel, listener) => {
+        handlers.set(channel, listener)
+      },
+      removeHandler: vi.fn()
+    },
+    log,
+    { isExpectedRejection: (err) => err instanceof SessionClosed }
+  )
+  const closed = new SessionClosed('Project session is not active')
+  const wrapped = new Error('Save could not finish', { cause: closed })
+  const unexpected = new Error('Disk unavailable')
+  ipc.handle('test:closed', async () => {
+    throw closed
+  })
+  ipc.handle('test:owned', () => {
+    reportIpcFailure(log, { event: 'test.handler.failed', err: wrapped }, 'Handler failed')
+    throw wrapped
+  })
+  ipc.handle('test:unexpected', async () => {
+    throw unexpected
+  })
+  const event = {} as IpcMainInvokeEvent
+  await expect(handlers.get('test:closed')?.(event, {})).rejects.toBe(closed)
+  expect(() => handlers.get('test:owned')?.(event, {})).toThrow(wrapped)
+  await expect(handlers.get('test:unexpected')?.(event, {})).rejects.toBe(unexpected)
+  expect(log.warn.mock.calls.map(([fields]) => fields)).toEqual([
+    expect.objectContaining({ event: 'ipc.operation.failed', err: closed, channel: 'test:closed' }),
+    expect.objectContaining({ event: 'test.handler.failed', err: wrapped })
+  ])
+  expect(log.error).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ err: unexpected, channel: 'test:unexpected' }),
+    expect.any(String)
+  )
+})
+
+it('reports at error level when the expected-rejection check itself throws', () => {
+  const log = { warn: vi.fn(), error: vi.fn() }
+  let invoke!: Listener
+  const ipc = withIpcLogging(
+    {
+      handle: (_channel, listener) => {
+        invoke = listener
+      },
+      removeHandler: vi.fn()
+    },
+    log,
+    {
+      isExpectedRejection: () => {
+        throw new Error('Prototype unavailable')
+      }
+    }
+  )
+  const failure = new Error('Operation failed')
+  ipc.handle('test:failure', () => {
+    throw failure
+  })
+  expect(() => invoke({} as IpcMainInvokeEvent)).toThrow(failure)
+  expect(log.warn).not.toHaveBeenCalled()
+  expect(log.error).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ err: failure }),
+    expect.any(String)
+  )
+})
+
+it('keeps safe IDs and short request strings readable while redacting longer private text', async () => {
+  const destination = new PassThrough()
+  const output: string[] = []
+  destination.on('data', (chunk) => output.push(chunk.toString()))
+  const system = await createLoggerSystem({
+    appVersion: 'test',
+    development: false,
+    logDirectory: '/tmp/writellm-ipc-short-strings',
+    destination
+  })
+  let invoke!: Listener
+  const ipc = withIpcLogging(
+    {
+      handle: (_channel, listener) => {
+        invoke = listener
+      },
+      removeHandler: vi.fn()
+    },
+    system.createModuleLogger('ipc', 'operations')
+  )
+  const sectionId = '22222222-2222-4222-8222-222222222222'
+  const failure = new Error(`Find "e" in section ${sectionId} failed near Private draft sentence`)
+  ipc.handle('test:find', async () => {
+    throw failure
+  })
+  await expect(
+    invoke({} as IpcMainInvokeEvent, {
+      sectionId,
+      query: 'e',
+      context: 'Private draft sentence'
+    })
+  ).rejects.toBe(failure)
+  await system.flush()
+  const [record] = output
+    .join('')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+  expect(record.err.message).toBe(`Find "e" in section ${sectionId} failed near [REDACTED]`)
 })

@@ -39,7 +39,7 @@ function harness() {
       }
     ])
   }
-  const logger = { info: vi.fn(), error: vi.fn() }
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (!active || value !== projectSessionId) throw new Error('stale project session')

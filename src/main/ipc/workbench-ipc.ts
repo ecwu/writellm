@@ -16,7 +16,7 @@ export function registerWorkbenchIpc(options: {
   manager: Pick<ProjectManager, 'assertActiveSession'>
   authorizeLayoutFlush(projectSessionId: string, closingToken: string, senderId: number): string
   settings: AppSettingsRepository
-  log: Pick<Logger, 'info' | 'error'>
+  log: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): { unregister(): void } {

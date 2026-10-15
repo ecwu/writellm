@@ -25,7 +25,7 @@ describe('workbench layout IPC', () => {
         return 'project-1'
       },
       settings: { getWorkbenchLayout: async () => layout, setWorkbenchLayout: write } as never,
-      log: { info: vi.fn(), error: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       developmentUrl: 'http://localhost:5173',
       ipc: {
         handle: (channel, handler) => {

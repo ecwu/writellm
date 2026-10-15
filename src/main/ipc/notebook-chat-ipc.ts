@@ -26,7 +26,7 @@ import { authorizeSender } from './authorize-sender'
 export function registerNotebookChatIpc(options: {
   manager: ProjectManager
   broker: KnowledgeChatEventBroker
-  logger: Pick<Logger, 'info' | 'error'>
+  logger: Pick<Logger, 'info' | 'warn' | 'error'>
   developmentUrl?: string
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
