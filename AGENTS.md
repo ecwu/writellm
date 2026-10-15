@@ -13,7 +13,7 @@ Before changing code, read:
 
 Use `docs/current-plan.md` for current delivery state. Use `docs/implementation-todo.md`
 to find the relevant Phase file. Completed Phase files and older audits record past work.
-Read only the evidence relevant to the task. If rules conflict, follow the accepted architecture amendment or ADR that replaces the older rule.
+Read only the evidence relevant to the task. If rules conflict, follow the accepted ADR that replaces the older decision.
 Past authorization records describe their original task. They do not authorize new work or cancel later user authorization.
 
 ## Document Write Rules

@@ -3,7 +3,7 @@
 Status: accepted
 Date: 2026-08-23
 
-Current rule: ADR 062 replaces the single-shot model boundary. ADR 083 permits up to ten independent Notebook instances. The source-capacity amendment below removes the fifty-source limit.
+Current rule: ADR 062 replaces the single-shot model boundary. ADR 083 permits up to ten independent Notebook instances. The source-capacity amendment below removes the fifty-source limit. Registered marker reuse is allowed under the accepted 2026-09-05 policy.
 
 ## Context
 
@@ -87,3 +87,13 @@ The alternative of raising the limit to 200 or 300 retains an arbitrary product 
 Source filters instead use a bound JSON array in SQLite to avoid one SQL parameter per source.
 No database migration, new indexing pipeline, reparse, embedding rebuild, or roadmap phase is
 required. Existing indexed data is reused; chat and source selections remain transient.
+
+
+## 2026-09-05 Registered citation markers
+
+The accepted marker policy replaces the original duplicate-marker rejection.
+Every occurrence of a registered ordinal renders as a citation control.
+Unknown markers remain ordinary text and produce content-free warnings.
+Source authority, transient registries, and selected-source boundaries remain unchanged.
+The [implementation record](../history/implementation-log.md#2026-09-05-notebook-repeated-citations) retains acceptance evidence.
+This section relocates the existing architecture amendment. It authorizes no new implementation.

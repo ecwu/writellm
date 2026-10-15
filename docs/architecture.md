@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline, amended through accepted ADR 085
-Recorded: 2026-07-31. Amended through 2026-10-03.
+Status: accepted implementation baseline through [ADR 085](adrs/085-agent-image-input.md)
+Recorded: 2026-07-31. Current-rule consolidation: 2026-10-14.
 
 This document defines the accepted WriteLLM v2 architecture.
 WriteLLM opens one self-contained project folder at a time.
@@ -13,281 +13,31 @@ Workers are utility processes that perform assigned work.
 Authoritative records determine application state. Derived data can be rebuilt from those records.
 A capability is a revocable access permission. A bounded value has explicit limits.
 
-Use the accepted amendment or ADR that explicitly replaces an older rule.
-A historical section records a past decision. Do not implement a rule that a later accepted decision replaces.
-Dates and authorization statements record past requests. They do not authorize a new task.
+This document contains current rules. ADRs record decisions, including designs that later ADRs replace.
+Use the accepted ADR that replaces an older decision.
+Historical dates and authorization records do not authorize a new task.
 
 The active delivery state lives in [`docs/current-plan.md`](current-plan.md), while the compact
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
 complexity-reduction and Agent-boundary audit is recorded in
 [`docs/audits/2026-07-16-complexity-reduction-and-agent-boundary.md`](audits/2026-07-16-complexity-reduction-and-agent-boundary.md).
 
-## 2026-10-03 Agent image input amendment
-
-[ADR 085](adrs/085-agent-image-input.md) adds persistent conversation images through selection, drop, and paste.
-Main owns attachment authority and relative project storage. Photon runs in the background worker.
-History and queues retain separate image budgets, model capability checks, and conversation reference protection.
-Diagnostic image data becomes metadata. Notebook image input remains deferred.
-
-## 2026-09-19 Notebook source capacity amendment
-
-ADR 058's source capacity amendment removes its historical fifty-source limit. Every indexed
-project source is selectable, with no product-level source-count cap. Each turn retains an
-explicit frozen source set; selected-source authorization, retrieval/evidence budgets, and
-ADR 062's read-only Agent boundary remain unchanged. Source sets use a bound JSON array for
-SQL filtering rather than one parameter per source. No schema or index migration is needed.
-
-## 2026-09-19 Workbench and shared admission amendment
-
-[ADR 083](adrs/083-tabbed-docking-workbench.md) supersedes the fixed shell and singleton Notebook.
-It also restores a shared three-run Agent/Notebook limit at the Main model gateway, with immediate
-overflow rejection and no waiting queue, superseding ADR 074's unlimited admission decision.
-
-## 2026-09-10 Editor autocomplete amendment
-
-[ADR 082](adrs/082-deepseek-autocomplete.md) adds session-enabled, ephemeral editor
-autocomplete. A separate application default selects a completion model while reusing
-the enabled built-in DeepSeek credential. A dedicated FIM/Chat Prefix adapter runs in
-background-worker with short cancellable requests, no Agent run or durable job. Ghost
-text becomes manuscript content only when accepted through ordinary editor insertion.
-Its settings store application default enablement (initially off) and an independent
-word/sentence/paragraph style (default word). The toolbar changes only application-process
-owned temporary overrides, retained across project switches and cleared at app exit.
-Uncovered fields follow saved defaults; Restore defaults clears both overrides.
-Project capabilities continue to govern requests and revocation. Main resolves effective style. The adapter enforces
-32/128/384-token budgets and locale-aware, grapheme-safe display limits. Style changes
-revoke requests without clearing provider suspension or cooldown; menus block suggestions.
-Tab acceptance schedules another request after 200ms; ordinary edits use 600ms. Verified
-matching text insertion retains the remaining ghost suggestion. Composition hides and
-holds the original suggestion until final document settlement; preedit spelling is never
-matched. Esc and history operations suppress completion at the current document/caret,
-including across focus and menu restoration. Typed configuration reasons distinguish
-model/provider resets from style/UI changes, preserving provider backoff.
-
-## 2026-09-08 Conversation fork amendment
-
-[ADR 081](adrs/081-conversation-fork.md) adds independent conversations with frozen references to
-an effective event prefix. A separate read-only history view combines inherited and local events;
-execution authority remains local. Forks share the current manuscript, never replay tools, and
-start no model work until the user sends a message. Parent edits cannot change frozen history.
-
-## 2026-09-07 Agent message replacement amendment
-
-[ADR 080](adrs/080-agent-message-edit-and-restart.md) adds copy and latest-message editing.
-Persistent replacement intervals select effective conversation history without deleting raw events,
-requests, usage, or traces. Sequence-bound effect receipts prohibit editing after actual Agent
-business writes, including writes later undone. Main atomically replaces the suffix and starts a new
-run; superseded proposals and checkpoint summaries cannot regain execution authority.
-
-## 2026-09-05 Writer comment verification amendment
-
-ADRs 078 and 079 define project-local text-range discussion threads with `open` and `resolved`
-status. Comment anchors use bounded canonical revision mapping inside each manuscript commit and
-conservative orphaning for ambiguous identity. Session-scoped delegation, actual block-read
-coverage, model request identity, and applied proposal evidence constrain Agent resolution.
-Comment processing derives from existing Agent runs and proposals. No deterministic Review Issues,
-annotation schema, background comment job, or publication-export content is restored.
-
-## 2026-09-03 Review fixture and annotation removal amendment
-
-ADR 077 and Agent Harness Protocol v15 remove the Review Center, manuscript annotations,
-`check_draft`, the three Review Issue tools, Review Issue persistence/lifecycle, and proposal-to-
-issue reconciliation. Project migration 0043 discards the retired live project state and removes
-the retired protocol records needed for strict current-schema replay. Ordinary Agent conversations
-retain general manuscript/evidence reads and can provide non-persisted feedback.
-
-Writing Rules and proposal review remain independent capabilities. `inspect_change`, typed
-proposal approval/rejection/undo, `awaiting_review`, and `review_feedback` are unchanged. A future
-dedicated Review product requires a new decision, protocol, schema, and UI.
-
-## 2026-09-02 Agent model configuration amendment
-
-ADR 076 makes each new Agent run use one current catalog resolution for model identity,
-reasoning and limits. Interactive output defaults to the model allowance within the existing
-generic bound. Manual/custom reasoning metadata reaches Pi's own adapters. Provider `length`
-responses are incomplete and preserve diagnostic partial output rather than completing the run.
-Catalog changes update open selectors; active runs retain their immutable configuration snapshot.
-
-## 2026-09-02 Agent presentation amendment
-
-ADR 075 establishes one Renderer-owned typed projection for Agent messages, activity, changes,
-questions, compaction, notices, and technical Details. Tool presentation and disclosure policy are
-centralized; successful internal tool preparation and writing-plan maintenance appear only in
-Details. Existing events/proposals remain authoritative, with no schema or protocol change.
-
-## 2026-09-02 Agent Occam ablation amendment
-
-ADR 074 and Protocol v14 supersede conflicting historical clauses below. Agent loops have no
-event-count finalization. Its removal of the three-work admission cap is superseded by ADR 083. Context is token-derived with
-one lossy old-history summary plus recent atomic turns, not rolling step/event budgets. Skill
-roots are explicitly injected or progressively read; dependency completion and runtime count
-budgets do not gate work. Trace capture is best effort and cannot block network I/O. Live retry
-anchors are removed; finite pre-content retries and pre-activity overflow recovery remain.
-
-Concrete bounded diagnostics retain message, code, stage, cause, status, and stack through Main to
-Renderer after secret/private-content redaction. Authority, mutation, byte, and no-replay
-boundaries remain unchanged. See [ADR 074](adrs/074-agent-occam-ablation-and-error-propagation.md).
-
-## 2026-09-01 Writing Skill injection and non-blocking loading amendment (historical; superseded by ADR 074)
-
-ADR 073 separates explicit user invocation from automatic model discovery. Main reparses leading
-`$skill-name` tokens and, before the first provider request, atomically composes the current pinned
-roots plus their complete stable dependency closure. Automatic candidates remain metadata-only and
-continue to enter through visible `read_writing_skill` calls.
-
-Incomplete automatic reads are no longer a run-preparation failure: assistant output, downstream
-tools, and final settlement remain available after a root-only read, a failed dependency read, or
-no Skill read. Explicit package failure drops the whole package, records a degraded schema-v3
-snapshot and bounded warning, and continues with the valid automatic catalog. New runs route from
-current registry state rather than reusing prior snapshots. See ADR 073.
-
-## 2026-09-01 Token-pressure Agent compaction amendment (historical; superseded by ADR 074)
-
-ADR 072 removes durable event count and payload bytes as ordinary automatic-compaction triggers.
-Main compacts before a turn only when the final model-visible conversation exceeds its calculated
-token budget. The existing single pre-activity provider-overflow recovery remains. The 2,000-event
-source scan ceiling and 180-event tool-loop finalization remain execution safeguards, not context
-pressure signals.
-
-Payload-v3 stays a single-pass rolling conversation handoff plus recent complete raw turns. Newer
-events override the previous checkpoint, and the checkpoint is background memory rather than a
-current request: summarized next work is actionable only when the latest real user message still
-requests it. The leading slash catalog adds immediate `/compact` through the existing manual
-compaction authority, while Add context and the confirmed header action remain unchanged. See ADR
-072.
-
-## 2026-09-01 Live Agent request retry amendment (historical; superseded by ADR 074)
-
-ADR 071 replaces prompt-resubmission `Try again` with one user-authorized retry of the latest
-eligible provider request while the original Agent Worker and run remain live. The Worker retains
-one memory-only request-before Pi anchor, Main durably creates a new logical `model_request`, and
-the Worker restores the exact transcript/system/tool boundary before calling `Agent.continue()`.
-No retry appends another `user_message`, reopens the failed request row, or replays a completed
-tool. Automatic pre-content physical retries remain governed by ADR 012.
-
-An eligible transient failure keeps the request-scoped run and its project work slot in a bounded
-retry-waiting state. Project close, Stop, run settlement, a later request, protocol mismatch, or
-Worker/app loss revokes the anchor. Diagnostic traces never reconstruct it, and restart never
-resumes the model call. A schema-v4 `model_retry` event records safe source/target request lineage;
-partial assistant output remains interrupted evidence and is excluded from the restored Pi
-context. See ADR 071.
-
-## 2026-08-31 Stable bibliographic reference amendment
-
-ADR 070 separates bibliographic Reference identity from Knowledge file/search identity. Project
-`citation_key` values are stable checked text keys; manuscript revisions still contain ordinary
-text rather than database IDs, numeric order, or formatted strings. Structured CSL metadata lives
-in `project.sqlite`, chunk provenance remains `citationId`, and metadata changes never rebuild or
-mutate `index.sqlite`.
-
-One user-selected `.json` or `.bib` bibliography file can be connected through a Main-owned
-read-only capability. Its absolute path exists only in `app.sqlite`; projects and Renderer receive
-only opaque IDs and bounded snapshots. Node `fs.watch` can observe only the selected parent and
-exact basename for atomic replacement. Directory scans, `chokidar`, project-wide watchers, and
-general external-edit synchronization remain prohibited. See ADR 070.
-
-## 2026-08-31 Agent diagnostic trace amendment (historical; superseded by ADR 074)
-
-ADR 069 adds project-local, permanent diagnostic evidence for Agent model traffic. Immutable
-canonical JSON payloads are content-addressed and referenced by ordered trace records; stable SQL
-views reconstruct a model request or merge one Agent run with authoritative `agent_events`.
-
-The Worker must receive Main's durable SQLite acknowledgement for the exact Pi context and
-provider-transformed body before network I/O. Every physical retry is captured separately. Trace
-serialization, capacity, or persistence failure is fail-closed. Trace tables are diagnostic only:
-they never provide Agent recovery, context, mutation authority, or audit state. Private bodies are
-permitted only in these trace tables and remain prohibited from Pino. See ADR 069.
-
-## 2026-07-16 Architecture Amendment
-
-The following rules are now the current target. Any older section in this document or in a Phase file that contradicts them is historical and marked superseded below. It must not guide new implementation.
-
-- Durable jobs are limited to external/import recovery and rebuildable indexing work: `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`.
-- Interactive search, query embedding, rerank, provider probes, ordinary manuscript saves,
-  brief/outline mutations, Agent turns, and transient Notebook turns use request-scoped cancellation
-  and concurrency limits, not `jobs` leases or restart recovery.
-- MinerU signed/download URLs are ephemeral request memory only. The project persists `remote_task_id` and recovery metadata, never URL or encrypted URL capabilities.
-- Agent Harness Protocol v15 uses bounded snapshot read/inspection tools, Writing Task fixture tools,
-  typed manuscript submit tools, one typed `submit_writing_rules_change` proposal tool, and one
-  bounded `generate_image` effect/proposal tool. It adds no special Agent session/run, hidden model
-  request, generic network/file/SQL authority, scheduler, or direct manuscript write.
-- Agent Harness Protocol v10 adds one bounded `ask_user` clarification tool under ADR 061. Main
-  can keep the original active Pi tool call waiting without a deadline, expose only its exact
-  project/session/run/tool capability through live activity and answer IPC, and resume that same
-  run after a validated answer. Clarification is not approval or permission, and restart retains
-  interrupted-run recovery rather than reconstructing a live waiter.
-- Agent Harness Protocol v11 adds hash-bound paged table inspection and typed rectangular table
-  insert/edit proposals under ADR 066. Zero-based occupancy coordinates never outlive the complete
-  table-block hash. Main alone normalizes cells, creates IDs, simulates changes, and commits the
-  accepted proposal through the existing single section-revision authority. Existing spans are
-  preserved, covered cells and span geometry changes fail closed, and no cell identifier exists.
-- Agent Harness Protocol v12 keeps writing and Notebook as outer authority profiles, starts writing
-  runs with nine core tools, and lets the model explicitly activate bounded run-local review,
-  task, proposal, or image groups. Worker advertises only the active set, Main rejects inactive
-  calls, and exact active schemas drive initial, continuation, compaction, and overflow budgets.
-  Shared behavior lives once in application policy; short tool descriptions and object-root JSON
-  schemas remain provider-neutral under ADR 067. Root object unions project their complete field
-  vocabulary and common required fields at the root while retaining exact branches under `allOf`.
-- Agent Harness Protocol v14 keeps those outer profiles and a writing-only `ask`, `plan`, or
-  `write` interaction-mode ceiling. New and migrated writing conversations default to Write; each
-  run snapshots its mode. One application policy derives the exact Worker-visible and Main-enforced
-  tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan can also
-  mutate Writing Task collaboration metadata, and only Write can activate proposal groups. See ADR
-  068.
-- Core Agent runtime persistence remains `agent_sessions`, `agent_runs`, `agent_events`,
-  `mutation_proposals`, and `model_requests`. ADR 069 adds diagnostic-only trace payload, request,
-  and record tables that cannot participate in recovery or authorization. ADR 025 adds one
-  `agent_writing_tasks` current-state table plus exact task/step correlation on runs and proposals.
-  Writing Tasks are user-visible collaboration fixtures, not Agent-run recovery jobs or a second
-  mutation authority.
-- The three worker roles are `agent-worker`, `background-worker`, and `index-worker`; provider-specific and short-lived per-request worker roles are not added without evidence. The one recorded exception is the disposable, request-scoped, timeout-killed LaTeX/BibTeX parsing child added by ADR 033/034, which reuses the `background-worker` entrypoint and adds no long-lived role, database, or filesystem authority.
-- `chokidar` is not part of the fixed stack. ADR 070's explicit bibliography requirement uses only
-  Node `fs.watch` for one user-selected file. It does not authorize a general watcher dependency.
-- The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
-- BlockNote autosave must canonicalize and hash before revision creation, use a 1–2 second idle debounce, and prune outside the body revision transaction.
-- Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
-- Section deletion uses an internal tombstone: active outline reads exclude `sections.deleted_at`, while the section row, revision chain, and Agent proposal/model lineage remain durable. Tombstones are not restorable through the initial product UI and section IDs are never reused.
-
-## 2026-07-31 Security Boundary Amendment
-
-Checkpoint 26.8S required security fixes before hosted release promotion. ADR 011
-defines these enforcement boundaries:
-
-- Main constructs one canonical, project-scoped `ProjectFilesystem` capability. Project services
-  use it for managed reads, publication, deletion, extraction, and authoritative database paths;
-  lexical containment alone is not sufficient. Existing ancestors, files, and directories must
-  reject symbolic links and junctions before an operation can reach the filesystem.
-- Existing `project.sqlite` files are identity-checked through a safe read-only preflight before
-  backup, migration, application-ID assignment, pragma mutation, or any other write.
-- Stored credentials are bound to the provider configuration security identity that is allowed to
-  receive them. A changed or unbound identity is unauthenticated and must never be decrypted for a
-  request.
-- MinerU-provided upload and download capabilities are untrusted public-HTTPS destinations.
-  Private/non-global DNS results and unsafe redirect hops are rejected before each request.
-- Main-to-Renderer projections are independently byte-bounded. Large normalized knowledge
-  artifacts use streaming verification plus paginated blocks and lazy bounded Markdown; Agent
-  event pages enforce both row and serialized-byte budgets.
-
-These controls preserve the Renderer sandbox, three fixed worker roles, forward-only migrations,
-request-scoped provider work, and project portability. The filesystem threat model covers
-malicious projects containing pre-existing links; protecting against a same-user process replacing
-paths concurrently would require a future native handle/dirfd design.
-
-## Tabbed Workbench Amendment
-
-ADR 083 replaces the fixed sidebar-09 composition with one content tab group and dockable
-tool groups using Dockview React 8.3.1 (MIT). shadcn remains the design system. Local per-project
-layout preferences belong to app.sqlite, never project content. Notebook supports independent
-in-memory instances; project teardown revokes all of them. See [ADR 083](adrs/083-tabbed-docking-workbench.md).
-
-## macOS Menu Amendment
-
-[ADR 084](adrs/084-macos-native-menu.md) moves the macOS global command surface to the native
-application menu. Other platforms retain the shadcn Menubar. Main owns the menu template and
-validates bounded state projections and project-scoped commands. Existing action and shutdown
-paths remain authoritative. Native window controls are preserved.
-
 ## Product Scope And Invariants
+
+### Desktop workbench
+
+[ADR 083](adrs/083-tabbed-docking-workbench.md) defines one content tab group and dockable tool groups.
+Dockview React owns docking. shadcn/ui remains the design system.
+Local per-project layout preferences belong to app.sqlite, never project content.
+Notebook supports independent in-memory instances. Project teardown revokes all of them.
+Main admits three active Agent/Notebook runs in total, rejects overflow immediately, and adds no waiting queue.
+
+[ADR 084](adrs/084-macos-native-menu.md) places the macOS command surface in the native application menu.
+Windows and Linux retain the shadcn Menubar.
+Main owns the menu template and validates bounded state projections and project commands.
+Existing actions and shutdown paths remain authoritative. Native window controls remain intact.
+
+### Product invariants
 
 WriteLLM v2 is a local-first desktop AI writing application with three product domains:
 
@@ -455,7 +205,7 @@ search becomes available.
 | Build and development   | electron-vite 5                                                               |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
-| PDF preview rendering   | `pdfjs-dist` 6.2.108 with a bundled Vite worker and Main-owned stream          |
+| PDF preview rendering   | `pdfjs-dist` with a bundled Vite worker and Main-owned stream          |
 | Block editor            | BlockNote React 0.55.0 with the shadcn-compatible UI integration               |
 | Rich media rendering    | Native BlockNote image/inline Math plus application Mermaid and display Math  |
 | Renderer server state   | TanStack Query                                                                |
@@ -471,7 +221,7 @@ search becomes available.
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
 | Hybrid retrieval        | FTS5, sqlite-vec, RRF, optional API reranking                                 |
 | Files                   | `node:fs/promises` plus one tested atomic-publication implementation            |
-| Project version history | exact-pinned `isomorphic-git@1.41.8` behind a Main-only adapter                 |
+| Project version history | exact-pinned `isomorphic-git` behind a Main-only adapter                 |
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
@@ -534,13 +284,9 @@ ADRs 018, 019, and 058.
 
 Pin the package manager in `package.json`. Pin exact Pi package versions and major versions for Electron, electron-vite, AI SDK, BlockNote, and native dependencies. Pi and BlockNote API changes must be reviewed rather than accepted through broad version ranges.
 
-The [dependency maintenance amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) accepts Electron 43.7.7 and Vitest 4.1.11 for security fixes.
-It also accepts compatible maintenance updates and the Node 24.21.0 and pnpm 11.28.3 toolchain pins.
-The [Issue 2 first-stage amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) accepts Citation.js 0.9.0, thinking-orbs 0.3.2, and better-sqlite3 types 9.6.0.
-The [Issue 2 second-stage amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-second-stage-amendment) accepts Kysely 0.29.6, BlockNote 0.55.0, and Vitest 5.0.3.
-The [Issue 2 independent migrations amendment](adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment) accepts TypeScript 7.0.2, Mermaid 12.1.0, better-sqlite3 13.0.3, and Electron 44.5.1.
+Exact dependency and toolchain pins live in `package.json` and the lockfile.
+Version decisions and maintenance approvals live in [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md).
 The macOS minimum is 13 for both architectures.
-The existing process, database, content, and native packaging rules remain authoritative.
 
 ## Project Lifecycle
 
@@ -619,6 +365,13 @@ The initial product supports one writer and no read-only secondary open mode. Th
 
 ## Process Model
 
+ProjectRuntime owns job cancellation and project shutdown. The feature factory supplies all required project services.
+NotebookRegistry owns the Notebook collection. Each KnowledgeChatService owns one conversation.
+AgentSessionService owns model choice, authorization, tool execution, and run settlement.
+Its query, title, compaction, and registration modules retain separate responsibilities.
+Workspace feature controllers own find, import, and reference state through business commands.
+These ownership changes retain the accepted process, database, and capability boundaries.
+
 ```text
 Renderer
    |
@@ -649,14 +402,14 @@ Main process
    |     |-- embedding and rerank API calls
    |     `-- no authoritative database ownership
    |
-   `-- Index utility process
+   `-- index-worker
          |-- index.sqlite ownership
          |-- deterministic chunking
          |-- FTS5 and sqlite-vec
          `-- generation build, switch, and rebuild
 ```
 
-Responsibilities are strict. The older names `Agent utility process`, `Import/API utility process`, and `Index utility process` remain in completed Phase verification only. The role names below are the current target:
+These process responsibilities are strict:
 
 - Renderer displays and edits application state. It never accesses privileged resources.
 - Main owns the active project identity, authorization, authoritative project state, short transactions, mutation validation, scheduling, file publication, locks, and secrets.
@@ -668,6 +421,28 @@ Responsibilities are strict. The older names `Agent utility process`, `Import/AP
 Use Electron `utilityProcess` rather than introducing a local HTTP backend. An open project has at most one worker for each of the three roles. The ADR 033/034 disposable parsing child is a request-scoped exception, not a fourth long-lived role. Agent tools communicate with Main through a dedicated MessagePort protocol distinct from model streaming and logging traffic. A stale response is rejected and logged. A worker is terminated only for protocol or capability violations, not for one ordinary late response.
 
 ## Electron Security Invariants
+
+[ADR 011](adrs/011-security-boundary-remediation.md) defines these enforcement boundaries:
+
+- Main constructs one canonical, project-scoped `ProjectFilesystem` capability. Project services
+  use it for managed reads, publication, deletion, extraction, and authoritative database paths;
+  lexical containment alone is not sufficient. Existing ancestors, files, and directories must
+  reject symbolic links and junctions before an operation can reach the filesystem.
+- Existing `project.sqlite` files are identity-checked through a safe read-only preflight before
+  backup, migration, application-ID assignment, pragma mutation, or any other write.
+- Stored credentials are bound to the provider configuration security identity that is allowed to
+  receive them. A changed or unbound identity is unauthenticated and must never be decrypted for a
+  request.
+- MinerU-provided upload and download capabilities are untrusted public-HTTPS destinations.
+  Private/non-global DNS results and unsafe redirect hops are rejected before each request.
+- Main-to-Renderer projections are independently byte-bounded. Large normalized knowledge
+  artifacts use streaming verification plus paginated blocks and lazy bounded Markdown; Agent
+  event pages enforce both row and serialized-byte budgets.
+
+These controls preserve the Renderer sandbox, three fixed worker roles, forward-only migrations,
+request-scoped provider work, and project portability. The filesystem threat model covers
+malicious projects containing pre-existing links; protecting against a same-user process replacing
+paths concurrently would require a future native handle/dirfd design.
 
 Every BrowserWindow must use:
 
@@ -723,6 +498,9 @@ src/shared/contracts/
 Do not introduce a broad RPC framework solely to reduce IPC boilerplate.
 
 ## Observability And Logging
+
+Bounded diagnostics retain message, code, stage, cause, HTTP status, and stack after secret and private-content redaction.
+[ADR 074](adrs/074-agent-occam-ablation-and-error-propagation.md) defines the diagnostic boundary.
 
 The centralized Pino design remains. Add project and product-domain correlation fields:
 
@@ -861,6 +639,19 @@ The backup source connection remains write-quiescent until backup completion. `q
 
 ## Manuscript Domain
 
+### Comment threads
+
+ADRs [078](adrs/078-manuscript-comment-threads-and-agent-resolution.md) and [079](adrs/079-comment-acceptance-boundaries.md) define project-local text-range discussion threads with `open` and `resolved`
+status. Comment anchors use bounded canonical revision mapping inside each manuscript commit and
+conservative orphaning for ambiguous identity. Session-scoped delegation, actual block-read
+coverage, model request identity, and applied proposal evidence constrain Agent resolution.
+Comment processing derives from existing Agent runs and proposals. No deterministic Review Issues,
+annotation schema, background comment job, or publication-export content is restored.
+
+[ADR 077](adrs/077-remove-review-fixtures-and-annotations.md) excludes Review Center and deterministic Review Issues.
+Writing Rules, typed proposal decisions, `awaiting_review`, and `review_feedback` remain separate capabilities.
+A dedicated Review product requires a new decision, protocol, schema, and interface.
+
 ### Manuscript brief
 
 The project has one primary manuscript and a versioned writing brief. Initial structured fields include:
@@ -880,6 +671,8 @@ Use queryable columns for core fields where useful.
 Extensible style and constraint data can use validated versioned JSON.
 
 ### Section structure
+
+Section deletion uses an internal tombstone: active outline reads exclude `sections.deleted_at`, while the section row, revision chain, and Agent proposal/model lineage remain durable. Tombstones are not restorable through the initial product UI and section IDs are never reused.
 
 Sections form an ordered tree:
 
@@ -1009,6 +802,29 @@ create manuscript revisions.
 
 ### Manual editing
 
+### Autocomplete
+
+[ADR 082](adrs/082-deepseek-autocomplete.md) defines session-enabled, ephemeral editor
+autocomplete. A separate application default selects a completion model while reusing
+the enabled built-in DeepSeek credential. A dedicated FIM/Chat Prefix adapter runs in
+background-worker with short cancellable requests, no Agent run or durable job. Ghost
+text becomes manuscript content only when accepted through ordinary editor insertion.
+Its settings store application default enablement (initially off) and an independent
+word/sentence/paragraph style (default word). The toolbar changes only application-process
+owned temporary overrides, retained across project switches and cleared at app exit.
+Uncovered fields follow saved defaults; Restore defaults clears both overrides.
+Project capabilities continue to govern requests and revocation. Main resolves effective style. The adapter enforces
+32/128/384-token budgets and locale-aware, grapheme-safe display limits. Style changes
+revoke requests without clearing provider suspension or cooldown; menus block suggestions.
+Tab acceptance schedules another request after 200ms; ordinary edits use 600ms. Verified
+matching text insertion retains the remaining ghost suggestion. Composition hides and
+holds the original suggestion until final document settlement; preedit spelling is never
+matched. Esc and history operations suppress completion at the current document/caret,
+including across focus and menu restoration. Typed configuration reasons distinguish
+model/provider resets from style/UI changes, preserving provider backoff.
+
+### Save coordination
+
 Renderer editing uses:
 
 - a BlockNote instance scoped to the active section;
@@ -1134,6 +950,28 @@ version-conflict behavior. See ADR 003.
 
 ## Knowledge Base Domain
 
+### Notebook source boundary
+
+Every indexed project source is selectable without a product source-count cap.
+Each turn freezes its source set and enforces source authorization and retrieval budgets.
+SQL filtering uses a bound JSON array instead of one parameter per source.
+[ADR 058](adrs/058-transient-notebook-knowledge-chat.md#2026-09-19-source-capacity-amendment) defines source capacity.
+[ADR 062](adrs/062-transient-notebook-read-only-agent.md) defines its read-only Agent boundary.
+
+### Bibliographic References
+
+[ADR 070](adrs/070-stable-bibliographic-reference-workflow.md) separates bibliographic Reference identity from Knowledge file/search identity. Project
+`citation_key` values are stable checked text keys; manuscript revisions still contain ordinary
+text rather than database IDs, numeric order, or formatted strings. Structured CSL metadata lives
+in `project.sqlite`, chunk provenance remains `citationId`, and metadata changes never rebuild or
+mutate `index.sqlite`.
+
+One user-selected `.json` or `.bib` bibliography file can be connected through a Main-owned
+read-only capability. Its absolute path exists only in `app.sqlite`; projects and Renderer receive
+only opaque IDs and bounded snapshots. Node `fs.watch` can observe only the selected parent and
+exact basename for atomic replacement. Directory scans, `chokidar`, project-wide watchers, and
+general external-edit synchronization remain prohibited. See ADR 070.
+
 ### Source import
 
 The initial supported set follows the configured MinerU provider capability.
@@ -1234,6 +1072,8 @@ ambiguous matches remain unlocated instead of being guessed.
 
 ## Indexing And Retrieval
 
+The 8D vector run is a correctness smoke only. Performance claims require a real-dimension 10k/50k/100k benchmark.
+
 ### Deterministic chunks
 
 Chunking starts from normalized MinerU blocks:
@@ -1299,19 +1139,14 @@ interface KnowledgeSearchHit {
 
 Agent tools receive the same citation IDs as the UI. A separate read tool can expand selected citations. The initial search tool must not dump whole documents into model context.
 
-ADR 058's Notebook chat reuses this pipeline without copying source or index data. Each turn forms
-one bounded retrieval query from the current question and at most two recent user questions after
-the latest source boundary, restricts retrieval to at most 50 selected active sources, expands at
-most 12 results, and admits at most 64 KiB of evidence. No expandable evidence means a deterministic
-insufficient-evidence response and no answer-model call. Otherwise one single-shot provider request
-receives bounded current-boundary history and explicitly untrusted evidence. Per-message citation
-registries bind only that turn's `[[cite:n]]` markers to retrieved citation IDs.
-
-The 2026-09-05 repeated-citation amendment supersedes ADR 058's duplicate-marker rejection:
-every occurrence of a registered ordinal renders as a citation control. Reusing evidence across
-claims is valid and does not emit a security warning. Unregistered markers remain ordinary text
-and retain content-free warnings. This replaces first-occurrence-only rendering, which exposed
-raw markers in normal answers. It requires no migration or roadmap expansion.
+Notebook uses this retrieval pipeline through the transient Pi runtime under [ADR 062](adrs/062-transient-notebook-read-only-agent.md).
+Main freezes each turn's source set. The Agent decides when to search and expand evidence.
+There is no unconditional pre-retrieval or fifty-source cap.
+Only that turn's scoped search results authorize citation expansion.
+At most twelve unique citations receive stable per-turn ordinals for `[[cite:n]]`.
+Every occurrence of a registered ordinal renders as a citation control.
+Unregistered markers remain ordinary text and produce content-free warnings.
+[ADR 058](adrs/058-transient-notebook-knowledge-chat.md#2026-09-05-registered-citation-markers) records repeated-marker behavior.
 
 For mixed Chinese and English corpora, evaluate `unicode61` and `trigram` FTS behavior with representative fixtures. Short-query fallback is mandatory.
 
@@ -1337,13 +1172,74 @@ persisted and does not replace the Agent draft checker, citation provenance, or 
 
 ## Agent Architecture
 
+### Conversation images
+
+[ADR 085](adrs/085-agent-image-input.md) defines persistent conversation images through selection, drop, and paste.
+Main owns attachment authority and relative project storage. Photon runs in the background worker.
+History and queues retain separate image budgets, model capability checks, and conversation reference protection.
+Diagnostic image data becomes metadata. Notebook image input remains deferred.
+
+### Model configuration
+
+ADR 076 requires each new Agent run use one current catalog resolution for model identity,
+reasoning and limits. Interactive output defaults to the model allowance within the existing
+generic bound. Manual/custom reasoning metadata reaches Pi's own adapters. Provider `length`
+responses are incomplete and preserve diagnostic partial output rather than completing the run.
+Catalog changes update open selectors; active runs retain their immutable configuration snapshot.
+
+### Presentation
+
+ADR 075 establishes one Renderer-owned typed projection for Agent messages, activity, changes,
+questions, compaction, notices, and technical Details. Tool presentation and disclosure policy are
+centralized; successful internal tool preparation and writing-plan maintenance appear only in
+Details. Existing events/proposals remain authoritative, with no schema or protocol change.
+
 ### Runtime choice
+
+WriteLLM retains the low-level Agent and its existing process and database boundaries.
+The application owns Skill parsing and compatible prompt formatting instead of importing removed harness APIs.
+
+Worker `prepareRequest` prepares every provider request after selected input events.
+Main retains request authorization and database writes.
+Each request consumes one authorization, including tool continuations and queued input.
+System messages contain prompt instructions and serializable tool declarations.
+The Worker reads allowed tools from those declarations and counts prompt overhead once.
+Diagnostic requests record the transcript, including its system message.
+`finishTurn` ends a turn that reaches the output limit.
+The Worker retains approval pauses and cancellation.
+
+The provider catalog accepts chat models and legacy caches without an explicit model type.
+Image, classifier, and unknown typed entries do not enter Agent or Notebook selectors.
+Stored Skill snapshots and model caches need no database migration.
+Generic Pi tools and `pi-durable` are excluded. New provider login flows and image-generation adapter changes require a separate decision.
+
+Decisions: ADRs 008, 013, 053, 074, and 076. Exact Pi pins live in `package.json`.
 
 Use `@earendil-works/pi-agent-core`, not the Pi coding-agent CLI. The runtime lives in the `agent-worker` utility process and uses `@earendil-works/pi-ai` for tool-capable language model streaming.
 
 Pi is a harness, not an authorization boundary. WriteLLM supplies only application-specific tools and does not expose Pi's generic file, shell, process, or network capabilities.
 
 ### Agent persistence
+
+Trace capture is asynchronous and best effort. It cannot block network I/O.
+Diagnostic trace tables never authorize recovery, context, or mutation.
+Live retry anchors and event-count finalization are excluded under [ADR 074](adrs/074-agent-occam-ablation-and-error-propagation.md).
+After a terminal failure, a new user message starts an ordinary run.
+
+### Message edits and forks
+
+[ADR 081](adrs/081-conversation-fork.md) adds independent conversations with frozen references to
+an effective event prefix. A separate read-only history view combines inherited and local events;
+execution authority remains local. Forks share the current manuscript, never replay tools, and
+start no model work until the user sends a message. Parent edits cannot change frozen history.
+
+[ADR 080](adrs/080-agent-message-edit-and-restart.md) adds copy and latest-message editing.
+Persistent replacement intervals select effective conversation history without deleting raw events,
+requests, usage, or traces. Sequence-bound effect receipts prohibit editing after actual Agent
+business writes, including writes later undone. Main atomically replaces the suffix and starts a new
+run; superseded proposals and checkpoint summaries cannot regain execution authority.
+
+### Durable records
 
 Persist normalized project-local records for:
 
@@ -1376,8 +1272,7 @@ recovery cursor that sequences existing individual proposal decisions. Brief, ou
 image order is deterministic; refresh, conflict, or failure stops with explicit partial results;
 and authoritative proposal state reconciles the crash window without replaying committed effects.
 It is not manuscript or proposal authority and cannot become a generic transaction coordinator.
-Compaction
-lifecycle records and rolling checkpoints are ordinary
+Compaction lifecycle records and conversation checkpoints are ordinary
 `agent_events` rows; raw events and current project business rows remain authoritative.
 
 Notebook calls still create the required `model_requests` row, but use metadata-only retention.
@@ -1430,6 +1325,12 @@ counter. Main-authorized continuation and no-replay requirements remain unchange
 Retrieved knowledge is untrusted content. It is clearly delimited and never allowed to redefine tool policy, authorization, or system instructions.
 
 ### Agent composer interaction
+
+The current Agent protocol includes one bounded `ask_user` clarification tool under ADR 061. Main
+  can keep the original active Pi tool call waiting without a deadline, expose only its exact
+  project/session/run/tool capability through live activity and answer IPC, and resume that same
+  run after a validated answer. Clarification is not approval or permission, and restart retains
+  interrupted-run recovery rather than reconstructing a live waiter.
 
 The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
 Thinking effort, and Send are its four top-level action groups. Context scope is available through
@@ -1496,11 +1397,10 @@ Notebook prompt composition follows the same application-owned block encoding. I
 provider-neutral, permits answers only from the supplied evidence, treats every source block as
 untrusted data that cannot redefine instructions, and requires registered `[[cite:n]]` markers.
 
-### Agent Harness Protocol v15 tools
+### Agent tools
 
-This list records the v15 baseline. ADR 078 adds the v16 Comment tools.
-Read ADR 067 for tool groups and ADR 068 for interaction modes.
-The list below is not the complete current tool catalog.
+The current catalog contains 22 tools. Shared contracts and application policy define their schemas, groups, and interaction ceilings.
+ADRs 067 and 068 define tool activation and interaction modes. ADRs 078 and 079 define comment authority.
 
 ```text
 # Snapshot read and inspection
@@ -1512,6 +1412,16 @@ search_knowledge
 read_citations
 inspect_change
 read_writing_skill
+
+# Run-local coordination
+ask_user
+activate_tool_groups
+
+# Comment reads and delegated commands
+list_comments
+read_comment
+reply_comment
+resolve_comment
 
 # Bounded project fixture mutation
 get_writing_task
@@ -1554,6 +1464,12 @@ conversation and first rereads the current task. The tools do not schedule work,
 model request, apply manuscript changes, or infer success from assistant prose. See ADR 025.
 
 ### Submit tools
+
+The current Agent protocol includes hash-bound paged table inspection and typed rectangular table
+  insert/edit proposals under ADR 066. Zero-based occupancy coordinates never outlive the complete
+  table-block hash. Main alone normalizes cells, creates IDs, simulates changes, and commits the
+  accepted proposal through the existing single section-revision authority. Existing spans are
+  preserved, covered cells and span geometry changes fail closed, and no cell identifier exists.
 
 ```text
 submit_brief_change
@@ -1662,7 +1578,22 @@ from canonical operations, never a Worker declaration. See ADR 005.
 
 ### Agent tool bridge
 
-Agent utility sends a validated envelope to Main:
+The current Agent protocol keeps those outer profiles and a writing-only `ask`, `plan`, or
+  `write` interaction-mode ceiling. New and migrated writing conversations default to Write; each
+  run snapshots its mode. One application policy derives the exact Worker-visible and Main-enforced
+  tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan can also
+  mutate Writing Task collaboration metadata, and only Write can activate proposal groups. See ADR
+  068.
+
+The current Agent protocol keeps writing and Notebook as outer authority profiles, starts writing
+  runs with nine core tools, and lets the model explicitly activate bounded run-local review,
+  task, proposal, or image groups. Worker advertises only the active set, Main rejects inactive
+  calls, and exact active schemas drive initial, continuation, compaction, and overflow budgets.
+  Shared behavior lives once in application policy; short tool descriptions and object-root JSON
+  schemas remain provider-neutral under ADR 067. Root object unions project their complete field
+  vocabulary and common required fields at the root while retaining exact branches under `allOf`.
+
+`agent-worker` sends a validated envelope to Main:
 
 ```ts
 interface AgentToolRequest {
@@ -1731,12 +1662,11 @@ queued -> running -> succeeded
 
 `paused` is not a current state because there is no handler or recovery contract for it.
 
-A project close must stop new claims. Running handlers must either:
-
-- finish within the bounded close window and commit;
-- abort at a safe point and requeue;
-- retain a renewable lease until the worker exits, then recover by expiry;
-- persist external continuation state, such as a MinerU remote task, before stopping.
+ProjectRuntime stops new claims before project shutdown.
+All seven job types use abort-and-requeue for unfinished handlers.
+Main persists remote task IDs and recovery metadata before external work continues.
+Cancellation and close requeue remain separate decisions inside the JobStore transaction.
+Unclean process termination retains lease-expiry recovery. No alternate close policy is configured.
 
 Handlers are idempotent (safe to run twice). Stable content/operation keys prevent duplicate work.
 Job payloads contain IDs, relative references, hashes, and small options.
@@ -1747,20 +1677,11 @@ Do not include document bodies, BlockNote JSON, embeddings, absolute paths, or c
 The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, Agent turns, and transient Notebook turns are request-scoped work. They use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
 
 Agent provider generation has no WriteLLM wall-clock deadline. Each authorized model request can
-make at most five logical attempts for transient failures before any assistant content is
+make at most five physical attempts for transient failures before any assistant content is
 published. Permanent failures, cancellation, and failures after streamed text, thinking, or tool
 call content are not automatically retried. User stop and project close remain authoritative
 request-scoped cancellation boundaries. Tool deadlines remain independent internal tool-contract
 safeguards. See ADR 012.
-
-The following live-retry design is historical. ADR 074 removes it.
-After an eligible transient terminal failure, one explicit user action can authorize a new logical
-model request against the exact live Worker request-before boundary. Before-content failures are
-presented as request retry; partial-stream or post-tool-result failures are presented as
-continuation. The source user message remains singular, failed partial output is not concatenated,
-queued Steer/Follow-up content is held behind the retry boundary, and completed tools are never
-replayed. No retry is available after Worker/app restart or for permanent, cancellation, context,
-setup, trace, tool, review, or uncertain-effect failures. See ADR 071.
 
 Rerank is request-scoped and has no durable queue.
 The following resource queues remain subject to provider limits and benchmarks:
@@ -1823,6 +1744,8 @@ On Linux, detect and disclose `safeStorage`'s selected backend. Do not claim sec
 
 ## File Integrity And Portability
 
+Critical file publication uses one tested shared atomic writer; create-only staging files and verified database backup publication remain separate protocols.
+
 All critical project file writes use temporary files, fsync where supported, and atomic rename. File records include:
 
 ```text
@@ -1830,7 +1753,8 @@ fileId, role, relativePath, sha256, size, mimeType,
 sourceName, sourceType, revision, createdAt, updatedAt
 ```
 
-External project watching is intentionally not implemented until an external-edit synchronization requirement exists. The historical watcher design is superseded by the CP19.5 fixed-stack rule; internal atomic writes therefore have no watcher feedback loop to suppress.
+General external project watching and edit synchronization are excluded.
+[ADR 070](adrs/070-stable-bibliographic-reference-workflow.md) permits only one explicitly selected bibliography file.
 
 A raw folder copy while the project is open is not treated as a verified backup. Provide a project snapshot operation that:
 
@@ -1902,101 +1826,31 @@ Packaged tests must cover:
 - CSP, navigation restrictions, and IPC sender rejection;
 - centralized log transport and redaction.
 
-## Target Source Layout
+## Source Ownership
 
-The detailed tree that follows in older revisions is illustrative history, not a requirement that every directory become a class or forwarding module. Keep a module only when it has an independent security/transaction boundary, multiple callers, a replaceable implementation, a lifecycle, or a testable invariant. Do not create a large rename-only refactor during CP19.5.
+Keep a module when it owns a process, security, transaction, lifecycle, or reusable behavior boundary.
+Do not create forwarding classes or directories solely to imitate a planned tree.
+The current source uses these ownership boundaries:
 
-```text
-src/
-  main/
-    bootstrap/
-    app-db/
-      connection.ts
-      repositories/
-      migrations/
-    project/
-      project-manager.ts
-      project-context.ts
-      project-manifest.ts
-      project-lock.ts
-      project-snapshot.ts
-    ipc/
-    observability/
-    manuscript/
-      *-store.ts only where a transaction boundary exists
-      blocknote-schema.ts
-      block-mutations.ts
-      materialization.ts
-    knowledge/
-      mineru/
-      normalization/
-    jobs/
-      scheduler/
-      handlers/
-    search/
-      index-client.ts
-      retrieval-service.ts
-    agent/
-      session-service.ts
-      tool-registry.ts
-      proposal-service.ts
-    providers/
-      embedding/
-      rerank/
-      credential-service.ts
-    storage/
-    workers/
+| Source | Responsibility |
+| --- | --- |
+| `src/main/project/` | Project identity, capabilities, database lifecycle, locks, snapshots, and history. |
+| `src/main/ipc/` | Sender authorization, shared contracts, and business operation routing. |
+| `src/main/observability/` | Correlation, diagnostics, redaction, collection, and the file sink. |
+| `src/main/manuscript/` | Canonical revisions, metadata, asset authority, and publication. |
+| `src/main/knowledge/` | Source import, parsing coordination, Notebook state, and index clients. |
+| `src/main/jobs/` | Durable job state and the project runtime. |
+| `src/main/providers/` | Catalogs, credential scope, model records, and Worker gateways. |
+| `src/main/agent/` | Run authority, bounded context, tool execution, and proposals. |
+| `src/main/storage/` | Atomic file publication and registered storage protocols. |
+| `src/preload/` | The typed sandbox bridge without generic privileged access. |
+| `src/renderer/src/features/` | Product views and local interaction state. |
+| `src/shared/contracts/` | Bounded input, output, and cross-process schemas. |
+| `src/workers/agent-model.ts` | The `agent-worker` entrypoint. |
+| `src/workers/background-worker.ts` | The `background-worker` entrypoint. |
+| `src/workers/index-worker.ts` | The `index-worker` entrypoint. |
 
-  preload/
-
-  renderer/
-    app/
-    features/
-      project/
-      manuscript/
-      knowledge/
-      search/
-      agent/
-      settings/
-      diagnostics/
-    components/
-
-  shared/
-    contracts/
-    schemas/
-    observability/
-    errors/
-    types/
-
-  agent-worker/
-    runtime/
-    pi-models/
-    tool-bridge/
-
-  background-worker/
-    mineru/
-    normalization/
-    embedding/
-    rerank/
-
-  index-worker/
-    db/
-    chunks/
-    fts/
-    vector/
-    hybrid-search/
-
-  workers/shared/
-    port-logger.ts
-    protocols/
-
-resources/
-  native/sqlite-vec/
-```
-
-The old `import-worker` name, split `providers/credentials` plus `secrets` abstractions, duplicate storage layers, per-table repository directories, standalone `tool-policy.ts`/`context-builder.ts`/`assembly.ts`, and early updater/provider-factory modules are superseded by the CP19.5 worker and module rules.
-
-Remain a single package initially. Introduce a pnpm workspace split only when a real reusable CLI, service, or SDK exists.
+The application remains one package. A workspace split requires a reusable CLI, service, or SDK requirement.
 
 ## Explicit Non-Choices
 
@@ -2028,57 +1882,3 @@ Do not use in the current architecture:
 - subsystem-owned log files alongside the centralized Pino stream;
 - logs as authoritative agent, job, import, or mutation history.
 - persisted Notebook conversations, questions, answers, citation registries, or source-scope state.
-
-## Historical Transition Into This Baseline
-
-The following previous decisions remain valid:
-
-- Electron security and narrow typed IPC;
-- centralized structured logging and error preservation;
-- better-sqlite3 with Kysely;
-- SQLite-backed durable jobs with p-queue as a runtime scheduler;
-- separate rebuildable index database;
-- sqlite-vec behind an interface;
-- MinerU as a durable asynchronous workflow;
-- safeStorage-backed credentials;
-- utility-process isolation;
-- native packaged smoke tests.
-
-The following earlier decisions were revised to form the current baseline:
-
-- Replace the ambiguous global `core.sqlite` product role with `app.sqlite` plus per-project `project.sqlite`.
-- Make the active project folder a first-class lifecycle and authorization boundary.
-- Add a project manifest, project lock, and stale project-session rejection.
-- Add the manuscript/BlockNote domain, knowledge normalization domain, and Pi agent tool/proposal domain.
-- Split interactive agent models from embedding/rerank gateways.
-- Replace the old infrastructure-only future roadmap with product-oriented vertical checkpoints.
-
-## 2026-10-02 Pi 1.0 maintenance amendment
-
-[Issue 1](https://github.com/ecwu/writellm/issues/1) authorizes both Pi packages at exactly 1.0.0.
-Pi removes its Skill exports and changes request preparation and transcript representation.
-WriteLLM retains the low-level Agent and its existing process and database boundaries.
-The application owns Skill parsing and compatible prompt formatting instead of importing removed harness APIs.
-
-Worker `prepareRequest` prepares every provider request after selected input events.
-Main retains request authorization and database writes.
-Each request consumes one authorization, including tool continuations and queued input.
-System messages contain prompt instructions and serializable tool declarations.
-The Worker reads allowed tools from those declarations and counts prompt overhead once.
-Diagnostic requests record the transcript, including its system message.
-`finishTurn` ends a turn that reaches the output limit.
-The Worker retains approval pauses and cancellation.
-
-The provider catalog accepts chat models and legacy caches without an explicit model type.
-Image, classifier, and unknown typed entries do not enter Agent or Notebook selectors.
-Stored Skill snapshots and model caches need no database migration.
-Generic Pi tools, `pi-durable`, new login flows, and image-generation migration remain outside this task.
-The paused checkpoint and release state remain unchanged.
-
-Decisions: ADRs [008](adrs/008-pi-provider-catalog-and-agent-model-selection.md),
-[013](adrs/013-downloadable-agent-writing-skills.md), [053](adrs/053-composable-progressive-writing-skills.md),
-[074](adrs/074-agent-occam-ablation-and-error-propagation.md),
-and [076](adrs/076-agent-model-configuration-and-output-completion.md).
-Official sources: [Agent changelog](https://github.com/earendil-works/pi/blob/v1.0.0/packages/agent/CHANGELOG.md),
-[AI changelog](https://github.com/earendil-works/pi/blob/v1.0.0/packages/ai/CHANGELOG.md),
-and [Agent documentation](https://github.com/earendil-works/pi/blob/v1.0.0/packages/agent/README.md).

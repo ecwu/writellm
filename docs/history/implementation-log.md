@@ -5501,3 +5501,628 @@ The combined gate passes in 75.8s.
 Report: `.cache/verification/1792018097726-46469-90b2bbcc`.
 The quick-action floating-menu failure remains open. Coverage remains macOS arm64 only.
 Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
+
+
+## 2026-10-14 Document Consolidation
+
+Issue 15 changes documentation only. The starting source is `a04dc35ee97475185560a0472fcc3a20ae41430d`.
+Architecture sections now state current rules under their subjects. ADRs retain decision history and superseded designs.
+Current-plan records active work, acceptance gates, platform gaps, and deferred scope.
+The tracker retains short statuses and Phase links.
+AGENTS.md directs readers to accepted ADRs instead of removed amendment sections. CLAUDE.md remains its existing symlink.
+This change creates no new document hierarchy, duplicate tracker, architecture decision, or implementation authorization.
+Existing history stays byte-for-byte intact. This record appends only source traceability and retained unique result text.
+Application tests and builds belong to Issue 17's code changes, not this documentation gate.
+
+### Architecture source map
+
+The following rows identify each removed chronological block and its retained rule or decision source.
+All names refer to the starting architecture file.
+
+| Removed block | Retained source |
+| --- | --- |
+| 2026-10-03 Agent image input amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-19 Notebook source capacity amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-19 Workbench and shared admission amendment | Product Scope And Invariants under ADR 083 |
+| 2026-09-10 Editor autocomplete amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-08 Conversation fork amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-07 Agent message replacement amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-05 Writer comment verification amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-03 Review fixture and annotation removal amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-02 Agent model configuration amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-02 Agent presentation amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-09-02 Agent Occam ablation amendment | Agent persistence, context construction, Writing Skills, and observability under ADR 074 |
+| 2026-09-01 Writing Skill injection and non-blocking loading amendment (historical; superseded by ADR 074) | ADRs 073, superseded rules in ADR 074 |
+| 2026-09-01 Token-pressure Agent compaction amendment (historical; superseded by ADR 074) | ADRs 072, superseded rules in ADR 074 |
+| 2026-09-01 Live Agent request retry amendment (historical; superseded by ADR 074) | ADRs 071, 012, superseded rules in ADR 074 |
+| 2026-08-31 Stable bibliographic reference amendment | Current topic sections and the ADR named by the original paragraph |
+| 2026-08-31 Agent diagnostic trace amendment (historical; superseded by ADR 074) | ADRs 069, superseded rules in ADR 074 |
+| 2026-07-16 Architecture Amendment | Current domain sections plus ADRs 025, 033, 034, 058, 061, 066, 067, and 068 |
+| 2026-07-31 Security Boundary Amendment | Current topic sections and the ADR named by the original paragraph |
+| Tabbed Workbench Amendment | Product Scope And Invariants under ADR 083 |
+| macOS Menu Amendment | Current topic sections and the ADR named by the original paragraph |
+| Dependency version override chain | ADR 056 and the current package pins. Old version overrides are superseded decisions, not delivery evidence. |
+| Historical Transition Into This Baseline | Current domain rules, explicit non-choices, and the completed Phase index. The transition narrative is not unique evidence. |
+| Dated Pi 1.0 maintenance block | Runtime choice and ADRs 008, 013, 053, 074, and 076. Old task authorization and release-state labels are non-evidence. |
+| Live-retry paragraph in Durable Job Model | ADR 071 retains the retired design. ADR 074 defines current failure and no-replay behavior. |
+| Watcher transition wording | File Integrity And Portability and ADR 070 retain the selected-file boundary. The old transition label is non-evidence. |
+
+### Current-plan source map
+
+Line numbers refer to the starting current-plan file. Each row covers the block until the next listed state block.
+Existing source references retain counts, platform outcomes, failure boundaries, and repair evidence.
+Candidate labels alone never justify deletion.
+Phase 10 retains the `.28` through `.43` platform sequence, including failed and flaky results.
+The exact platform and failure text was compared with its completed CI evidence.
+Expired labels such as “in progress,” “Latest,” and “later batch unstarted” do not state current delivery facts.
+
+| Source line | Removed block | Existing evidence or retained excerpt |
+| --- | --- | --- |
+| 34 | - Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and [14](https://github.com/ecwu/writellm/issues/14) pass local acceptance as the fourth batch. | history/implementation-log.md#2026-10-14-fourth-batch-simplification; existing evidence or expired status summary |
+| 50 | - [Issue 7](https://github.com/ecwu/writellm/issues/7) passes local acceptance and Claude review as the third batch. | history/implementation-log.md#2026-10-14-third-batch-simplification; existing evidence or expired status summary |
+| 64 | - Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) pass local acceptance as the second review batch. | history/implementation-log.md#2026-10-14-second-batch-simplification; existing evidence or expired status summary |
+| 77 | - Issues [8](https://github.com/ecwu/writellm/issues/8), [10](https://github.com/ecwu/writellm/issues/10), and [11](https://github.com/ecwu/writellm/issues/11) pass local acceptance as one review batch. | history/implementation-log.md#2026-10-14-first-batch-simplification; existing evidence or expired status summary |
+| 91 | - [Issue 5](https://github.com/ecwu/writellm/issues/5) Agent tool cleanup passes local acceptance. | history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup; unique numerical/commit evidence appended below |
+| 101 | - [Issue 16](https://github.com/ecwu/writellm/issues/16) legacy citation conversion passes local acceptance. | history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion; unique numerical/commit evidence appended below |
+| 114 | - Default left tool opening now adds an active tab to the existing left tool group under | history/implementation-log.md#2026-10-05-default-tool-tabs, history/implementation-log.md#2026-10-05-tool-tabs-app-rebuild; existing evidence or expired status summary |
+| 128 | - Issue 3 Agent image input is locally verified under [ADR 085](../adrs/085-agent-image-input.md). | history/implementation-log.md#2026-10-03-issue-3-agent-image-input, history/implementation-log.md#2026-10-03-agent-image-presentation-refinement; existing evidence or expired status summary |
+| 144 | - [Release 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is published and is Latest. | history/implementation-log.md#2026-10-02-release-02026101-preparation; obsolete status label or current ADR rule, not unique delivery evidence |
+| 159 | - Issue 2 independent migrations are implemented under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment). | history/implementation-log.md#2026-10-02-issue-2-independent-typescript-migration; unique numerical/commit evidence appended below |
+| 176 | - Issue 2 second-stage migrations are implemented under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-second-stage-amendment). | history/implementation-log.md#2026-10-02-issue-2-second-stage-dependency-migration; unique numerical/commit evidence appended below |
+| 192 | - Issue 2 first-stage dependencies are locally verified under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment). | history/implementation-log.md#2026-10-02-issue-2-first-stage-dependency-update, history/implementation-log.md#2026-10-02-issue-2-first-stage-acceptance-rerun; existing evidence or expired status summary |
+| 204 | - The 2026-10-02 security and maintenance refresh updates 30 direct dependencies and compatible transitive packages under the accepted ADR 056 amendment. | history/implementation-log.md#2026-10-02-dependency-security-and-maintenance-refresh; existing evidence or expired status summary |
+| 215 | - Release 0.2026.9.10 has passed local release acceptance. The release counter advances from 0.2026.9.9; | history/implementation-log.md#2026-09-26-release-02026910-local-acceptance; unique numerical/commit evidence appended below |
+| 243 | - Tool closing now preserves surviving sidebar widths and gives released horizontal space to | history/implementation-log.md#2026-09-26-tool-close-sizing; unique numerical/commit evidence appended below |
+| 251 | - The curated Writing Skill catalog now includes the Chinese and English Anti-Defensive Writing | history/implementation-log.md#2026-09-25-anti-defensive-writing-catalog, history/implementation-log.md#2026-09-25-anti-defensive-writing-app-build; existing evidence or expired status summary |
+| 264 | - macOS now uses the native `WriteLLM / Project / Edit / Layout / Tools / Window` menu under | history/implementation-log.md#2026-09-21-macos-native-menu; existing evidence or expired status summary |
+| 276 | - Section editor titles now retain the intended 30px semibold typography at desktop widths, | history/implementation-log.md#2026-09-19-section-title-typography; existing evidence or expired status summary |
+| 282 | - Source candidate `v0.2026.9.9` records the verified sidebar layout and empty-workbench navigation | history/implementation-log.md#2026-09-19-tag-only-0202699; existing evidence or expired status summary |
+| 288 | - Docked tool chrome is unified: close buttons live in tool tabs, project context appears only | history/implementation-log.md#2026-09-19-tool-sidebar-layout; unique numerical/commit evidence appended below |
+| 297 | - Empty-workbench manuscript navigation now opens Outline without an action error when no | history/implementation-log.md#2026-09-19-empty-workbench-navigation; unique numerical/commit evidence appended below |
+| 304 | - [Release `0.2026.9.8`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8) | history/implementation-log.md#2026-09-19-release-0202698-publication; existing evidence or expired status summary |
+| 323 | - Notebook source capacity is locally verified under the [ADR 058 source capacity amendment](../adrs/058-transient-notebook-knowledge-chat.md#2026-09-19-source-capacity-amendment). | history/implementation-log.md#2026-09-19-notebook-source-capacity; unique numerical/commit evidence appended below |
+| 333 | - The fixed workbench status bar is locally verified. It combines index readiness, live Agent | history/implementation-log.md#2026-09-19-workbench-status-bar; unique numerical/commit evidence appended below |
+| 343 | - Workbench native scrollbar colors now follow the application light/dark theme, overriding | history/implementation-log.md#2026-09-19-workbench-scrollbar-theme; existing evidence or expired status summary |
+| 348 | - Layout controls live in the global `Project / Edit / Layout / Tools` menu (native on macOS, | history/implementation-log.md#2026-09-19-layout-menu; existing evidence or expired status summary |
+| 356 | - The tabbed docking workbench is locally verified under [ADR 083](../adrs/083-tabbed-docking-workbench.md). | history/implementation-log.md#2026-09-19-tabbed-docking-workbench; existing evidence or expired status summary |
+| 366 | - Keyboard shortcut separation is locally verified. Sidebar and Agent panel toggles now use | history/implementation-log.md#2026-09-19-keyboard-shortcut-separation; unique numerical/commit evidence appended below |
+| 376 | - [Release `0.2026.9.7`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7) | history/implementation-log.md#2026-09-14-release-0202697-publication; unique numerical/commit evidence appended below |
+| 393 | - Autocomplete application defaults and temporary overrides are locally verified under | history/implementation-log.md#2026-09-14-autocomplete-application-defaults-and-temporary-overrides; obsolete status label or current ADR rule, not unique delivery evidence |
+| 406 | - Brief and Outline previews are locally verified. The existing Preview workspace now offers | history/implementation-log.md#2026-09-13-brief-and-outline-preview; unique numerical/commit evidence appended below |
+| 420 | - Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local | history/implementation-log.md; existing evidence or expired status summary |
+| 425 | - DeepSeek editor autocomplete, its style dropdown and continuous completion are locally | history/implementation-log.md#2026-09-10-deepseek-editor-autocomplete, history/implementation-log.md#2026-09-10-autocomplete-style-dropdown, history/implementation-log.md#2026-09-10-continuous-autocomplete-and-composition; obsolete status label or current ADR rule, not unique delivery evidence |
+| 447 | - [Release `0.2026.9.5`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5) | history/implementation-log.md#2026-09-09-release-0202695-publication; existing evidence or expired status summary |
+| 461 | - Editor save continuity maintenance is implemented and locally verified. Ordinary autosave and | history/implementation-log.md#2026-09-09-editor-save-continuity-and-composition; obsolete status label or current ADR rule, not unique delivery evidence |
+| 473 | - [Release `0.2026.9.4`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4) | history/implementation-log.md#2026-09-08-release-0202694-publication; existing evidence or expired status summary |
+| 485 | - Conversation fork is implemented and locally verified under accepted | history/implementation-log.md#2026-09-08-conversation-fork; existing evidence or expired status summary |
+| 497 | - Agent message copy and edit/restart is implemented under accepted | history/implementation-log.md; existing evidence or expired status summary |
+| 508 | - The seven previously curated Writing Skills use reviewed September 6 upstream pins: Nature | history/implementation-log.md#2026-09-06-curated-writing-skill-refresh, history/implementation-log.md#2026-09-06-writing-skill-app-build; existing evidence or expired status summary |
+| 517 | - Pi AI and Agent Core are pinned to exactly 1.0.0 under [Issue 1](https://github.com/ecwu/writellm/issues/1). | history/implementation-log.md#2026-10-02-pi-100-upgrade; existing evidence or expired status summary |
+| 528 | - The requested macOS arm64 App rebuild includes the Reference / Knowledge sidebar redesign | history/implementation-log.md#2026-09-05-sidebar-app-build; existing evidence or expired status summary |
+| 534 | - Reference / Knowledge sidebar redesign is locally verified: Reference-first rows, expandable | history/implementation-log.md#2026-09-05-reference-knowledge-sidebar-redesign; existing evidence or expired status summary |
+| 542 | - Notebook repeated-citation rendering maintenance is locally verified: every registered | history/implementation-log.md#2026-09-05-notebook-repeated-citations; existing evidence or expired status summary |
+| 548 | - Ponytail UTF-8 cleanup is locally verified: Agent title context, image prompts, and proposal | history/implementation-log.md#2026-09-05-ponytail-utf8-cleanup; existing evidence or expired status summary |
+| 554 | - Gemini stream truncation maintenance is locally verified: the exact Google SDK incomplete-frame | history/implementation-log.md#2026-09-05-gemini-stream-truncation; existing evidence or expired status summary |
+| 561 | - Checkpoint 84 acceptance remediation is implemented and locally verified under ADRs 078–079. | implementation-todo/phase-33.md; existing evidence or expired status summary |
+| 569 | - The earlier macOS arm64 App rebuild with Pi 0.85.0 is superseded by the Pi 1.0 acceptance above. | history/implementation-log.md#2026-09-04-pi-0850-app-build; obsolete status label or current ADR rule, not unique delivery evidence |
+| 575 | - The earlier Pi AI and Agent Core 0.85.0 maintenance is superseded by Pi 1.0 above. It covered | history/implementation-log.md#2026-09-04-pi-0850-dependency-update; existing evidence or expired status summary |
+| 582 | - A current macOS arm64 App is available for manual feature trials at | history/implementation-log.md#2026-09-04-manual-feature-trial-app; existing evidence or expired status summary |
+| 588 | - pnpm command consolidation is complete: 51 scripts are reduced to 30 distinct entry points, | history/implementation-log.md#2026-09-04-pnpm-command-consolidation; existing evidence or expired status summary |
+| 595 | - Redundant-defense cleanup is complete across the five user-approved areas: editor content | history/implementation-log.md#2026-09-04-redundant-defense-cleanup; existing evidence or expired status summary |
+| 603 | - Project sidebar resizing maintenance is complete. Every expanded desktop project workspace now | history/implementation-log.md#2026-09-04-project-sidebar-resizing; existing evidence or expired status summary |
+| 611 | - Reference/PDF import review distillation is complete. Ambiguous multi-page attachment choices | history/implementation-log.md#2026-09-04-reference-import-review-distillation; existing evidence or expired status summary |
+| 621 | - Silent count-limit maintenance is complete across Knowledge batches, Reference attachments, and | history/implementation-log.md#2026-09-03-silent-count-limit-removal; existing evidence or expired status summary |
+| 632 | - Candidate `0.2026.9.3` is built and pushed from release commit | history/implementation-log.md#2026-09-03-candidate-0202693-build-and-tag; existing evidence or expired status summary |
+| 640 | - Review fixture and annotation removal is complete under ADR 077. The Review Center, manuscript | history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal; existing evidence or expired status summary |
+| 651 | - User-authorized `/cite` insertion maintenance is complete: the Slash Menu opens a caret-local | history/implementation-log.md#2026-09-03-cite-reference-search-maintenance; existing evidence or expired status summary |
+| 660 | - Release `0.2026.9.2` is published from the dependency-refresh commit | history/implementation-log.md; existing evidence or expired status summary |
+| 670 | - A fresh macOS arm64 App containing the `/cite` Reference search is complete at the user's | history/implementation-log.md#2026-09-03-cite-reference-search-maintenance; existing evidence or expired status summary |
+| 677 | - The earlier Pi runtime upgrade completed under the approved 2026-09-03 plan at Agent/Core and | history/implementation-log.md#2026-09-03-pi-runtime-upgrade; obsolete status label or current ADR rule, not unique delivery evidence |
+| 688 | - Dependency security and maintenance refresh is complete under the approved 2026-09-03 plan. | history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh, implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 697 | - Earlier candidate `0.2026.9.1` was locally built and verified under the user's build, commit, and tag | history/implementation-log.md#2026-09-03-local-build-0202691; obsolete status label or current ADR rule, not unique delivery evidence |
+| 706 | - Agent model configuration maintenance is complete under ADR 076: new runs use current catalog | history/implementation-log.md; existing evidence or expired status summary |
+| 712 | - Agent Panel presentation maintenance is complete under ADR 075: six typed content objects, | history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance; existing evidence or expired status summary |
+| 721 | - Build and verification maintenance is complete under the approved 2026-09-02 plan. Focused | history/implementation-log.md; existing evidence or expired status summary |
+| 730 | - Desktop-only test/documentation maintenance is complete: dedicated narrow-window checks and | history/implementation-log.md; existing evidence or expired status summary |
+| 736 | - Project chooser maintenance is complete. Recent-project rows can be removed without touching | history/implementation-log.md; existing evidence or expired status summary |
+| 743 | - Checkpoint 83 is complete under ADR 074: structural Agent policy ablation, token-derived | implementation-todo/phase-32.md; existing evidence or expired status summary |
+| 755 | - Checkpoint 82 is complete historical evidence under ADR 073. Its dependency-complete explicit | implementation-todo/phase-31.md; existing evidence or expired status summary |
+| 763 | - The completed Checkpoint 82 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-31.md; existing evidence or expired status summary |
+| 769 | - The completed Checkpoint 81 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-30.md; existing evidence or expired status summary |
+| 775 | - Checkpoint 81 is complete historical evidence under ADR 072; its rolling checkpoint budgets are | implementation-todo/phase-30.md; existing evidence or expired status summary |
+| 784 | - The completed Checkpoint 80 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-29.md; existing evidence or expired status summary |
+| 790 | - Checkpoint 80 is complete historical evidence under ADR 071. Its live Worker retry anchors and | implementation-todo/phase-29.md; existing evidence or expired status summary |
+| 800 | - Agent non-blocking tool-failure presentation maintenance is complete. Pre-dispatch failures now | history/implementation-log.md; existing evidence or expired status summary |
+| 806 | - Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; unique numerical/commit evidence appended below |
+| 814 | - Reference citekey migration maintenance is complete. Citation Coverage now resolves canonical | history/implementation-log.md; existing evidence or expired status summary |
+| 824 | - The current dirty Agent Reference citation-fix source passed the complete no-Team-ID macOS | history/implementation-log.md; existing evidence or expired status summary |
+| 830 | - Agent Reference citation projection maintenance is complete. Production `MainAgentReadTools` | history/implementation-log.md; existing evidence or expired status summary |
+| 838 | - Checkpoint 79 is complete. It unifies the split Zotero metadata/PDF dialogs into one | implementation-todo/phase-28.md; existing evidence or expired status summary |
+| 846 | - Checkpoint 78 is complete. WriteLLM now has project-authoritative Reference metadata with stable | implementation-todo/phase-27.md; existing evidence or expired status summary |
+| 856 | - Candidate `v0.2026.8.48` is fully built, verified, committed, tagged, and pushed for the | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion, implementation-todo/phase-27.md; existing evidence or expired status summary |
+| 863 | - Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion, implementation-todo/phase-25.md; unique numerical/commit evidence appended below |
+| 867 | - Checkpoint 76.1 is complete. Project-local content-addressed Agent traces, SQL reconstruction | implementation-todo/phase-25.md; unique numerical/commit evidence appended below |
+| 876 | - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; unique numerical/commit evidence appended below |
+| 883 | - Agent staged-tool preflight and citation recovery maintenance is complete. Each model request now | history/implementation-log.md; existing evidence or expired status summary |
+| 890 | - Agent context-compaction status presentation maintenance is complete. A durable final checkpoint | history/implementation-log.md; existing evidence or expired status summary |
+| 897 | - The current Gemini/Vertex read-section maintenance source passed the complete no-identity macOS | history/implementation-log.md; existing evidence or expired status summary |
+| 903 | - Agent read-section activity presentation maintenance is complete. Completed activity groups | history/implementation-log.md; existing evidence or expired status summary |
+| 910 | - Gemini/Vertex `read_section` compatibility maintenance is complete. Durable diagnostics proved | history/implementation-log.md; existing evidence or expired status summary |
+| 919 | - The post-fix macOS arm64 test App passed the complete no-identity package gate from the current | history/implementation-log.md; existing evidence or expired status summary |
+| 924 | - Image-generation lifecycle maintenance is complete. Generated assets whose later validation, | history/implementation-log.md; existing evidence or expired status summary |
+| 930 | - Agent model-selection recovery maintenance is complete. Provider changes now refresh an open | history/implementation-log.md; existing evidence or expired status summary |
+| 934 | - GitHub Release `WriteLLM 0.2026.8` is publicly available from immutable candidate tag | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 938 | - Hosted workflow maintenance removes the final Node 20 Action runtime: both tag CI and the | history/implementation-log.md; existing evidence or expired status summary |
+| 942 | - Thermo-Nuclear P1 maintenance is complete. Writing Skill publication now tracks staging, | history/implementation-log.md; existing evidence or expired status summary |
+| 947 | - Thermo-Nuclear structural remediation is complete. Shared worker protocol/error projection, | history/implementation-log.md; existing evidence or expired status summary |
+| 952 | - Candidates `.31`–`.33` show that a standalone Linux Electron safeStorage probe is not evidence | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 958 | - Candidate `.32` passed static, Linux credential preflight, and macOS x64. Its Windows Electron | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 965 | - Candidate `.33` passed static, credential preflight, macOS x64, and macOS arm64. Windows reduced | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 971 | - Candidate `.34` passed static, Linux credential preflight, and macOS arm64. Windows passed all | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 977 | - Candidate `.35` gives the macOS stress case a 60-second budget, uses Playwright's cross-platform | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 981 | - Candidate `.35` passed static, Linux credential preflight, and both macOS rows. Windows stopped | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 988 | - Candidate `.36` passed static, Linux credential preflight, macOS x64, Windows frozen install plus | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 996 | - Candidate `.37` stores the latest Floating UI setters in stable React refs, orders the outline | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1002 | - Candidate `.37` completed successfully through native packaging and artifact upload on macOS | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1009 | - Candidate `.38` passed the shared static gate and every platform's 1,160-test Electron/build gate. | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1017 | - Candidate `.39` passed the shared static gate, all four 1,160-test Electron/build gates, and all | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1028 | - Candidate `.40` passed the shared gate and all four Electron/build gates. macOS arm64 completed | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1036 | - Candidate `.41` passed the shared gate and every platform's 1,160-test Electron/build gate. | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1046 | - Candidate `.42` passed the shared static/fixture gate and every platform's complete 1,160-test | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
+| 1057 | - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions | implementation-todo/phase-24.md; existing evidence or expired status summary |
+| 1061 | - The current dirty macOS arm64 maintenance build passed the complete no-identity package gate and | history/implementation-log.md; existing evidence or expired status summary |
+| 1063 | - Agent, Embedding, and Rerank Base URLs accept HTTP or HTTPS for any valid host, including | history/implementation-log.md#2026-09-17-model-service-http-endpoints, history/implementation-log.md#2026-09-17-model-service-http-request-policy-correction; existing evidence or expired status summary |
+| 1074 | - Checkpoint 75 is complete. It adds Protocol v12 short layered descriptions, explicit | implementation-todo/phase-24.md; existing evidence or expired status summary |
+| 1077 | - Checkpoint 74 is complete. It adds Protocol v11 hash-bound table inspection and typed table | implementation-todo/phase-23.md; existing evidence or expired status summary |
+| 1081 | - Checkpoint 73 is complete. It applies summary-first AI interaction patterns to the existing | implementation-todo/phase-22.md; existing evidence or expired status summary |
+| 1085 | - Checkpoint 72 is complete. It replaces generic tool-result projection with exhaustive | implementation-todo/phase-21.md; existing evidence or expired status summary |
+| 1088 | - Checkpoint 71 is complete. It replaces the fixed compaction event ceiling with bounded | implementation-todo/phase-20.md; existing evidence or expired status summary |
+| 1091 | - Checkpoint 70 is complete. It moves transient Notebook turns onto the shared Pi session runtime, | implementation-todo/phase-19.md; existing evidence or expired status summary |
+| 1094 | - Checkpoint 69 is complete. It adds a bounded Protocol v10 `ask_user` tool whose original Pi | implementation-todo/phase-18.md; existing evidence or expired status summary |
+| 1098 | - Phase 11 is complete under ADRs 021–037. Its full Checkpoint 29–47B roadmap and acceptance | implementation-todo/phase-11.md; existing evidence or expired status summary |
+| 1100 | - Phase 12 is an evidence-driven Use And Fix phase and is complete through Checkpoint 62. CP48–56 | implementation-todo/phase-12.md; existing evidence or expired status summary |
+| 1108 | - Checkpoint 62 is complete. Settings remains the existing flat application-global Command | implementation-todo/phase-12.md; existing evidence or expired status summary |
+| 1112 | - Checkpoint 63 is complete. Agent work now uses bounded state-specific thinking motion and a | implementation-todo/phase-13.md; existing evidence or expired status summary |
+| 1116 | - Checkpoint 64 is complete. It refreshes the fixed Electron 43, BlockNote, | implementation-todo/phase-13.md; existing evidence or expired status summary |
+| 1120 | - Checkpoint 65 is complete. BlockNote native inline Math now coexists with application-owned | implementation-todo/phase-14.md; existing evidence or expired status summary |
+| 1123 | - Checkpoint 66 is complete. Knowledge remains an independent management and exact-search | implementation-todo/phase-15.md; existing evidence or expired status summary |
+| 1127 | - Checkpoint 67 is complete. A true first launch now opens a fully optional Welcome → | implementation-todo/phase-16.md; existing evidence or expired status summary |
+| 1132 | - Checkpoint 68 is complete. It replaces application-owned display Math with BlockNote native | implementation-todo/phase-17.md; existing evidence or expired status summary |
+| 1136 | - Checkpoint 69 is complete. It adds exact Protocol v10 clarification contracts, Main-owned | implementation-todo/phase-18.md, implementation-todo/phase-12.md, implementation-todo/phase-13.md, implementation-todo/phase-14.md, implementation-todo/phase-15.md, implementation-todo/phase-16.md, implementation-todo/phase-17.md, implementation-todo/phase-22.md, implementation-todo/phase-24.md, implementation-todo/phase-19.md, implementation-todo/phase-20.md; unique numerical/commit evidence appended below |
+| 3–26, initial Status paragraph | Candidate chronology and checkpoint completion labels | Phase 10 CP26 and the tracker retain delivery evidence. Expired status labels are non-evidence. |
+| Current authorized work | Prior checkpoint scopes and `.27`–`.31` remediation summary | Matching Phase files and ADRs 063–074 retain past authorization and rules. Phase 10 retains candidate failures. |
+| Completed delivery gate | Checkpoint 26.9 hosted results | Phase 10 CP26 retains run 33299058552, platform results, artifacts, and the narrowed hosted scope. |
+| Completed baseline | Completion list | implementation-todo.md and its Phase links retain the completion index. |
+| Deferred, last two legacy roadmap items | Split interactive models and replace infrastructure roadmap | Both transitions are already implemented. These future labels are non-evidence, not pending work. |
+
+### Retained unique result text
+
+The excerpts below preserve result details absent from their cited record sections.
+They quote the starting current-plan snapshot. “Current” and “above” refer only to that old snapshot.
+They do not describe the present source, current App, authorization, or live Actions status.
+#### Retained source line 91
+
+> Commit `1fe7e7a` is pushed to `main`, and Issue 5 is closed.
+
+#### Retained source line 101
+
+> Commit `e477e9a` is pushed to `main`, and Issue 16 is closed.
+
+#### Retained source line 159
+
+> The final Electron suite passes 1,644 tests across 267 files in 20.9s, with three benchmark skips and zero retries.
+
+> Final macOS arm64 package acceptance passes all ten stages in 267.7s with one App build.
+
+> Static checks pass in 2.5s; the final production build passes in 15.6s.
+
+> All 12 packaged runtime scenarios pass in 49.5s, including database integrity and sqlite-vec.
+
+> All 43 packaged E2E scenarios pass in 152.5s with zero retries or skips.
+
+> Release 0.2026.10.1 verifies native builds on all four platforms; other-platform runtime acceptance remains pending.
+
+> Independent changes and the previous second-stage changes are included in the 0.2026.10.1 release source.
+
+#### Retained source line 176
+
+No unique text. The cited second-stage record already contains every count, duration, and finding from this block.
+
+
+#### Retained source line 215
+
+> The candidate includes sidebar width preservation, tool chrome
+>   and empty-workbench navigation, section title typography, native macOS menus and the new
+>   Anti-Defensive Writing catalog entries since the public 0.2026.9.8 release.
+
+> Tag `v0.2026.9.10` points to
+>   `7bd202bcef9193180a83edf65cdcb7eb282361d0`; its hosted build is
+>   [run 36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256).
+
+> The fix was deployed as `634b0eb`; continuation
+>   [36407814763](https://github.com/ecwu/writellm/actions/runs/36407814763) succeeded on 2026-09-28,
+>   publishing four packages from the original build.
+
+#### Retained source line 243
+
+> Pointer/keyboard resizing and bottom
+>   docking remain available under the [ADR 083 sizing clarification](../adrs/083-tabbed-docking-workbench.md#2026-09-26-tool-close-sizing-clarification).
+
+> The final source build passed again in 11.8s for the user-authorized local-main
+>   integration; the subsequent 0.2026.9.10 package gate above also covers this change.
+
+#### Retained source line 288
+
+> The requested unpacked
+>   build passed all four build-only stages in 32.5s after a sandbox DNS retry; packaged runtime
+>   tests were not repeated.
+
+#### Retained source line 297
+
+> Current `out/` and the rebuilt local App include the fix; the published 0.2026.9.8 App does not.
+
+#### Retained source line 323
+
+> Current `out/` and the 0.2026.9.8 packaged App include the change; the release gate also
+>   passed the 301-source scenario.
+
+#### Retained source line 333
+
+> Release 0.2026.9.8
+>   repaired that routing and duplicate activity delivery, then passed complete package acceptance.
+
+#### Retained source line 366
+
+> Runtime evidence is macOS arm64, with synthetic IME guards
+>   only; the 0.2026.9.8 packaged App includes the change.
+
+#### Retained source line 376
+
+> Local macOS arm64 full package acceptance passed all ten stages in 225.0s, including
+>   runtime smoke and 39/39 packaged E2E scenarios with zero retries/skips.
+
+> That acceptance used native build `2026.9.7`;
+>   the current local App uses 0.2026.9.9 metadata after the macOS menu rebuild above.
+
+#### Retained source line 406
+
+> The user-requested unpacked macOS arm64 build passed all four build-only stages
+>   in 33.5s after one sandbox DNS failure and elevated retry.
+
+> Package runtime tests were not
+>   repeated in that build-only invocation; the later 0.2026.9.7 package gate above now
+>   covers the preview scenario against the packaged App.
+
+#### Retained source line 806
+
+> - Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the
+>   completed Reference citekey migration maintenance.
+
+> The no-Team-ID macOS arm64 gate verified 31
+>   recovery fixtures from 29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34
+>   packaged Electron scenarios.
+
+> Commit `39e9a84` and annotated tag `v0.2026.8.49` were atomically pushed to
+>   GitHub.
+
+#### Retained source line 863
+
+> - Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed
+>   Checkpoint 76.1 trace work.
+
+> Annotated tag `v0.2026.8.47` points to clean source commit `7bb8552`;
+>   tag-only GitHub Actions run `33345029753` is in progress.
+
+#### Retained source line 867
+
+> - Checkpoint 76.1 is complete.
+
+> The canonical suite passed 1,204 tests with three benchmark skips; `check:fast`, the
+>   Electron build gate, all 47 fresh Electron E2E scenarios, and the complete no-Team-ID package
+>   gate with 34 packaged scenarios passed.
+
+> A 7,936,308-byte repeated-history sample occupied
+>   330,580 payload bytes after deduplication (95.83% reduction) and reconstructed 12 requests in
+>   about 1.73 seconds on the local Electron runtime.
+
+#### Retained source line 876
+
+> - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit
+>   `1f53c5c`; tag-only GitHub Actions run `33341907788` completed successfully.
+
+> The gate verified 31 recovery fixtures from 29 sources,
+>   53,288 ASAR entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged smoke
+>   scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures.
+
+#### Retained source line 1136
+
+> Full-width and 640 px runtime
+> screenshots, dependency and reduced-motion inspection, scoped Impeccable, frozen dependency
+> installation, and `git diff --check` also passed.
+
+> Checkpoint 67 passed 17 focused repository, IPC, and Renderer tests; `check:fast`; the complete
+> Electron-hosted gate (199 passing files / 1102 passing tests with three intentional benchmark
+> skips) and production build; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or
+> failed scenario.
+
+> Runtime visual QA covered the 640 px desktop Agent sidebar and completed the bounded
+> Impeccable review with no findings.
+
+> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` plus the local
+> `WriteLLM-0.2026.8.26-arm64.dmg` and ZIP.
+
+> The separately authorized local `0.2026.8.20` candidate advanced release metadata, created the
+> clean local release commit and annotated `v0.2026.8.20` tag, and passed the no-identity macOS arm64
+> unpacked package gate.
+
+> The gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
+> ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios.
+
+> The separately authorized `0.2026.8.21` candidate snapshots the current baseline, including the
+> completed Checkpoints 62–64 and 66 plus Checkpoint 65's explicitly incomplete current state.
+
+> The
+> no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native
+> modules, 53,287 ASAR entries, all 26 recovery fixtures from 24 sources, 12/12 packaged smoke
+> scenarios, and 31/31 packaged E2E scenarios, then produced
+> `dist/macos-arm64/mac-arm64/WriteLLM.app`.
+
+> The clean candidate commit receives the annotated
+> `v0.2026.8.21` tag and is pushed with `main` under the user's explicit authorization.
+
+> The separately authorized local `0.2026.8.22` candidate snapshots the completed Checkpoints 67–68
+> on top of the existing baseline.
+
+> Its no-identity macOS arm64 package gate verified Electron 43.4.1
+> / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25 sources, all
+> 12 packaged smoke scenarios, and 32/32 packaged E2E scenarios.
+
+> It produced the unpacked App plus
+> the structurally verified `WriteLLM-0.2026.8.22-arm64.dmg` and
+> `WriteLLM-0.2026.8.22-arm64.zip` from the clean annotated `v0.2026.8.22` source commit.
+
+> The separately authorized local `0.2026.8.23` candidate snapshots the completed Checkpoint 69 on
+> top of the existing baseline.
+
+> Its no-identity macOS arm64 unpacked package gate verified Electron
+> 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25
+> sources, all 12 packaged smoke scenarios, and 33/33 packaged E2E scenarios with no flaky, skipped,
+> or failed scenario.
+
+> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
+> `v0.2026.8.23` source commit `ecfca0b`.
+
+> The separately authorized local `0.2026.8.24` candidate snapshots the completed Checkpoint 70 on
+> top of the existing baseline.
+
+> Its no-identity macOS arm64 unpacked package gate verified Electron
+> 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25
+> sources, all 12 packaged smoke scenarios, and 33/33 packaged E2E scenarios with no flaky, skipped,
+> or failed scenario.
+
+> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
+> `v0.2026.8.24` source commit `bc6227a`.
+
+> The separately authorized local `0.2026.8.25` candidate snapshots the completed Checkpoint 71 on
+> top of the existing baseline.
+
+> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
+> `v0.2026.8.25` source commit `456e837`.
+
+
+### Additional source checks
+
+The old retrieval paragraph still described ADR 058's retired single-shot Notebook and fifty-source limit.
+ADR 062 and ADR 058's source-capacity amendment retain that decision history.
+The current paragraph now states tool-driven Pi retrieval and frozen source authorization.
+Repeated-marker behavior retains ADR 058's accepted 2026-09-05 amendment.
+The old job-close alternatives now state the accepted Issue 11 abort-and-requeue implementation.
+The retired alternatives remain in the starting architecture revision and completed job planning evidence.
+The provider retry wording now says physical attempts, as ADRs 012 and 074 require.
+The old Target Source Layout was explicitly illustrative history, not an implementation requirement or unique delivery evidence.
+Source Ownership now names the actual directories and three Worker entrypoints without introducing a target directory tree.
+
+The accepted repeated-marker rule now also appears in ADR 058 with a pointer to its existing 2026-09-05 acceptance record.
+This relocates the prior architecture amendment and clarifies that the original duplicate rejection no longer applies.
+
+The incomplete Protocol v15 catalog paragraph now lists the current 22 tools from shared contracts.
+ADRs 061, 067, 068, 078, and 079 retain coordination, activation, mode, and comment decisions.
+The former incomplete list was a historical catalog snapshot, not unique delivery evidence.
+
+## 2026-10-14 Error Handling Ownership
+
+Issue 17 follows the accepted A=3, B=7, C=6 classification from the original `e565309` audit.
+The starting implementation source is `a04dc35`. Prior simplification already moves some functions and handles nine Renderer sites.
+This batch keeps expected rejection and diagnostic failure separate from operational failures.
+
+### Main and Worker audit
+
+The following rows account for all 16 original sites. Line numbers refer to the issue's audit baseline.
+
+| Class | Original source | Decision and owner |
+| --- | --- | --- |
+| A | jobs/job-store.ts:401 | Keep the diagnostic-channel fallback. Failure archival remains independent of reporting success. |
+| A | workers/agent-model-request.ts:291 | Keep the trace reporter fallback. agent-model.ts supplies the production onTraceError callback. |
+| A | workers/agent-session-run.ts:1244 | Keep the trace reporter fallback. agent-model.ts passes workerLog into runAgentSession. |
+| B | manuscript/markdown-import-adapter.ts:595 | URL.canParse handles expected syntax rejection before the existing protocol allowlist. |
+| B | workers/models-dev-request.ts:102 | URL.canParse handles both values before origin/path comparison. |
+| B | main/index.ts:654 | ProjectManager.isSessionActive replaces exception-based PDF capability lookup. Sender and session authorization remain in privileged operations. |
+| B | main/index.ts:666 | The same predicate replaces the asset capability lookup. Revocation remains immediate. |
+| B | workers/auxiliary-model-request.ts:468 | Keep bounded optional machine-code extraction. A non-JSON error response is expected input. |
+| B | manuscript/manuscript-replacement-service.ts:589 | Catch only JSON syntax rejection. Validate the decoded object and offset before HMAC work. Unexpected failures propagate. |
+| B | agent/session-projections.ts:80 | Keep raw URI fragment display when percent decoding fails. This grants no file or tool capability. |
+| C | manuscript/editor-persistence-service.ts:321 | Separate read and parse recovery. ENOENT and damaged derived mirrors remain repairable. repairAll logs other I/O errors once. |
+| C | agent/session-event-utils.ts:101 | Replace the code parser with readRunError. AgentSessionQueries owns one parse and safe fallback per row. |
+| C | agent/session-event-utils.ts:112 | The same projection returns null for absent legacy diagnostics. Malformed JSON or a non-object record receives one bounded warning. |
+| C | workers/provider-probe-request.ts:57 | HTTP errors with non-JSON bodies retain status fallback. Successful malformed JSON or a non-object response receives invalidResponse. |
+| C | jobs/job-store.ts:985 | Delete unreachable schema/size fallback for closed codes, fixed messages, bounded attempts, and an already-used valid clock. |
+| C | jobs/job-store.ts:1003 | Delete replaceErrorAttempt. Lease recovery serializes the actual row attempt and current timestamp directly. |
+
+MinerU invalidResponse stays explicit through the shared Worker schema, ProviderProbeClient, and ProviderService.
+The Worker attempts the original parser error report through its existing log channel.
+Its prepared diagnostic removes parser messages that can quote private response text.
+Main returns a controlled provider_rejected result instead of Connection succeeded.
+Ordinary non-JSON HTTP rejection does not add an error log.
+No response body enters the probe result or log fields.
+
+Classification-report failure also retains JobStore archival through a guarded diagnostic call.
+The serializer keeps the actual attempt and timestamp. It never substitutes attempt 1 or an epoch timestamp.
+Existing failure classification and cancellation transactions remain authoritative.
+
+### Shared and Preload classification
+
+The original Shared set contains twelve sites.
+Six manuscript contract catches keep expected Zod rejection for serialization or URL failures.
+Five diagnostic catches keep defensive handling for hostile objects, getters, Proxy values, and privacy boundaries.
+The provider-logo URL catch becomes URL.canParse.
+None of these expected branches adds a recurring error log.
+
+Neither the original nor the starting Preload source contains an unbound catch.
+Preload continues to parse shared input and output schemas before returning data.
+Main owns operational IPC rejection before Electron sends it back.
+Local bridge or Renderer failures without a native IPC rejection prefix use the existing bounded diagnostic channel.
+The channel validates sender and schema independently. Its data never becomes Main operation or recovery authority.
+
+### IPC owner and recovery
+
+withIpcLogging retains request correlation and now catches synchronous throws and Promise rejections.
+The wrapper reports an otherwise unowned original error before rethrowing the same value.
+Only UUID-shaped project session IDs enter untrusted request correlation.
+Request-local bookkeeping tracks attempted reports, including a reported cause behind a safe wrapper error.
+The Pino serializer marks the original identity. Handler reportIpcFailure calls skip a service-owned failure.
+No global deduplication cache or business state is introduced.
+A failed reporter cannot replace the operation's original outcome.
+Hostile cause inspection cannot suppress the original report.
+Input strings prepare private-content redaction without adding request data to log fields.
+The report preserves original identity, bounded stacks, causes, codes, and existing operation context.
+“Reported” means attempted reporting. It does not guarantee delivery through a failed transport or disabled log level.
+
+Project operation errors now retain their original cause when they expose a safe public message.
+The existing legacy conversion owner flag remains intact.
+appendRevision owns its internal failure. The conversion handler owns other failures and each pending mirror repair.
+The wrapper does not mislabel every conversion failure as missing from logs.
+
+### Renderer feature batches
+
+The audit baseline contains 94 unbound Renderer catches and zero Preload catches.
+Issue 13 already handles nine sites in find, import, and references.
+This batch handles 84 remaining operational catches through reportRendererOperationError.
+The final original site is safePreviewMarkdownUrl. It retains expected logical asset rejection without an error log.
+The new reporter keeps one explicit diagnostic-channel fallback and never retries a failed reporter.
+
+| Feature batch | Origin and logging owner | UI behavior |
+| --- | --- | --- |
+| Application lifecycle, snapshots, exports, templates, and diagnostics | Main owns native IPC rejection. Renderer owns a local callback failure. | Preserve action errors, lifecycle refresh, cancellation state, and cleanup. |
+| Settings and all provider editors | Main provider/credential operations own their failures. Renderer owns local processing. | Preserve credential-safe hints and retained catalog data. |
+| Project version history | Main lifecycle/history code owns operation failures. Renderer owns local state failures. | Keep original project and explicit retry/recovery actions. |
+| Knowledge manager and parsed document viewer | Main import, parse, reference, and original-file handlers own operation failures. Renderer owns refresh failures. | Preserve per-file outcomes, queued cancellation, expired conversion plans, and partial committed conversion results. |
+| Manuscript controller, comments, and publication presets | Main owns persistence and mutation failures. Renderer owns local navigation or presentation failures. | Keep drafts, save barriers, refresh, and retry. Version rejection gets a separate fixed hint. |
+| Writing Rules | Main owns the version check and update. Renderer owns local presentation. | Separate version rejection from other update failure. |
+| Notebook | Main owns transient model/source operations. Renderer owns local snapshot or preview processing. | Preserve command state, question drafts, and unavailable citation UI. |
+| Find, import, references, and Workbench | The same reporter backs the accepted Issue 13 helper. | Preserve request sequences, dialog closure, navigation, and save coordination. |
+
+Renderer diagnostics preserve a bounded safe cause chain through an optional shared diagnostic field.
+Main reconstructs that untrusted diagnostic for logging, not authorization.
+Native Electron IPC rejection messages remain Main-owned and do not generate another Renderer report.
+Known Main brief/outline version codes expose a fixed conflict hint.
+Unknown failure text never replaces the caller's safe hint.
+Expected replacement and conversion results retain their existing expired-plan, stale-plan, conflict, and unavailable branches.
+
+### Verification and limits
+
+The selected scope covers the original error sites, logging transport, IPC handlers, persistence repair, job leases, Worker probes, and UI recovery.
+The first focused Electron run passes 381 tests across 43 files in 9.7s with no retries or skips.
+Report: `.cache/verification/1792018967468-58926-64b15505`.
+A five-file final slice passes 21 tests in 0.9s after probe transport and conflict hint additions.
+Report: `.cache/verification/1792019496394-66582-ca836c26`.
+A five-file guard slice passes 47 tests in 0.8s after hostile cause inspection coverage.
+Report: `.cache/verification/1792020064051-74235-30009aeb`.
+Together these final selections cover 384 distinct tests across 43 files.
+
+Tests cover ENOENT and damaged mirror repair, injected EACCES/EIO identity, and unchanged files after failed reads.
+They cover classifier plus reporter failure, real lease attempt/time retention, malformed successful probes, ordinary non-JSON HTTP errors, and gateway propagation.
+They separate missing historical diagnostics from malformed stored JSON without logging stored text.
+They also cover synchronous/asynchronous IPC rejection, cause identity, request-local deduplication, private input, local diagnostics, and reporter failure.
+
+The first package smoke gate passes in 78.3s.
+A final cause guard requires a second App build. The final package smoke gate passes six stages in 77.9s.
+It passes static stages in 2.5s, builds in 15.8s, and passes all twelve packaged runtime checks in 38.8s.
+Reports: `.cache/verification/1792019499648-66695-ea59edad` and `.cache/verification/1792020133182-75171-786f8f02`.
+The final gate inventories 34,434 ASAR entries and confirms the SQLite binaries, all three Worker roles, log rotation, and shutdown flush.
+Runtime logging reports no private-root, credential, or private-body leak.
+No installer or signed distribution is created.
+
+The initial packaged E2E selection passes ten of twelve scenarios in 56.6s.
+Outline conflict setup races a workspace refetch. Writing Rules restore selects a tool that hides Outline's project header.
+Report: `.cache/verification/1792019651253-68841-7223b3b2`.
+The outline fixture now commits a competing update after the real UI request captures its base version.
+Both calls still use the original authorized handler and real database version checks.
+The test no longer depends on a pending refetch's timing.
+Writing Rules restoration now uses lifecycle displayName and the visible status bar instead of a hidden header.
+A first correction used the wrong name field. That fixture error was corrected to the shared displayName contract.
+No product layout changes accompany these fixture corrections.
+
+The five-scenario follow-up passes conversion recovery and outline conflict, with Writing Rules still failing at the old header assertion.
+Report: `.cache/verification/1792019858292-71641-62372741`.
+The final packaged App passes fourteen of fifteen scenarios in 63.0s before the name-field correction.
+Report: `.cache/verification/1792020292467-78150-8b47fe59`.
+The corrected Writing Rules scenario passes in 3.8s against that same App.
+Report: `.cache/verification/1792020551006-81853-b527cad0`.
+Final acceptance covers fifteen distinct packaged E2E scenarios with zero automatic retries or skips.
+Earlier failures and manual reruns remain recorded above. They are not a claim that each composite invocation passed.
+The known quick-action floating-menu failure remains outside this batch.
+
+The host uses Node 26.11.1 and pinned pnpm 11.28.3. The existing Node engine warning remains.
+The native runtime uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at prebuilds/darwin-arm64.node.
+It loads sqlite-vec 0.1.9 from native/sqlite-vec/darwin-arm64/vec0.dylib.
+Runtime coverage is macOS arm64 only. Windows, Linux, and macOS x64 runtime acceptance remains outstanding.
+This batch adds no dependency or database migration.
+Issues 15 and 17 await Claude review. No commit, push, issue closure, or Claude terminal handoff runs.
+The pre-existing dependency audit remains untouched. The goal pauses at the review handoff.
+
+The Process Model illustration and tool bridge now use the current Worker role names.
+The deleted role-name transition sentence was an obsolete label, not unique delivery evidence.
+
+### Final document gate
+
+Document-only checks pass for Issue 15. The architecture decreases from 2,084 to 1,884 lines.
+Current-plan decreases from 1,461 to 71 lines.
+The source map covers 131 removed state blocks, the initial status, prior authorization, completion sections, and retired architecture blocks.
+The link scan accepts 159 local file and heading references with zero failures.
+The current 22-tool list matches shared contracts. No dated amendment heading remains in architecture.
+The history prefix matches the starting revision byte-for-byte. CLAUDE.md keeps its AGENTS.md symlink.
+Current-plan and tracker both pause Issues 15 and 17 for review.
+Diff whitespace checks pass. Markdown tables, source paths, headings, and preserved evidence receive a separate consistency review.
+No application build or test runs for the documentation-only gate.
+
+### Claude review of batch five
+
+Claude reviews Issues 15 and 17 against the working tree and accepts them without source changes.
+
+Issue 17: the Main and Worker table matches the code. The remaining unbound catches are the three A-class reporting fallbacks, the two retained B-class fallbacks, and new diagnostic-channel fallbacks.
+`isSessionActive` uses the same conditions as `assertActiveSession`.
+Mirror verification still rebuilds missing or damaged mirrors. Other read failures reach `repairAll`, which logs the original error.
+The removed job-error fallbacks were unreachable because classification already parses closed codes.
+Lease recovery keeps the real attempt and time.
+A successful MinerU probe with malformed JSON now returns `provider_rejected`. A non-JSON HTTP error keeps its status fallback.
+The diagnostic projection is held in a WeakMap and does not mutate the error rethrown to the Renderer.
+Renderer catches report the original error and keep their existing messages and recovery.
+
+Two follow-up candidates do not block acceptance:
+
+- `withIpcLogging` now logs every IPC rejection at error level. That includes expected `ProjectSessionError` rejections during project close or switch, which can add log noise.
+- `reportIpcFailure` treats every request string as private text, including IDs and one-character find queries. A short query can make a failure message or stack hard to read. It does not leak content.
+
+Issue 15: no existing history line changes. Relative links in AGENTS.md, architecture, current-plan, the tracker, and ADR 058 resolve: 152 links with zero failures.
+Core security and storage rules remain in architecture.
+Claude repairs two source-map tables split by blank lines and fills the empty retained-text slot for current-plan line 176.
+The cited second-stage record already contains every result from that block.
+
+`pnpm check:fast` passes in 2.7s.
+A focused Electron run passes 580 tests across 81 files in 9.9s with zero retries.
+It covers observability, all IPC handlers, jobs, persistence, replacement, Markdown import, Agent queries and sessions, providers, Worker probes, Renderer diagnostics, shared contracts, and ProjectManager.
+Report: `.cache/verification/1792046144742-23340-418a9db0`.
+The final package smoke gate and fifteen packaged E2E scenarios above still cover the final production source. They are not rerun.
+Coverage remains macOS arm64 only.
+Both issues are committed, pushed to `main`, and closed. Issue 4 is closed with all sub-issues complete.
+The untracked dependency audit stays outside these commits.

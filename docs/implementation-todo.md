@@ -1,13 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Phase 33 Checkpoint 84 is locally verified under accepted ADRs 078–079. Phase 32 Checkpoint 83 is complete under accepted ADR 074. Phase 31 Checkpoint 82 is complete under accepted ADR 073. Phase 30 Checkpoint 81 is
-complete under accepted ADR 072. Phase 29 Checkpoint 80 is
-complete under ADR 071. Phase 28 Checkpoint 79 is
-complete under ADR 070; Checkpoint 77 remains independently paused.
-Checkpoint 26.9 is complete. Immutable `v0.2026.8.45` run `33299058552` passed its shared
-static/fixture gate and all four independent native build/upload jobs under the user's narrowed
-online scope; complete Electron, E2E, and package verification passed locally before the tag.
-Recorded: 2026-09-05
+Status: Issues 15 and 17 pass local acceptance and pause for Claude review. Checkpoint 84 passes local acceptance. Checkpoint 77 remains paused.
+Recorded: 2026-10-14
 
 This file lists checkpoint status and links to detailed evidence.
 
@@ -25,6 +19,11 @@ Status markers:
 - `[!]` blocked or explicitly paused
 
 ## Active and paused work
+
+- [x] Issue 15: consolidate current rules and delivery evidence. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-document-consolidation).
+- [x] Issue 17: classify error recovery and logging ownership. Local acceptance and Claude review pass.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-error-handling-ownership).
 
 - [x] Issue 12: separate the Notebook registry from individual conversations. Local acceptance and Claude review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
