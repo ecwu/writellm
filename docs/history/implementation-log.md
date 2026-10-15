@@ -6241,3 +6241,40 @@ The complete Vitest suite passes: 1,848 tests with 3 opt-in benchmarks skipped, 
 Report: `.cache/verification/1792055493674-2692-d8e9669f`.
 E2E is not rerun, because Renderer behavior and IPC results are unchanged.
 Coverage is macOS arm64 only.
+
+## 2026-10-15 Release 0.2026.10.2 Preparation
+
+The user requests a local App after Issue 4 and asks to trigger the latest release workflow.
+Issue 4 is closed. Local and remote `main` both point to `8b4a653481a47e6e61bc7d73f623d4e0162c1897` before release preparation.
+The previous published release is `v0.2026.10.1`.
+`package.json#release.version` advances to `0.2026.10.2`. The SemVer base remains `0.2026.10`.
+No application source, dependency, lockfile, migration, or workflow changes.
+
+`pnpm install --frozen-lockfile` passes with pnpm 11.28.3 in 244ms without dependency changes.
+The host uses Node 26.11.1, ABI 147, and Node-API 10. The existing Node engine warning remains.
+The test and packaged runtimes use Electron 44.5.1, Node 24.21.0, ABI 149, and Node-API 10.
+Native preparation selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9.
+
+The complete Electron suite result from the IPC logging follow-ups still covers the final application source.
+It passes 1,848 tests with three optional benchmarks skipped, across 286 files, in 23.8s, with zero retries.
+Report: `.cache/verification/1792055493674-2692-d8e9669f`.
+
+`pnpm check:package` passes all ten stages in 250.0s on macOS arm64.
+Static checks take 3.0s. Recovery inventory covers 33 cases.
+One production build takes 17.3s. App assembly takes 21.5s.
+All twelve packaged runtime scenarios pass in 40.4s.
+All 45 packaged interaction scenarios pass in 141.7s, with zero retries, failures, or skips.
+Installer production reuses the tested App. DMG and ZIP structure and checksum checks pass.
+Report: `.cache/verification/1792057740388-28479-62595e9f`.
+Package evidence: `dist/macos-arm64/package-evidence.json`.
+Local evidence records the starting revision and a dirty working tree because release metadata changes precede the release commit.
+
+Local artifacts:
+
+- `dist/macos-arm64/mac-arm64/WriteLLM.app`
+- `dist/macos-arm64/WriteLLM-0.2026.10.2-arm64.dmg`, 220,150,472 bytes, SHA-256 `1df11091ae493182e046e05323d5f1476a26519bad5cebb047db7d722a41f646`.
+- `dist/macos-arm64/WriteLLM-0.2026.10.2-arm64.zip`, 218,038,447 bytes, SHA-256 `c0bc3fa53252b1c769916a4c0a0f749559f3273cfe3e69e5b8d79c3fd0900da0`.
+
+Runtime coverage remains macOS arm64 only. Other platform runtime acceptance remains outstanding.
+Distribution follows the existing unsigned four-platform tag policy. Developer ID signing and notarization remain disabled.
+The untracked dependency audit stays outside the release commit.
