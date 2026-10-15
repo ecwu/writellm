@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.2 passes local package acceptance. Tag publication is pending. The Issue 4 sequence remains complete.
+Status: Release 0.2026.10.2 passes local package acceptance. The four-platform tag build is running. The Issue 4 sequence remains complete.
 Recorded: 2026-10-15
 
 This file owns current delivery state, acceptance gates, and platform gaps.
@@ -13,7 +13,8 @@ Historical authorization records do not authorize new work.
 Release 0.2026.10.2 includes the completed Issue 4 sequence, test-suite audit, and IPC logging follow-ups.
 Local macOS arm64 acceptance passes all twelve packaged runtime scenarios and all 45 packaged interaction scenarios.
 The complete package gate takes 250.0 seconds, with one App build and zero retries or skips.
-The DMG and ZIP are ready for local use. The four-platform tag build and automatic publication remain pending.
+The DMG and ZIP are ready for local use. Tag `v0.2026.10.2` points to release commit `d985a6a` on remote `main`.
+[The four-platform build](https://github.com/ecwu/writellm/actions/runs/38716401683) is running. Successful completion triggers automatic publication.
 [Release preparation evidence](history/implementation-log.md#2026-10-15-release-02026102-preparation) records commands, artifacts, and platform limits.
 
 The test-suite audit passes the complete local gate on macOS arm64.
@@ -67,8 +68,8 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 
 ## Current authorized work
 
-The user requests a usable local App and the latest release workflow after the Issue 4 work.
-Release 0.2026.10.2 preparation and immutable tag publication are authorized by this request.
+The requested local App build and release workflow trigger are complete.
+Server-side build and automatic publication remain in progress.
 No implementation work is currently authorized. The Issue 4 sequence is complete.
 `docs/audits/2026-10-10-dependency-size-audit.md` remains untracked and outside commits.
 The error ownership review follow-ups are resolved. No follow-up candidate remains open.

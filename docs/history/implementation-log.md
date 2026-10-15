@@ -6278,3 +6278,9 @@ Local artifacts:
 Runtime coverage remains macOS arm64 only. Other platform runtime acceptance remains outstanding.
 Distribution follows the existing unsigned four-platform tag policy. Developer ID signing and notarization remain disabled.
 The untracked dependency audit stays outside the release commit.
+
+Release commit `d985a6a72602266088867cf826efb5aed6837b8b` and annotated tag `v0.2026.10.2` are atomically pushed to `origin`.
+The remote tag resolves to that exact commit on `main`.
+[Cross-platform tag build 38716401683](https://github.com/ecwu/writellm/actions/runs/38716401683) starts with the matching source revision.
+At handoff, the build is in progress. The existing publication workflow will publish after all four platform builds succeed.
+No workflow trigger, permission, or signing policy changes.
