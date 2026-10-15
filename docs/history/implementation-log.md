@@ -6126,3 +6126,118 @@ The final package smoke gate and fifteen packaged E2E scenarios above still cove
 Coverage remains macOS arm64 only.
 Both issues are committed, pushed to `main`, and closed. Issue 4 is closed with all sub-issues complete.
 The untracked dependency audit stays outside these commits.
+
+## 2026-10-15 Test-Suite Audit
+
+The user requests a full audit of the test suite.
+The four goals are to update outdated tests, check whether each test is necessary, add missing tests, and correct unreasonable tests.
+The user also expects the audit to resolve the open quick-action follow-up.
+Claude measures the suite and diagnoses the failing scenarios.
+Codex (`gpt-6.1-sol`, high reasoning) implements the brief in a workspace-write sandbox.
+Claude reviews that work, completes the host-only E2E diagnosis, and fixes two further product defects.
+No dependency, migration, schema, Worker entrypoint, or package resource changes.
+
+### Baseline
+
+`pnpm check:full` passes 1,748 Vitest tests, with 3 opt-in benchmarks skipped, across 280 files in 22.2s.
+64 of 67 source E2E scenarios pass, with zero retries.
+`agent.selection-quick-actions`, `agent.user-clarification`, and `knowledge.unified-reference-import` fail.
+Report: `.cache/verification/1792049892378-39428-48de51a8`.
+A one-off coverage run temporarily installs `@vitest/coverage-v8` 5.0.3.
+It measures 63.8% of lines and 53.0% of branches in unit tests. Process entrypoints, preload bridges, and React hooks rely on E2E coverage.
+`package.json` and `pnpm-lock.yaml` are then restored, followed by a frozen install. No coverage dependency is committed.
+
+### Product defects found by the suite
+
+- Quick actions: the toolbar menu rendered in a portal on `document.body`.
+  Focus left the editor, BlockNote hid the formatting toolbar, and the menu unmounted with it, so a mouse click could not open AI quick actions.
+  The menu now renders into BlockNote's toolbar portal element through an optional `container` on the existing shadcn dropdown.
+- Outline lost update: `updateOutlineSection` sent the workspace outline version current at send time.
+  After a conflict refetch, a later blur-triggered save could resend the draft against the refreshed version and silently overwrite a concurrent edit.
+  Drafts now save against the outline version they were edited from. Only the explicit Retry or Reload latest action adopts the latest version.
+- Streamed-answer duplicate: an edit-and-restart history reload could deliver the persisted assistant message before its live settle event.
+  For a moment the persisted and streaming copies rendered together.
+  The view model now suppresses a streaming item whose text equals the run's last persisted assistant message.
+- Conversation status: the switcher showed status only through unlabeled icons.
+  Each item now carries a screen-reader status label, and the fork icon label is `Branch` instead of `分支`.
+
+### Test changes
+
+- Outdated tests:
+  - A stale singleton-provider title is corrected.
+  - The NotebookRegistry tests move to `notebook-registry.test.ts`, with a shared `knowledge-chat-service.test-support.ts` fixture.
+  - The citation resolver tests move to `use-manuscript-references.test.ts`, and the test-only controller re-export is removed.
+  - Tests import owning modules instead of compatibility re-exports.
+- Necessity: no exact duplicate bodies are found across 312 test files, so no test is deleted.
+  Similar migration, parser, and layered concurrency tests protect distinct boundaries and remain.
+- Missing tests (96 new cases):
+  - Citation formatting service and the auxiliary model client.
+  - Skill, agent attachment, and diagnostics IPC: sender authorization, schema rejection, session revocation, and results.
+  - Manuscript IPC conflict cause preservation with single failure reporting.
+  - Notebook IPC rejection, cleanup, and failure branches.
+  - One view-model regression test for the streamed duplicate.
+- Unreasonable tests: five zero-delay or millisecond sleeps are replaced by observable conditions.
+  - Quick actions use a real click instead of `dispatchEvent`. The shortcut assertion waits until ProseMirror adopts the selection.
+  - The unified-reference scenario waits for editor focus after Escape.
+  - The outline scenario installs its interception before typing.
+  - The clarification and concurrency scenarios assert accessible names instead of the cmdk `data-value`.
+  - The eight E2E `waitForTimeout` calls remain. They prove that nothing happens across debounce or autosave windows.
+
+Codex's report and inventory remain outside the repository at `/tmp/wl-check/codex-report.md`.
+
+### Verification
+
+Repeated focused runs on one matching build:
+
+| Scenario | Before the fix | After the fix |
+| --- | --- | --- |
+| Quick actions | 2 of 5 | 10 of 10 |
+| Outline conflict | 8 of 10 | 12 of 12 |
+
+`pnpm check:full` passes on the final source in 244.8s.
+It runs static checks, 1,845 Vitest tests with 3 opt-in benchmarks skipped across 286 files in 23.2s, one build in 16.9s, and all 67 source E2E scenarios in 201.4s.
+Zero retries, flaky results, or skips occur.
+Report: `.cache/verification/1792053868905-91588-01a053f3`.
+Coverage is macOS arm64 only. Windows, Linux, and macOS x64 runtime acceptance remains outstanding.
+The untracked dependency audit stays outside the commit.
+
+## 2026-10-15 IPC Logging Follow-Ups
+
+The user authorized the two follow-up candidates from the [error ownership review](#claude-review-of-batch-five).
+Both changes are in `src/main/observability/ipc-context.ts`. The 81 `reportIpcFailure` call sites are unchanged.
+
+### Expected rejections
+
+- Before: `withIpcLogging` logged every IPC rejection at error level.
+  That included `ProjectSessionError` from requests that race a project close or switch.
+- `withIpcLogging` now accepts an `isExpectedRejection` option.
+  Main passes `err instanceof ProjectSessionError`, so observability does not import project code.
+- Every report made during a request checks the error and its cause chain.
+  This covers boundary reports and handler-owned reports.
+- A match is logged at warn with the same event, fields, and original `err`. Every other failure stays at error.
+- If the check itself throws, the failure is still reported at error.
+- Logger option types for IPC registration now include `warn`.
+
+### Redaction
+
+- Before: `reportIpcFailure` treated every non-empty request string as private text.
+  A one-character find query blanked every matching character in the failure message and stack.
+- Now UUID-shaped strings are not treated as private text, because logging rules permit safe IDs.
+  Strings shorter than four characters are also skipped.
+- Longer free text is still redacted. Header, bearer token, signed URL, and private path redaction is unchanged.
+
+### Tests
+
+`ipc-context.test.ts` adds three cases:
+
+- Direct and wrapped expected rejections log at warn. An unexpected failure still logs at error.
+- A throwing classifier falls back to error level.
+- A UUID and a one-character query stay readable while a longer private string is redacted.
+
+### Verification
+
+Shared IPC infrastructure scope: `pnpm check:fast` passes in 2.6s.
+The complete Vitest suite passes: 1,848 tests with 3 opt-in benchmarks skipped, across 286 files, in 23.8s, with zero retries.
+Report: `.cache/verification/1792055493674-2692-d8e9669f`.
+E2E is not rerun, because Renderer behavior and IPC results are unchanged.
+Coverage is macOS arm64 only.

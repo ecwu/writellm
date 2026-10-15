@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: The Issue 4 simplification sequence is complete. All sub-issues are closed.
+Status: The test-suite audit passes the complete local gate. Both IPC logging follow-ups are resolved. The Issue 4 sequence remains complete.
 Recorded: 2026-10-15
 
 This file owns current delivery state, acceptance gates, and platform gaps.
@@ -9,6 +9,17 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+The test-suite audit passes the complete local gate on macOS arm64.
+All 67 source E2E scenarios and 1,845 Electron-hosted tests pass, with zero retries.
+It fixes the quick-action menu, an outline lost-update race, and a streamed-answer duplicate.
+It also restores accessible conversation status and adds behavior tests for previously untested modules.
+[Test audit evidence](history/implementation-log.md#2026-10-15-test-suite-audit) records each change.
+
+The two IPC logging follow-ups from the error ownership review are resolved.
+Expected `ProjectSessionError` rejections now log at warn, with the original error.
+Failure redaction no longer blanks UUIDs or request strings shorter than four characters.
+[IPC logging evidence](history/implementation-log.md#2026-10-15-ipc-logging-follow-ups) records the change and verification.
 
 The fourth simplification batch passes local acceptance and Claude review.
 Issues 12, 13, and 14 are committed separately, pushed to `main`, and closed.
@@ -35,10 +46,8 @@ Past hosted builds do not establish runtime acceptance for the current source.
 [Phase 10](implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion) retains candidate platform results and CI failure boundaries.
 [Release history](history/implementation-log.md#2026-10-02-release-02026101-preparation) retains the published 0.2026.10.1 artifact evidence.
 
-The quick-action floating-menu scenario remains an open baseline UI failure.
-It failed on the retained first-batch App and precedes Agent execution.
-[Third-batch evidence](history/implementation-log.md#2026-10-14-third-batch-simplification) records the comparison and its platform limit.
-This batch does not change that floating menu or claim acceptance for its scenario.
+The quick-action floating-menu failure is resolved by the test-suite audit.
+Its scenario passes ten repeated runs and the complete E2E suite.
 
 Issue 15 uses document diff, source traceability, formatting, and link consistency only.
 Issue 17 uses affected Electron tests, packaged logging and Worker checks, and selected real Electron recovery scenarios.
@@ -54,8 +63,7 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 
 No implementation work is currently authorized. The Issue 4 sequence is complete.
 `docs/audits/2026-10-10-dependency-size-audit.md` remains untracked and outside commits.
-Follow-up candidates from the final review appear in the [error ownership review](history/implementation-log.md#claude-review-of-batch-five).
-They require new user authorization.
+The error ownership review follow-ups are resolved. No follow-up candidate remains open.
 
 ## Deferred
 
