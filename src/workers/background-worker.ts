@@ -358,7 +358,23 @@ async function dispatch(value: unknown): Promise<void> {
       controller
     })
     try {
-      post(await runProviderProbeRequest(probe.data, fetch, controller.signal))
+      post(
+        await runProviderProbeRequest(
+          probe.data,
+          fetch,
+          controller.signal,
+          undefined,
+          (err, status) => {
+            workerLog?.(
+              'error',
+              'provider.probe.invalid_response',
+              'Successful MinerU probe returned invalid JSON',
+              { httpStatus: status, requestId: probe.data.requestId },
+              err
+            )
+          }
+        )
+      )
     } catch (err) {
       workerLog?.(
         'error',

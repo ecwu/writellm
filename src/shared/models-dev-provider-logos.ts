@@ -69,13 +69,10 @@ function normalizeIdentity(value: string): string {
 
 function normalizeUrl(value: string | undefined): string | null {
   if (value === undefined) return null
-  try {
-    const parsed = new URL(value)
-    const path = parsed.pathname.replace(/\/+$/, '') || '/'
-    return `${parsed.origin}${path}`
-  } catch {
-    return null
-  }
+  if (!URL.canParse(value)) return null
+  const parsed = new URL(value)
+  const path = parsed.pathname.replace(/\/+$/, '') || '/'
+  return `${parsed.origin}${path}`
 }
 
 export { MODELS_DEV_PROVIDER_LOGOS }

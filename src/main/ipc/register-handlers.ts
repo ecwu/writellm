@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { app, ipcMain } from 'electron'
 import {
   accentPreferenceSchema,
@@ -65,8 +66,14 @@ export function registerIpcHandlers({
       setImmediate(quit)
       return appQuitResultSchema.parse({ accepted: true })
     } catch (err) {
-      logger.error({ event: 'app.quit.failed', err }, 'Unable to close project before exit')
-      throw new Error('Unable to exit. Resolve the project close issue and try again.')
+      reportIpcFailure(
+        logger,
+        { event: 'app.quit.failed', err },
+        'Unable to close project before exit'
+      )
+      throw new Error('Unable to exit. Resolve the project close issue and try again.', {
+        cause: err
+      })
     }
   })
 

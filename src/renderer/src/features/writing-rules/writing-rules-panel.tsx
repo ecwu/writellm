@@ -1,3 +1,4 @@
+import { manuscriptFailureMessage, reportRendererOperationError } from '../../diagnostics'
 import type { ManuscriptWorkspace } from '../../../../shared/contracts/manuscript'
 import {
   readWritingRules,
@@ -67,9 +68,13 @@ export function WritingRulesPanel(props: {
         })
       )
       return true
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'writing-rules-panel')
       props.onError(
-        'Writing Rules changed elsewhere or the update exceeds its safe limits. Refresh and retry.'
+        manuscriptFailureMessage(
+          err,
+          'The Writing Rules update failed. Try again or open Diagnostics.'
+        )
       )
       return false
     } finally {

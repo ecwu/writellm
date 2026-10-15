@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import {
   Check,
   ChevronRight,
@@ -103,7 +104,8 @@ export function CommentsPanel(props: {
       if (loadSequenceRef.current !== sequence) return
       setThreads(pages)
       props.onThreads(pages)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'comments-panel')
       if (loadSequenceRef.current === sequence) props.onError('Comments could not be loaded.')
     }
   }, [
@@ -140,7 +142,8 @@ export function CommentsPanel(props: {
       }
       if (highlightSequenceRef.current !== sequence) return
       props.onHighlightThreads(pages)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'comments-panel')
       if (highlightSequenceRef.current === sequence) props.onError('Comments could not be loaded.')
     }
   }, [props.onError, props.onHighlightThreads, props.projectSessionId])
@@ -157,7 +160,8 @@ export function CommentsPanel(props: {
           threadId
         })
         if (selectedThreadIdRef.current === threadId) setDetail(next)
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'comments-panel')
         if (selectedThreadIdRef.current === threadId)
           props.onError('The selected comment could not be opened.')
       }
@@ -181,7 +185,8 @@ export function CommentsPanel(props: {
         const match = proposals.find((candidate) => candidate.proposalId === proposalId) ?? null
         setProposal(match)
         if (match === null) setProposalError('The linked proposal is no longer available.')
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'comments-panel')
         if (proposalRequestRef.current === requestId)
           setProposalError('The linked proposal could not be loaded.')
       } finally {
@@ -242,7 +247,8 @@ export function CommentsPanel(props: {
       await operation()
       setReply('')
       await refresh(refreshSelected)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'comments-panel')
       await readDetail()
       props.onError(
         'The comment changed or the operation could not be completed. Reload and try again.'

@@ -1,3 +1,4 @@
+import { serializeAgentDiagnosticError } from '../shared/agent-diagnostic-error'
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
 import type {
@@ -11,7 +12,8 @@ export async function runProviderProbeRequest(
   request: ProviderProbeRequest,
   fetchImplementation: typeof fetch = fetch,
   signal?: AbortSignal,
-  googleVertexClientFactory: GoogleVertexClientFactory = createGoogleVertexClient
+  googleVertexClientFactory: GoogleVertexClientFactory = createGoogleVertexClient,
+  reportInvalidResponse?: (err: unknown, status: number) => void
 ): Promise<ProviderProbeResponse> {
   try {
     if (request.config.role === 'image') {
@@ -45,22 +47,49 @@ export async function runProviderProbeRequest(
     }
 
     const body = await readBoundedText(response, 4_096)
+    let value: unknown
     try {
-      const value = JSON.parse(body) as { code?: unknown }
+      value = JSON.parse(body)
+    } catch (err) {
+      if (!(err instanceof SyntaxError)) throw err
+      if (!response.ok) {
+        // An HTTP rejection can carry plain text. Status remains sufficient for the probe.
+        return {
+          type: 'result',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId ?? null,
+          status: response.status
+        }
+      }
+      serializeAgentDiagnosticError(err, 'provider.probe', { privateBodies: [err.message] })
+      reportInvalidResponse?.(err, response.status)
       return {
         type: 'result',
         requestId: request.requestId,
         projectSessionId: request.projectSessionId ?? null,
         status: response.status,
-        providerCode: String(value.code ?? '')
+        invalidResponse: true
       }
-    } catch {
+    }
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      const err = new TypeError('MinerU probe response must be a JSON object')
+      if (response.ok) reportInvalidResponse?.(err, response.status)
       return {
         type: 'result',
         requestId: request.requestId,
         projectSessionId: request.projectSessionId ?? null,
-        status: response.status
+        status: response.status,
+        ...(response.ok ? { invalidResponse: true } : {})
       }
+    }
+    const code = (value as { code?: unknown }).code
+    return {
+      type: 'result',
+      requestId: request.requestId,
+      projectSessionId: request.projectSessionId ?? null,
+      status: response.status,
+      providerCode:
+        typeof code === 'string' || typeof code === 'number' ? String(code).slice(0, 100) : ''
     }
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Provider probe failed', { cause: err })

@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import type { NormalizedKnowledgeBlock } from '../../../../shared/contracts/knowledge'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
@@ -138,7 +139,8 @@ export function ParsedDocumentViewer(props: {
       await queryClient.invalidateQueries({
         queryKey: ['parsed-knowledge', props.projectSessionId, props.knowledgeItemId]
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'parsed-document-viewer')
       props.onError('MinerU parsing could not be started. Check the MinerU provider settings.')
     } finally {
       setActionPending(false)
@@ -156,7 +158,8 @@ export function ParsedDocumentViewer(props: {
       await queryClient.invalidateQueries({
         queryKey: ['parsed-knowledge', props.projectSessionId, props.knowledgeItemId]
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'parsed-document-viewer')
       props.onError('MinerU parsing could not be stopped. Please try again.')
     } finally {
       setActionPending(false)
@@ -171,7 +174,8 @@ export function ParsedDocumentViewer(props: {
         projectSessionId: props.projectSessionId,
         knowledgeItemId: props.knowledgeItemId
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'parsed-document-viewer')
       props.onError('The original document could not be opened.')
     } finally {
       setActionPending(false)

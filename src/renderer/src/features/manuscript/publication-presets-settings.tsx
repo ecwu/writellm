@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import { Check, Plus, Save, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type {
@@ -42,7 +43,8 @@ export function PublicationPresetsSettings(props: {
     try {
       const snapshot = await operation()
       props.onSnapshot(snapshot)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'publication-presets-settings')
       props.onError('Publication presets could not be updated.')
     } finally {
       setSaving(false)

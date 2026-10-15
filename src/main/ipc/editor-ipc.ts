@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import {
   dialog,
   ipcMain,
@@ -197,7 +198,8 @@ export function registerEditorIpc(options: {
       )
       return exportResultSchema.parse({ relativePath })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'editor.export_native_json.failed',
           err,
@@ -236,7 +238,8 @@ export function registerEditorIpc(options: {
       )
       return exportResultSchema.parse({ relativePath })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'editor.export_markdown.failed', err, projectSessionId: parsed.projectSessionId },
         'Markdown export failed'
       )
@@ -274,7 +277,8 @@ export function registerEditorIpc(options: {
       })
     } catch (err) {
       if (!(err instanceof ProjectSessionError)) throw err
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'editor.resolve_asset.session_revoked',
           err,

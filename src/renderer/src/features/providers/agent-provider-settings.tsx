@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
@@ -222,7 +223,8 @@ export function AgentProviderWorkspace({
           : next.agentCatalog.presets.find((preset) => preset.presetId === draft.presetId)
       setSelectedPresetId(persisted?.presetId ?? null)
       setApiKey('')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Custom Agent provider was not saved. Check its name, URL, and credential.')
     } finally {
       setBusy(null)
@@ -240,7 +242,8 @@ export function AgentProviderWorkspace({
         })
       )
       setApiKey('')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('The Agent provider credential could not be saved.')
     } finally {
       setBusy(null)
@@ -256,7 +259,8 @@ export function AgentProviderWorkspace({
           presetId: selectedPreset.presetId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('The Agent provider credential could not be cleared.')
     } finally {
       setBusy(null)
@@ -272,7 +276,8 @@ export function AgentProviderWorkspace({
           presetId: selectedPreset.presetId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Model discovery failed. The last successful catalog was retained.')
       updateSnapshot(await window.desktop.providers.snapshot())
     } finally {
@@ -290,7 +295,8 @@ export function AgentProviderWorkspace({
           enabled
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Provider availability could not be changed.')
     } finally {
       setBusy(null)
@@ -308,7 +314,8 @@ export function AgentProviderWorkspace({
           enabled
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Model availability could not be changed.')
     } finally {
       setBusy(null)
@@ -325,7 +332,8 @@ export function AgentProviderWorkspace({
           modelId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Only an enabled, authenticated model can be the default.')
     } finally {
       setBusy(null)
@@ -344,7 +352,8 @@ export function AgentProviderWorkspace({
       )
       setManualOpen(false)
       setManualModel(null)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('The manual model could not be saved.')
     } finally {
       setBusy(null)
@@ -361,7 +370,8 @@ export function AgentProviderWorkspace({
           modelId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('The manual model could not be removed.')
     } finally {
       setBusy(null)
@@ -381,7 +391,8 @@ export function AgentProviderWorkspace({
       )
       setConfirmRemove(false)
       setMobileDetail(false)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('The Agent provider could not be removed.')
     } finally {
       setBusy(null)
@@ -405,7 +416,8 @@ export function AgentProviderWorkspace({
           }
         )
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
       onError('Provider sign-in did not complete.')
     } finally {
       setBusy(null)

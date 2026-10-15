@@ -1,3 +1,4 @@
+import { markIpcFailureReported } from './ipc-context'
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -85,7 +86,11 @@ export async function createLoggerSystem(options: LoggerOptions): Promise<Logger
         // errWithCause preserves the non-enumerable ES2022 `cause` chain for Error causes,
         // but drops primitive causes (worker-boundary errors carry the original provider
         // error as a string). Re-attach those, bounded, so provider diagnostics survive.
-        err: (err) => redactLogValue(serializeErrWithCause(err))
+        err: (err) => {
+          const value = redactLogValue(serializeErrWithCause(err))
+          markIpcFailureReported(err)
+          return value
+        }
       },
       redact: {
         paths: [

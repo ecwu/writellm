@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMain } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
@@ -134,7 +135,8 @@ export function registerKnowledgeIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'reference.search.failed',
           err,
@@ -207,7 +209,8 @@ export function registerKnowledgeIpc(options: {
         })
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'reference.import_prepare.failed',
           err,
@@ -256,7 +259,8 @@ export function registerKnowledgeIpc(options: {
         })
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'reference.import_confirm.failed',
           err,
@@ -322,7 +326,8 @@ export function registerKnowledgeIpc(options: {
         lossCount: generated.losses.length
       })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'reference.bibliography_export.failed',
           err,
@@ -370,7 +375,8 @@ export function registerKnowledgeIpc(options: {
     try {
       context = options.manager.assertMutationSession(parsed.projectSessionId)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'reference.legacy_conversion.failed',
           err,
@@ -424,7 +430,8 @@ export function registerKnowledgeIpc(options: {
       }
     } catch (err) {
       if (failureOwner === 'handler') {
-        options.logger.error(
+        reportIpcFailure(
+          options.logger,
           {
             event: 'reference.legacy_conversion.failed',
             err,
@@ -448,7 +455,8 @@ export function registerKnowledgeIpc(options: {
         context.editorPersistence.pruneRevisionBodies(revision.sectionId)
       } catch (err) {
         pendingRepairSectionIds.push(revision.sectionId)
-        options.logger.error(
+        reportIpcFailure(
+          options.logger,
           {
             event: 'reference.legacy_conversion.materialization_pending',
             err,
@@ -535,7 +543,8 @@ export function registerKnowledgeIpc(options: {
       }
       return referenceSettingsSchema.parse(context.references.setCustomStyle(relativePath, sha256))
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'reference.custom_style_import.failed', err },
         'Custom CSL style import failed'
       )
@@ -568,7 +577,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return knowledgeIndexStatusSchema.parse({ readiness, indexed })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.index_status.failed', err, projectSessionId: parsed.projectSessionId },
         'Failed to inspect knowledge index status'
       )
@@ -622,7 +632,8 @@ export function registerKnowledgeIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.citation_coverage.failed',
           err,
@@ -652,7 +663,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return knowledgeListResultSchema.parse(context.knowledgeImports.list())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.import_batch.failed', err, projectSessionId: parsed.projectSessionId },
         'Knowledge batch import failed'
       )
@@ -669,7 +681,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return knowledgeListResultSchema.parse(context.knowledgeImports.list())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.drop_import.failed', err, projectSessionId: parsed.projectSessionId },
         'Dropped knowledge import failed'
       )
@@ -715,7 +728,8 @@ export function registerKnowledgeIpc(options: {
     try {
       await openOriginal(input, true)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.original_reveal.failed', err },
         'Reveal original failed'
       )
@@ -727,7 +741,11 @@ export function registerKnowledgeIpc(options: {
     try {
       await openOriginal(input, false)
     } catch (err) {
-      options.logger.error({ event: 'knowledge.original_open.failed', err }, 'Open original failed')
+      reportIpcFailure(
+        options.logger,
+        { event: 'knowledge.original_open.failed', err },
+        'Open original failed'
+      )
       throw new Error('The original file could not be opened', { cause: err })
     }
   })
@@ -740,7 +758,8 @@ export function registerKnowledgeIpc(options: {
       await context.mineruWorkflow.start(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parse_start.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to start knowledge parsing'
       )
@@ -758,7 +777,8 @@ export function registerKnowledgeIpc(options: {
       await context.mineruWorkflow.cleanupCancelledArtifacts(parsed.knowledgeItemId, references)
       options.manager.assertActiveSession(parsed.projectSessionId)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parse_cancel.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to cancel knowledge parsing'
       )
@@ -774,7 +794,8 @@ export function registerKnowledgeIpc(options: {
       await context.projectIndex.requestEmbeddingRefresh(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.embedding_refresh.failed',
           err,
@@ -818,7 +839,8 @@ export function registerKnowledgeIpc(options: {
         })
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.pdf_preview.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to create PDF preview capability'
       )
@@ -842,7 +864,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return knowledgeMappingPageSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.mapping.failed',
           err,
@@ -865,7 +888,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return parsedKnowledgeMetadataSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parsed_metadata.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to load parsed knowledge metadata'
       )
@@ -887,7 +911,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return parsedKnowledgeBlockPageSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parsed_blocks.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to load parsed knowledge blocks'
       )
@@ -907,7 +932,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return parsedKnowledgeMarkdownSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parsed_markdown.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to load parsed knowledge Markdown'
       )
@@ -928,7 +954,8 @@ export function registerKnowledgeIpc(options: {
       options.manager.assertActiveSession(parsed.projectSessionId)
       return parsedKnowledgeAssetSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'knowledge.parsed_asset.failed', err, knowledgeItemId: parsed.knowledgeItemId },
         'Failed to load parsed knowledge asset'
       )

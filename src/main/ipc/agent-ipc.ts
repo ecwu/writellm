@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import type { AgentUserMessagePayload } from '../../shared/contracts/agent'
@@ -97,7 +98,8 @@ export function registerAgentIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: `${event}.failed`, err, durationMs: Date.now() - startedAt },
         'Agent IPC operation failed'
       )

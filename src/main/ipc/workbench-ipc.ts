@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -94,7 +95,8 @@ export function registerWorkbenchIpc(options: {
         )
         return undefined
       } catch (err) {
-        options.log.error(
+        reportIpcFailure(
+          options.log,
           { event: 'workbench.layout.failed', err, projectId },
           'Workbench layout operation failed'
         )

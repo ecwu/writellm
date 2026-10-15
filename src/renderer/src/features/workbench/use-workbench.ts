@@ -1,3 +1,4 @@
+import { reportRendererOperationError as reportWorkbenchError } from '../../diagnostics'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   contentTabId,
@@ -11,15 +12,7 @@ export type ContentTab = WorkbenchContent | { kind: 'notebook'; notebookId: stri
 export function tabId(tab: ContentTab): string {
   return tab.kind === 'notebook' ? `notebook:${tab.notebookId}` : contentTabId(tab)
 }
-export function reportWorkbenchError(err: unknown, source: string): void {
-  const error = err instanceof Error ? err : new Error(String(err))
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.unhandled_rejection',
-    message: error.message,
-    ...(error.stack ? { stack: error.stack } : {}),
-    source
-  })
-}
+export { reportRendererOperationError as reportWorkbenchError } from '../../diagnostics'
 export interface WorkbenchActions {
   flush(): Promise<boolean>
   activateSection(id: string): Promise<void>

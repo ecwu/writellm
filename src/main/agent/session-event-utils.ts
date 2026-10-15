@@ -78,25 +78,20 @@ export function fingerprint(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex')
 }
 
-export function safeErrorCode(value: string | null): string | null {
-  if (value === null) return null
-  try {
-    const parsed = JSON.parse(value) as { code?: unknown }
-    return typeof parsed.code === 'string' ? parsed.code.slice(0, 200) : 'agent_run_failed'
-  } catch {
-    return 'agent_run_failed'
+export function readRunError(value: string | null): {
+  errorCode: string | null
+  errorDetails: AgentDiagnosticError | null
+} {
+  if (value === null) return { errorCode: null, errorDetails: null }
+  const parsed = JSON.parse(value) as unknown
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new TypeError('Stored Agent run error must be a JSON object')
   }
-}
-
-export function readErrorDetails(value: string | null): AgentDiagnosticError | null {
-  if (value === null) return null
-  try {
-    const parsed = JSON.parse(value) as { diagnostic?: unknown }
-    const diagnostic = agentDiagnosticErrorSchema.safeParse(parsed.diagnostic)
-    return diagnostic.success ? diagnostic.data : null
-  } catch {
-    // Historical error_json records only carried a code and may not contain a diagnostic.
-    return null
+  const fields = parsed as { code?: unknown; diagnostic?: unknown }
+  const diagnostic = agentDiagnosticErrorSchema.safeParse(fields.diagnostic)
+  return {
+    errorCode: typeof fields.code === 'string' ? fields.code.slice(0, 200) : 'agent_run_failed',
+    errorDetails: diagnostic.success ? diagnostic.data : null
   }
 }
 

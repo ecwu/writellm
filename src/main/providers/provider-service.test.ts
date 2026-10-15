@@ -337,6 +337,12 @@ describe('ProviderService', () => {
       ok: false,
       code: 'invalid_auth'
     })
+    probe.mockResolvedValueOnce({ status: 200, invalidResponse: true })
+    await expect(service.testConnection('agent')).resolves.toMatchObject({
+      ok: false,
+      code: 'provider_rejected',
+      message: 'Provider returned an invalid response.'
+    })
     appDatabase.close()
   })
 

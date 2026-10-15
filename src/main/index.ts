@@ -645,26 +645,12 @@ if (!hasSingleInstanceLock) {
         resolveKnowledgeImports: (projectId) => projectManager.activeKnowledgeImports(projectId)
       })
       const pdfPreview = new PdfPreviewCapabilities({
-        isSessionActive: (projectSessionId) => {
-          try {
-            projectManager.assertActiveSession(projectSessionId)
-            return true
-          } catch {
-            return false
-          }
-        },
+        isSessionActive: (projectSessionId) => projectManager.isSessionActive(projectSessionId),
         developmentUrl,
         log: loggerSystem.createModuleLogger('knowledge', 'pdf-preview')
       })
       const assetPreview = new ManuscriptAssetCapabilities({
-        isSessionActive: (projectSessionId) => {
-          try {
-            projectManager.assertActiveSession(projectSessionId)
-            return true
-          } catch {
-            return false
-          }
-        },
+        isSessionActive: (projectSessionId) => projectManager.isSessionActive(projectSessionId),
         log: loggerSystem.createModuleLogger('manuscript', 'asset-preview')
       })
 
@@ -672,7 +658,7 @@ if (!hasSingleInstanceLock) {
         join(__dirname, '../renderer'),
         async (request) => (await assetPreview.handle(request)) ?? pdfPreview.handle(request)
       )
-      const ipc = withIpcLogging(ipcMain)
+      const ipc = withIpcLogging(ipcMain, loggerSystem.createModuleLogger('ipc', 'operations'))
       const unregisterAppIpc = registerIpcHandlers({
         projectManager,
         appSettings,

@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -46,7 +47,8 @@ export function registerNotebookChatIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: `${event}.failed`, err, durationMs: Date.now() - startedAt },
         'Notebook IPC operation failed'
       )
@@ -63,7 +65,8 @@ export function registerNotebookChatIpc(options: {
       try {
         return notebookChatSnapshotSchema.parse(await instance.snapshot())
       } catch (err) {
-        options.logger.error(
+        reportIpcFailure(
+          options.logger,
           {
             event: 'knowledge.notebook.create_snapshot.failed',
             err,
@@ -157,7 +160,8 @@ export function registerNotebookChatIpc(options: {
       })
     } catch (err) {
       options.broker.unsubscribe(event.sender.id, input.projectSessionId, input.notebookId)
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.notebook.subscribe.failed',
           err,

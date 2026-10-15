@@ -302,7 +302,7 @@ export class AgentSessionService {
     }
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
-    this.#queries = new AgentSessionQueries(options.database)
+    this.#queries = new AgentSessionQueries(options.database, options.log)
     this.#titles = new AgentSessionTitles({
       database: options.database,
       log: options.log,

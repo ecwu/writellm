@@ -1,3 +1,5 @@
+import type { Logger } from 'pino'
+import { serializeAgentDiagnosticError } from '../../shared/agent-diagnostic-error'
 import type { ProjectDatabase } from '../project/project-database'
 import type {
   AgentEventType,
@@ -15,12 +17,15 @@ import {
   type AgentEventRecord,
   type AgentRunRecord
 } from '../../shared/contracts/agent-ipc'
-import { safeErrorCode, readErrorDetails } from './session-event-utils'
+import { readRunError } from './session-event-utils'
 
 const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 
 export class AgentSessionQueries {
-  constructor(private readonly database: ProjectDatabase) {}
+  constructor(
+    private readonly database: ProjectDatabase,
+    private readonly log: Pick<Logger, 'warn'>
+  ) {}
   listEvents(agentSessionId: string): AgentEventRecord[] {
     const events: AgentEventRecord[] = []
     let afterSequence = 0
@@ -203,8 +208,27 @@ export class AgentSessionQueries {
           completed_at: string | null
           updated_at: string
         }>
-      ).map((row) =>
-        agentRunRecordSchema.parse({
+      ).map((row) => {
+        let error: ReturnType<typeof readRunError>
+        try {
+          error = readRunError(row.error_json)
+        } catch (err) {
+          // JSON parser messages can quote stored private text. Preserve identity and stack safely.
+          serializeAgentDiagnosticError(err, 'agent.history', {
+            privateBodies: err instanceof Error ? [err.message] : []
+          })
+          this.log.warn(
+            {
+              event: 'agent.history.error_record_invalid',
+              err,
+              agentSessionId,
+              agentRunId: row.agent_run_id
+            },
+            'Agent run error record is invalid; history remains readable'
+          )
+          error = { errorCode: 'agent_run_failed', errorDetails: null }
+        }
+        return agentRunRecordSchema.parse({
           agentRunId: row.agent_run_id,
           agentSessionId: row.agent_session_id,
           status: row.status,
@@ -231,15 +255,14 @@ export class AgentSessionQueries {
                   estimatedCostUsdMicros: row.skill_route_estimated_cost_usd_micros,
                   retryCount: row.skill_route_retry_count ?? 0
                 },
-          errorCode: safeErrorCode(row.error_json),
-          errorDetails: readErrorDetails(row.error_json),
+          ...error,
           writingTaskId: row.writing_task_id,
           writingTaskStepId: row.writing_task_step_id,
           startedAt: row.started_at,
           completedAt: row.completed_at,
           updatedAt: row.updated_at
         })
-      )
+      })
     )
   }
 

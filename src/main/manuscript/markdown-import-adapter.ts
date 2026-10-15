@@ -590,11 +590,7 @@ function assertBoundedTree(root: MdNode): void {
 }
 
 function isSafeLink(value: string): boolean {
-  try {
-    return ['http:', 'https:', 'mailto:'].includes(new URL(value).protocol)
-  } catch {
-    return false
-  }
+  return URL.canParse(value) && ['http:', 'https:', 'mailto:'].includes(new URL(value).protocol)
 }
 
 function safeErrorMessage(error: unknown): string {

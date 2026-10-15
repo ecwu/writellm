@@ -565,33 +565,36 @@ export class ManuscriptReplacementService {
 
   #decodeCursor(cursor: string | undefined, plan: LivePlan): number {
     if (cursor === undefined) return 0
+    const bytes = Buffer.from(cursor, 'base64url')
+    if (bytes.toString('base64url') !== cursor) return Number.NaN
+    let parsed: unknown
     try {
-      const bytes = Buffer.from(cursor, 'base64url')
-      if (bytes.toString('base64url') !== cursor) return Number.NaN
-      const parsed = JSON.parse(bytes.toString('utf8')) as {
-        version?: unknown
-        planId?: unknown
-        offset?: unknown
-        signature?: unknown
-      }
-      const payload = { version: parsed.version, planId: parsed.planId, offset: parsed.offset }
-      const signature = createHmac('sha256', this.#cursorSecret)
-        .update(JSON.stringify(payload))
-        .digest('hex')
-      if (
-        parsed.version !== 1 ||
-        parsed.planId !== plan.planId ||
-        !Number.isSafeInteger(parsed.offset) ||
-        typeof parsed.offset !== 'number' ||
-        parsed.offset < 0 ||
-        parsed.signature !== signature
-      ) {
-        return Number.NaN
-      }
-      return parsed.offset
-    } catch {
-      return Number.NaN
+      parsed = JSON.parse(bytes.toString('utf8'))
+    } catch (err) {
+      // Invalid Renderer cursor JSON is an expected rejection, not an operational failure.
+      if (err instanceof SyntaxError) return Number.NaN
+      throw err
     }
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return Number.NaN
+    const fields = parsed as {
+      version?: unknown
+      planId?: unknown
+      offset?: unknown
+      signature?: unknown
+    }
+    if (
+      fields.version !== 1 ||
+      fields.planId !== plan.planId ||
+      typeof fields.offset !== 'number' ||
+      !Number.isSafeInteger(fields.offset) ||
+      fields.offset < 0
+    )
+      return Number.NaN
+    const payload = { version: fields.version, planId: fields.planId, offset: fields.offset }
+    const signature = createHmac('sha256', this.#cursorSecret)
+      .update(JSON.stringify(payload))
+      .digest('hex')
+    return fields.signature === signature ? fields.offset : Number.NaN
   }
 
   #rememberReceipt(commandId: string, receipt: AppliedReceipt): void {

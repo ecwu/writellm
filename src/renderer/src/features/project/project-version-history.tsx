@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import { useCallback, useEffect, useState } from 'react'
 import { GitCommitHorizontal, History, TriangleAlert } from 'lucide-react'
 import type {
@@ -88,7 +89,8 @@ export function ProjectVersionHistory({
       const status = await window.desktop.projects.versionHistoryStatus({ projectSessionId })
       updateState(status.state)
       setPromptOpen(status.state === 'uninitialized' && !status.promptDismissed)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to inspect project version history.')
     }
   }, [onError, projectSessionId, updateState])
@@ -124,7 +126,8 @@ export function ProjectVersionHistory({
       })
       setCheckpoints((current) => [...current, ...page.checkpoints])
       setNextCursor(page.nextCursor)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to load earlier checkpoints.')
     } finally {
       setBusy(false)
@@ -137,7 +140,8 @@ export function ProjectVersionHistory({
       await window.desktop.projects.enableVersionHistory({ projectSessionId })
       updateState('ready')
       setPromptOpen(false)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to enable project version history.')
       await refreshStatus()
     } finally {
@@ -149,7 +153,8 @@ export function ProjectVersionHistory({
     try {
       await window.desktop.projects.dismissVersionHistoryPrompt({ projectSessionId })
       setPromptOpen(false)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to save the version history preference.')
     }
   }
@@ -165,7 +170,8 @@ export function ProjectVersionHistory({
       setName('')
       setNote('')
       onViewChange(null)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to create the checkpoint.')
     } finally {
       setBusy(false)
@@ -183,7 +189,8 @@ export function ProjectVersionHistory({
       onProjectRestored(restored.project)
       setRestoreTarget(null)
       onViewChange(null)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to restore the checkpoint. The original project was preserved.')
     } finally {
       setBusy(false)
@@ -197,7 +204,8 @@ export function ProjectVersionHistory({
       updateState('ready')
       setReinitializeOpen(false)
       onViewChange(null)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'project-version-history')
       onError('Unable to reinitialize project version history.')
     } finally {
       setBusy(false)

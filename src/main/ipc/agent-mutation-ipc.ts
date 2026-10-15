@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import {
@@ -78,7 +79,8 @@ export function registerAgentMutationIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: `${event}.failed`, err, proposalId, durationMs: Date.now() - startedAt },
         'Agent mutation IPC operation failed'
       )

@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
 import { AlertCircle, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react'
 import type { ProviderConnectionTestResult } from '../../../../shared/contracts/providers'
@@ -100,7 +101,8 @@ export function SingletonProviderWorkspace({
       })
       onSnapshotChange(next)
       setApiKey('')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'singleton-provider-settings')
       onError('Configuration was not saved. Check every value and credential storage status.')
     } finally {
       setBusy(null)
@@ -111,7 +113,8 @@ export function SingletonProviderWorkspace({
     setBusy('test')
     try {
       setMessage(await window.desktop.providers.testConnection({ role }))
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'singleton-provider-settings')
       onError('The connection test could not be completed.')
     } finally {
       setBusy(null)
@@ -124,7 +127,8 @@ export function SingletonProviderWorkspace({
       onSnapshotChange(await window.desktop.providers.remove({ role }))
       setConfirmRemove(false)
       setConfig(defaultConfig(role))
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'singleton-provider-settings')
       onError('The provider configuration could not be removed.')
     } finally {
       setBusy(null)

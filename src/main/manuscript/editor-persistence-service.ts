@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
+  blockNoteDocumentSchema,
   SECTION_CONTENT_SCHEMA_VERSION,
   SECTION_MATERIALIZATION_ENVELOPE_SCHEMA_VERSION,
   SECTION_MATERIALIZATION_FORMAT_VERSION,
@@ -305,22 +306,39 @@ export class EditorPersistenceService {
       row.envelope_schema_version !== SECTION_MATERIALIZATION_ENVELOPE_SCHEMA_VERSION
     )
       return false
+    const path = resolveProjectPath(this.#projectRoot, expectedPath)
+    let bytes: Buffer
     try {
-      const bytes = await readFile(resolveProjectPath(this.#projectRoot, expectedPath))
-      if (bytes.byteLength !== row.byte_size || sha256(bytes) !== row.file_sha256) return false
-      const envelope = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
-      return (
-        envelope.format === 'writellm-blocknote-section' &&
-        envelope.formatVersion === SECTION_MATERIALIZATION_FORMAT_VERSION &&
-        envelope.sectionId === revision.sectionId &&
-        envelope.sectionRevisionId === revision.sectionRevisionId &&
-        envelope.contentHash === revision.contentHash &&
-        prepareSectionContent(envelope.document, revision.sectionId).contentHash ===
-          revision.contentHash
-      )
-    } catch {
-      return false
+      bytes = await readFile(path)
+    } catch (err) {
+      if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return false
+      // ensureCurrentMaterializations owns the original I/O error and safe section context.
+      throw err
     }
+    if (bytes.byteLength !== row.byte_size || sha256(bytes) !== row.file_sha256) return false
+    let envelope: unknown
+    try {
+      envelope = JSON.parse(bytes.toString('utf8'))
+    } catch (err) {
+      // A damaged derived mirror can be rebuilt. Keep other failures visible to its owner.
+      if (err instanceof SyntaxError) return false
+      throw err
+    }
+    if (envelope === null || typeof envelope !== 'object' || Array.isArray(envelope)) return false
+    const value = envelope as Record<string, unknown>
+    if (
+      value.format !== 'writellm-blocknote-section' ||
+      value.formatVersion !== SECTION_MATERIALIZATION_FORMAT_VERSION ||
+      value.sectionId !== revision.sectionId ||
+      value.sectionRevisionId !== revision.sectionRevisionId ||
+      value.contentHash !== revision.contentHash
+    )
+      return false
+    const document = blockNoteDocumentSchema.safeParse(value.document)
+    if (!document.success) return false
+    return (
+      prepareSectionContent(document.data, revision.sectionId).contentHash === revision.contentHash
+    )
   }
 
   pruneRevisionBodies(sectionId: string): void {

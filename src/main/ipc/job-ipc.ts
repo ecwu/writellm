@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -87,7 +88,8 @@ export function registerJobIpc(options: RegisterJobIpcOptions): JobIpcRegistrati
           jobStatusEventSchema.parse({ projectSessionId, job: toJobStatus(job, context.database) })
         )
       } catch (err) {
-        options.logger.error(
+        reportIpcFailure(
+          options.logger,
           { event: 'ipc.jobs_status_event.failed', err, jobId: job.jobId },
           'Failed to publish bounded job status event'
         )

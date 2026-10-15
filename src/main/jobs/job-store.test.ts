@@ -501,6 +501,43 @@ describe('JobStore', () => {
     database.close()
   })
 
+  it('keeps the real attempt and time when classification and its reporter fail', async () => {
+    const { database, projectManifest } = await createDatabase()
+    const now = new Date('2026-10-14T23:00:00.000Z')
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      now: () => now,
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(() => {
+          throw new Error('Reporter closed')
+        })
+      },
+      classifyFailure: () => {
+        throw new Error('Classifier failed')
+      }
+    })
+    const job = store.enqueue({ type: 'artifact_cleanup', payload: { cleanupId: 'failure' } }).job
+    const first = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    if (!first) throw new Error('Missing claim')
+    now.setTime(now.getTime() + 10_001)
+    store.recoverExpiredLeases()
+    expect(store.require(job.jobId).error).toMatchObject({
+      attempt: 1,
+      recordedAt: now.toISOString()
+    })
+    const second = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+    if (!second) throw new Error('Missing second claim')
+    expect(store.fail(second.lease, new Error('Private job failure')).job).toMatchObject({
+      state: 'failed',
+      attempts: 2,
+      error: { code: 'job_execution_failed', attempt: 2, recordedAt: now.toISOString() }
+    })
+    database.close()
+  })
+
   it('still archives a hostile error when the logger serializer rejects it', async () => {
     const { database, projectManifest } = await createDatabase()
     const hostile = new Proxy(

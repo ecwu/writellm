@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { BrowserWindow, clipboard, dialog, type IpcMain, type IpcMainInvokeEvent } from 'electron'
 import { readBoundedAgentImage } from '../agent/attachment-file'
 import { basename, extname } from 'node:path'
@@ -35,7 +36,8 @@ export function registerAgentAttachmentIpc(options: {
       try {
         return await listener(event, raw)
       } catch (err) {
-        options.log.error(
+        reportIpcFailure(
+          options.log,
           { event: 'agent.attachment.ipc_failed', err, channel },
           'Agent image action failed'
         )
@@ -118,7 +120,8 @@ export function registerAgentAttachmentIpc(options: {
       controller.signal.throwIfAborted()
       return describe(scope, row.attachment_id)
     } catch (err) {
-      options.log.error(
+      reportIpcFailure(
+        options.log,
         { event: 'agent.attachment.import_failed', err, agentSessionId: scope.agentSessionId },
         'Agent image import failed'
       )
@@ -169,7 +172,8 @@ export function registerAgentAttachmentIpc(options: {
           await importImage(input, await readBoundedAgentImage(path), mimeType, basename(path))
         )
       } catch (err) {
-        options.log.error(
+        reportIpcFailure(
+          options.log,
           {
             event: 'agent.attachment.selection_failed',
             err,

@@ -1,3 +1,4 @@
+import { agentDiagnosticErrorSchema } from '../agent-diagnostic-error'
 import { z } from 'zod'
 import { diagnosticLogSchema, LOG_LEVELS, SUBSYSTEMS } from '../observability/log-schema'
 
@@ -5,6 +6,7 @@ export const rendererErrorReportSchema = z
   .object({
     event: z.enum(['renderer.error', 'renderer.unhandled_rejection']),
     message: z.string().min(1).max(4_096),
+    diagnostic: agentDiagnosticErrorSchema.optional(),
     stack: z.string().max(32_768).optional(),
     source: z.string().max(512).optional(),
     line: z.number().int().nonnegative().optional(),

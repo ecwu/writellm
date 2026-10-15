@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from './diagnostics'
 import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -162,7 +163,8 @@ function App(): React.JSX.Element {
     try {
       const nextSnapshot = await window.desktop.projects.lifecycle()
       setSnapshot(nextSnapshot)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.load)
     }
   }, [])
@@ -170,7 +172,8 @@ function App(): React.JSX.Element {
   const refreshRecentProjects = useCallback(async (): Promise<void> => {
     try {
       setRecentProjects(await window.desktop.projects.recent())
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.recent)
     }
   }, [])
@@ -249,7 +252,8 @@ function App(): React.JSX.Element {
     try {
       await window.desktop.projects.enableVersionHistory({ projectSessionId })
       setVersionHistoryState('ready')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.history)
     } finally {
       setActiveAction(null)
@@ -289,7 +293,8 @@ function App(): React.JSX.Element {
       const result = await window.desktop.projects.open()
       if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
       else await refreshLifecycle()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.open)
       await refreshLifecycle()
     } finally {
@@ -304,7 +309,8 @@ function App(): React.JSX.Element {
         const result = await window.desktop.projects.openRecent({ projectId })
         if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
         else await refreshLifecycle()
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'App')
         notifyActionError(actionErrorMessages.openRecent)
         await refreshLifecycle()
       } finally {
@@ -334,7 +340,8 @@ function App(): React.JSX.Element {
       } else {
         await refreshLifecycle()
       }
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.create)
       await refreshLifecycle()
     } finally {
@@ -349,7 +356,8 @@ function App(): React.JSX.Element {
       setSnapshot((current) => ({ ...current, state: 'closing' }))
       setSnapshot(await window.desktop.projects.close({ projectSessionId }))
       await refreshRecentProjects()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.close)
       await refreshLifecycle()
     } finally {
@@ -361,7 +369,8 @@ function App(): React.JSX.Element {
     setActiveAction('quit')
     try {
       await window.desktop.app.quit()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.quit)
       await refreshLifecycle()
     } finally {
@@ -373,7 +382,8 @@ function App(): React.JSX.Element {
     setActiveAction('removeRecent')
     try {
       setRecentProjects(await window.desktop.projects.removeRecent({ projectId }))
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.removeRecent)
     } finally {
       setActiveAction(null)
@@ -385,7 +395,8 @@ function App(): React.JSX.Element {
     setActiveAction('snapshot')
     try {
       await window.desktop.projects.createSnapshot({ projectSessionId })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.snapshot)
     } finally {
       setActiveAction(null)
@@ -403,7 +414,8 @@ function App(): React.JSX.Element {
       } else {
         await refreshLifecycle()
       }
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.clone)
       await refreshLifecycle()
     } finally {
@@ -420,7 +432,8 @@ function App(): React.JSX.Element {
       setTemplateDescription('')
       setIncludeTemplatePreset(true)
       setTemplateDialogOpen(true)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.template)
     } finally {
       setActiveAction(null)
@@ -440,7 +453,8 @@ function App(): React.JSX.Element {
         })
       )
       setTemplateDialogOpen(false)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.template)
     } finally {
       setActiveAction(null)
@@ -456,7 +470,8 @@ function App(): React.JSX.Element {
         await window.desktop.projects.deleteTemplate({ templateId: selectedTemplateId })
       )
       setSelectedTemplateId('blank')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.template)
     }
   }, [projectTemplates, selectedTemplateId])
@@ -473,7 +488,8 @@ function App(): React.JSX.Element {
           kind
         })
         if (result.created) setExportResult(result)
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'App')
         if (!exportCancellationRequested.current) notifyActionError(actionErrorMessages.export)
       } finally {
         setActiveAction(null)
@@ -493,7 +509,8 @@ function App(): React.JSX.Element {
         exportCancellationRequested.current = false
         setExportCancelling(false)
       }
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       exportCancellationRequested.current = false
       setExportCancelling(false)
       notifyActionError(actionErrorMessages.export)
@@ -506,7 +523,8 @@ function App(): React.JSX.Element {
       const result = await window.desktop.projects.restoreSnapshot()
       if (result.project) setSnapshot({ state: 'open', activeProject: result.project })
       else await refreshLifecycle()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.snapshot)
       await refreshLifecycle()
     } finally {
@@ -527,7 +545,8 @@ function App(): React.JSX.Element {
         } else {
           setSnapshot(result)
         }
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'App')
         notifyActionError(actionErrorMessages.recovery)
         await refreshLifecycle()
       } finally {
@@ -541,7 +560,8 @@ function App(): React.JSX.Element {
     setActiveAction('recovery')
     try {
       await window.desktop.projects.exportRecoveryDiagnostics()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.recovery)
     } finally {
       setActiveAction(null)
@@ -551,7 +571,8 @@ function App(): React.JSX.Element {
   const runDiagnostics = useCallback(async (action: () => Promise<unknown>): Promise<void> => {
     try {
       await action()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'App')
       notifyActionError(actionErrorMessages.diagnostics)
     }
   }, [])

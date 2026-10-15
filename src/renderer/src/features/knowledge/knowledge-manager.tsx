@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import type { KnowledgeIndexStatus, KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import type { JobStatus } from '../../../../shared/contracts/jobs'
 import type {
@@ -212,7 +213,8 @@ export function KnowledgeManager(props: {
           queryKey: ['reference-items', props.projectSessionId]
         })
       ])
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('One or more knowledge files could not be imported or updated.')
       await itemsQuery.refetch()
     } finally {
@@ -243,7 +245,8 @@ export function KnowledgeManager(props: {
             .map((candidate) => candidate.candidateId)
         )
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('The Zotero bibliography could not be connected or parsed.')
     } finally {
       setBusy(false)
@@ -258,7 +261,8 @@ export function KnowledgeManager(props: {
       queryClient.setQueryData(connectorKey, snapshot)
       if (snapshot !== null) setImportSnapshot(snapshot)
       await queryClient.invalidateQueries({ queryKey: ['reference-items', props.projectSessionId] })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('Zotero sync failed. The last valid project metadata was preserved.')
     } finally {
       setBusy(false)
@@ -292,7 +296,8 @@ export function KnowledgeManager(props: {
           ])
         )
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError(
         'The references could not be prepared. The bibliography may have changed; review the list again.'
       )
@@ -319,7 +324,8 @@ export function KnowledgeManager(props: {
         queryClient.invalidateQueries({ queryKey: key }),
         queryClient.invalidateQueries({ queryKey: jobsKey })
       ])
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       setImportPlan(null)
       setImportOutcomes(null)
       props.onError(
@@ -361,7 +367,8 @@ export function KnowledgeManager(props: {
               })
             }
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('More PDF attachments could not be loaded. Review the import again.')
     } finally {
       setLoadingAttachmentCandidates((current) => {
@@ -407,7 +414,8 @@ export function KnowledgeManager(props: {
           queryKey: ['parsed-knowledge', props.projectSessionId, knowledgeItemId]
         })
       ])
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('MinerU parsing could not be started. Check the MinerU provider settings.')
     } finally {
       setBusy(false)
@@ -421,7 +429,8 @@ export function KnowledgeManager(props: {
         ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
       })
       await queryClient.invalidateQueries({ queryKey: jobsKey })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError(
         embeddingInProgress
           ? 'Embedding is already running. Wait for the current task to finish.'
@@ -443,7 +452,8 @@ export function KnowledgeManager(props: {
             projectSessionId: props.projectSessionId,
             knowledgeItemId: item.knowledgeItemId
           })
-        } catch {
+        } catch (err) {
+          reportRendererOperationError(err, 'knowledge-manager')
           failedCount += 1
         }
       }
@@ -456,7 +466,8 @@ export function KnowledgeManager(props: {
           `${failedCount} ${failedCount === 1 ? 'source' : 'sources'} could not be submitted to MinerU.`
         )
       }
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('The MinerU processing queue could not be refreshed. Please try again.')
     } finally {
       setBusy(false)
@@ -482,7 +493,8 @@ export function KnowledgeManager(props: {
         format,
         scope
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('The bibliography could not be exported.')
     }
   }
@@ -493,7 +505,8 @@ export function KnowledgeManager(props: {
         styleId,
         locale: 'en-US'
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('The citation style could not be changed.')
     }
   }
@@ -502,7 +515,8 @@ export function KnowledgeManager(props: {
       await window.desktop.knowledge.chooseCustomReferenceStyle({
         projectSessionId: props.projectSessionId
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('The CSL file is invalid or is not an in-text citation style.')
     }
   }
@@ -513,7 +527,8 @@ export function KnowledgeManager(props: {
           projectSessionId: props.projectSessionId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError('Legacy citations could not be analyzed.')
     }
   }
@@ -564,7 +579,8 @@ export function KnowledgeManager(props: {
           `${result.pendingRepairSectionIds.length} converted section mirrors need repair. The database changes remain saved.`
         )
       }
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'knowledge-manager')
       props.onError(
         'Legacy citation conversion could not finish. Reload the manuscript before trying again.'
       )
@@ -773,7 +789,8 @@ export function KnowledgeManager(props: {
                       queryKey: ['parsed-knowledge', props.projectSessionId, selectedItemId]
                     })
                   ])
-                } catch {
+                } catch (err) {
+                  reportRendererOperationError(err, 'knowledge-manager')
                   props.onError('MinerU parsing could not be stopped. Please try again.')
                 } finally {
                   setBusy(false)

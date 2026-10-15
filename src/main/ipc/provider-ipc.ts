@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { randomUUID } from 'node:crypto'
 import type { AuthEvent, AuthPrompt } from '@earendil-works/pi-ai'
 import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
@@ -228,7 +229,8 @@ export function registerProviderIpc({
       })
       return providerSettingsSnapshotSchema.parse(snapshot)
     } catch (err) {
-      logger.error(
+      reportIpcFailure(
+        logger,
         {
           event: 'agent.provider_auth.login_failed',
           err,

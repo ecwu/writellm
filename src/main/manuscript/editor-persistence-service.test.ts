@@ -10,6 +10,11 @@ import { EditorPersistenceService, sectionMaterializationPath } from './editor-p
 import { ManuscriptService } from './manuscript-service'
 import * as sectionContent from './content'
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, readFile: vi.fn(original.readFile) }
+})
+
 const roots: string[] = []
 const log = pino({ level: 'silent' })
 const paragraph = (id: string, text: string) => ({
@@ -347,6 +352,42 @@ describe('EditorPersistenceService', () => {
     expect(persistence.openEditor().activeSection?.revision.content[0]?.id).toBe('post-commit')
     database.close()
   })
+
+  it.each(['EACCES', 'EIO'])(
+    'reports a mirror read failure %s and leaves the existing file untouched',
+    async (code) => {
+      const { projectRoot, database, manuscript, persistence, manifest } = await fixture()
+      const opened = persistence.openEditor().activeSection
+      if (!opened) throw new Error('Missing section')
+      await persistence.materialize(opened.revision)
+      const path = resolveProjectPath(
+        projectRoot,
+        sectionMaterializationPath(opened.section.sectionId)
+      )
+      const original = await readFile(path)
+      const error = vi.fn()
+      const repair = new EditorPersistenceService({
+        projectRoot,
+        projectId: manifest.projectId,
+        database,
+        manuscript,
+        log: { info: vi.fn(), warn: vi.fn(), error }
+      })
+      const failure = Object.assign(new Error('Injected mirror read failure'), { code })
+      vi.mocked(readFile).mockRejectedValueOnce(failure)
+      await repair.repairAll()
+      expect(error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'editor.materialization.repair_failed',
+          sectionId: opened.section.sectionId,
+          err: failure
+        }),
+        expect.any(String)
+      )
+      expect(await readFile(path)).toEqual(original)
+      database.close()
+    }
+  )
 
   it('repairs a file published before its materialization metadata commit', async () => {
     const afterRename = vi.fn(async () => {

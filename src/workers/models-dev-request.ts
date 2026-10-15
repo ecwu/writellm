@@ -92,14 +92,11 @@ function findMatch(catalog: Catalog, baseUrl: string, configuredModel: string): 
 }
 
 function sameApi(catalogApi: string, configuredBaseUrl: string): boolean {
-  try {
-    const left = new URL(catalogApi)
-    const right = new URL(configuredBaseUrl)
-    const normalizePath = (path: string): string => path.replace(/\/+$/, '') || '/'
-    return (
-      left.origin === right.origin && normalizePath(left.pathname) === normalizePath(right.pathname)
-    )
-  } catch {
-    return false
-  }
+  if (!URL.canParse(catalogApi) || !URL.canParse(configuredBaseUrl)) return false
+  const left = new URL(catalogApi)
+  const right = new URL(configuredBaseUrl)
+  const normalizePath = (path: string): string => path.replace(/\/+$/, '') || '/'
+  return (
+    left.origin === right.origin && normalizePath(left.pathname) === normalizePath(right.pathname)
+  )
 }

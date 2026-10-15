@@ -71,6 +71,7 @@ export class ProviderProbeClient {
         if (response.type === 'error') throw new Error('Provider probe returned an error response')
         return {
           status: response.status,
+          ...(response.invalidResponse === true ? { invalidResponse: true as const } : {}),
           ...(response.providerCode === undefined ? {} : { providerCode: response.providerCode })
         }
       })

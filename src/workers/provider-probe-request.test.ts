@@ -136,6 +136,42 @@ describe('provider utility probe request', () => {
     }
   )
 
+  it.each([200, 503])(
+    'handles a non-JSON MinerU response with HTTP %s without exposing its body',
+    async (status) => {
+      const report = vi.fn()
+      const result = await runProviderProbeRequest(
+        {
+          ...request,
+          config: {
+            ...request.config,
+            role: 'mineru',
+            providerId: 'mineru',
+            baseUrl: 'https://mineru.net',
+            model: 'vlm',
+            modelRevision: 'vlm-r1',
+            batchLimit: 200,
+            fileSizeLimitMb: 200
+          }
+        },
+        vi.fn(async () => new Response('Private response body', { status })),
+        undefined,
+        undefined,
+        report
+      )
+      expect(result).toEqual({
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: request.projectSessionId ?? null,
+        status,
+        ...(status === 200 ? { invalidResponse: true } : {})
+      })
+      expect(JSON.stringify(result)).not.toContain('Private response body')
+      expect(report).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+      if (status === 200) expect(report.mock.calls[0]?.[0]).toBeInstanceOf(SyntaxError)
+    }
+  )
+
   it('returns only MinerU authentication codes from the bounded response body', async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (input) => {
       expect(String(input)).toBe('https://mineru.net/api/v4/extract/task/__writellm_probe__')

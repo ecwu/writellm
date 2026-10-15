@@ -586,6 +586,14 @@ export class ProjectManager {
     })
   }
 
+  isSessionActive(projectSessionId: string): boolean {
+    return (
+      this.#state === 'open' &&
+      this.#context !== null &&
+      this.#context.projectSessionId === projectSessionId
+    )
+  }
+
   assertActiveSession(projectSessionId: string): ProjectContext {
     if (
       this.#state !== 'open' ||

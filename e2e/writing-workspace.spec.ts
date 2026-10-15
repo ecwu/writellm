@@ -1227,7 +1227,15 @@ test(
 
       await closeProject(launched.page)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
-      await expectActiveProject(launched.page, projectName)
+      // Reopen restores the selected tool. Outline's project header can remain hidden.
+      await expect
+        .poll(
+          async () =>
+            (await launched.page.evaluate(() => window.desktop.projects.lifecycle())).activeProject
+              ?.displayName
+        )
+        .toBe(projectName)
+      await expect(launched.page.getByTestId('workbench-status-bar')).toBeVisible()
       await launched.page.getByRole('button', { name: 'Writing rules', exact: true }).click()
       await expect(
         launched.page
@@ -1607,22 +1615,47 @@ test(
 
       const title = outline.getByLabel('Title', { exact: true })
       await title.fill('Local outline draft')
-      await launched.page.evaluate(async () => {
-        const lifecycle = await window.desktop.projects.lifecycle()
-        const projectSessionId = lifecycle.activeProject?.projectSessionId
-        if (!projectSessionId) throw new Error('Project session missing')
-        const workspace = await window.desktop.manuscript.workspace({ projectSessionId })
-        const sectionId = workspace.sections[0]?.section.sectionId
-        if (!sectionId) throw new Error('Section missing')
-        await window.desktop.manuscript.updateSection({
-          projectSessionId,
-          update: {
-            baseOutlineVersion: workspace.outlineVersion,
-            sectionId,
-            title: 'External outline title'
-          }
-        })
-      })
+      // Commit a competing write after the UI request captures its base version.
+      // This avoids a race with pending workspace refetches after section deletion.
+      await launched.app.evaluate(
+        ({ ipcMain }, { updateChannel, workspaceChannel }) => {
+          const handlers = (
+            ipcMain as unknown as {
+              _invokeHandlers: Map<string, (...args: unknown[]) => Promise<unknown>>
+            }
+          )._invokeHandlers
+          const update = handlers.get(updateChannel)
+          const workspace = handlers.get(workspaceChannel)
+          if (!update || !workspace) throw new Error('Manuscript handler missing')
+          let injected = false
+          ipcMain.removeHandler(updateChannel)
+          ipcMain.handle(updateChannel, async (event, raw) => {
+            const input = raw as {
+              projectSessionId: string
+              update: { sectionId: string; baseOutlineVersion: number; title?: string }
+            }
+            if (!injected && input.update.title === 'Local outline draft') {
+              injected = true
+              const current = (await workspace(event, {
+                projectSessionId: input.projectSessionId
+              })) as { outlineVersion: number }
+              await update(event, {
+                ...input,
+                update: {
+                  ...input.update,
+                  baseOutlineVersion: current.outlineVersion,
+                  title: 'External outline title'
+                }
+              })
+            }
+            return update(event, raw)
+          })
+        },
+        {
+          updateChannel: IPC_CHANNELS.manuscriptUpdateSection,
+          workspaceChannel: IPC_CHANNELS.manuscriptGetWorkspace
+        }
+      )
       await title.press('Tab')
       await expect(outline.getByText(/Outline changed elsewhere|Changes not saved/)).toBeVisible()
       await expect(title).toHaveValue('Local outline draft')

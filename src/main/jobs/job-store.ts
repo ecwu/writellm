@@ -20,7 +20,6 @@ import {
 
 const MAX_PAYLOAD_BYTES = 16_384
 const MAX_PROGRESS_BYTES = 4_096
-const MAX_ERROR_BYTES = 8_000
 const MAX_JSON_DEPTH = 8
 const MAX_LEASE_MS = 60 * 60 * 1_000
 const forbiddenPayloadKeys = new Set([
@@ -411,16 +410,20 @@ export class JobStore {
         retryable: candidate.retryable === true
       }
     } catch (err) {
-      this.#log.error(
-        {
-          event: 'queue.job.failure_classification_failed',
-          err,
-          projectId: this.#projectId,
-          jobId: lease.jobId,
-          attempt: lease.attempt
-        },
-        'Project job failure classification failed'
-      )
+      try {
+        this.#log.error(
+          {
+            event: 'queue.job.failure_classification_failed',
+            err,
+            projectId: this.#projectId,
+            jobId: lease.jobId,
+            attempt: lease.attempt
+          },
+          'Project job failure classification failed'
+        )
+      } catch {
+        // Classification reporting also cannot block failure archival.
+      }
       classification = { code: 'job_execution_failed', retryable: false }
     }
     const errorJson = serializeJobError(classification, lease.attempt, nowDate)
@@ -603,7 +606,6 @@ export class JobStore {
   recoverExpiredLeases(): { recovered: number; cancelled: number; failed: number } {
     const nowDate = this.#now()
     const now = nowDate.toISOString()
-    const errorJson = serializeJobError({ code: 'lease_expired', retryable: true }, 1, nowDate)
     const result = this.#database.immediate((database) => {
       const expired = database
         .prepare("SELECT * FROM jobs WHERE state = 'running' AND locked_until <= ? ORDER BY job_id")
@@ -617,7 +619,11 @@ export class JobStore {
               ? 'failed'
               : 'queued'
         const completedAt = state === 'queued' ? null : now
-        const perAttemptError = replaceErrorAttempt(errorJson, row.attempts)
+        const perAttemptError = serializeJobError(
+          { code: 'lease_expired', retryable: true },
+          row.attempts,
+          nowDate
+        )
         const updated = database
           .prepare(
             `UPDATE jobs
@@ -969,40 +975,15 @@ function serializeJobError(
   attempt: number,
   now: Date
 ): string {
-  try {
-    const code = jobErrorCodeSchema.safeParse(classification.code).data ?? 'job_execution_failed'
-    const value = jobErrorSchema.parse({
-      code,
-      message: truncateUtf8(JOB_ERROR_MESSAGES[code], 2_048),
-      retryable: classification.retryable === true,
-      attempt: Math.max(1, Math.floor(Number.isFinite(attempt) ? attempt : 1)),
-      recordedAt: now.toISOString()
-    })
-    const serialized = JSON.stringify(value)
-    return Buffer.byteLength(serialized, 'utf8') < MAX_ERROR_BYTES
-      ? serialized
-      : '{"code":"job_execution_failed","message":"Job execution failed","retryable":false,"attempt":1,"recordedAt":"1970-01-01T00:00:00.000Z"}'
-  } catch {
-    return '{"code":"job_execution_failed","message":"Job execution failed","retryable":false,"attempt":1,"recordedAt":"1970-01-01T00:00:00.000Z"}'
-  }
-}
-
-function truncateUtf8(value: string, maxBytes: number): string {
-  let result = ''
-  for (const character of value) {
-    if (Buffer.byteLength(result + character, 'utf8') > maxBytes) break
-    result += character
-  }
-  return result
-}
-
-function replaceErrorAttempt(serialized: string, attempt: number): string {
-  try {
-    const parsed = jobErrorSchema.parse(JSON.parse(serialized))
-    return serializeJobError(parsed, attempt, new Date(parsed.recordedAt))
-  } catch {
-    return serialized
-  }
+  // Closed codes and fixed messages keep this JSON below the 8,000-byte database bound.
+  // Lease attempts and the clock are already valid at each caller; keep their real values.
+  return JSON.stringify({
+    code: classification.code,
+    message: JOB_ERROR_MESSAGES[classification.code],
+    retryable: classification.retryable,
+    attempt,
+    recordedAt: now.toISOString()
+  } satisfies JobError)
 }
 
 function integerInRange(value: number, minimum: number, maximum: number, name: string): number {

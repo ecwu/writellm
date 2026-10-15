@@ -65,6 +65,29 @@ describe('ProviderProbeClient', () => {
     expect(child.kill).not.toHaveBeenCalled()
   })
 
+  it('preserves an invalid successful response instead of reporting a successful connection', async () => {
+    const child = new FakeUtilityProcess()
+    child.postMessage.mockImplementation((request) => {
+      queueMicrotask(() =>
+        child.emit('message', {
+          type: 'result',
+          requestId: request.requestId,
+          status: 200,
+          invalidResponse: true
+        })
+      )
+    })
+    const client = new ProviderProbeClient(
+      '/private/provider-probe.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never
+    )
+    await expect(
+      client.probe(config, 'process-secret', new AbortController().signal)
+    ).resolves.toEqual({ status: 200, invalidResponse: true })
+    client.terminate()
+  })
+
   it('revokes a running utility process when the request is aborted', async () => {
     const child = new FakeUtilityProcess()
     child.postMessage.mockImplementation(() => undefined)

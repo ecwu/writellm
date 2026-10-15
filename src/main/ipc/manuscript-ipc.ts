@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -114,7 +115,8 @@ export function registerManuscriptIpc(options: {
       try {
         sender.send(IPC_CHANNELS.manuscriptReplacementChanged, parsed)
       } catch (err) {
-        options.logger.error(
+        reportIpcFailure(
+          options.logger,
           {
             event: 'manuscript.replacement_change.notification_failed',
             err,
@@ -150,7 +152,8 @@ export function registerManuscriptIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: `${event}.failed`,
           err,
@@ -160,6 +163,13 @@ export function registerManuscriptIpc(options: {
         },
         'Manuscript IPC operation failed'
       )
+      if (
+        err instanceof Error &&
+        'code' in err &&
+        (err.code === 'brief_version_conflict' || err.code === 'outline_version_conflict')
+      ) {
+        throw new Error(`[${err.code}] ${err.message}`, { cause: err })
+      }
       throw err
     }
   }
@@ -182,7 +192,8 @@ export function registerManuscriptIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'manuscript.workspace.load_failed',
           err,
@@ -215,7 +226,8 @@ export function registerManuscriptIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'manuscript.references.load_failed',
           err,
@@ -279,7 +291,8 @@ export function registerManuscriptIpc(options: {
             context.editorPersistence.loadSection(created.sectionId).revision
           )
         } catch (err) {
-          options.logger.error(
+          reportIpcFailure(
+            options.logger,
             {
               event: 'manuscript.section.initial_materialization_failed',
               err,
@@ -346,7 +359,8 @@ export function registerManuscriptIpc(options: {
         try {
           await context.editorPersistence.removeMaterialization(parsed.delete.sectionId)
         } catch (err) {
-          options.logger.error(
+          reportIpcFailure(
+            options.logger,
             {
               event: 'manuscript.section.materialization_delete_failed',
               err,

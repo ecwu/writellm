@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../diagnostics'
 import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 export { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
@@ -188,7 +189,8 @@ export function SettingsCommand({
   const selectTheme = async (next: ThemePreference): Promise<void> => {
     try {
       await setPreference(next)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'settings-command')
       onError('Theme preference could not be saved.')
     }
   }
@@ -196,7 +198,8 @@ export function SettingsCommand({
   const selectAccent = async (next: AccentPreference): Promise<void> => {
     try {
       await setAccent(next)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'settings-command')
       onError('Accent preference could not be saved.')
     }
   }
@@ -204,7 +207,8 @@ export function SettingsCommand({
   const selectApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
     try {
       setApprovalMode(await window.desktop.app.setDefaultAgentApprovalMode({ mode }))
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'settings-command')
       onError('Default Agent approval mode could not be saved.')
     }
   }
@@ -212,7 +216,8 @@ export function SettingsCommand({
   const selectCitationDisplayMode = async (mode: CitationDisplayMode): Promise<void> => {
     try {
       await setCitationDisplayMode(mode)
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'settings-command')
       onError('Citation display preference could not be saved.')
     }
   }

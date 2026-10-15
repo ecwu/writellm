@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { dialog, ipcMain, type BrowserWindow, type IpcMain, type WebContents } from 'electron'
 import { basename, join } from 'node:path'
 import type { Logger } from 'pino'
@@ -88,7 +89,7 @@ export interface RegisterProjectIpcOptions {
   selectCloneDestinationForTest?: () => Promise<string | null>
 }
 
-const operationError = (message: string): Error => new Error(message)
+const operationError = (message: string, cause: unknown): Error => new Error(message, { cause })
 
 export function registerProjectIpc(options: RegisterProjectIpcOptions): () => void {
   const ipc = options.ipc ?? ipcMainAdapter
@@ -261,11 +262,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const recentProjects = await options.recentProjects.list()
       return recentProjectsSchema.parse(recentProjects.slice(0, 5))
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recent_list.failed', err },
         'Failed to load recent projects'
       )
-      throw operationError('Unable to load recent projects')
+      throw operationError('Unable to load recent projects', err)
     }
   })
 
@@ -280,11 +282,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       )
       return recentProjectsSchema.parse((await options.recentProjects.list()).slice(0, 5))
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recent.remove_failed', projectId, err },
         'Failed to remove recent project'
       )
-      throw operationError('Unable to remove recent project')
+      throw operationError('Unable to remove recent project', err)
     }
   })
 
@@ -297,11 +300,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       template =
         templateId === undefined ? undefined : await options.projectTemplates.resolve(templateId)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_templates.resolve_failed', err, templateId },
         'Selected project template resolution failed'
       )
-      throw operationError('Unable to use the selected project template')
+      throw operationError('Unable to use the selected project template', err)
     }
     const parentDirectory = await selectFolder('create')
     if (parentDirectory === null) return projectSelectionResultSchema.parse({ project: null })
@@ -318,11 +322,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
             )
       return projectSelectionResultSchema.parse({ project: finalSnapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_create.failed', err },
         'Project create request failed'
       )
-      throw operationError('Unable to create the project')
+      throw operationError('Unable to create the project', err)
     }
   })
 
@@ -331,11 +336,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectTemplateCatalogSchema.parse(await options.projectTemplates.list())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_templates.list_failed', err },
         'Template list failed'
       )
-      throw operationError('Unable to load project templates')
+      throw operationError('Unable to load project templates', err)
     }
   })
 
@@ -348,11 +354,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         await options.manager.previewTemplateExtraction(projectSessionId, defaultPresetId)
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_templates.preview_failed', err, projectSessionId },
         'Template extraction preview failed'
       )
-      throw operationError('Unable to preview the project template')
+      throw operationError('Unable to preview the project template', err)
     }
   })
 
@@ -371,7 +378,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       })
       return projectTemplateCatalogSchema.parse(await options.projectTemplates.create(template))
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'ipc.project_templates.save_failed',
           err,
@@ -379,7 +387,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         },
         'User template save failed'
       )
-      throw operationError('Unable to save the project template')
+      throw operationError('Unable to save the project template', err)
     }
   })
 
@@ -389,11 +397,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectTemplateCatalogSchema.parse(await options.projectTemplates.delete(templateId))
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_templates.delete_failed', err, templateId },
         'User template deletion failed'
       )
-      throw operationError('Unable to delete the project template')
+      throw operationError('Unable to delete the project template', err)
     }
   })
 
@@ -408,8 +417,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       )
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error({ event: 'ipc.project_open.failed', err }, 'Project open request failed')
-      throw operationError('Unable to open the project')
+      reportIpcFailure(
+        options.logger,
+        { event: 'ipc.project_open.failed', err },
+        'Project open request failed'
+      )
+      throw operationError('Unable to open the project', err)
     }
   })
 
@@ -425,11 +438,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       )
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_open_recent.failed', err, projectId },
         'Recent project open request failed'
       )
-      throw operationError('Unable to open the recent project')
+      throw operationError('Unable to open the recent project', err)
     }
   })
 
@@ -447,11 +461,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       )
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_switch.failed', err, projectSessionId },
         'Project switch request failed'
       )
-      throw operationError('Unable to switch projects')
+      throw operationError('Unable to switch projects', err)
     }
   })
 
@@ -464,11 +479,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(await options.manager.close())
       return snapshot
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_close.failed', err, projectSessionId },
         'Project close request failed'
       )
-      throw operationError('Unable to close the project')
+      throw operationError('Unable to close the project', err)
     }
   })
 
@@ -478,11 +494,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.retryOpen())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.retry_open.failed', err },
         'Project open retry failed'
       )
-      throw operationError('Unable to retry opening the project')
+      throw operationError('Unable to retry opening the project', err)
     }
   })
 
@@ -494,11 +511,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         await options.manager.recoverStaleLockAndRetryOpen()
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.stale_lock.failed', err },
         'Stale project lock recovery failed'
       )
-      throw operationError('Unable to recover the stale project lock')
+      throw operationError('Unable to recover the stale project lock', err)
     }
   })
 
@@ -508,11 +526,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.retryClose())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.retry_close.failed', err },
         'Project close retry failed'
       )
-      throw operationError('Unable to retry closing the project')
+      throw operationError('Unable to retry closing the project', err)
     }
   })
 
@@ -522,11 +541,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.discardIncompleteCreate())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.discard_create.failed', err },
         'Incomplete project discard failed'
       )
-      throw operationError('Unable to discard the incomplete project')
+      throw operationError('Unable to discard the incomplete project', err)
     }
   })
 
@@ -539,11 +559,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = await options.manager.locateMovedProject(selectedRoot)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.locate_moved.failed', err },
         'Moved project recovery failed'
       )
-      throw operationError('Unable to open the located project')
+      throw operationError('Unable to open the located project', err)
     }
   })
 
@@ -553,11 +574,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return await options.manager.exportDiagnostics()
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.export_diagnostics.failed', err },
         'Recovery diagnostics export failed'
       )
-      throw operationError('Unable to export recovery diagnostics')
+      throw operationError('Unable to export recovery diagnostics', err)
     }
   })
 
@@ -567,11 +589,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.returnToClosed())
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_recovery.return_closed.failed', err },
         'Recovery return-to-closed failed'
       )
-      throw operationError('Unable to return to the closed state')
+      throw operationError('Unable to return to the closed state', err)
     }
   })
 
@@ -585,11 +608,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       await options.manager.createSnapshot(projectSessionId, destination)
       return { created: true }
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_snapshot.create.failed', err, projectSessionId },
         'Project snapshot creation failed'
       )
-      throw operationError('Unable to create the project snapshot')
+      throw operationError('Unable to create the project snapshot', err)
     }
   })
 
@@ -605,11 +629,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = await options.manager.restoreSnapshot({ snapshotRoot: source, destination })
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_snapshot.restore.failed', err },
         'Project snapshot restore failed'
       )
-      throw operationError('Unable to restore the project snapshot')
+      throw operationError('Unable to restore the project snapshot', err)
     }
   })
 
@@ -627,11 +652,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       revokeSession(projectSessionId)
       return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_clone.failed', err, projectSessionId },
         'Project clone request failed'
       )
-      throw operationError('Unable to clone the project')
+      throw operationError('Unable to clone the project', err)
     }
   })
 
@@ -675,7 +701,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         ...(published.lossReport === undefined ? {} : { lossReport: published.lossReport })
       })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'ipc.project_manuscript_export.failed',
           err,
@@ -684,7 +711,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         },
         'Whole-manuscript export request failed'
       )
-      throw operationError('Unable to export the manuscript')
+      throw operationError('Unable to export the manuscript', err)
     }
   })
 
@@ -708,11 +735,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       options.manager.assertActiveSession(projectSessionId)
       return versionHistoryStatusSchema.parse({ state, promptDismissed })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_history.status_failed', err, projectSessionId },
         'Project version history status failed'
       )
-      throw operationError('Unable to inspect project version history')
+      throw operationError('Unable to inspect project version history', err)
     }
   })
 
@@ -725,11 +753,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       options.manager.assertActiveSession(projectSessionId)
       return versionHistoryStatusSchema.parse({ state: 'uninitialized', promptDismissed: true })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_history.dismiss_prompt_failed', err, projectSessionId },
         'Project version history prompt dismissal failed'
       )
-      throw operationError('Unable to dismiss the version history prompt')
+      throw operationError('Unable to dismiss the version history prompt', err)
     }
   })
 
@@ -740,11 +769,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const checkpoint = await options.manager.enableVersionHistory(projectSessionId)
       return checkpointOperationResultSchema.parse({ checkpoint })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_history.enable_failed', err, projectSessionId },
         'Project version history enable failed'
       )
-      throw operationError('Unable to enable project version history')
+      throw operationError('Unable to enable project version history', err)
     }
   })
 
@@ -758,7 +788,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       })
       return checkpointOperationResultSchema.parse({ checkpoint })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'ipc.project_history.create_checkpoint_failed',
           err,
@@ -766,7 +797,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         },
         'Project checkpoint creation failed'
       )
-      throw operationError('Unable to create the checkpoint')
+      throw operationError('Unable to create the checkpoint', err)
     }
   })
 
@@ -781,7 +812,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         })
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'ipc.project_history.list_checkpoints_failed',
           err,
@@ -789,7 +821,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         },
         'Project checkpoint listing failed'
       )
-      throw operationError('Unable to load version history')
+      throw operationError('Unable to load version history', err)
     }
   })
 
@@ -801,11 +833,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         await options.manager.compareCheckpointState(projectSessionId)
       )
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_history.compare_state_failed', err, projectSessionId },
         'Project checkpoint state comparison failed'
       )
-      throw operationError('Unable to compare the current project state')
+      throw operationError('Unable to compare the current project state', err)
     }
   })
 
@@ -822,7 +855,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         project: restored.snapshot.activeProject
       })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'ipc.project_history.restore_checkpoint_failed',
           err,
@@ -831,7 +865,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         },
         'Project checkpoint restore failed'
       )
-      throw operationError('Unable to restore the checkpoint')
+      throw operationError('Unable to restore the checkpoint', err)
     }
   })
 
@@ -842,11 +876,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const checkpoint = await options.manager.reinitializeVersionHistory(projectSessionId)
       return checkpointOperationResultSchema.parse({ checkpoint })
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         { event: 'ipc.project_history.reinitialize_failed', err, projectSessionId },
         'Project version history reinitialization failed'
       )
-      throw operationError('Unable to reinitialize project version history')
+      throw operationError('Unable to reinitialize project version history', err)
     }
   })
 

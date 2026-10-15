@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import type { KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import {
   NOTEBOOK_MAX_QUESTION_BYTES,
@@ -254,7 +255,8 @@ export function NotebookWorkspace(
     setCommandBusy(true)
     try {
       applySnapshot(await operation())
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'notebook-workspace')
       props.onError(failureMessage)
     } finally {
       setCommandBusy(false)
@@ -273,7 +275,8 @@ export function NotebookWorkspace(
       })
       applySnapshot(result.snapshot)
       setComposer('')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'notebook-workspace')
       props.onError('Notebook could not start that question. Check sources and model settings.')
     } finally {
       setCommandBusy(false)
@@ -305,7 +308,8 @@ export function NotebookWorkspace(
         loading: false,
         unavailable: expanded.length === 0
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'notebook-workspace')
       setCitationDialog({ citation, expanded: null, loading: false, unavailable: true })
     }
   }

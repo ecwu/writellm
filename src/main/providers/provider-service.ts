@@ -42,6 +42,7 @@ type AgentCatalog = Pick<
 >
 
 export interface ConnectionProbeResult {
+  invalidResponse?: true
   status: number
   providerCode?: string
 }
@@ -510,6 +511,15 @@ export class ProviderService {
           config.role === 'image' && config.providerId === 'google-vertex'
             ? 'Vertex could not use local ADC for this project. Check the active account, project access, and roles/aiplatform.user.'
             : 'Provider rejected the credential.',
+          startedAt
+        )
+      }
+      if (response.invalidResponse === true) {
+        // The Worker reports the original parser error without the response body.
+        return result(
+          false,
+          'provider_rejected',
+          'Provider returned an invalid response.',
           startedAt
         )
       }

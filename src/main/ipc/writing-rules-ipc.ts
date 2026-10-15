@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { randomUUID } from 'node:crypto'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
@@ -32,7 +33,8 @@ export function registerWritingRulesIpc(options: {
       )
       return result
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: `${eventName}.failed`,
           err,
@@ -51,7 +53,7 @@ export function registerWritingRulesIpc(options: {
       const context = options.manager.assertMutationSession(input.projectSessionId)
       const brief = context.manuscript.getBrief()
       if (brief.version !== input.baseBriefVersion) {
-        throw new Error('Brief version changed; refresh Writing Rules')
+        throw new Error('[brief_version_conflict] Brief version changed; refresh Writing Rules')
       }
       const operations: WritingRuleOperation[] = input.operations.map((operation) =>
         operation.type === 'add'

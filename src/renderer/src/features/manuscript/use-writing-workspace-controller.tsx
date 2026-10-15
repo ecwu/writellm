@@ -1,3 +1,4 @@
+import { manuscriptFailureMessage, reportRendererOperationError } from '../../diagnostics'
 import { useManuscriptReferences } from './use-manuscript-references'
 export { resolveReadableCitationOccurrences } from './use-manuscript-references'
 import { useManuscriptImport } from './use-manuscript-import'
@@ -286,8 +287,14 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     async (operation: () => Promise<ManuscriptWorkspace>): Promise<ManuscriptWorkspace | null> => {
       try {
         return await mutation.mutateAsync(operation)
-      } catch {
-        props.onError('The manuscript changed or the requested update could not be applied.')
+      } catch (err) {
+        reportRendererOperationError(err, 'use-writing-workspace-controller')
+        props.onError(
+          manuscriptFailureMessage(
+            err,
+            'The requested manuscript update failed. Try again or open Diagnostics.'
+          )
+        )
         return null
       }
     },
@@ -388,7 +395,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         pendingScrollSectionIdRef.current = source === 'agent' ? sectionId : null
         await activateSection(sectionId)
         return true
-      } catch {
+      } catch (err) {
+        reportRendererOperationError(err, 'use-writing-workspace-controller')
         if (pendingScrollSectionIdRef.current === sectionId) {
           pendingScrollSectionIdRef.current = null
         }
@@ -688,7 +696,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
           queryKey: ['manuscript-references', props.projectSessionId]
         })
       ])
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'use-writing-workspace-controller')
       props.onError('The applied Agent change could not be refreshed.')
     }
   }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
@@ -906,7 +915,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       if (sectionId === activeSectionId && fallbackId !== null) {
         try {
           await activateSection(fallbackId)
-        } catch {
+        } catch (err) {
+          reportRendererOperationError(err, 'use-writing-workspace-controller')
           props.onError('The remaining section could not be activated.')
         }
       }
@@ -920,7 +930,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       await queryClient.invalidateQueries({
         queryKey: ['manuscript-preview', props.projectSessionId]
       })
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'use-writing-workspace-controller')
       props.onError('The manuscript preview could not be refreshed.')
     }
   }
@@ -932,7 +943,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     if (!(await flushCurrent())) return
     try {
       await action()
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'use-writing-workspace-controller')
       props.onError(failureMessage)
     }
   }

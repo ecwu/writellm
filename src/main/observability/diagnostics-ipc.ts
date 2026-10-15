@@ -1,3 +1,4 @@
+import { reconstructAgentDiagnosticError } from '../../shared/agent-diagnostic-error'
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMain } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
@@ -29,8 +30,12 @@ export function registerDiagnosticsIpc(
     try {
       authorizeSender(event.senderFrame, developmentUrl)
       const report = rendererErrorReportSchema.parse(input)
-      const err = new Error(report.message)
-      if (report.stack !== undefined) err.stack = report.stack
+      // Renderer diagnostics are bounded untrusted evidence, never operation authority.
+      const err =
+        report.diagnostic === undefined
+          ? new Error(report.message)
+          : reconstructAgentDiagnosticError(report.diagnostic)
+      if (report.diagnostic === undefined && report.stack !== undefined) err.stack = report.stack
       log.error(
         {
           event: report.event,

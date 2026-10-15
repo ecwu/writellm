@@ -29,7 +29,8 @@ export const providerProbeResponseSchema = z.discriminatedUnion('type', [
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema.nullable().optional(),
     status: z.number().int().min(100).max(599),
-    providerCode: z.string().max(100).optional()
+    providerCode: z.string().max(100).optional(),
+    invalidResponse: z.literal(true).optional()
   }),
   z.object({
     type: z.literal('error'),

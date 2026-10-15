@@ -1,3 +1,4 @@
+import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useId, useState } from 'react'
 import { AlertCircle, Check, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react'
 import type {
@@ -103,7 +104,8 @@ export function ImageProviderWorkspace({
       })
       onSnapshotChange(next)
       setApiKey('')
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'image-provider-settings')
       onError('Image provider configuration was not saved.')
     } finally {
       setBusy(null)
@@ -119,7 +121,8 @@ export function ImageProviderWorkspace({
           providerId: selectedProviderId
         })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'image-provider-settings')
       onError('The image provider connection test could not be completed.')
     } finally {
       setBusy(null)
@@ -132,7 +135,8 @@ export function ImageProviderWorkspace({
       onSnapshotChange(
         await window.desktop.providers.setActiveImage({ providerId: selectedProviderId })
       )
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'image-provider-settings')
       onError('The image provider could not be activated.')
     } finally {
       setBusy(null)
@@ -150,7 +154,8 @@ export function ImageProviderWorkspace({
       )
       setConfirmRemove(false)
       setConfig(defaultImageConfig(selectedProviderId))
-    } catch {
+    } catch (err) {
+      reportRendererOperationError(err, 'image-provider-settings')
       onError('The image provider configuration could not be removed.')
     } finally {
       setBusy(null)

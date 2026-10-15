@@ -1,3 +1,4 @@
+import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
@@ -34,7 +35,8 @@ export function registerSearchIpc(options: {
       options.manager.assertActiveSession(input.projectSessionId)
       return knowledgeSearchResultSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.search.failed',
           err,
@@ -61,7 +63,8 @@ export function registerSearchIpc(options: {
       options.manager.assertActiveSession(input.projectSessionId)
       return citationExpansionResultSchema.parse(result)
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.citation_expansion.failed',
           err,
@@ -110,7 +113,8 @@ export function registerSearchIpc(options: {
       )
       return parsed
     } catch (err) {
-      options.logger.error(
+      reportIpcFailure(
+        options.logger,
         {
           event: 'knowledge.readable_citation_resolution.failed',
           err,
