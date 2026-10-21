@@ -1,6 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Issue 18 engineering maintenance and Issue 2 compatible dependency maintenance pass local macOS arm64 acceptance. Release 0.2026.10.2 is published.
+Status: Issue 18 maintenance is committed, pushed, and closed after local macOS arm64 acceptance.
+Issue 2 compatible dependency maintenance passes local acceptance. Release 0.2026.10.2 is published.
 Recorded: 2026-10-21
 
 This file owns current delivery state, acceptance gates, and platform gaps.
@@ -22,6 +23,9 @@ The provider Settings scenario also passes against the packaged App.
 The local App, DMG, and ZIP retain version 0.2026.10.2 and correspond to the verified combined runtime source.
 [Issue 18 evidence](history/implementation-log.md#2026-10-21-issue-18-engineering-quality) records fixes, retained boundaries, prior failures, and verification.
 Further ownership-based decomposition and general service test fixture consolidation remain deferred, non-blocking maintenance under ADR 086.
+[Commit 7da0fc8](https://github.com/ecwu/writellm/commit/7da0fc8a4417932553c49233ea9f72a8caf01d19) is pushed to `main`.
+[Issue 18](https://github.com/ecwu/writellm/issues/18) is updated and closed as completed.
+[Delivery evidence](history/implementation-log.md#2026-10-21-issue-18-delivery) records the follow-up authorization and closure.
 
 Issue 2 compatible maintenance updates 24 direct dependencies and repairs three transitive dependency advisories.
 The final Electron suite passes 1,848 tests, with three optional benchmarks skipped.
@@ -89,6 +93,7 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 The authorized Issue 18 maintenance passes local acceptance for the combined source.
 The changes retain existing security, data integrity, and provider capability boundaries.
 The user authorizes committing and pushing the combined maintenance and updating and closing Issue 18.
+That delivery is complete. The issue update records the accepted boundaries and local platform limits.
 
 The user authorizes all safe dependency updates after the 2026-10-15 Issue 2 review.
 The compatible batch covers 24 direct dependencies and three transitive security repairs under ADR 056.
