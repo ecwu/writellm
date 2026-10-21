@@ -126,7 +126,9 @@ export async function extractBoundedZip(
           await output.sync()
         } catch (err) {
           source.destroy()
+          // error-handling: allow owner=bounded-zip reason=cleanup-preserves-original
           await output.close().catch(() => undefined)
+          // error-handling: allow owner=bounded-zip reason=cleanup-preserves-original
           await rm(destination, { force: true }).catch(() => undefined)
           throw err
         }

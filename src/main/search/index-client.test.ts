@@ -204,4 +204,17 @@ describe('IndexClient protocol boundaries', () => {
     await expect(pending).rejects.toThrow('request ID is not pending')
     expect(child.killed).toBe(true)
   })
+
+  it('terminates the index worker when a request is cancelled', async () => {
+    const { client, child, sessionId } = fixture()
+    await initialize(client, child, sessionId)
+    const controller = new AbortController()
+    const pending = client.inspect(controller.signal)
+    await flushRequestPosts()
+
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(child.killed).toBe(true)
+  })
 })

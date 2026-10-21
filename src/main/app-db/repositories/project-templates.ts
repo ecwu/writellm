@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Logger } from 'pino'
@@ -9,6 +9,7 @@ import {
   type ProjectTemplate,
   type ProjectTemplateSummary
 } from '../../../shared/contracts/project-templates'
+import { sha256 } from '../../../shared/hash'
 import { writeAtomicFile } from '../../storage/atomic-file'
 import type { AppDatabase } from '../connection'
 import builtInTemplateResource from '../../project/built-in-project-templates.json'
@@ -210,8 +211,4 @@ function summary(
 function safeRelativePath(value: string): string {
   if (!/^[0-9a-f-]{36}\.json$/u.test(value)) throw new Error('Template path is invalid')
   return value
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

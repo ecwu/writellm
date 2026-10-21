@@ -234,6 +234,7 @@ export class ProjectWriteLock {
   #startHeartbeat(): void {
     if (this.#heartbeatIntervalMs <= 0) return
     this.#timer = this.#dependencies.setInterval(() => {
+      // error-handling: allow owner=project-lock reason=heartbeat-background
       void this.heartbeat().catch(() => undefined)
     }, this.#heartbeatIntervalMs)
     this.#timer.unref?.()
@@ -241,6 +242,7 @@ export class ProjectWriteLock {
 
   heartbeat(): Promise<void> {
     const operation = this.#operation.then(() => this.#heartbeatNow())
+    // error-handling: allow owner=project-lock reason=heartbeat-queue-recovery
     this.#operation = operation.catch(() => undefined)
     return operation
   }

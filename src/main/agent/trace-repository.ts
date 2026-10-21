@@ -1,5 +1,7 @@
 import { redactTraceImages } from '../../shared/trace-image-redaction'
-import { createHash, randomUUID } from 'node:crypto'
+import { canonicalizeJson, type CanonicalJsonError } from '../../shared/canonical-json'
+import { sha256 } from '../../shared/hash'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import type { Api } from '@earendil-works/pi-ai'
 import type { ProjectDatabase } from '../project/project-database'
@@ -169,7 +171,7 @@ export class AgentTraceRepository {
       let recordCount = 0
       for (const [documentIndex, document] of prepared.entries()) {
         const metadata = input.documents[documentIndex]?.metadata ?? {}
-        const metadataJson = canonicalJson({
+        const metadataJson = traceCanonicalJson({
           ...metadata,
           _traceDocumentBytes: document.documentBytes
         })
@@ -452,7 +454,10 @@ function prepareDocument(
   documentBytes: number
   chunks: PreparedChunk[]
 } {
-  const normalized = canonicalize(value, new Set())
+  const normalized = canonicalizeJson(value, {
+    omitUndefinedObjectProperties: true,
+    onError: (error) => traceCanonicalJsonError(error)
+  })
   const complete = JSON.stringify(normalized)
   const documentBytes = Buffer.byteLength(complete)
   if (documentBytes > MAX_TRACE_DOCUMENT_BYTES) {
@@ -473,7 +478,7 @@ function prepareDocument(
         path: piece.path,
         json,
         bytes,
-        sha256: createHash('sha256').update(json).digest('hex')
+        sha256: sha256(json)
       }
     })
   }
@@ -507,36 +512,24 @@ function jsonPathMember(key: string): string {
   return `."${key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value, new Set()))
+function traceCanonicalJsonError(error: CanonicalJsonError): AgentTraceCaptureError {
+  const message =
+    error.kind === 'non_finite'
+      ? 'Trace payload has a non-finite number'
+      : error.kind === 'cycle'
+        ? 'Trace payload contains a cycle'
+        : 'Trace payload is not JSON data'
+  return new AgentTraceCaptureError('trace_not_serializable', message, { cause: error })
 }
 
-function canonicalize(value: unknown, seen: Set<object>): unknown {
-  if (value === null || typeof value !== 'object') {
-    if (typeof value === 'bigint' || typeof value === 'function' || typeof value === 'symbol') {
-      throw new AgentTraceCaptureError('trace_not_serializable', 'Trace payload is not JSON data')
-    }
-    if (typeof value === 'number' && !Number.isFinite(value)) {
-      throw new AgentTraceCaptureError(
-        'trace_not_serializable',
-        'Trace payload has a non-finite number'
-      )
-    }
-    return value
+function traceCanonicalJson(value: unknown): string {
+  const normalized = canonicalizeJson(value, {
+    omitUndefinedObjectProperties: true,
+    onError: (error) => traceCanonicalJsonError(error)
+  })
+  const serialized = JSON.stringify(normalized)
+  if (serialized === undefined) {
+    throw new AgentTraceCaptureError('trace_not_serializable', 'Trace payload is not JSON data')
   }
-  if (seen.has(value)) {
-    throw new AgentTraceCaptureError('trace_not_serializable', 'Trace payload contains a cycle')
-  }
-  seen.add(value)
-  try {
-    if (Array.isArray(value)) return value.map((member) => canonicalize(member, seen))
-    const result: Record<string, unknown> = {}
-    for (const key of Object.keys(value).sort()) {
-      const member = (value as Record<string, unknown>)[key]
-      if (member !== undefined) result[key] = canonicalize(member, seen)
-    }
-    return result
-  } finally {
-    seen.delete(value)
-  }
+  return serialized
 }

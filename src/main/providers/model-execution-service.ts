@@ -1,4 +1,5 @@
 import type { Logger } from 'pino'
+import { isAbortError } from '../../shared/abort-error'
 import {
   agentRunInputSchema,
   embeddingBatchInputSchema,
@@ -522,10 +523,6 @@ function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInpu
     aspect_ratio: input.aspectRatio,
     resolution: input.imageSize.toLowerCase()
   }
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
 }
 
 function classifySafeError(error: unknown): SafeModelRequestError {

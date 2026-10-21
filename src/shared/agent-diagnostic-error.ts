@@ -344,6 +344,7 @@ function redactSignedUrls(value: string): string {
       if (url.username || url.password || [...url.searchParams.keys()].some(isSensitiveQueryKey)) {
         return `${REDACTED_URL}${trailing}`
       }
+      // error-handling: allow owner=diagnostic-redaction reason=invalid-url-fallback
     } catch {
       // An invalid URL is still passed through the header/path redactors below.
     }

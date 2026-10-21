@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { sha256 } from '../shared/hash'
 import { open } from 'node:fs/promises'
 import {
   normalizedKnowledgeBlockSchema,
@@ -232,8 +232,4 @@ async function readBounded(path: string, maxBytes: number): Promise<Buffer> {
   } finally {
     await handle.close()
   }
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

@@ -70,9 +70,10 @@ export default class EvidenceReporter implements Reporter {
     this.selectedScenarioIds = [...actual].sort()
 
     for (const test of tests) validateScenarioTags(test, manifest)
-    if (this.suite !== 'focused') {
+    const suiteName = this.suite
+    if (suiteName !== 'focused') {
       const expected = manifest.scenarios
-        .filter((entry) => this.suite === 'full' || entry.tiers.includes(this.suite))
+        .filter((entry) => suiteName === 'full' || entry.tiers.includes(suiteName))
         .map((entry) => entry.id)
         .sort()
       if (JSON.stringify(expected) !== JSON.stringify(this.selectedScenarioIds)) {

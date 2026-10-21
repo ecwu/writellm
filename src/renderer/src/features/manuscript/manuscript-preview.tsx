@@ -16,6 +16,7 @@ import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { WorkspaceRail } from '@/components/app-sidebar'
+import { reportRendererOperationError } from '../../diagnostics'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   Breadcrumb,
@@ -84,6 +85,7 @@ export function safePreviewMarkdownUrl(url: string, key: string): string {
     logicalAssetId(url)
     return url
   } catch {
+    // Invalid asset URLs are expected validation failures. The caller renders a safe fallback.
     return ''
   }
 }
@@ -537,10 +539,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function reportPreviewError(event: string, error: unknown): void {
-  const original = error instanceof Error ? error : new Error(String(error))
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    message: `${event}: ${original.message || 'Markdown preview rendering failed'}`,
-    stack: original.stack
-  })
+  reportRendererOperationError(error, event)
 }

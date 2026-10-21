@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
-import { MessageChannelMain, utilityProcess, type UtilityProcess } from 'electron'
+import { MessageChannelMain, utilityProcess } from 'electron'
+import { createAbortError } from '../../shared/abort-error'
 import type { Logger } from 'pino'
 import {
   indexUtilityInitSchema,
@@ -16,25 +17,21 @@ import {
 } from '../../shared/contracts/indexing'
 import type { LogCollector } from '../observability/log-collector'
 import type { KnowledgeSearchFilters } from '../../shared/contracts/search'
-import { attachUtilityLogPort, captureUtilityStderr } from '../observability/utility-logs'
+import { attachUtilityLogPort } from '../observability/utility-logs'
+import {
+  PersistentUtilityProcess,
+  type PersistentUtilityProcessFactory,
+  type UtilityMessageDecision
+} from '../workers/persistent-utility-process'
+import { reconstructUtilityError } from '../workers/utility-message'
 
-interface PendingRequest {
-  resolve(response: IndexUtilityResponse): void
-  reject(error: unknown): void
-}
-
-export interface IndexUtilityProcessFactory {
-  fork(modulePath: string, args?: string[], options?: Electron.ForkOptions): UtilityProcess
-}
+export type IndexUtilityProcessFactory = PersistentUtilityProcessFactory
 
 export class IndexClient {
-  readonly #pending = new Map<string, PendingRequest>()
-  #child: UtilityProcess | undefined
+  readonly #worker: PersistentUtilityProcess
   #ready: Promise<IndexSnapshot> | undefined
-  #resolveReady: ((snapshot: IndexSnapshot) => void) | undefined
-  #rejectReady: ((error: unknown) => void) | undefined
+  #initializing = false
   #detachLogs: (() => void) | undefined
-  #initialRequestId: string | undefined
   #recovering = false
   #closed = false
 
@@ -49,7 +46,17 @@ export class IndexClient {
       log: Logger
       processFactory?: IndexUtilityProcessFactory
     }
-  ) {}
+  ) {
+    this.#worker = new PersistentUtilityProcess({
+      modulePath: options.modulePath,
+      serviceName: 'writellm-index',
+      log: options.log,
+      factory: options.processFactory ?? utilityProcess,
+      stdio: 'pipe',
+      attachLoggingPort: false,
+      rejectStaleResponses: true
+    })
+  }
 
   async initialize(): Promise<IndexSnapshot> {
     try {
@@ -61,7 +68,7 @@ export class IndexClient {
         { event: 'index.utility.initialization_failed', err, projectId: this.options.projectId },
         'Index utility initialization failed; recreating derived index'
       )
-      this.#terminate(new Error('Index utility initialization recovery'))
+      this.#worker.reset(new Error('Index utility initialization recovery'))
       try {
         await this.#removeDatabaseFamily()
         return await this.#ensureReady()
@@ -314,16 +321,18 @@ export class IndexClient {
 
   async close(): Promise<void> {
     if (this.#closed) return
-    if (this.#resolveReady !== undefined) {
+    if (this.#initializing) {
       this.#closed = true
-      this.#terminate(abortError())
+      this.#detachLogs?.()
+      this.#detachLogs = undefined
+      this.#worker.terminate(abortError())
       return
     }
-    if (this.#child === undefined) {
+    if (!this.#worker.running) {
       this.#closed = true
+      this.#worker.terminate(new Error('Index utility closed'))
       return
     }
-    const child = this.#child
     try {
       const response = await this.#send(
         { operation: 'close', requestId: randomUUID() },
@@ -339,14 +348,17 @@ export class IndexClient {
       throw new Error('Index utility close failed', { cause: err })
     } finally {
       this.#closed = true
-      child.kill()
-      this.#terminate(new Error('Index utility closed'))
+      this.#detachLogs?.()
+      this.#detachLogs = undefined
+      this.#worker.terminate(new Error('Index utility closed'))
     }
   }
 
   terminate(): void {
     this.#closed = true
-    this.#terminate(new Error('Index utility terminated'))
+    this.#detachLogs?.()
+    this.#detachLogs = undefined
+    this.#worker.terminate(new Error('Index utility terminated'))
   }
 
   async #send(
@@ -357,40 +369,21 @@ export class IndexClient {
     if (signal.aborted) throw abortError()
     if (this.#closed && !allowClosed) throw new Error('Index utility client is closed')
     await this.initialize()
+    if (!this.#worker.running) {
+      this.#ready = undefined
+      await this.initialize()
+    }
     const parsed = indexUtilityRequestSchema.parse({
       ...request,
       projectSessionId: this.options.projectSessionId
     })
-    const child = this.#child
-    if (child === undefined) throw new Error('Index utility is unavailable')
-    return new Promise((resolve, reject) => {
-      const onAbort = (): void => {
-        this.#pending.delete(parsed.requestId)
-        this.#terminate(abortError())
-        reject(abortError())
-      }
-      this.#pending.set(parsed.requestId, {
-        resolve: (response) => {
-          signal.removeEventListener('abort', onAbort)
-          resolve(response)
-        },
-        reject: (err) => {
-          signal.removeEventListener('abort', onAbort)
-          reject(err)
-        }
-      })
-      signal.addEventListener('abort', onAbort, { once: true })
-      try {
-        child.postMessage(parsed)
-      } catch (err) {
-        this.#pending.delete(parsed.requestId)
-        signal.removeEventListener('abort', onAbort)
-        this.options.log.error(
-          { event: 'index.utility.request_start_failed', err, requestId: parsed.requestId },
-          'Failed to send index utility request'
-        )
-        reject(new Error('Index utility request could not start', { cause: err }))
-      }
+    return this.#worker.request<IndexUtilityResponse>({
+      requestId: parsed.requestId,
+      payload: parsed,
+      signal,
+      rejectOnAbort: abortError(),
+      terminateOnAbort: !allowClosed,
+      onMessage: (raw) => this.#handleMessage(raw)
     })
   }
 
@@ -398,56 +391,67 @@ export class IndexClient {
     if (this.#closed) return Promise.reject(new Error('Index utility client is closed'))
     if (this.#ready !== undefined) return this.#ready
     const requestId = randomUUID()
-    this.#initialRequestId = requestId
-    const child = (this.options.processFactory ?? utilityProcess).fork(
-      this.options.modulePath,
-      [],
-      {
-        serviceName: 'writellm-index',
-        stdio: 'pipe'
-      }
-    )
-    this.#child = child
-    captureUtilityStderr(child, this.options.log)
+    this.#initializing = true
+    this.#detachLogs?.()
+    this.#detachLogs = undefined
     const { port1, port2 } = new MessageChannelMain()
     this.#detachLogs = attachUtilityLogPort(port1, this.options.collector, this.options.log)
-    this.#ready = new Promise((resolve, reject) => {
-      this.#resolveReady = resolve
-      this.#rejectReady = reject
+    const request = indexUtilityInitSchema.parse({
+      type: 'initialize',
+      requestId,
+      projectId: this.options.projectId,
+      projectSessionId: this.options.projectSessionId,
+      indexPath: this.options.indexPath,
+      extensionPath: this.options.extensionPath
     })
-    child.on('message', this.#onMessage)
-    child.once('exit', this.#onExit)
-    try {
-      child.postMessage(
-        indexUtilityInitSchema.parse({
-          type: 'initialize',
-          requestId,
-          projectId: this.options.projectId,
-          projectSessionId: this.options.projectSessionId,
-          indexPath: this.options.indexPath,
-          extensionPath: this.options.extensionPath
-        }),
-        [port2]
+    const ready = this.#worker
+      .request<IndexUtilityResponse>({
+        requestId,
+        payload: request,
+        signal: new AbortController().signal,
+        rejectOnAbort: abortError(),
+        transfer: [port2],
+        onMessage: (raw) => this.#handleMessage(raw)
+      })
+      .then((response) => {
+        if (response.type !== 'ready')
+          throw new Error('Index utility initialization response mismatch')
+        return response.snapshot
+      })
+      .then(
+        (snapshot) => snapshot,
+        (err) => {
+          this.#initializing = false
+          this.#ready = undefined
+          this.#detachLogs?.()
+          this.#detachLogs = undefined
+          throw err
+        }
       )
-    } catch (err) {
-      this.options.log.error(
-        { event: 'index.utility.start_failed', err, projectId: this.options.projectId },
-        'Failed to start index utility'
-      )
-      this.#terminate(new Error('Index utility could not start', { cause: err }))
-    }
-    return this.#ready
+    ready.then(
+      () => {
+        this.#initializing = false
+      },
+      () => {
+        this.#initializing = false
+      }
+    )
+    this.#ready = ready
+    return ready
   }
 
-  readonly #onMessage = (raw: unknown): void => {
+  #handleMessage(raw: unknown): UtilityMessageDecision<IndexUtilityResponse> {
     const parsed = indexUtilityResponseSchema.safeParse(raw)
     if (!parsed.success) {
       this.options.log.error(
         { event: 'index.utility.response_invalid', err: parsed.error },
         'Index utility returned an invalid response'
       )
-      this.#terminate(new Error('Index utility returned an invalid response'))
-      return
+      return {
+        kind: 'reject',
+        error: new Error('Index utility returned an invalid response'),
+        terminate: true
+      }
     }
     const response = parsed.data
     if (response.projectSessionId !== this.options.projectSessionId) {
@@ -461,80 +465,17 @@ export class IndexClient {
         },
         'Rejected an Index utility response from a stale project session'
       )
-      this.#terminate(err)
-      return
-    }
-    if (response.type === 'ready') {
-      if (response.requestId !== this.#initialRequestId) {
-        this.#terminate(new Error('Index utility initialization request ID mismatch'))
-        return
-      }
-      this.#resolveReady?.(response.snapshot)
-      this.#resolveReady = undefined
-      this.#rejectReady = undefined
-      this.#initialRequestId = undefined
-      return
+      return { kind: 'reject', error: err, terminate: true }
     }
     if (response.type === 'error') {
-      const err = reconstructError(response.error)
+      const err = reconstructUtilityError(response.error)
       this.options.log.error(
         { event: 'index.utility.request_failed', err, requestId: response.requestId },
         'Index utility request failed'
       )
-      if (this.#resolveReady !== undefined) {
-        if (response.requestId !== this.#initialRequestId) {
-          this.#terminate(new Error('Index utility initialization request ID mismatch'))
-          return
-        }
-        this.#rejectReady?.(err)
-        this.#resolveReady = undefined
-        this.#rejectReady = undefined
-      } else {
-        this.#pending.get(response.requestId)?.reject(err)
-        this.#pending.delete(response.requestId)
-      }
-      return
+      return { kind: 'reject', error: err }
     }
-    const pending = this.#pending.get(response.requestId)
-    if (pending === undefined) {
-      const err = new Error('Index utility response request ID is not pending')
-      this.options.log.error(
-        { event: 'index.utility.response_unmatched', err, requestId: response.requestId },
-        'Index utility returned an unmatched response'
-      )
-      this.#terminate(err)
-      return
-    }
-    this.#pending.delete(response.requestId)
-    pending.resolve(response)
-  }
-
-  readonly #onExit = (code: number): void => {
-    const err = new Error(`Index utility exited before completion (${code})`)
-    this.options.log.error(
-      { event: 'index.utility.exited', err, projectId: this.options.projectId },
-      'Index utility exited before completion'
-    )
-    this.#terminate(err, false)
-  }
-
-  #terminate(error: Error, kill = true): void {
-    const child = this.#child
-    if (child !== undefined) {
-      child.off('message', this.#onMessage)
-      child.off('exit', this.#onExit)
-      if (kill) child.kill()
-    }
-    this.#child = undefined
-    this.#detachLogs?.()
-    this.#detachLogs = undefined
-    this.#rejectReady?.(error)
-    this.#resolveReady = undefined
-    this.#rejectReady = undefined
-    this.#ready = undefined
-    this.#initialRequestId = undefined
-    for (const pending of this.#pending.values()) pending.reject(error)
-    this.#pending.clear()
+    return { kind: 'resolve', value: response }
   }
 
   async #removeDatabaseFamily(): Promise<void> {
@@ -560,15 +501,6 @@ export class IndexClient {
   }
 }
 
-function reconstructError(input: { name: string; message: string; stack?: string }): Error {
-  const error = new Error(input.message)
-  error.name = input.name
-  if (input.stack !== undefined) error.stack = input.stack
-  return error
-}
-
 function abortError(): Error {
-  const error = new Error('Index utility request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Index utility request aborted')
 }

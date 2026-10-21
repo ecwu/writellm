@@ -5,6 +5,7 @@ import {
   type AssistantMessageEvent,
   type AssistantMessageEventStream
 } from '@earendil-works/pi-ai'
+import { createAbortError } from '../shared/abort-error'
 
 export const AGENT_PROVIDER_MAX_ATTEMPTS = 5
 export const AGENT_PROVIDER_MAX_RETRY_DELAY_MS = 30_000
@@ -354,7 +355,5 @@ function assertNotAborted(signal: AbortSignal | undefined): void {
 }
 
 function abortError(): Error {
-  const error = new Error('Agent provider request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Agent provider request aborted')
 }

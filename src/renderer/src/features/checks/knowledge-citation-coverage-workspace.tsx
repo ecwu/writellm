@@ -3,6 +3,8 @@ import type {
   KnowledgeCitationCoverageItem,
   KnowledgeCitationCoveragePageResult
 } from '../../../../shared/contracts/knowledge'
+import type { JobStatusEvent } from '../../../../shared/contracts/jobs'
+import type { MutationSectionChanged } from '../../../../shared/contracts/agent-mutations'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, FileQuestion, ListChecks, RefreshCw, Search } from 'lucide-react'
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
@@ -44,6 +46,7 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useDesktopSubscription } from '@/hooks/use-desktop-subscription'
 
 const PAGE_SIZE = 50
 const indexJobTypes = new Set(['build_index_generation', 'remove_index_item', 'rebuild_index'])
@@ -107,33 +110,36 @@ export function KnowledgeCitationCoverageWorkspace(props: {
     if (firstPage?.state === 'ready') setStaleReloading(false)
   }, [firstPage])
 
-  useEffect(() => {
-    let disposed = false
-    const unsubscribe: Array<() => void> = []
-    const retain = (release: () => void): void => {
-      if (disposed) release()
-      else unsubscribe.push(release)
+  useDesktopSubscription<MutationSectionChanged>(
+    (listener) =>
+      window.desktop.agent.subscribeSectionChanged(
+        { projectSessionId: props.projectSessionId },
+        listener
+      ),
+    () => resetCoverage(),
+    {
+      source: 'knowledge-citation-coverage.manuscript-subscription',
+      dependencies: [props.projectSessionId, resetCoverage],
+      onError: () => props.onError('Citation coverage could not watch manuscript changes.')
     }
-    void window.desktop.agent
-      .subscribeSectionChanged({ projectSessionId: props.projectSessionId }, resetCoverage)
-      .then(retain)
-      .catch(() => props.onError('Citation coverage could not watch manuscript changes.'))
-    void window.desktop.jobs
-      .subscribe({ projectSessionId: props.projectSessionId }, ({ job }) => {
-        if (
-          indexJobTypes.has(job.type) &&
-          (job.state === 'succeeded' || job.state === 'failed' || job.state === 'cancelled')
-        ) {
-          resetCoverage()
-        }
-      })
-      .then(retain)
-      .catch(() => props.onError('Citation coverage could not watch index changes.'))
-    return () => {
-      disposed = true
-      for (const release of unsubscribe) release()
+  )
+  useDesktopSubscription<JobStatusEvent>(
+    (listener) =>
+      window.desktop.jobs.subscribe({ projectSessionId: props.projectSessionId }, listener),
+    ({ job }) => {
+      if (
+        indexJobTypes.has(job.type) &&
+        (job.state === 'succeeded' || job.state === 'failed' || job.state === 'cancelled')
+      ) {
+        resetCoverage()
+      }
+    },
+    {
+      source: 'knowledge-citation-coverage.index-subscription',
+      dependencies: [props.projectSessionId, resetCoverage],
+      onError: () => props.onError('Citation coverage could not watch index changes.')
     }
-  }, [props.onError, props.projectSessionId, resetCoverage])
+  )
 
   const readyPages = coverage.data?.pages.filter(
     (page): page is Extract<KnowledgeCitationCoveragePageResult, { state: 'ready' }> =>

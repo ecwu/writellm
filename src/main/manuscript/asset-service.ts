@@ -1,7 +1,8 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { lstat, readFile, rm } from 'node:fs/promises'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
+import { sha256 as hashSha256 } from '../../shared/hash'
 import type { JobStore } from '../jobs/job-store'
 import {
   manuscriptAssetIdSchema,
@@ -78,7 +79,7 @@ export class ManuscriptAssetService {
   }): Promise<ManuscriptAssetResult> {
     const startedAt = Date.now()
     const validated = validateImageBytes(input.bytes, input.mimeType)
-    const sha256 = createHash('sha256').update(input.bytes).digest('hex')
+    const sha256 = hashSha256(input.bytes)
     const existing = this.options.database.immediate(
       (database) =>
         database
@@ -184,6 +185,7 @@ export class ManuscriptAssetService {
         )
         throw new Error('Identical manuscript asset deletion is still in progress', { cause: err })
       }
+      // error-handling: allow owner=manuscript-assets reason=cleanup-preserves-original
       await rm(destination, { force: true }).catch(() => undefined)
       this.options.log.error(
         { event: 'manuscript.asset.publish_failed', err, projectId: this.options.projectId },
@@ -255,7 +257,7 @@ export class ManuscriptAssetService {
     const row = this.get(assetId)
     const bytes = await readFile(this.absolutePath(row))
     if (bytes.byteLength !== row.byte_size) throw new Error('Manuscript asset size changed')
-    if (createHash('sha256').update(bytes).digest('hex') !== row.sha256) {
+    if (hashSha256(bytes) !== row.sha256) {
       throw new Error('Manuscript asset hash changed')
     }
     const validated = validateImageBytes(bytes, row.mime_type)
@@ -676,7 +678,7 @@ export class ManuscriptAssetService {
     try {
       const bytes = await readFile(this.absolutePath(row))
       if (bytes.byteLength !== row.byte_size) throw new Error('Manuscript asset size changed')
-      if (createHash('sha256').update(bytes).digest('hex') !== row.sha256) {
+      if (hashSha256(bytes) !== row.sha256) {
         throw new Error('Manuscript asset hash changed')
       }
       const validated = validateImageBytes(bytes, row.mime_type)
@@ -804,7 +806,7 @@ async function verifyStoredAsset(path: string, expectedSize: number, expectedSha
     throw new Error('Stored manuscript asset is missing or changed')
   }
   const bytes = await readFile(path)
-  if (createHash('sha256').update(bytes).digest('hex') !== expectedSha256) {
+  if (hashSha256(bytes) !== expectedSha256) {
     throw new Error('Stored manuscript asset is missing or changed')
   }
 }

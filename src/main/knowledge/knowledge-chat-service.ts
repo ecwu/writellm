@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
+import { isAbortError } from '../../shared/abort-error'
 import {
   serializeAgentDiagnosticError,
   agentDiagnosticSensitiveValues
@@ -279,6 +280,7 @@ export class KnowledgeChatService {
     this.#bumpRevision()
     await this.#publishSnapshot()
     active.completion = this.#runTurn(active, question, resolved)
+    // error-handling: allow owner=notebook-chat reason=detached-completion
     void active.completion.catch(() => undefined)
     return notebookChatStartTurnResultSchema.parse({ turnId, snapshot: this.#snapshot() })
   }
@@ -1127,8 +1129,4 @@ function sameScope(left: NotebookSourceScope, right: NotebookSourceScope): boole
 
 function sameStrings(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index])
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
 }

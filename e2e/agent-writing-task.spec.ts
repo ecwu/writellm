@@ -5,6 +5,8 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 
 test(
   'keeps an Agent-created writing task stable across archive, project close, and app restart',
@@ -93,7 +95,10 @@ test(
     const first = await launchApp({ userData, dialogPaths: [testRoot] })
     let identity: { taskId: string; stepIds: string[]; agentSessionId: string } | undefined
     try {
-      await configureAgentProvider(first.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(first.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Task Agent',
+        apiKey: 'e2e-secret'
+      })
       await createProject(first.page, 'Writing task project')
       await selectAgentModel(first.page)
       const panel = first.page.getByTestId('agent-panel')
@@ -220,7 +225,7 @@ test(
 
       identity = await first.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         const session = (
           await window.desktop.agent.listSessions({ projectSessionId: project.projectSessionId })
         )[0]
@@ -249,7 +254,7 @@ test(
 
       const archived = await first.page.evaluate(async (agentSessionId) => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         await window.desktop.agent.archiveSession({
           projectSessionId: project.projectSessionId,
           agentSessionId
@@ -264,7 +269,7 @@ test(
       expect(archived?.writingTask?.taskId).toBe(identity.taskId)
       await first.page.evaluate(async (agentSessionId) => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         await window.desktop.agent.restoreSession({
           projectSessionId: project.projectSessionId,
           agentSessionId
@@ -282,7 +287,7 @@ test(
       await expectActiveProject(restarted.page, 'Writing task project')
       const restored = await restarted.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         return (
           await window.desktop.agent.listSessions({ projectSessionId: project.projectSessionId })
         )[0]?.writingTask
@@ -371,53 +376,19 @@ function sendToolCall(response: ServerResponse, input: { name: string; args: unk
 }
 
 function sendCompletion(response: ServerResponse, content: string): void {
-  sendSse(response, [
-    {
-      id: 'writing-task-final-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'task-model',
-      choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }]
-    },
-    {
-      id: 'writing-task-final-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'task-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 24, completion_tokens: 10, total_tokens: 34 }
-    }
-  ])
+  sendSharedCompletion(response, content, {
+    id: 'writing-task-final-response',
+    model: 'task-model',
+    requestId: null,
+    promptTokens: 24,
+    completionTokens: 10
+  })
 }
 
 function sendSse(response: ServerResponse, chunks: unknown[]): void {
   response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
   for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
   response.end('data: [DONE]\n\n')
-}
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Task Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Task Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
 }
 
 async function selectAgentModel(page: Page): Promise<void> {

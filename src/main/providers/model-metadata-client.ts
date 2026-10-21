@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
 import type { Logger } from 'pino'
 import {
   modelsDevResolveResponseSchema,
@@ -58,7 +59,5 @@ export class ModelMetadataClient {
 }
 
 function abortError(): Error {
-  const error = new Error('models.dev metadata refresh aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('models.dev metadata refresh aborted')
 }

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
@@ -13,6 +12,7 @@ import {
 import type { MutationProposalRecord } from '../../shared/contracts/agent-mutations'
 import type { ProjectDatabase } from '../project/project-database'
 import type { MutationProposalService } from './mutation-service'
+import { sha256 } from '../../shared/hash'
 
 interface CommandRow {
   command_id: string
@@ -520,18 +520,16 @@ function compareProposals(left: MutationProposalRecord, right: MutationProposalR
 }
 
 function requestFingerprint(input: ChangeSetBatchInput, ordered: string[]): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        taskId: input.taskId,
-        agentSessionId: input.agentSessionId,
-        action: input.action,
-        ordered,
-        rejectReason: input.rejectReason,
-        createCheckpoint: input.createCheckpoint
-      })
-    )
-    .digest('hex')
+  return sha256(
+    JSON.stringify({
+      taskId: input.taskId,
+      agentSessionId: input.agentSessionId,
+      action: input.action,
+      ordered,
+      rejectReason: input.rejectReason,
+      createCheckpoint: input.createCheckpoint
+    })
+  )
 }
 
 function reconciledItem(

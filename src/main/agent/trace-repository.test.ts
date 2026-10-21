@@ -92,6 +92,29 @@ describe('AgentTraceRepository', () => {
     )
   })
 
+  it('preserves legacy trace metadata ordering and optional-field omission', () => {
+    database = baseDatabase()
+    const repository = new AgentTraceRepository(projectDatabase(database), logger())
+    repository.capture({
+      modelRequestId: 'model-1',
+      purpose: 'agent_prompt',
+      apiId: 'openai-responses',
+      traceId: 'run-1',
+      physicalAttempt: 1,
+      documents: [
+        {
+          kind: 'provider_request',
+          value: { ok: true },
+          metadata: { '10': 'ten', '2': 'two', optional: undefined }
+        }
+      ]
+    })
+    const row = database
+      .prepare('SELECT metadata_json FROM agent_trace_records WHERE model_request_id = ?')
+      .get('model-1') as { metadata_json: string }
+    expect(row.metadata_json).toBe('{"2":"two","10":"ten","_traceDocumentBytes":11}')
+  })
+
   it('keeps private bodies out of structured logs and rejects attempts above 32 MiB', () => {
     database = baseDatabase()
     const traceLogger = logger()

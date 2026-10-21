@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import {
   briefUpdateSchema,
@@ -25,12 +24,13 @@ import type {
   SectionRevisionTable,
   SectionTable
 } from '../project/database-types'
-import { prepareSectionContent } from '../manuscript/content'
-import { assetIdFromUrl, recordRevisionAssetReferences } from '../manuscript/asset-service'
+import { assetIdFromUrl } from '../manuscript/asset-service'
+import { SectionRepository } from '../manuscript/section-repository'
 import { AgentToolDomainError } from './read-tools'
 import { MutationSimulationError } from './mutation-simulator'
 import { MutationProposalError, type ProposalToolExecutionContext } from './mutation-errors'
 import { truncateUtf8 } from './session-history'
+import { sha256 } from '../../shared/hash'
 
 export function requireToolCall(
   database: Database.Database,
@@ -103,9 +103,7 @@ export function resolveCitedSources(
                 sourceBlockIds: (entry as Record<string, unknown>)['sourceBlockIds'],
                 excerpt: text.slice(0, 8_192),
                 contentHash:
-                  typeof record['contentHash'] === 'string'
-                    ? record['contentHash']
-                    : createHash('sha256').update(text).digest('hex'),
+                  typeof record['contentHash'] === 'string' ? record['contentHash'] : sha256(text),
                 retrievedAt: new Date(parsed.data.timestamp).toISOString()
               }
             })()
@@ -149,7 +147,7 @@ export function verifyBlockPrecondition(
     const block = pending.shift()
     if (block === undefined) break
     if (block.id === target.blockId) {
-      const actual = createHash('sha256').update(JSON.stringify(block)).digest('hex')
+      const actual = sha256(JSON.stringify(block))
       if (actual !== target.expectedBlockHash) {
         throw new AgentToolDomainError('conflict', 'Image anchor changed')
       }
@@ -401,38 +399,10 @@ export function insertSectionRevision(
     createdAt: string
   }
 ): void {
-  const prepared = prepareSectionContent(
-    blockNoteDocumentSchema.parse(input.content),
-    input.sectionId
-  )
-  database
-    .prepare(
-      `INSERT INTO section_revisions (
-         section_revision_id, section_id, revision_number, source, source_class,
-         content_json, content_schema_version, content_hash, prior_revision_id,
-         word_count, character_count, count_algorithm_version, agent_run_id,
-         agent_tool_call_id, agent_proposal_id, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      input.revisionId,
-      input.sectionId,
-      input.revisionNumber,
-      input.source,
-      input.sourceClass,
-      prepared.contentJson,
-      prepared.contentSchemaVersion,
-      prepared.contentHash,
-      input.priorRevisionId,
-      prepared.wordCount,
-      prepared.characterCount,
-      prepared.countAlgorithmVersion,
-      input.agentRunId,
-      input.agentToolCallId,
-      input.agentProposalId,
-      input.createdAt
-    )
-  recordRevisionAssetReferences(database, input.revisionId, prepared.content, input.createdAt)
+  SectionRepository.insertRevision(database, {
+    ...input,
+    content: blockNoteDocumentSchema.parse(input.content)
+  })
 }
 
 export function updateAppliedProposal(

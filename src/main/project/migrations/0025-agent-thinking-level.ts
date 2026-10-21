@@ -1,4 +1,5 @@
 import type { DatabaseMigration } from '../../db/migrations'
+import { hasColumn } from './helpers'
 
 const THINKING_LEVEL_CHECK =
   "CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'))"
@@ -25,14 +26,4 @@ export const migration0025: DatabaseMigration = {
       )
     }
   }
-}
-
-function hasColumn(
-  database: Parameters<DatabaseMigration['up']>[0],
-  table: string,
-  column: string
-): boolean {
-  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(
-    (entry) => entry.name === column
-  )
 }

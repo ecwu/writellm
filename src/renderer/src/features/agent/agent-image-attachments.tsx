@@ -21,6 +21,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { errorMessage } from './agent-panel-logic'
+import { reportRendererOperationError } from '../../diagnostics'
 
 export interface AgentImageDraft {
   id: string
@@ -31,12 +32,7 @@ export interface AgentImageDraft {
 }
 
 export function reportAgentImageError(err: unknown, source: string): void {
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    source,
-    message: errorMessage(err).slice(0, 4096),
-    ...(err instanceof Error && err.stack ? { stack: err.stack.slice(0, 32768) } : {})
-  })
+  reportRendererOperationError(err, source)
 }
 
 export function AgentImageAttachments(props: {

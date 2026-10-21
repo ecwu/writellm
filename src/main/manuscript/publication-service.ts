@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import type { Logger } from 'pino'
+import { sha256 } from '../../shared/hash'
 import {
   buildPublicationAssembly,
   publicationPreview,
@@ -67,7 +67,7 @@ export class PublicationService {
         referenceItems,
         ...(formattedReferences === undefined ? {} : { formattedReferences }),
         options,
-        hash: (value) => createHash('sha256').update(value).digest('hex')
+        hash: sha256
       })
       this.log.info(
         {

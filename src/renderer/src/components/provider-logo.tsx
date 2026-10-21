@@ -23,7 +23,7 @@ const logoModules = import.meta.glob<string>('../assets/provider-logos/*.svg', {
 })
 const logoUrls = new Map(
   Object.entries(logoModules).flatMap(([path, url]) => {
-    const match = /\/([^/]+)\.svg$/.exec(path)
+    const match = /\/([^/]+\.svg)$/.exec(path)
     return match?.[1] === undefined ? [] : [[match[1], url] as const]
   })
 )
@@ -42,9 +42,9 @@ export function ProviderLogo({
   size?: 'sm' | 'default' | 'lg'
   className?: string
 }): React.JSX.Element {
-  const logoUrl = logoId === null ? undefined : logoUrls.get(logoId)
-  const hasLogo = logoUrl !== undefined
-  const maskImage = logoUrl === undefined ? undefined : `url(${JSON.stringify(logoUrl)})`
+  const logoUrl = logoId === null ? null : providerLogoAssetUrl(logoId)
+  const hasLogo = logoUrl !== null
+  const maskImage = logoUrl === null ? undefined : `url(${JSON.stringify(logoUrl)})`
   const fallback = name.trim().slice(0, 1).toLocaleUpperCase() || '?'
   return (
     <Avatar
@@ -161,5 +161,6 @@ export function ProviderLogoPicker({
 }
 
 export function providerLogoAssetUrl(logoId: string): string | null {
-  return logoUrls.get(logoId) ?? null
+  const asset = logoMetadata.get(logoId)?.asset
+  return asset === undefined ? null : (logoUrls.get(asset) ?? null)
 }

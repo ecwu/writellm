@@ -1,147 +1,59 @@
 import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
-  editorFlushAckInputSchema,
   editorFlushRequestSchema,
   editorFlushSubscriptionInputSchema,
-  editorSectionSchema,
-  editorSessionInputSchema,
-  exportMarkdownInputSchema,
-  exportNativeJsonInputSchema,
-  exportResultSchema,
-  finalFlushSaveInputSchema,
-  loadSectionInputSchema,
-  manuscriptAssetPreviewInputSchema,
-  manuscriptAssetPreviewResultSchema,
-  manuscriptAssetResultSchema,
-  openEditorResultSchema,
-  saveSectionDocumentInputSchema,
-  saveSectionDocumentResponseSchema,
-  uploadManuscriptAssetInputSchema
+  editorSessionInputSchema
 } from '../shared/contracts/manuscript'
-import {
-  manuscriptImportApplyInputSchema,
-  manuscriptImportApplyResultSchema,
-  manuscriptImportCancelInputSchema,
-  manuscriptImportCancelResultSchema,
-  manuscriptImportPlanRequestSchema,
-  manuscriptImportPlanResultSchema
-} from '../shared/contracts/manuscript-import'
-import {
-  deleteManuscriptAssetInputSchema,
-  deleteManuscriptAssetResultSchema,
-  manuscriptAssetWorkspaceInputSchema,
-  manuscriptAssetWorkspacePageSchema
-} from '../shared/contracts/manuscript-assets'
+import { editorIpcEndpoints } from '../shared/contracts/ipc-endpoints-editor'
 import type { DesktopApi } from './desktop-api'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const editorApi: DesktopApi['editor'] = {
   async open(input) {
-    return openEditorResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.editorOpen, editorSessionInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.open, input)
   },
   async loadSection(input) {
-    return editorSectionSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.editorLoadSection, loadSectionInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.loadSection, input)
   },
   async setActiveSection(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.editorSetActiveSection,
-      loadSectionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.setActiveSection, input)
   },
   async saveSectionDocument(input) {
-    return saveSectionDocumentResponseSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorSaveSectionDocument,
-        saveSectionDocumentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.saveSectionDocument, input)
   },
   async createImportPlan(input) {
-    return manuscriptImportPlanResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorCreateImportPlan,
-        manuscriptImportPlanRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.createImportPlan, input)
   },
   async applyImportPlan(input) {
-    return manuscriptImportApplyResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorApplyImportPlan,
-        manuscriptImportApplyInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.applyImportPlan, input)
   },
   async cancelImportPlan(input) {
-    return manuscriptImportCancelResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorCancelImportPlan,
-        manuscriptImportCancelInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.cancelImportPlan, input)
   },
   async exportNativeJson(input) {
-    return exportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorExportNativeJson,
-        exportNativeJsonInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.exportNativeJson, input)
   },
   async exportMarkdown(input) {
-    return exportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorExportMarkdown,
-        exportMarkdownInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.exportMarkdown, input)
   },
   async uploadAsset(input) {
-    return manuscriptAssetResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorUploadAsset,
-        uploadManuscriptAssetInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.uploadAsset, input)
   },
   async resolveAsset(input) {
-    return manuscriptAssetPreviewResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorResolveAsset,
-        manuscriptAssetPreviewInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.resolveAsset, input)
   },
   async listAssets(input) {
-    return manuscriptAssetWorkspacePageSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorListAssets,
-        manuscriptAssetWorkspaceInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.listAssets, input)
   },
   async deleteAsset(input) {
-    return deleteManuscriptAssetResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorDeleteAsset,
-        deleteManuscriptAssetInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.deleteAsset, input)
   },
   async finalFlushSave(input) {
-    return saveSectionDocumentResponseSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.editorFinalFlushSave,
-        finalFlushSaveInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.finalFlushSave, input)
   },
   async acknowledgeFlush(input) {
-    await ipcRenderer.invoke(IPC_CHANNELS.editorFlushAck, editorFlushAckInputSchema.parse(input))
+    await invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.acknowledgeFlush, input)
   },
   async subscribeFlush(input, listener) {
     const session = editorSessionInputSchema.parse(input)
@@ -155,14 +67,14 @@ export const editorApi: DesktopApi['editor'] = {
     }
     ipcRenderer.on(IPC_CHANNELS.editorFlushRequest, handler)
     try {
-      await ipcRenderer.invoke(IPC_CHANNELS.editorSubscribeFlush, parsed)
+      await invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.subscribeFlush, parsed)
     } catch (err) {
       ipcRenderer.removeListener(IPC_CHANNELS.editorFlushRequest, handler)
       throw err
     }
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.editorFlushRequest, handler)
-      void ipcRenderer.invoke(IPC_CHANNELS.editorUnsubscribeFlush, parsed)
+      void invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.unsubscribeFlush, parsed)
     }
   }
 }

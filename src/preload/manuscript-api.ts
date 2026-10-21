@@ -1,182 +1,61 @@
 import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
-  createSectionRequestSchema,
-  deleteSectionRequestSchema,
-  manuscriptAssemblySchema,
-  manuscriptReferenceIndexInputSchema,
-  manuscriptReferenceIndexSchema,
-  manuscriptWorkspaceInputSchema,
-  manuscriptWorkspaceSchema,
-  moveSectionRequestSchema,
-  updateManuscriptBriefRequestSchema,
-  updateSectionRequestSchema
-} from '../shared/contracts/manuscript'
-import {
-  publicationPreviewInputSchema,
-  publicationPreviewSchema
-} from '../shared/contracts/publication'
-import {
-  manuscriptSearchInputSchema,
-  manuscriptSearchNavigationInputSchema,
-  manuscriptSearchNavigationResultSchema,
-  manuscriptSearchResultSchema
-} from '../shared/contracts/manuscript-search'
-import {
-  manuscriptReplacementApplyInputSchema,
-  manuscriptReplacementApplyResultSchema,
   manuscriptReplacementChangedEventSchema,
-  manuscriptReplacementDismissInputSchema,
-  manuscriptReplacementPageInputSchema,
-  manuscriptReplacementPageResultSchema,
-  manuscriptReplacementPlanInputSchema,
-  manuscriptReplacementPlanResultSchema,
-  manuscriptReplacementSubscriptionInputSchema,
-  manuscriptReplacementUndoInputSchema,
-  manuscriptReplacementUndoResultSchema
+  manuscriptReplacementSubscriptionInputSchema
 } from '../shared/contracts/manuscript-replacement'
+import { manuscriptIpcEndpoints } from '../shared/contracts/ipc-endpoints-manuscript'
 import type { DesktopApi } from './desktop-api'
-import {
-  changeCommentStatusInputSchema,
-  commentThreadSchema,
-  createCommentInputSchema,
-  delegateCommentsInputSchema,
-  delegateCommentsResultSchema,
-  deleteCommentInputSchema,
-  editCommentInputSchema,
-  listCommentsInputSchema,
-  listCommentsResultSchema,
-  readCommentInputSchema,
-  reanchorCommentInputSchema,
-  replyCommentInputSchema
-} from '../shared/contracts/manuscript-comments'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const manuscriptApi: DesktopApi['manuscript'] = {
   async workspace(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptGetWorkspace,
-        manuscriptWorkspaceInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.workspace, input)
   },
   async references(input) {
-    return manuscriptReferenceIndexSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptGetReferences,
-        manuscriptReferenceIndexInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.references, input)
   },
   async preview(input) {
-    return manuscriptAssemblySchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptGetPreview,
-        manuscriptWorkspaceInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.preview, input)
   },
   async publicationPreview(input) {
-    return publicationPreviewSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptGetPublicationPreview,
-        publicationPreviewInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.publicationPreview, input)
   },
   async updateBrief(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptUpdateBrief,
-        updateManuscriptBriefRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.updateBrief, input)
   },
   async createSection(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCreateSection,
-        createSectionRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.createSection, input)
   },
   async updateSection(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptUpdateSection,
-        updateSectionRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.updateSection, input)
   },
   async moveSection(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptMoveSection,
-        moveSectionRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.moveSection, input)
   },
   async deleteSection(input) {
-    return manuscriptWorkspaceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptDeleteSection,
-        deleteSectionRequestSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.deleteSection, input)
   },
   async search(input) {
-    return manuscriptSearchResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptSearch,
-        manuscriptSearchInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.search, input)
   },
   async revalidateSearch(input) {
-    return manuscriptSearchNavigationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptSearchRevalidate,
-        manuscriptSearchNavigationInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.revalidateSearch, input)
   },
   async createReplacementPlan(input) {
-    return manuscriptReplacementPlanResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptReplacementPlan,
-        manuscriptReplacementPlanInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.createReplacementPlan, input)
   },
   async replacementPage(input) {
-    return manuscriptReplacementPageResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptReplacementPage,
-        manuscriptReplacementPageInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.replacementPage, input)
   },
   async dismissReplacementPlan(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.manuscriptReplacementDismiss,
-      manuscriptReplacementDismissInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.dismissReplacementPlan, input)
   },
   async applyReplacement(input) {
-    return manuscriptReplacementApplyResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptReplacementApply,
-        manuscriptReplacementApplyInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.applyReplacement, input)
   },
   async undoReplacement(input) {
-    return manuscriptReplacementUndoResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptReplacementUndo,
-        manuscriptReplacementUndoInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.undoReplacement, input)
   },
   async subscribeReplacementChanges(input, listener) {
     const subscription = manuscriptReplacementSubscriptionInputSchema.parse({
@@ -189,92 +68,52 @@ export const manuscriptApi: DesktopApi['manuscript'] = {
     }
     ipcRenderer.on(IPC_CHANNELS.manuscriptReplacementChanged, handler)
     try {
-      await ipcRenderer.invoke(IPC_CHANNELS.manuscriptReplacementSubscribe, subscription)
+      await invokeIpcEndpoint(
+        ipcRenderer,
+        manuscriptIpcEndpoints.replacementSubscribe,
+        subscription
+      )
     } catch (err) {
       ipcRenderer.removeListener(IPC_CHANNELS.manuscriptReplacementChanged, handler)
       throw err
     }
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.manuscriptReplacementChanged, handler)
-      void ipcRenderer.invoke(IPC_CHANNELS.manuscriptReplacementUnsubscribe, subscription)
+      void invokeIpcEndpoint(
+        ipcRenderer,
+        manuscriptIpcEndpoints.replacementUnsubscribe,
+        subscription
+      )
     }
   },
   async listComments(input) {
-    return listCommentsResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsList,
-        listCommentsInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.listComments, input)
   },
   async readComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsRead,
-        readCommentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.readComment, input)
   },
   async createComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsCreate,
-        createCommentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.createComment, input)
   },
   async replyComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsReply,
-        replyCommentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.replyComment, input)
   },
   async editComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsEdit,
-        editCommentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.editComment, input)
   },
   async resolveComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsResolve,
-        changeCommentStatusInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.resolveComment, input)
   },
   async reopenComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsReopen,
-        changeCommentStatusInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.reopenComment, input)
   },
   async deleteComment(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.manuscriptCommentsDelete,
-      deleteCommentInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.deleteComment, input)
   },
   async reanchorComment(input) {
-    return commentThreadSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsReanchor,
-        reanchorCommentInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.reanchorComment, input)
   },
   async delegateComments(input) {
-    return delegateCommentsResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.manuscriptCommentsDelegate,
-        delegateCommentsInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, manuscriptIpcEndpoints.delegateComments, input)
   }
 }

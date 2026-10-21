@@ -397,6 +397,7 @@ export class JobStore {
         },
         'Project job execution failed'
       )
+      // error-handling: allow owner=job-store reason=logging-fallback
     } catch {
       // Logging was attempted with the original error; archival must still complete.
     }
@@ -421,6 +422,7 @@ export class JobStore {
           },
           'Project job failure classification failed'
         )
+        // error-handling: allow owner=job-store reason=classification-reporting-fallback
       } catch {
         // Classification reporting also cannot block failure archival.
       }

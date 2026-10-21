@@ -574,14 +574,31 @@ function canonicalDrawingIds(xml: string): string {
 
 function canonicalBookmarkIds(xml: string): string {
   const ids = new Map<string, string>()
+  const tocNames = new Map<string, string>()
   for (const [element] of xml.matchAll(/<w:bookmarkStart\b[^>]*>/gu)) {
     const generated = attribute(element, 'w:id')
     if (generated !== null) ids.set(generated, String(ids.size + 1))
+    const name = attribute(element, 'w:name')
+    if (name !== null && /^_Toc\d+$/u.test(name)) {
+      tocNames.set(name, `_Toc${tocNames.size + 1}`)
+    }
   }
-  return xml.replace(/<w:bookmark(?:Start|End)\b[^>]*>/gu, (element) => {
-    const generated = attribute(element, 'w:id')
-    const stable = generated === null ? undefined : ids.get(generated)
-    if (stable === undefined) throw new Error('DOCX bookmark has no matching start identifier')
-    return element.replace(/\bw:id="[^"]*"/u, `w:id="${stable}"`)
-  })
+  return xml
+    .replace(/<w:bookmark(?:Start|End)\b[^>]*>/gu, (element) => {
+      const generated = attribute(element, 'w:id')
+      const stable = generated === null ? undefined : ids.get(generated)
+      if (stable === undefined) throw new Error('DOCX bookmark has no matching start identifier')
+      return element.replace(/\bw:id="[^"]*"/u, `w:id="${stable}"`)
+    })
+    .replace(/\bw:(name|anchor)="(_Toc\d+)"/gu, (attribute, kind: string, generated: string) => {
+      const stable = tocNames.get(generated)
+      return stable === undefined ? attribute : `w:${kind}="${stable}"`
+    })
+    .replace(
+      /(<w:instrText\b[^>]*>\s*PAGEREF\s+)(_Toc\d+)(?=\s|<)/gu,
+      (field, prefix: string, generated: string) => {
+        const stable = tocNames.get(generated)
+        return stable === undefined ? field : `${prefix}${stable}`
+      }
+    )
 }

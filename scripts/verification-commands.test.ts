@@ -15,8 +15,10 @@ describe('verification and packaging selection', () => {
     expect(new Set(names).size).toBe(names.length)
     expect(names).toEqual([
       'format-lint',
+      'error-handling',
       'typecheck-main',
       'typecheck-renderer',
+      'typecheck-e2e',
       'electron-tests',
       'native-prepare',
       'production-compile',
@@ -44,7 +46,13 @@ describe('verification and packaging selection', () => {
   })
 
   it('keeps static and focused E2E gates scoped without introducing Vitest or repeated builds', () => {
-    const staticNames = ['format-lint', 'typecheck-main', 'typecheck-renderer']
+    const staticNames = [
+      'format-lint',
+      'error-handling',
+      'typecheck-main',
+      'typecheck-renderer',
+      'typecheck-e2e'
+    ]
     expect(checkCommands('fast').map((command) => command.name)).toEqual(staticNames)
     const filters = ['e2e/project-lifecycle.spec.ts', '--grep', 'restart']
     const commands = checkCommands('e2e', filters)

@@ -5,31 +5,11 @@ import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { BlockNoteTableContent } from '../src/shared/contracts/manuscript'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Table Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('table-e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Table Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
+import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
 async function openAgentForSection(page: Page): Promise<ReturnType<Page['getByTestId']>> {
   if ((await agentToggle(page).getAttribute('aria-pressed')) !== 'true')
@@ -140,69 +120,22 @@ function sendToolCall(
   response: ServerResponse,
   input: { responseId: string; toolCallId: string; name: string; args: unknown }
 ): void {
-  sendSse(response, [
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'table-e2e-model',
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: input.toolCallId,
-                type: 'function',
-                function: { name: input.name, arguments: JSON.stringify(input.args) }
-              }
-            ]
-          },
-          finish_reason: null
-        }
-      ]
-    },
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'table-e2e-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-      usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 }
-    }
-  ])
+  sendSharedToolCall(response, input, {
+    model: 'table-e2e-model',
+    requestId: 'table-e2e-request',
+    promptTokens: 20,
+    completionTokens: 10
+  })
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
-  sendSse(response, [
-    {
-      id: 'table-e2e-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'table-e2e-model',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
-    },
-    {
-      id: 'table-e2e-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'table-e2e-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 20, completion_tokens: 5, total_tokens: 25 }
-    }
-  ])
-}
-
-function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'x-request-id': 'table-e2e-request'
+  sendSharedCompletion(response, text, {
+    id: 'table-e2e-completion',
+    model: 'table-e2e-model',
+    requestId: 'table-e2e-request',
+    promptTokens: 20,
+    completionTokens: 5
   })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
 }
 
 function tableHash(bodyText: string, blockId: string): string {
@@ -379,7 +312,10 @@ test(
       dialogPaths: [testRoot, projectRoot, markdownExport, pdfExport, latexExport]
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Table Agent',
+        apiKey: 'table-e2e-secret'
+      })
       await createProject(launched.page, projectName)
       sectionId = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
@@ -484,7 +420,8 @@ test(
           const document = structuredClone(loaded.revision.content)
           const table = document.find((block) => block.id === expectedTableId)
           if (table?.type !== 'table') throw new Error('Manual table missing')
-          const cell = table.content.rows[1]?.cells[1]
+          const tableContent = table.content as BlockNoteTableContent
+          const cell = tableContent.rows[1]?.cells[1]
           if (cell === null || typeof cell !== 'object' || Array.isArray(cell)) {
             throw new Error('Manual table cell missing')
           }
@@ -522,7 +459,7 @@ test(
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
           ?.projectSessionId
         if (projectSessionId === undefined) throw new Error('Project session missing')
-        const results = []
+        const results: Array<{ created: boolean }> = []
         for (const kind of ['markdown', 'pdf', 'latex'] as const) {
           results.push(await window.desktop.projects.exportManuscript({ projectSessionId, kind }))
         }

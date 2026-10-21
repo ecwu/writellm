@@ -1,5 +1,5 @@
 import { canonicalJson } from '../../shared/canonical-json'
-import { createHash } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import { Cite } from '@citation-js/core'
 import '@citation-js/plugin-bibtex'
 import { z } from 'zod'
@@ -262,8 +262,4 @@ function approximateUpstreamKey(value: unknown): string | null {
   const record = value as Record<string, unknown>
   const key = record['citation-key'] ?? record['id']
   return typeof key === 'string' ? key.slice(0, 1024) : null
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
 }

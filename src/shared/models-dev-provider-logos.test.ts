@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
@@ -23,11 +23,22 @@ const forbiddenSvgPatterns = [
 describe('models.dev Provider logos', () => {
   it('packages every manifest logo with its reviewed digest', async () => {
     expect(MODELS_DEV_PROVIDER_LOGOS.length).toBeGreaterThan(100)
+    const assets = new Set(MODELS_DEV_PROVIDER_LOGOS.map((provider) => provider.asset))
+    expect(assets.size).toBeLessThan(MODELS_DEV_PROVIDER_LOGOS.length)
+    const assetDirectory = resolve(process.cwd(), 'src/renderer/src/assets/provider-logos')
+    const assetFiles = new Set(
+      (await readdir(assetDirectory)).filter((name) => name.endsWith('.svg'))
+    )
+    expect(assetFiles).toEqual(assets)
+    const assetHashes = new Set<string>()
+    for (const asset of assets) {
+      const svg = await readFile(resolve(assetDirectory, asset), 'utf8')
+      const hash = createHash('sha256').update(svg.trim()).digest('hex')
+      expect(assetHashes.has(hash)).toBe(false)
+      assetHashes.add(hash)
+    }
     for (const provider of MODELS_DEV_PROVIDER_LOGOS) {
-      const svg = await readFile(
-        resolve(process.cwd(), 'src/renderer/src/assets/provider-logos', `${provider.id}.svg`),
-        'utf8'
-      )
+      const svg = await readFile(resolve(assetDirectory, provider.asset), 'utf8')
       expect(Buffer.byteLength(svg)).toBeLessThanOrEqual(100 * 1_024)
       expect(createHash('sha256').update(svg.trim()).digest('hex')).toBe(provider.sha256)
       expect(forbiddenSvgPatterns.some((pattern) => pattern.test(svg))).toBe(false)

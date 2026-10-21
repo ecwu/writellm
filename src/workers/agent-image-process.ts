@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { sha256 } from '../shared/hash'
 import { PhotonImage, resize, SamplingFilter } from '@silvia-odwyer/photon-node'
 import {
   AGENT_IMAGE_MAX_BASE64,
@@ -46,7 +46,7 @@ export function processAgentImage(bytes: Buffer, mimeType: string): AgentImageCo
           type: 'image',
           data,
           mimeType: 'image/png',
-          sha256: createHash('sha256').update(encoded).digest('hex'),
+          sha256: sha256(encoded),
           width: image.get_width(),
           height: image.get_height()
         })

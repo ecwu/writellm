@@ -15,6 +15,7 @@ export function checkCommands(mode, args = []) {
   const script = (name, file, extra = []) => ({ name, args: [resolve('scripts', file), ...extra] })
   const staticCommands = [
     { name: 'format-lint', args: [packageCli('@biomejs/biome', 'biome'), 'check', '.'] },
+    script('error-handling', 'check-error-handling.mjs'),
     {
       name: 'typecheck-main',
       args: [
@@ -36,6 +37,10 @@ export function checkCommands(mode, args = []) {
         '--composite',
         'false'
       ]
+    },
+    {
+      name: 'typecheck-e2e',
+      args: [packageCli('typescript', 'tsc'), '--noEmit', '-p', 'tsconfig.e2e.json']
     }
   ]
   const buildCommands = [

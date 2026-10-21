@@ -40,6 +40,7 @@ import {
 } from './agent-panel-logic'
 import type { AgentPanelProps } from './agent-panel'
 import { subscribeProviderCatalogChanged } from '../providers/provider-catalog-events'
+import { reportRendererOperationError } from '../../diagnostics'
 
 export function useAgentPanelRuntimeState(props: AgentPanelProps) {
   const [sessions, setSessions] = useState<AgentSessionRecord[]>([])
@@ -244,6 +245,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         ])
     }
     void reload().catch((cause) => {
+      reportRendererOperationError(cause, 'agent.events.reload')
       if (!disposed) props.onError(errorMessage(cause))
     })
     return () => {
@@ -313,7 +315,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     void Promise.all([
       refreshSessions(true),
       window.desktop.providers.snapshot(),
-      window.desktop.skills.snapshot().catch(() => null)
+      window.desktop.skills.snapshot().catch((err) => {
+        reportRendererOperationError(err, 'agent.skills.snapshot')
+        return null
+      })
     ])
       .then(([, snapshot, nextSkillsSnapshot]) => {
         if (disposed) return
@@ -322,7 +327,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         }
         if (nextSkillsSnapshot !== null) setSkillsSnapshot(nextSkillsSnapshot)
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'agent.sessions.load')
         if (disposed) return
         setError('Agent sessions could not be loaded.')
       })
@@ -358,7 +364,9 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       void window.desktop.skills
         .snapshot()
         .then(setSkillsSnapshot)
-        .catch(() => undefined)
+        .catch((err) => {
+          reportRendererOperationError(err, 'agent.skills.snapshot.refresh')
+        })
     })
   }, [props.open])
 
@@ -419,7 +427,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         ) {
           void activityCallbacks.current
             .refreshSessionTruth(rendererEvent.agentSessionId)
-            .catch((cause) => activityCallbacks.current.onError(errorMessage(cause)))
+            .catch((cause) => {
+              reportRendererOperationError(cause, 'agent.session.refresh')
+              activityCallbacks.current.onError(errorMessage(cause))
+            })
         }
         return
       }
@@ -429,9 +440,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         rendererEvent.event.type === 'run_completed' ||
         rendererEvent.event.type === 'run_interrupted'
       ) {
-        void activityCallbacks.current
-          .refreshSessions()
-          .catch((cause) => activityCallbacks.current.onError(errorMessage(cause)))
+        void activityCallbacks.current.refreshSessions().catch((cause) => {
+          reportRendererOperationError(cause, 'agent.sessions.refresh')
+          activityCallbacks.current.onError(errorMessage(cause))
+        })
       }
     }
     void window.desktop.agent
@@ -455,13 +467,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         await subscription.activate()
       })
       .catch(async (err: unknown) => {
-        const error = err instanceof Error ? err : new Error(String(err))
-        window.desktop.diagnostics.reportRendererError({
-          event: 'renderer.unhandled_rejection',
-          message: error.message,
-          ...(error.stack ? { stack: error.stack } : {}),
-          source: 'agent.activity.subscribe'
-        })
+        reportRendererOperationError(err, 'agent.activity.subscribe')
         if (disposed) return
         const lifecycle = await window.desktop.projects.lifecycle()
         if (
@@ -488,7 +494,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     setProposals([])
     terminalRunIdsRef.current = new Set()
     setError(null)
-    void refreshSessionTruth(activeSessionId).catch(() => {
+    void refreshSessionTruth(activeSessionId).catch((err) => {
+      reportRendererOperationError(err, 'agent.session.load')
       if (!disposed) {
         setError('The selected conversation could not be loaded.')
       }
@@ -531,9 +538,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
             // The linked initial user message is the first durable event guaranteed to be
             // published after skill preparation finished; tool-first runs and non-streaming
             // providers may not emit an early delta, so leave "Preparing writing guidance…" here.
-            void refreshSessionTruth(activeSessionId).catch((cause) =>
+            void refreshSessionTruth(activeSessionId).catch((cause) => {
+              reportRendererOperationError(cause, 'agent.session.refresh')
               props.onError(errorMessage(cause))
-            )
+            })
           }
           if (
             rendererEvent.event.type === 'user_message' ||
@@ -541,9 +549,10 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
             rendererEvent.event.type === 'run_completed' ||
             rendererEvent.event.type === 'run_interrupted'
           ) {
-            void refreshSessionTruth(activeSessionId).catch((cause) =>
+            void refreshSessionTruth(activeSessionId).catch((cause) => {
+              reportRendererOperationError(cause, 'agent.session.refresh')
               props.onError(errorMessage(cause))
-            )
+            })
           }
         }
       )
@@ -554,7 +563,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
           setReplayedSessionId(activeSessionId)
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'agent.events.subscribe')
         if (!disposed) {
           setError('Conversation event replay is unavailable.')
         }
@@ -563,11 +573,15 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       .subscribeMutations({ projectSessionId: props.projectSessionId }, (event) => {
         if (disposed) return
         if (event.agentSessionId === activeSessionId) {
-          void refreshSessionTruth(activeSessionId).catch((cause) =>
+          void refreshSessionTruth(activeSessionId).catch((cause) => {
+            reportRendererOperationError(cause, 'agent.session.refresh')
             props.onError(errorMessage(cause))
-          )
+          })
         } else {
-          void refreshSessions().catch((cause) => props.onError(errorMessage(cause)))
+          void refreshSessions().catch((cause) => {
+            reportRendererOperationError(cause, 'agent.sessions.refresh')
+            props.onError(errorMessage(cause))
+          })
         }
       })
       .then((release) => {
@@ -575,6 +589,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
         else unsubscribeMutations = release
       })
       .catch((cause) => {
+        reportRendererOperationError(cause, 'agent.mutations.subscribe')
         if (!disposed) props.onError(errorMessage(cause))
       })
     return () => {

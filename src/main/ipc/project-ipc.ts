@@ -3,6 +3,8 @@ import { dialog, ipcMain, type BrowserWindow, type IpcMain, type WebContents } f
 import { basename, join } from 'node:path'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { projectIpcEndpoints } from '../../shared/contracts/ipc-endpoints-project'
 import {
   checkpointOperationResultSchema,
   compareCheckpointStateInputSchema,
@@ -34,7 +36,7 @@ import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { ProjectTemplateRepository } from '../app-db/repositories/project-templates'
 import type { ProjectManager } from '../project/project-manager'
-import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 import { withIpcLogContext } from '../observability/ipc-context'
 import {
   manuscriptExportInputSchema,
@@ -103,10 +105,23 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     getVersionHistoryPromptDismissed: async () => false,
     setVersionHistoryPromptDismissed: async () => undefined
   }
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(projectIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
   const handle = (
     channel: string,
     handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
   ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: handler.constructor.name === 'AsyncFunction',
+        handle: (input, event) => withIpcLogContext(event, input, () => handler(event, input))
+      })
+      return
+    }
     ipc.handle(channel, (event, ...args) =>
       withIpcLogContext(event, args[0], () => handler(event, ...args))
     )
@@ -251,13 +266,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     sender.send(IPC_CHANNELS.projectLifecycleEvent, event)
   }
 
-  handle(IPC_CHANNELS.projectGetLifecycle, (event) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectGetLifecycle, (_event) => {
     return projectLifecycleSnapshotSchema.parse(options.manager.snapshot())
   })
 
-  handle(IPC_CHANNELS.projectGetRecent, async (event) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectGetRecent, async (_event) => {
     try {
       const recentProjects = await options.recentProjects.list()
       return recentProjectsSchema.parse(recentProjects.slice(0, 5))
@@ -271,8 +284,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRemoveRecent, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRemoveRecent, async (_event, input: unknown) => {
     const { projectId } = recentProjectRemoveInputSchema.parse(input)
     try {
       await options.recentProjects.remove(projectId)
@@ -291,8 +303,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectCreate, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectCreate, async (_event, input: unknown) => {
     const { name, templateId } = projectCreateInputSchema.parse(input)
     assertClosedBeforeSelection()
     let template: Awaited<ReturnType<ProjectTemplateRepository['resolve']>> | undefined
@@ -331,8 +342,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplatesList, async (event) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectTemplatesList, async (_event) => {
     try {
       return projectTemplateCatalogSchema.parse(await options.projectTemplates.list())
     } catch (err) {
@@ -345,8 +355,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplatePreview, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectTemplatePreview, async (_event, input: unknown) => {
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     try {
       const defaultPresetId = options.publicationPresets.snapshot().defaultPresetId
@@ -363,8 +372,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplateSave, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectTemplateSave, async (_event, input: unknown) => {
     const parsed = saveUserProjectTemplateInputSchema.parse(input)
     try {
       const defaultPresetId = parsed.includePublicationPreset
@@ -391,8 +399,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplateDelete, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectTemplateDelete, async (_event, input: unknown) => {
     const { templateId } = deleteUserProjectTemplateInputSchema.parse(input)
     try {
       return projectTemplateCatalogSchema.parse(await options.projectTemplates.delete(templateId))
@@ -406,8 +413,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectOpen, async (event) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectOpen, async (_event) => {
     assertClosedBeforeSelection()
     const selectedRoot = await selectFolder('open')
     if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
@@ -426,8 +432,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectOpenRecent, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectOpenRecent, async (_event, input: unknown) => {
     const { projectId } = recentProjectOpenInputSchema.parse(input)
     assertClosedBeforeSelection()
     try {
@@ -447,8 +452,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSwitch, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectSwitch, async (_event, input: unknown) => {
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
     const selectedRoot = await selectFolder('open')
@@ -470,8 +474,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectClose, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectClose, async (_event, input: unknown) => {
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
     revokeSession(projectSessionId)
@@ -488,8 +491,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryRetryOpen, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryRetryOpen, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.retryOpen())
@@ -503,8 +505,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryStaleLock, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryStaleLock, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return projectLifecycleSnapshotSchema.parse(
@@ -520,8 +521,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryRetryClose, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryRetryClose, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.retryClose())
@@ -535,8 +535,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.discardIncompleteCreate())
@@ -550,8 +549,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryLocateMoved, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryLocateMoved, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     const selectedRoot = await selectRestoreSource()
     if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
@@ -568,8 +566,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryExportDiagnostics, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryExportDiagnostics, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return await options.manager.exportDiagnostics()
@@ -583,8 +580,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryReturnToClosed, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectRecoveryReturnToClosed, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     try {
       return projectLifecycleSnapshotSchema.parse(await options.manager.returnToClosed())
@@ -598,8 +594,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSnapshotCreate, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectSnapshotCreate, async (_event, input: unknown) => {
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
     const destination = await selectSnapshotDestination()
@@ -617,8 +612,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSnapshotRestore, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectSnapshotRestore, async (_event, input: unknown) => {
     projectRecoveryActionInputSchema.parse(input)
     const source = await selectRestoreSource()
     if (source === null) return projectSelectionResultSchema.parse({ project: null })
@@ -638,8 +632,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectClone, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectClone, async (_event, input: unknown) => {
     const { projectSessionId } = projectCloneInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
     const destination = await selectCloneDestination(projectSessionId)
@@ -661,16 +654,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectCloneCancel, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectCloneCancel, (_event, input: unknown) => {
     const { projectSessionId } = projectCloneInputSchema.parse(input)
     return projectCloneCancelResultSchema.parse(
       options.manager.cancelProjectClone(projectSessionId)
     )
   })
 
-  handle(IPC_CHANNELS.projectManuscriptExport, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectManuscriptExport, async (_event, input: unknown) => {
     const parsed = manuscriptExportInputSchema.parse(input)
     options.manager.assertActiveSession(parsed.projectSessionId)
     const destination = await selectManuscriptExportDestination(
@@ -715,16 +706,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectManuscriptExportCancel, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectManuscriptExportCancel, (_event, input: unknown) => {
     const parsed = projectSessionInputSchema.parse(input)
     return manuscriptExportCancelResultSchema.parse(
       options.manager.cancelManuscriptExport(parsed.projectSessionId)
     )
   })
 
-  handle(IPC_CHANNELS.projectHistoryStatus, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryStatus, async (_event, input: unknown) => {
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(projectSessionId)
     try {
@@ -744,8 +733,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryDismissPrompt, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryDismissPrompt, async (_event, input: unknown) => {
     const { projectSessionId } = dismissVersionHistoryPromptInputSchema.parse(input)
     const context = options.manager.assertActiveSession(projectSessionId)
     try {
@@ -762,8 +750,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryEnable, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryEnable, async (_event, input: unknown) => {
     const { projectSessionId } = enableVersionHistoryInputSchema.parse(input)
     try {
       const checkpoint = await options.manager.enableVersionHistory(projectSessionId)
@@ -778,8 +765,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryCreateCheckpoint, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryCreateCheckpoint, async (_event, input: unknown) => {
     const parsed = createCheckpointInputSchema.parse(input)
     try {
       const checkpoint = await options.manager.createCheckpoint(parsed.projectSessionId, {
@@ -801,8 +787,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryListCheckpoints, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryListCheckpoints, async (_event, input: unknown) => {
     const parsed = listCheckpointsInputSchema.parse(input)
     try {
       return listCheckpointsResultSchema.parse(
@@ -825,8 +810,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryCompareState, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryCompareState, async (_event, input: unknown) => {
     const { projectSessionId } = compareCheckpointStateInputSchema.parse(input)
     try {
       return compareCheckpointStateResultSchema.parse(
@@ -842,8 +826,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryRestoreCheckpoint, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryRestoreCheckpoint, async (_event, input: unknown) => {
     const parsed = restoreCheckpointInputSchema.parse(input)
     try {
       const restored = await options.manager.restoreCheckpoint(parsed.projectSessionId, parsed.oid)
@@ -869,8 +852,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryReinitialize, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.projectHistoryReinitialize, async (_event, input: unknown) => {
     const { projectSessionId } = reinitializeVersionHistoryInputSchema.parse(input)
     try {
       const checkpoint = await options.manager.reinitializeVersionHistory(projectSessionId)
@@ -886,7 +868,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
   })
 
   handle(IPC_CHANNELS.projectSubscribeLifecycle, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     options.manager.assertActiveSession(projectSessionId)
     subscriptions.set(event.sender.id, { sender: event.sender, projectSessionId })
@@ -894,7 +875,6 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
   })
 
   handle(IPC_CHANNELS.projectUnsubscribeLifecycle, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
     const { projectSessionId } = projectSessionInputSchema.parse(input)
     const subscription = subscriptions.get(event.sender.id)
     if (subscription?.projectSessionId === projectSessionId) subscriptions.delete(event.sender.id)

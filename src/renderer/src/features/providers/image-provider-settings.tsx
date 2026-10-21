@@ -201,7 +201,10 @@ export function ImageProviderWorkspace({
                 void window.desktop.providers
                   .setActiveImage({ providerId: value as ImageProviderId })
                   .then(onSnapshotChange)
-                  .catch(() => onError('The image provider could not be activated.'))
+                  .catch((err) => {
+                    reportRendererOperationError(err, 'image-provider-settings.activate')
+                    onError('The image provider could not be activated.')
+                  })
               }}
             >
               <SelectTrigger>

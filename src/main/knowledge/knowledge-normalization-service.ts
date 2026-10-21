@@ -23,7 +23,9 @@ import type { JobHandlerContext, JobHandlerRegistry } from '../jobs/scheduler/jo
 import type { JobStore } from '../jobs/job-store'
 import type { NormalizationRunTable, ParseRevisionTable } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
+import { sha256 as hashSha256 } from '../../shared/hash'
 import { ProjectFilesystem } from '../project/project-filesystem'
+import { readBounded, writeDurable } from '../storage/durable-sync'
 import type { MineruGateway, MineruNormalizedResult } from './mineru-gateway'
 
 const MAX_ASSET_BYTES = 10 * 1024 * 1024
@@ -237,11 +239,10 @@ export class KnowledgeNormalizationService {
         byteSize: verified.documentSize
       })
     }
-    const bytes = await readBounded(
-      verified.documentPath,
-      PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES,
-      true
-    )
+    const bytes = await readBounded(verified.documentPath, PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES, {
+      allowEmpty: true,
+      invalidMessage: 'Normalized input file size is invalid'
+    })
     return parsedKnowledgeMarkdownSchema.parse({
       state: 'ready',
       parseRevisionId,
@@ -331,8 +332,10 @@ export class KnowledgeNormalizationService {
     const documentPath = await this.#filesystem.assertExistingRegularFile(
       `${active.normalization_relative_path}/document.md`
     )
-    const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES)
-    if (sha256(manifestBytes) !== active.normalization_manifest_sha256) {
+    const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES, {
+      invalidMessage: 'Normalized input file size is invalid'
+    })
+    if (hashSha256(manifestBytes) !== active.normalization_manifest_sha256) {
       throw new Error('Active normalization manifest hash does not match')
     }
     const manifest = normalizedKnowledgeManifestSchema.parse(
@@ -411,9 +414,10 @@ export class KnowledgeNormalizationService {
     if (row === undefined) throw new Error('Active parsed document is unavailable')
     const manifestBytes = await readBounded(
       await this.#filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
-      MAX_MANIFEST_BYTES
+      MAX_MANIFEST_BYTES,
+      { invalidMessage: 'Normalized input file size is invalid' }
     )
-    if (sha256(manifestBytes) !== row.manifest_sha256) {
+    if (hashSha256(manifestBytes) !== row.manifest_sha256) {
       throw new Error('Active normalization manifest hash does not match')
     }
     const manifest = normalizedKnowledgeManifestSchema.parse(
@@ -427,9 +431,10 @@ export class KnowledgeNormalizationService {
       await this.#filesystem.assertExistingRegularFile(
         `${row.relative_path}/${record.relativePath}`
       ),
-      MAX_ASSET_BYTES
+      MAX_ASSET_BYTES,
+      { invalidMessage: 'Normalized input file size is invalid' }
     )
-    if (sha256(bytes) !== record.sha256) throw new Error('Parsed asset hash does not match')
+    if (hashSha256(bytes) !== record.sha256) throw new Error('Parsed asset hash does not match')
     return parsedKnowledgeAssetSchema.parse({
       mimeType: record.mimeType,
       dataBase64: bytes.toString('base64')
@@ -445,9 +450,10 @@ export class KnowledgeNormalizationService {
     const rawRoot = await this.#filesystem.assertExistingDirectory(revision.relative_path)
     const rawManifestBytes = await readBounded(
       await this.#filesystem.assertExistingRegularFile(`${revision.relative_path}/manifest.json`),
-      10 * 1024 * 1024
+      10 * 1024 * 1024,
+      { invalidMessage: 'Normalized input file size is invalid' }
     )
-    const rawManifestHash = sha256(rawManifestBytes)
+    const rawManifestHash = hashSha256(rawManifestBytes)
     if (rawManifestHash !== revision.manifest_sha256) {
       throw new Error('Raw parse manifest hash does not match the database')
     }
@@ -506,7 +512,7 @@ export class KnowledgeNormalizationService {
       )
       await this.#filesystem.ensureDirectory(dirname(finalRelativePath))
       await this.#filesystem.publish(stagingRelativePath, finalRelativePath)
-      this.#activate(run, revision, manifest, sha256(manifestBytes))
+      this.#activate(run, revision, manifest, hashSha256(manifestBytes))
       this.#requestIndex(revision.knowledge_item_id, run.normalization_run_id)
       this.#log.info(
         {
@@ -634,7 +640,8 @@ export class KnowledgeNormalizationService {
       const finalPath = await this.#filesystem.assertExistingDirectory(finalRelativePath)
       const bytes = await readBounded(
         await this.#filesystem.assertExistingRegularFile(`${finalRelativePath}/manifest.json`),
-        10 * 1024 * 1024
+        10 * 1024 * 1024,
+        { invalidMessage: 'Normalized input file size is invalid' }
       )
       const manifest = normalizedKnowledgeManifestSchema.parse(JSON.parse(bytes.toString('utf8')))
       if (
@@ -645,7 +652,7 @@ export class KnowledgeNormalizationService {
         throw new Error('Published normalization provenance does not match')
       }
       await verifyPublished(finalPath, manifest)
-      this.#activate(run, revision, manifest, sha256(bytes))
+      this.#activate(run, revision, manifest, hashSha256(bytes))
       return true
     } catch (err) {
       if (
@@ -785,23 +792,12 @@ async function verifyUtilityOutput(path: string, output: MineruNormalizedResult)
     throw new Error('Normalized block provenance does not match the utility response')
   }
   for (const asset of output.assets) {
-    const bytes = await readBounded(`${path}/${asset.relativePath}`, MAX_ASSET_BYTES)
-    if (bytes.byteLength !== asset.byteSize || sha256(bytes) !== asset.sha256) {
+    const bytes = await readBounded(`${path}/${asset.relativePath}`, MAX_ASSET_BYTES, {
+      invalidMessage: 'Normalized input file size is invalid'
+    })
+    if (bytes.byteLength !== asset.byteSize || hashSha256(bytes) !== asset.sha256) {
       throw new Error('Normalized asset does not match the utility response')
     }
-  }
-}
-
-async function readBounded(path: string, maxBytes: number, allowEmpty = false): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const stat = await handle.stat()
-    if (!stat.isFile() || (!allowEmpty && stat.size <= 0) || stat.size > maxBytes) {
-      throw new Error('Normalized input file size is invalid')
-    }
-    return await handle.readFile()
-  } finally {
-    await handle.close()
   }
 }
 
@@ -922,18 +918,4 @@ async function* readJsonlLines(
   } finally {
     await handle.close()
   }
-}
-
-async function writeDurable(path: string, bytes: Buffer): Promise<void> {
-  const handle = await open(path, 'wx', 0o600)
-  try {
-    await handle.writeFile(bytes)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

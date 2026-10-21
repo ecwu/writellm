@@ -29,6 +29,7 @@ import {
   Zap
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { formatBytes } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -1854,10 +1855,4 @@ function getStats(items: KnowledgeItem[], jobs: JobStatus[]): KnowledgeStats {
 
 function hasActiveKnowledgeWork(items: KnowledgeItem[]): boolean {
   return items.some(hasActiveKnowledgeWorkForItem)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }

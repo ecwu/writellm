@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import type { Logger } from 'pino'
 import type { AgentEditorContext } from '../../shared/contracts/agent'
 import {
@@ -400,7 +401,7 @@ function flattenBlocks(content: BlockNoteDocument): FlattenedBlock[] {
         ordinal: result.length,
         text: fullText.slice(0, 8_192),
         textTruncated: fullText.length > 8_192,
-        blockHash: createHash('sha256').update(JSON.stringify(block)).digest('hex'),
+        blockHash: sha256(JSON.stringify(block)),
         childBlockIds: block.children.map((child) => child.id),
         hasRichContent: hasRichContent(block),
         canonical: block

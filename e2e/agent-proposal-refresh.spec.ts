@@ -3,32 +3,10 @@ import { createHash } from 'node:crypto'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Refresh Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('refresh-e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Refresh Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendSse as sendSharedSse } from './helpers/mock-provider-sse'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 
 function sendToolCall(
   response: ServerResponse,
@@ -145,33 +123,15 @@ function sendActivation(response: ServerResponse, index: 1 | 2): void {
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
-  sendSse(response, [
-    {
-      id: 'refresh-e2e-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'refresh-e2e-model',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
-    },
-    {
-      id: 'refresh-e2e-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'refresh-e2e-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }
-    }
-  ])
+  sendSharedCompletion(response, text, {
+    id: 'refresh-e2e-completion',
+    model: 'refresh-e2e-model',
+    requestId: 'refresh-e2e-request'
+  })
 }
 
 function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'x-request-id': 'refresh-e2e-request'
-  })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
+  sendSharedSse(response, chunks, 'refresh-e2e-request')
 }
 
 test(
@@ -234,7 +194,10 @@ test(
       dialogPaths: [testRoot]
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Refresh Agent',
+        apiKey: 'refresh-e2e-secret'
+      })
       await createProject(launched.page, projectName)
       sectionId = await launched.page.evaluate(async () => {
         const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject

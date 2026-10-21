@@ -1,6 +1,7 @@
-import { providerErrorDetails, providerErrorMessage } from './agent-provider-errors'
+import { providerErrorMessage } from './agent-provider-errors'
 import { traceJsonValue as jsonValue } from '../shared/trace-image-redaction'
 import { createHash, randomUUID } from 'node:crypto'
+import { createAbortError } from '../shared/abort-error'
 import {
   createInitialSystemMessage,
   getCurrentSystemMessage,
@@ -35,24 +36,21 @@ import {
   type AgentRuntimeEvent,
   type AgentSessionRunResult
 } from '../shared/contracts/agent'
-import { agentToolNameSchema } from '../shared/contracts/agent-tools'
 import {
   AGENT_PROVIDER_MAX_RETRY_DELAY_MS,
   createRetryingAgentProviderStream,
   parseRetryAfterMs
 } from './agent-provider-stream'
-import {
-  AgentContextBudgetController,
-  agentRuntimeMessageBudget,
-  estimateAgentTokens
-} from '../shared/agent-context-budget'
+import { agentRuntimeMessageBudget, estimateAgentTokens } from '../shared/agent-context-budget'
 import { AgentToolBridge } from './agent-tools'
 import {
   apiKeyForProvider,
   AgentOutputLimitError,
-  buildAgentProviderModel,
   loadAgentStreamSimple
 } from './agent-provider-runtime'
+import { finalizeAgentSessionResult } from './agent-session-finalization'
+import { prepareAgentSessionRuntime } from './agent-session-runtime'
+import { validateAgentToolCallBatch } from './agent-tool-preflight'
 import {
   safeAgentDiagnosticMessage,
   serializeAgentDiagnosticError
@@ -87,27 +85,9 @@ export async function runAgentSession(
     import('@earendil-works/pi-agent-core'),
     loadAgentStreamSimple(request.runtimeModel?.api ?? request.config.api ?? 'openai-completions')
   ])
-  const model = buildAgentProviderModel({
-    config: request.config,
-    runtimeModel: request.runtimeModel,
-    modelLimits,
-    maxOutputTokens: request.maxOutputTokens
-  })
-  const initialTools = agentModelVisibleToolSpecs(
-    toolProfile,
-    request.activeToolGroups,
-    interactionMode
-  )
-  let activeToolGroups = request.activeToolGroups
-  let currentRuntimeMessageBudgetTokens =
-    request.runtimeMessageBudgetTokens ??
-    agentRuntimeMessageBudget({
-      maxOutputTokens: request.maxOutputTokens,
-      limits: modelLimits,
-      systemPrompt: request.systemPrompt,
-      advertisedTools: agentToolEnvelope(initialTools)
-    })
-  const contextBudget = new AgentContextBudgetController(currentRuntimeMessageBudgetTokens)
+  const runtime = prepareAgentSessionRuntime(request)
+  const { model, contextBudget } = runtime
+  let activeToolGroups = runtime.activeToolGroups
   const modelRequestIds = [request.modelRequestId]
   const modelRequestPurposes = new Map<string, AgentTracePurpose>([
     [request.modelRequestId, 'agent_prompt']
@@ -163,7 +143,6 @@ export async function runAgentSession(
   let lastProviderError: unknown
   let awaitingReview = false
   const setRuntimeMessageBudget = (tokens: number): void => {
-    currentRuntimeMessageBudgetTokens = tokens
     contextBudget.setTokenBudget(tokens)
   }
   const toolBridge = new AgentToolBridge(
@@ -266,54 +245,20 @@ export async function runAgentSession(
       }
     },
     beforeToolCall: async ({ assistantMessage, toolCall }) => {
-      const block = (message: string, code: 'invalid_arguments' | 'unknown_tool') => {
-        preflightPolicyDiagnosticByToolCallId.set(
-          toolCall.id,
-          policyPreflightDiagnostic(code, message)
-        )
-        return { block: true as const, reason: message }
-      }
-      const allowed = agentToolNameSchema.safeParse(toolCall.name)
-      if (!allowed.success) {
-        return block(
-          'The requested tool is not authorized by WriteLLM. Choose one of the advertised tools.',
-          'unknown_tool'
-        )
-      }
       const calls = assistantMessage.content
         .filter((part) => part.type === 'toolCall')
         .map((part) => ({ id: part.id, name: part.name }))
-      const clarificationCalls = calls.filter((call) => call.name === 'ask_user')
-      if (
-        clarificationCalls.length > 0 &&
-        (clarificationCalls.length !== 1 || calls.length !== 1)
-      ) {
-        return block(
-          'User clarification must be the only tool in an assistant message. Ask one clarification.',
-          'invalid_arguments'
-        )
-      }
-      const activationCalls = calls.filter((call) => call.name === 'activate_tool_groups')
-      if (activationCalls.length > 0 && (activationCalls.length !== 1 || calls.length !== 1)) {
-        return block(
-          'Tool-group activation must be the only tool in an assistant message. Activate the required groups, then continue on the next turn.',
-          'invalid_arguments'
-        )
-      }
-      const mutationCalls = calls.filter((call) => isMutationTool(call.name))
-      if (isMutationTool(toolCall.name) && mutationCalls.length > 1) {
-        return block(
-          'Only one mutation may be submitted in an assistant message.',
-          'invalid_arguments'
-        )
-      }
-      if (isMutationTool(toolCall.name) && calls.some((call) => !isMutationTool(call.name))) {
-        return block(
-          'A mutation cannot be mixed with read tools in one assistant message. Finish the reads, then submit exactly one mutation on the next turn.',
-          'invalid_arguments'
-        )
-      }
-      return undefined
+      const failure = validateAgentToolCallBatch({
+        toolName: toolCall.name,
+        calls,
+        isMutationTool
+      })
+      if (failure === undefined) return undefined
+      preflightPolicyDiagnosticByToolCallId.set(
+        toolCall.id,
+        policyPreflightDiagnostic(failure.code, failure.message)
+      )
+      return { block: true as const, reason: failure.message }
     },
     afterToolCall: async ({ result }) => {
       const details = result.details
@@ -807,66 +752,27 @@ export async function runAgentSession(
   } finally {
     await Promise.allSettled(callCompletions)
     for (const pending of pendingModelCallAuthorizations.values()) {
-      pending.reject(abortError('Agent run ended before model-call authorization'))
+      pending.reject(createAbortError('Agent run ended before model-call authorization'))
     }
     pendingModelCallAuthorizations.clear()
     for (const pending of pendingFollowUpConsumptions.values()) {
-      pending.reject(abortError('Agent run ended before Follow-up consumption authorization'))
+      pending.reject(createAbortError('Agent run ended before Follow-up consumption authorization'))
     }
     pendingFollowUpConsumptions.clear()
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
 
-  if (outputLimitError !== undefined) throw outputLimitError
-  if (runError !== undefined) throw runError
-
-  if (lastAssistant === undefined) throw new Error('Agent completed without an assistant response')
-  if (lastAssistant.stopReason === 'length')
-    throw new AgentOutputLimitError(request.maxOutputTokens)
-  if (lastAssistant.stopReason === 'error') {
-    const providerDetails = providerErrorDetails(lastAssistant, lastProviderError)
-    const status = providerDetails.status ?? lastAssistantHttpStatus
-    if (lastAssistantRetriesExhausted) {
-      throw new AgentProviderRetriesExhaustedError(
-        lastAssistant.errorMessage,
-        status,
-        providerDetails.cause,
-        providerDetails.code
-      )
-    }
-    const contextOverflow = isContextOverflowFailure(lastAssistant.errorMessage, status)
-    const error: Error & { status?: number; code?: string } = new Error(
-      lastAssistant.errorMessage ??
-        (contextOverflow
-          ? 'Agent provider context window exceeded'
-          : 'Agent provider request failed'),
-      providerDetails.cause === undefined ? undefined : { cause: providerDetails.cause }
-    )
-    if (status !== undefined) error.status = status
-    if (contextOverflow) error.code = 'context_overflow'
-    else if (providerDetails.code !== undefined) error.code = providerDetails.code
-    throw error
-  }
-  if (lastAssistant.stopReason === 'aborted') {
-    const error = new Error('Agent provider request aborted')
-    error.name = 'AbortError'
-    throw error
-  }
-  return { outcome: awaitingReview ? 'awaiting_review' : 'finished' }
-}
-
-function isContextOverflowFailure(
-  message: string | undefined,
-  status: number | undefined
-): boolean {
-  const normalized = message?.toLowerCase() ?? ''
-  return (
-    /context (?:length|window).*(?:exceed|overflow|too long)|maximum context|too many tokens/u.test(
-      normalized
-    ) ||
-    (status === 400 && /context|token limit/u.test(normalized))
-  )
+  return finalizeAgentSessionResult({
+    maxOutputTokens: request.maxOutputTokens,
+    outputLimitError,
+    runError,
+    lastAssistant,
+    lastAssistantRetriesExhausted,
+    lastAssistantHttpStatus,
+    lastProviderError,
+    awaitingReview
+  })
 }
 
 function pausesForReview(details: unknown): boolean {
@@ -951,18 +857,6 @@ function toAssistantPayload(
       message.stopReason === 'error' ||
       message.stopReason === 'length'
   })
-}
-
-class AgentProviderRetriesExhaustedError extends Error {
-  readonly status?: number
-  readonly code?: string
-
-  constructor(message?: string, status?: number, cause?: unknown, code?: string) {
-    super(message ?? 'Agent provider request failed', cause === undefined ? undefined : { cause })
-    this.name = 'ProviderRetriesExhaustedError'
-    if (status !== undefined) this.status = status
-    if (code !== undefined) this.code = code
-  }
 }
 
 export class AgentContinuationLostError extends Error {
@@ -1128,6 +1022,7 @@ function reportTraceCaptureFailure(
       fields,
       error
     )
+    // error-handling: allow owner=agent-trace reason=reporter-fallback
   } catch {
     // Trace is observational. If its reporter transport is closed, no safe
     // diagnostic channel remains; keep the provider result independent of it.
@@ -1161,12 +1056,6 @@ function safeProviderResponseHeaders(
       .filter(([name]) => allowed.has(name))
       .map(([name, value]) => [name, value.slice(0, 2_048)])
   )
-}
-
-function abortError(message: string): Error {
-  const error = new Error(message)
-  error.name = 'AbortError'
-  return error
 }
 
 function isMutationTool(toolName: string): boolean {

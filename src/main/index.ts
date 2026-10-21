@@ -1,7 +1,7 @@
 import { registerAgentAttachmentIpc } from './ipc/agent-attachment-ipc'
-import { AgentAttachmentService } from './agent/attachment-service'
 import { AgentImageProcessClient } from './agent/image-process-client'
 import { ApplicationMenu } from './bootstrap/application-menu'
+import { composeKnowledgeRuntime } from './bootstrap/compose-knowledge-runtime'
 import { registerWorkbenchIpc } from './ipc/workbench-ipc'
 import { autocompleteChangeSchema } from '../shared/contracts/autocomplete'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
@@ -67,45 +67,17 @@ import { ProviderProbeClient } from './providers/provider-probe-client'
 import { AgentModelClient } from './providers/agent-model-client'
 import { AuxiliaryModelClient } from './providers/auxiliary-model-client'
 import { ModelExecutionService } from './providers/model-execution-service'
-import { AgentSessionService } from './agent/session-service'
-import { AgentTraceRepository } from './agent/trace-repository'
-import {
-  formatHistoryCompactionInput,
-  HISTORY_COMPACTION_SYSTEM_PROMPT
-} from './agent/prompts/task-prompts'
 import { SkillService } from './skills/skill-service'
 import { WritingSkillRuntime } from './skills/skill-router'
 import { installSkillE2eFixture } from './skills/skill-test-seam'
-import { MainAgentReadTools } from './agent/read-tools'
-import { MutationProposalService } from './agent/mutation-service'
-import { MainAgentTools } from './agent/tools'
-import { WritingTaskService } from './agent/writing-task-service'
-import { ManuscriptCommentService } from './manuscript/comment-service'
-import { ChangeSetBatchService } from './agent/change-set-batch-service'
 import { AgentEventBroker } from './agent/event-broker'
 import { MutationEventBroker } from './agent/mutation-event-broker'
 import { ModelMetadataClient } from './providers/model-metadata-client'
 import { ModelMetadataService } from './providers/model-metadata-service'
 import { MineruClient } from './knowledge/mineru-client'
-import { MineruWorkflowService, registerMineruHandlers } from './knowledge/mineru-workflow-service'
 import { PdfPreviewCapabilities } from './knowledge/pdf-preview-capabilities'
 import { ManuscriptAssetCapabilities } from './manuscript/asset-capabilities'
-import { JobHandlerRegistry } from './jobs/scheduler/job-handler-registry'
-import {
-  KnowledgeNormalizationService,
-  registerNormalizationHandler
-} from './knowledge/knowledge-normalization-service'
-import { KnowledgeMappingService } from './knowledge/knowledge-mapping-service'
-import { NotebookRegistry } from './knowledge/notebook-registry'
 import { KnowledgeChatEventBroker } from './knowledge/knowledge-chat-event-broker'
-import { IndexClient } from './search/index-client'
-import {
-  embeddingContractSha256,
-  ProjectIndexService,
-  registerIndexHandlers
-} from './search/index-service'
-import { RetrievalService } from './search/retrieval-service'
-import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project/project-paths'
 import { getLoadablePath as getSqliteVecLoadablePath } from 'sqlite-vec'
 import { PersistentUtilityProcess } from './workers/persistent-utility-process'
 import {
@@ -342,301 +314,36 @@ if (!hasSingleInstanceLock) {
           app.getPath('logs'),
           app.getPath('sessionData')
         ],
-        createKnowledgeRuntime: ({
-          projectRoot,
-          filesystem,
-          projectId,
-          projectSessionId,
-          database,
-          jobs,
-          manuscript,
-          editorPersistence,
-          manuscriptAssets,
-          knowledgeImports,
-          references,
-          log
-        }) => {
-          modelExecution.recoverRunning(database)
-          const mineruWorkflow = new MineruWorkflowService({
-            projectRoot,
-            filesystem,
-            projectId,
-            database,
-            jobs,
-            providers: {
-              getConfiguredProvider: () => providers.getConfiguredProvider('mineru'),
-              withConfiguredProvider: (operation) =>
-                providers.withConfiguredProvider('mineru', operation)
-            },
-            gateway: mineruClient,
-            log
-          })
-          const registry = new JobHandlerRegistry()
-          const agentAttachments = new AgentAttachmentService({
-            projectRoot,
-            database,
-            jobs,
-            log: loggerSystem.createModuleLogger('agent', 'attachments')
-          })
-          registerMineruHandlers(registry, mineruWorkflow, async () => {
-            await manuscriptAssets.cleanupOrphans()
-            return await agentAttachments.cleanupOrphans()
-          })
-          const indexClient = new IndexClient({
-            modulePath: join(__dirname, 'index-worker.js'),
-            indexPath: resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH),
-            extensionPath: app.isPackaged
-              ? join(
-                  process.resourcesPath,
-                  'native',
-                  'sqlite-vec',
-                  `${process.platform}-${process.arch}`,
-                  process.platform === 'win32'
-                    ? 'vec0.dll'
-                    : process.platform === 'darwin'
-                      ? 'vec0.dylib'
-                      : 'vec0.so'
-                )
-              : getSqliteVecLoadablePath(),
-            projectId,
-            projectSessionId,
-            collector: logCollector,
-            log: loggerSystem.createModuleLogger('index', 'client')
-          })
-          const projectIndex = new ProjectIndexService({
-            projectRoot,
-            projectId,
-            database,
-            jobs,
-            client: indexClient,
-            getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
-            embedBatch: (values, correlation, signal) =>
-              modelExecution.embedBatch(
-                database,
-                { values },
-                { ...correlation, projectSessionId },
-                signal
-              ),
-            log
-          })
-          const retrieval = new RetrievalService({
-            projectId,
-            client: indexClient,
-            getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
-            embedQuery: async (query, expectedContractSha256, operationId, signal) => {
-              const result = await modelExecution.embedBatch(
-                database,
-                { values: [query] },
-                { operationId, projectSessionId },
-                signal,
-                (config) => {
-                  if (embeddingContractSha256(config) !== expectedContractSha256) {
-                    throw new Error('Embedding provider changed before query execution')
-                  }
-                }
+        createKnowledgeRuntime: composeKnowledgeRuntime({
+          indexWorkerPath: join(__dirname, 'index-worker.js'),
+          sqliteVecExtensionPath: app.isPackaged
+            ? join(
+                process.resourcesPath,
+                'native',
+                'sqlite-vec',
+                `${process.platform}-${process.arch}`,
+                process.platform === 'win32'
+                  ? 'vec0.dll'
+                  : process.platform === 'darwin'
+                    ? 'vec0.dylib'
+                    : 'vec0.so'
               )
-              const vector = result.embeddings[0]
-              if (vector === undefined)
-                throw new Error('Embedding provider returned no query vector')
-              return vector
-            },
-            getRerankProvider: () => providers.getConfiguredProvider('rerank'),
-            rerank: (query, documents, topN, operationId, signal) =>
-              modelExecution.rerank(
-                database,
-                { query, documents, topN },
-                { operationId, projectSessionId },
-                signal
-              ),
-            log: loggerSystem.createModuleLogger('search', 'retrieval')
-          })
-          const knowledgeChat = new NotebookRegistry({
-            projectId,
-            projectSessionId,
-            database,
-            retrieval,
-            projectIndex,
-            listKnowledgeItems: () => knowledgeImports.list(),
-            references,
-            agentCatalog: agentProviderCatalog,
-            runtime: agentModel,
-            log: loggerSystem.createModuleLogger('knowledge', 'notebook-chat'),
-            publish: (event) => notebookEvents.publish(event)
-          })
-          const agentReadTools = new MainAgentReadTools({
-            projectSessionId,
-            manuscript,
-            references,
-            retrieval,
-            isRetrievalAvailable: () => projectIndex.isRetrievalAvailable(),
-            log: loggerSystem.createModuleLogger('agent', 'read-tools')
-          })
-          const writingTasks = new WritingTaskService({
-            database,
-            log: loggerSystem.createModuleLogger('agent', 'writing-tasks')
-          })
-          const agentMutations = new MutationProposalService({
-            projectId,
-            projectSessionId,
-            database,
-            manuscript,
-            editorPersistence,
-            manuscriptAssets,
-            modelExecution,
-            writingTasks,
-            log: loggerSystem.createModuleLogger('agent', 'mutations'),
-            publishChanged: (event) => mutationEvents.publish(event),
-            flushForMutation: (affectedSectionIds) =>
-              flushForAgentMutation(projectSessionId, affectedSectionIds)
-          })
-          const manuscriptComments = new ManuscriptCommentService({
-            database,
-            manuscript,
-            projectSessionId,
-            log: loggerSystem.createModuleLogger('manuscript', 'comments')
-          })
-          const agentTools = new MainAgentTools(
-            agentReadTools,
-            agentMutations,
-            writingTasks,
-            manuscriptComments
-          )
-          const agentSessions = new AgentSessionService({
-            projectId,
-            projectSessionId,
-            database,
-            agentCatalog: agentProviderCatalog,
-            attachments: agentAttachments,
-            runtime: agentModel,
-            contextBuilder: agentTools.contextBuilder(),
-            skillRouter: writingSkillRuntime,
-            tools: agentTools,
-            writingTasks,
-            defaultApprovalMode: () => appSettings.currentDefaultAgentApprovalMode(),
-            publishEvent: (event) => agentEvents.publishDurable(projectSessionId, event),
-            publishDelta: (event) => agentEvents.publishDelta(projectSessionId, event),
-            publishSession: (event) => agentEvents.publishSession(projectSessionId, event),
-            publishActivity: (snapshot) =>
-              agentEvents.publishActivitySnapshot(projectSessionId, snapshot),
-            generateTitle: (input) =>
-              agentModel.run(
-                input.config,
-                input.credential,
-                input.request,
-                input.signal,
-                () => undefined,
-                projectSessionId,
-                input.modelLimits,
-                {
-                  context: {
-                    modelRequestId: input.modelRequestId,
-                    purpose: 'session_title',
-                    traceId: input.agentRunId,
-                    spanId: input.modelRequestId,
-                    agentSessionId: input.agentSessionId,
-                    agentRunId: input.agentRunId
-                  },
-                  capture: (capture) => {
-                    new AgentTraceRepository(
-                      database,
-                      loggerSystem.createModuleLogger('agent', 'trace')
-                    ).capture(capture)
-                  }
-                }
-              ),
-            summarizeHistory: async (input) => {
-              const execution = await modelExecution.runAgentWithResolvedProvider(
-                database,
-                {
-                  systemPrompt: HISTORY_COMPACTION_SYSTEM_PROMPT,
-                  prompt: formatHistoryCompactionInput(input.sourcePayloadJson),
-                  images: input.images,
-                  maxOutputTokens: input.maxOutputTokens
-                },
-                {
-                  operationId: input.compactionId,
-                  ...(input.agentRunId === null ? {} : { agentRunId: input.agentRunId }),
-                  projectSessionId
-                },
-                {
-                  config: input.config,
-                  credential: input.credential,
-                  modelLimits: input.modelLimits
-                },
-                input.signal,
-                () => undefined,
-                {
-                  tracePurpose: 'compaction',
-                  agentSessionId: input.agentSessionId,
-                  compactionId: input.compactionId,
-                  compactionSource: {
-                    trigger: input.trigger,
-                    coveredThroughSequence: input.coveredThroughSequence,
-                    estimatedInputTokens: input.estimatedInputTokens,
-                    maxOutputTokens: input.maxOutputTokens,
-                    source: JSON.parse(input.sourcePayloadJson),
-                    formattedPrompt: formatHistoryCompactionInput(input.sourcePayloadJson)
-                  }
-                }
-              )
-              if (execution.result.text.trim().length === 0) {
-                throw new Error('Agent compaction returned an empty summary')
-              }
-              return {
-                summary: execution.result.text.trim().slice(0, 32_768),
-                modelRequestId: execution.modelRequestId
-              }
-            },
-            log: loggerSystem.createModuleLogger('agent', 'session')
-          })
-          agentSessions.recoverInterruptedRuns()
-          const agentChangeSets = new ChangeSetBatchService({
-            projectSessionId,
-            database,
-            mutations: agentMutations,
-            recordDecision: (input) =>
-              agentSessions.recordApprovalDecision({ ...input, continueRequested: false }),
-            log: loggerSystem.createModuleLogger('agent', 'change-set')
-          })
-          const knowledgeNormalization = new KnowledgeNormalizationService({
-            projectRoot,
-            filesystem,
-            projectId,
-            database,
-            log,
-            normalizeInUtility: (input, signal) => mineruClient.normalize(input, signal),
-            jobs
-          })
-          const knowledgeMapping = new KnowledgeMappingService({
-            projectRoot,
-            filesystem,
-            database,
-            normalization: knowledgeNormalization,
-            index: projectIndex,
-            log
-          })
-          registerNormalizationHandler(registry, knowledgeNormalization)
-          registerIndexHandlers(registry, projectIndex)
-          return {
-            mineruWorkflow,
-            knowledgeNormalization,
-            knowledgeMapping,
-            projectIndex,
-            retrieval,
-            knowledgeChat,
-            agentSessions,
-            agentMutations,
-            agentChangeSets,
-            writingTasks,
-            registry,
-            terminateWorkers: async () => {
-              await agentMutations.cancelAllImageGenerations()
-              await knowledgeChat.close()
-              await agentSessions.close()
-              projectIndex.terminate()
-            }
-          }
-        }
+            : getSqliteVecLoadablePath(),
+          logCollector,
+          createLogger: (subsystem, component, processRole) =>
+            loggerSystem.createModuleLogger(subsystem, component, processRole),
+          providers,
+          agentProviderCatalog,
+          agentModel,
+          writingSkillRuntime,
+          appSettings,
+          modelExecution,
+          mineruClient,
+          agentEvents,
+          mutationEvents,
+          notebookEvents,
+          getFlushForAgentMutation: () => flushForAgentMutation
+        })
       })
       const bibliographyConnectors = new BibliographyConnectorService({
         repository: new BibliographyConnectorRepository(appDatabase),

@@ -11,25 +11,18 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
-  TriangleAlert,
   X,
   XCircle
 } from 'lucide-react'
 import type {
-  ManuscriptExportKind,
-  ManuscriptExportResult
-} from '../../shared/contracts/manuscript-export'
-import type {
+  ActiveProject,
+  ProjectLifecycleEvent,
   ProjectLifecycleSnapshot,
   ProjectLifecycleState,
   ProjectSelectionResult,
   RecentProjects,
   VersionHistoryState
 } from '../../shared/contracts/projects'
-import type {
-  ProjectTemplateExtractionPreview,
-  ProjectTemplateSummary
-} from '../../shared/contracts/project-templates'
 import type { OnboardingState } from '../../shared/contracts/app'
 import { projectNameSchema } from '../../shared/contracts/projects'
 import { LayoutControlsProvider, useLayoutControls } from '@/features/workbench/layout-controls'
@@ -47,13 +40,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Field, FieldLabel } from '@/components/ui/field'
-import { InputGroup, InputGroupInput } from '@/components/ui/input-group'
 import { Item, ItemGroup, ItemMedia } from '@/components/ui/item'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { Spinner } from '@/components/ui/spinner'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Textarea } from '@/components/ui/textarea'
 import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 import { OnboardingFlow } from '@/features/onboarding/onboarding-flow'
 import { ProjectCreationFields } from '@/features/project/project-creation-fields'
@@ -62,7 +51,13 @@ import {
   ProjectVersionHistory,
   type VersionHistoryView
 } from '@/features/project/project-version-history'
+import { ProjectTemplateDialog } from '@/features/project/project-template-dialog'
+import { useProjectTemplateController } from '@/features/project/use-project-template-controller'
+import { ManuscriptExportDialogs } from '@/features/project/manuscript-export-dialogs'
+import { useManuscriptExportController } from '@/features/project/use-manuscript-export-controller'
+import type { ProjectActionChange } from '@/features/project/project-session-generation'
 import { notifyActionError } from '@/lib/notifications'
+import { useDesktopSubscription } from '@/hooks/use-desktop-subscription'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
   state: 'closed',
@@ -138,26 +133,103 @@ function App(): React.JSX.Element {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [projectName, setProjectName] = useState('')
   const [projectNameError, setProjectNameError] = useState<string | null>(null)
-  const [projectTemplates, setProjectTemplates] = useState<ProjectTemplateSummary[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState('blank')
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
-  const [templatePreview, setTemplatePreview] = useState<ProjectTemplateExtractionPreview | null>(
-    null
-  )
-  const [templateName, setTemplateName] = useState('')
-  const [templateDescription, setTemplateDescription] = useState('')
-  const [includeTemplatePreset, setIncludeTemplatePreset] = useState(true)
   const [agentPanelState, setAgentPanelState] = useState<{
     projectSessionId: string | null
     open: boolean
   }>({ projectSessionId: null, open: false })
   const [versionHistoryState, setVersionHistoryState] = useState<VersionHistoryState | null>(null)
   const [versionHistoryView, setVersionHistoryView] = useState<VersionHistoryView>(null)
-  const [exportResult, setExportResult] = useState<
-    Extract<ManuscriptExportResult, { created: true }> | undefined
-  >()
-  const exportCancellationRequested = useRef(false)
-  const [exportCancelling, setExportCancelling] = useState(false)
+  const projectSessionId = snapshot.activeProject?.projectSessionId
+  const currentProjectSessionRef = useRef<string | undefined>(projectSessionId)
+  currentProjectSessionRef.current = projectSessionId
+  const currentSnapshotRef = useRef(snapshot)
+  currentSnapshotRef.current = snapshot
+  const [versionHistorySessionId, setVersionHistorySessionId] = useState<string | undefined>()
+  const actionLeaseRef = useRef<{
+    action: 'template' | 'export' | 'history'
+    token: symbol
+  } | null>(null)
+  const historyActionTokenRef = useRef<{ projectSessionId: string; token: symbol } | null>(null)
+  const applyTemplateAction = useCallback((change: ProjectActionChange<'template'>): void => {
+    if (change.action === 'template') {
+      actionLeaseRef.current = change
+      setActiveAction('template')
+      return
+    }
+    if (
+      actionLeaseRef.current?.action !== 'template' ||
+      actionLeaseRef.current.token !== change.token
+    ) {
+      return
+    }
+    actionLeaseRef.current = null
+    setActiveAction((current) => (current === 'template' ? null : current))
+  }, [])
+  const applyExportAction = useCallback((change: ProjectActionChange<'export'>): void => {
+    if (change.action === 'export') {
+      actionLeaseRef.current = change
+      setActiveAction('export')
+      return
+    }
+    if (
+      actionLeaseRef.current?.action !== 'export' ||
+      actionLeaseRef.current.token !== change.token
+    ) {
+      return
+    }
+    actionLeaseRef.current = null
+    setActiveAction((current) => (current === 'export' ? null : current))
+  }, [])
+  const templateController = useProjectTemplateController({
+    projectSessionId,
+    onActionChange: applyTemplateAction
+  })
+  const exportController = useManuscriptExportController({
+    projectSessionId,
+    onActionChange: applyExportAction
+  })
+  const {
+    projectTemplates,
+    selectedTemplateId,
+    templateDialogOpen,
+    templatePreview,
+    templateName,
+    templateDescription,
+    includeTemplatePreset,
+    setSelectedTemplateId,
+    setTemplateDialogOpen,
+    setTemplateName,
+    setTemplateDescription,
+    setIncludeTemplatePreset,
+    openTemplateDialog,
+    saveTemplate,
+    deleteSelectedTemplate
+  } = templateController
+  const {
+    exportResult,
+    exportCancelling,
+    exportActive,
+    exportManuscript,
+    cancelManuscriptExport,
+    setExportResult
+  } = exportController
+  useEffect(() => {
+    const historyAction = historyActionTokenRef.current
+    if (historyAction !== null && historyAction.projectSessionId !== projectSessionId) {
+      historyActionTokenRef.current = null
+      if (actionLeaseRef.current?.token === historyAction.token) {
+        actionLeaseRef.current = null
+        setActiveAction((current) => (current === 'history' ? null : current))
+      }
+    }
+    setVersionHistorySessionId(projectSessionId)
+    setVersionHistoryState(null)
+    setVersionHistoryView(null)
+  }, [projectSessionId])
+  const currentVersionHistoryState =
+    versionHistorySessionId === projectSessionId ? versionHistoryState : null
+  const currentVersionHistoryView =
+    versionHistorySessionId === projectSessionId ? versionHistoryView : null
 
   const refreshLifecycle = useCallback(async (): Promise<void> => {
     try {
@@ -183,13 +255,7 @@ function App(): React.JSX.Element {
     try {
       setOnboardingState(await window.desktop.app.setOnboardingState({ state }))
     } catch (error) {
-      const normalized = error instanceof Error ? error : new Error(String(error))
-      window.desktop.diagnostics.reportRendererError({
-        event: 'renderer.error',
-        message: normalized.message,
-        stack: normalized.stack,
-        source: 'onboarding state persistence'
-      })
+      reportRendererOperationError(error, 'App.onboarding-state-persistence')
       notifyActionError(actionErrorMessages.onboarding)
     }
   }, [])
@@ -210,21 +276,25 @@ function App(): React.JSX.Element {
       if (lifecycleResult.status === 'fulfilled') {
         setSnapshot(lifecycleResult.value)
       } else {
+        reportRendererOperationError(lifecycleResult.reason, 'App.initial.lifecycle')
         notifyActionError(actionErrorMessages.load)
       }
       if (recentResult.status === 'fulfilled') {
         setRecentProjects(recentResult.value)
       } else {
+        reportRendererOperationError(recentResult.reason, 'App.initial.recent')
         notifyActionError(actionErrorMessages.recent)
       }
       if (templateResult.status === 'fulfilled') {
-        setProjectTemplates(templateResult.value)
+        templateController.replaceTemplates(templateResult.value)
       } else {
+        reportRendererOperationError(templateResult.reason, 'App.initial.templates')
         notifyActionError(actionErrorMessages.template)
       }
       if (onboardingResult.status === 'fulfilled') {
         setOnboardingState(onboardingResult.value)
       } else {
+        reportRendererOperationError(onboardingResult.reason, 'App.initial.onboarding')
         setOnboardingState({ schemaVersion: 1, status: 'pending', step: 'welcome' })
         notifyActionError(actionErrorMessages.onboarding)
       }
@@ -234,9 +304,7 @@ function App(): React.JSX.Element {
     return () => {
       current = false
     }
-  }, [])
-
-  const projectSessionId = snapshot.activeProject?.projectSessionId
+  }, [templateController.replaceTemplates])
   const agentOpen =
     projectSessionId !== undefined &&
     agentPanelState.projectSessionId === projectSessionId &&
@@ -248,44 +316,94 @@ function App(): React.JSX.Element {
 
   const enableVersionHistory = useCallback(async (): Promise<void> => {
     if (!projectSessionId) return
+    const sourceSessionId = projectSessionId
+    const actionToken = Symbol('version-history')
+    const historyAction = { projectSessionId: sourceSessionId, token: actionToken }
+    historyActionTokenRef.current = historyAction
+    actionLeaseRef.current = { action: 'history', token: actionToken }
     setActiveAction('history')
     try {
-      await window.desktop.projects.enableVersionHistory({ projectSessionId })
+      await window.desktop.projects.enableVersionHistory({ projectSessionId: sourceSessionId })
+      if (
+        currentProjectSessionRef.current !== sourceSessionId ||
+        historyActionTokenRef.current !== historyAction
+      ) {
+        return
+      }
+      setVersionHistorySessionId(sourceSessionId)
       setVersionHistoryState('ready')
     } catch (err) {
       reportRendererOperationError(err, 'App')
-      notifyActionError(actionErrorMessages.history)
+      if (
+        currentProjectSessionRef.current === sourceSessionId &&
+        historyActionTokenRef.current === historyAction
+      ) {
+        notifyActionError(actionErrorMessages.history)
+      }
     } finally {
-      setActiveAction(null)
+      if (historyActionTokenRef.current === historyAction) {
+        historyActionTokenRef.current = null
+        if (actionLeaseRef.current?.token === actionToken) {
+          actionLeaseRef.current = null
+          setActiveAction((current) => (current === 'history' ? null : current))
+        }
+      }
     }
   }, [projectSessionId])
 
-  useEffect(() => {
-    if (!projectSessionId) return
+  const handleVersionHistoryStateChange = useCallback(
+    (state: VersionHistoryState): void => {
+      if (currentProjectSessionRef.current !== projectSessionId) return
+      setVersionHistorySessionId(projectSessionId)
+      setVersionHistoryState(state)
+    },
+    [projectSessionId]
+  )
 
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
+  const handleVersionHistoryViewChange = useCallback(
+    (view: VersionHistoryView): void => {
+      if (currentProjectSessionRef.current !== projectSessionId) return
+      setVersionHistorySessionId(projectSessionId)
+      setVersionHistoryView(view)
+    },
+    [projectSessionId]
+  )
 
-    void window.desktop.projects
-      .subscribe({ projectSessionId }, (event) => {
-        if (!disposed) setSnapshot(event.snapshot)
-      })
-      .then((release) => {
-        if (disposed) release()
-        else unsubscribe = release
-      })
-      .catch(() => {
-        if (!disposed) {
-          notifyActionError(actionErrorMessages.subscribe)
-          void refreshLifecycle()
-        }
-      })
+  const handleProjectRestored = useCallback(
+    (project: ActiveProject): void => {
+      const currentSessionId = currentProjectSessionRef.current
+      const sourceSessionId = projectSessionId
+      if (
+        currentSessionId !== undefined &&
+        currentSessionId !== sourceSessionId &&
+        currentSessionId !== project.projectSessionId
+      ) {
+        return
+      }
+      if (currentSessionId === undefined && currentSnapshotRef.current.state !== 'opening') {
+        return
+      }
+      setSnapshot({ state: 'open', activeProject: project })
+    },
+    [projectSessionId]
+  )
 
-    return () => {
-      disposed = true
-      unsubscribe?.()
+  useDesktopSubscription<ProjectLifecycleEvent>(
+    (listener) => {
+      if (!projectSessionId) return Promise.reject(new Error('Project session is unavailable'))
+      return window.desktop.projects.subscribe({ projectSessionId }, listener)
+    },
+    (event) => setSnapshot(event.snapshot),
+    {
+      enabled: projectSessionId !== undefined,
+      source: 'App.project-subscription',
+      dependencies: [projectSessionId],
+      onError: () => {
+        notifyActionError(actionErrorMessages.subscribe)
+        void refreshLifecycle()
+      }
     }
-  }, [projectSessionId, refreshLifecycle])
+  )
 
   const openProject = useCallback(async (): Promise<void> => {
     setActiveAction('open')
@@ -422,100 +540,6 @@ function App(): React.JSX.Element {
       setActiveAction(null)
     }
   }, [projectSessionId, refreshLifecycle, refreshRecentProjects])
-
-  const openTemplateDialog = useCallback(async (): Promise<void> => {
-    if (!projectSessionId) return
-    setActiveAction('template')
-    try {
-      setTemplatePreview(await window.desktop.projects.previewTemplate({ projectSessionId }))
-      setTemplateName('')
-      setTemplateDescription('')
-      setIncludeTemplatePreset(true)
-      setTemplateDialogOpen(true)
-    } catch (err) {
-      reportRendererOperationError(err, 'App')
-      notifyActionError(actionErrorMessages.template)
-    } finally {
-      setActiveAction(null)
-    }
-  }, [projectSessionId])
-
-  const saveTemplate = useCallback(async (): Promise<void> => {
-    if (!projectSessionId || templateName.trim().length === 0) return
-    setActiveAction('template')
-    try {
-      setProjectTemplates(
-        await window.desktop.projects.saveTemplate({
-          projectSessionId,
-          name: templateName,
-          description: templateDescription,
-          includePublicationPreset: includeTemplatePreset
-        })
-      )
-      setTemplateDialogOpen(false)
-    } catch (err) {
-      reportRendererOperationError(err, 'App')
-      notifyActionError(actionErrorMessages.template)
-    } finally {
-      setActiveAction(null)
-    }
-  }, [includeTemplatePreset, projectSessionId, templateDescription, templateName])
-
-  const deleteSelectedTemplate = useCallback(async (): Promise<void> => {
-    if (selectedTemplateId === 'blank') return
-    const selected = projectTemplates.find((template) => template.templateId === selectedTemplateId)
-    if (selected?.origin !== 'user') return
-    try {
-      setProjectTemplates(
-        await window.desktop.projects.deleteTemplate({ templateId: selectedTemplateId })
-      )
-      setSelectedTemplateId('blank')
-    } catch (err) {
-      reportRendererOperationError(err, 'App')
-      notifyActionError(actionErrorMessages.template)
-    }
-  }, [projectTemplates, selectedTemplateId])
-
-  const exportManuscript = useCallback(
-    async (kind: ManuscriptExportKind): Promise<void> => {
-      if (projectSessionId === undefined) return
-      exportCancellationRequested.current = false
-      setExportCancelling(false)
-      setActiveAction('export')
-      try {
-        const result = await window.desktop.projects.exportManuscript({
-          projectSessionId,
-          kind
-        })
-        if (result.created) setExportResult(result)
-      } catch (err) {
-        reportRendererOperationError(err, 'App')
-        if (!exportCancellationRequested.current) notifyActionError(actionErrorMessages.export)
-      } finally {
-        setActiveAction(null)
-        setExportCancelling(false)
-      }
-    },
-    [projectSessionId]
-  )
-
-  const cancelManuscriptExport = useCallback(async (): Promise<void> => {
-    if (projectSessionId === undefined || exportCancelling) return
-    exportCancellationRequested.current = true
-    setExportCancelling(true)
-    try {
-      const result = await window.desktop.projects.cancelManuscriptExport({ projectSessionId })
-      if (!result.cancelled) {
-        exportCancellationRequested.current = false
-        setExportCancelling(false)
-      }
-    } catch (err) {
-      reportRendererOperationError(err, 'App')
-      exportCancellationRequested.current = false
-      setExportCancelling(false)
-      notifyActionError(actionErrorMessages.export)
-    }
-  }, [exportCancelling, projectSessionId])
 
   const restoreSnapshot = useCallback(async (): Promise<void> => {
     setActiveAction('snapshot')
@@ -659,10 +683,10 @@ function App(): React.JSX.Element {
         onExportPdf={() => void exportManuscript('pdf')}
         onCreateSnapshot={() => void createSnapshot()}
         onRestoreSnapshot={() => void restoreSnapshot()}
-        versionHistoryState={versionHistoryState}
+        versionHistoryState={currentVersionHistoryState}
         onEnableVersionHistory={() => void enableVersionHistory()}
-        onCreateCheckpoint={() => setVersionHistoryView('create')}
-        onOpenVersionHistory={() => setVersionHistoryView('history')}
+        onCreateCheckpoint={() => handleVersionHistoryViewChange('create')}
+        onOpenVersionHistory={() => handleVersionHistoryViewChange('history')}
         canRestoreSnapshot={snapshot.state === 'closed' || snapshot.state === 'recovery-required'}
         onClose={() => void closeProject()}
         onOpenSettings={() => {
@@ -677,10 +701,10 @@ function App(): React.JSX.Element {
         <ProjectVersionHistory
           key={projectSessionId}
           projectSessionId={projectSessionId}
-          view={versionHistoryView}
-          onViewChange={setVersionHistoryView}
-          onStateChange={setVersionHistoryState}
-          onProjectRestored={(project) => setSnapshot({ state: 'open', activeProject: project })}
+          view={currentVersionHistoryView}
+          onViewChange={handleVersionHistoryViewChange}
+          onStateChange={handleVersionHistoryStateChange}
+          onProjectRestored={handleProjectRestored}
           onError={notifyActionError}
         />
       ) : null}
@@ -1035,142 +1059,28 @@ function App(): React.JSX.Element {
           </form>
         </DialogContent>
       </Dialog>
-      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Save reusable project template</DialogTitle>
-            <DialogDescription>
-              Review exactly what will be reusable. Project content and identity stay excluded.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='grid gap-4'>
-            <Field>
-              <FieldLabel htmlFor='template-name'>Template name</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
-                  id='template-name'
-                  value={templateName}
-                  onChange={(event) => setTemplateName(event.target.value)}
-                />
-              </InputGroup>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor='template-description'>Description</FieldLabel>
-              <Textarea
-                id='template-description'
-                value={templateDescription}
-                maxLength={1_000}
-                onChange={(event) => setTemplateDescription(event.target.value)}
-              />
-            </Field>
-            {templatePreview ? (
-              <div className='grid gap-3 rounded-md border p-3 text-sm'>
-                <div>
-                  <p className='font-medium'>Included</p>
-                  <p className='text-muted-foreground'>
-                    {templatePreview.outlineTitles.length} outline sections,{' '}
-                    {templatePreview.briefFields.length} populated Brief fields, and{' '}
-                    {templatePreview.writingRuleCount} writing rules.
-                  </p>
-                </div>
-                <div>
-                  <p className='font-medium'>Excluded</p>
-                  <ul className='list-disc pl-5 text-muted-foreground'>
-                    {templatePreview.excluded.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </div>
-                <label htmlFor='template-publication-preset' className='flex items-center gap-2'>
-                  <Checkbox
-                    id='template-publication-preset'
-                    checked={includeTemplatePreset}
-                    onCheckedChange={(checked) => setIncludeTemplatePreset(checked === true)}
-                  />
-                  Include the current default publication preset reference
-                </label>
-              </div>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button type='button' variant='outline' onClick={() => setTemplateDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type='button'
-              disabled={templateName.trim().length === 0 || activeAction === 'template'}
-              onClick={() => void saveTemplate()}
-            >
-              Save template
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={activeAction === 'export'} onOpenChange={() => undefined}>
-        <DialogContent showCloseButton={false}>
-          <DialogHeader>
-            <DialogTitle>Publishing manuscript</DialogTitle>
-            <DialogDescription>
-              WriteLLM is capturing the current manuscript, verifying assets, and building the
-              selected format.
-            </DialogDescription>
-          </DialogHeader>
-          <div className='flex items-center gap-3 text-sm text-muted-foreground' role='status'>
-            <Spinner />
-            {exportCancelling ? 'Cancelling…' : 'Publication is in progress…'}
-          </div>
-          <DialogFooter>
-            <Button
-              type='button'
-              variant='outline'
-              disabled={exportCancelling}
-              onClick={() => void cancelManuscriptExport()}
-            >
-              {exportCancelling ? 'Cancelling…' : 'Cancel export'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog
-        open={exportResult !== undefined}
-        onOpenChange={(open) => {
+      <ProjectTemplateDialog
+        open={templateDialogOpen}
+        preview={templatePreview}
+        name={templateName}
+        description={templateDescription}
+        includePublicationPreset={includeTemplatePreset}
+        saving={activeAction === 'template'}
+        onOpenChange={setTemplateDialogOpen}
+        onNameChange={setTemplateName}
+        onDescriptionChange={setTemplateDescription}
+        onIncludePublicationPresetChange={setIncludeTemplatePreset}
+        onSave={() => void saveTemplate()}
+      />
+      <ManuscriptExportDialogs
+        active={exportActive}
+        result={exportResult}
+        cancelling={exportCancelling}
+        onCancel={() => void cancelManuscriptExport()}
+        onResultChange={(open) => {
           if (!open) setExportResult(undefined)
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Manuscript exported</DialogTitle>
-            <DialogDescription>
-              {exportResult?.packageName} contains the complete current manuscript and{' '}
-              {exportResult?.assetCount ?? 0} referenced asset
-              {(exportResult?.assetCount ?? 0) === 1 ? '' : 's'}.
-            </DialogDescription>
-          </DialogHeader>
-          {exportResult?.lossReport && exportResult.lossReport.losses.length > 0 ? (
-            <Alert>
-              <TriangleAlert />
-              <AlertTitle>Publication limitations</AlertTitle>
-              <AlertDescription>
-                <p>
-                  {exportResult.lossReport.losses.length} formatting detail
-                  {exportResult.lossReport.losses.length === 1 ? ' was' : 's were'} recorded in{' '}
-                  writellm.loss-report.json.
-                </p>
-                <ul className='list-disc pl-4'>
-                  {exportResult.lossReport.losses.slice(0, 5).map((loss) => (
-                    <li key={`${loss.sectionId}:${loss.blockId}:${loss.code}`}>{loss.message}</li>
-                  ))}
-                </ul>
-              </AlertDescription>
-            </Alert>
-          ) : null}
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button>Done</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      />
     </div>
   )
 }

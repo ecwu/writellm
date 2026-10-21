@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import {
   blockNoteDocumentSchema,
   type BlockNoteDocument,
@@ -226,7 +226,7 @@ export function prepareValidatedSectionContent(
       : normalizeFigureMetadata(parsedContent, sectionId)
   const canonical = canonicalize(preparedContent, new Set()) as BlockNoteDocument
   const contentJson = JSON.stringify(canonical)
-  const contentHash = createHash('sha256').update(contentJson).digest('hex')
+  const contentHash = sha256(contentJson)
   const counts = countSectionText(stripReadableCitations(extractSectionText(preparedContent)))
   return {
     content: preparedContent,

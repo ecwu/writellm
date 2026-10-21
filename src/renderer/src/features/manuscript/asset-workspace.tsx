@@ -16,6 +16,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { useState } from 'react'
+import { formatBytes } from '@/lib/utils'
 import { WorkspaceRail } from '@/components/app-sidebar'
 import {
   AlertDialog,
@@ -559,10 +560,4 @@ function protectionLabel(item: ManuscriptAssetWorkspaceItem): string {
     return 'candidate lineage'
   })
   return `Protected by ${labels.join(', ')}`
-}
-
-function formatBytes(value: number): string {
-  if (value < 1_024) return `${value} B`
-  if (value < 1_048_576) return `${(value / 1_024).toFixed(1)} KB`
-  return `${(value / 1_048_576).toFixed(1)} MB`
 }

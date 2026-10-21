@@ -1,4 +1,5 @@
 import { serializeAgentDiagnosticError } from '../shared/agent-diagnostic-error'
+import { createAbortError } from '../shared/abort-error'
 import { GoogleGenAI } from '@google/genai'
 import OpenAI from 'openai'
 import type {
@@ -125,31 +126,13 @@ async function runOpenAiProviderProbe(
     maxRetries: 0,
     fetch: fetchImplementation
   })
-  try {
-    await client.models.retrieve(request.config.model, { signal })
-    return {
-      type: 'result',
-      requestId: request.requestId,
-      projectSessionId: request.projectSessionId ?? null,
-      status: 200
-    }
-  } catch (error) {
-    const status = sdkHttpStatus(error)
-    if (status !== undefined) {
-      return {
-        type: 'result',
-        requestId: request.requestId,
-        projectSessionId: request.projectSessionId ?? null,
-        status
-      }
-    }
-    if (signal?.aborted) {
-      const aborted = new Error('Image provider probe aborted')
-      aborted.name = 'AbortError'
-      throw aborted
-    }
-    throw new Error('Image provider probe failed', { cause: error })
-  }
+  return probeWith(
+    request,
+    signal,
+    () => client.models.retrieve(request.config.model, { signal }),
+    'Image provider probe aborted',
+    'Image provider probe failed'
+  )
 }
 
 async function runGoogleVertexProviderProbe(
@@ -164,35 +147,18 @@ async function runGoogleVertexProviderProbe(
     project: request.config.projectId,
     location: request.config.location
   })
-  try {
-    await models.countTokens({
-      model: request.config.model,
-      contents: 'WriteLLM connection probe',
-      ...(signal === undefined ? {} : { config: { abortSignal: signal } })
-    })
-    return {
-      type: 'result',
-      requestId: request.requestId,
-      projectSessionId: request.projectSessionId ?? null,
-      status: 200
-    }
-  } catch (error) {
-    const status = sdkHttpStatus(error)
-    if (status !== undefined) {
-      return {
-        type: 'result',
-        requestId: request.requestId,
-        projectSessionId: request.projectSessionId ?? null,
-        status
-      }
-    }
-    if (signal?.aborted) {
-      const aborted = new Error('Google Vertex provider probe aborted')
-      aborted.name = 'AbortError'
-      throw aborted
-    }
-    throw new Error('Google Vertex provider probe failed', { cause: error })
-  }
+  return probeWith(
+    request,
+    signal,
+    () =>
+      models.countTokens({
+        model: request.config.model,
+        contents: 'WriteLLM connection probe',
+        ...(signal === undefined ? {} : { config: { abortSignal: signal } })
+      }),
+    'Google Vertex provider probe aborted',
+    'Google Vertex provider probe failed'
+  )
 }
 
 async function runGeminiProviderProbe(
@@ -200,11 +166,28 @@ async function runGeminiProviderProbe(
   signal?: AbortSignal
 ): Promise<ProviderProbeResponse> {
   const ai = new GoogleGenAI({ apiKey: request.credential })
+  return probeWith(
+    request,
+    signal,
+    () =>
+      ai.models.get({
+        model: request.config.model,
+        ...(signal === undefined ? {} : { config: { abortSignal: signal } })
+      }),
+    'Gemini provider probe aborted',
+    'Gemini provider probe failed'
+  )
+}
+
+async function probeWith(
+  request: ProviderProbeRequest,
+  signal: AbortSignal | undefined,
+  operation: () => Promise<unknown>,
+  abortMessage: string,
+  failureMessage: string
+): Promise<ProviderProbeResponse> {
   try {
-    await ai.models.get({
-      model: request.config.model,
-      ...(signal === undefined ? {} : { config: { abortSignal: signal } })
-    })
+    await operation()
     return {
       type: 'result',
       requestId: request.requestId,
@@ -222,11 +205,9 @@ async function runGeminiProviderProbe(
       }
     }
     if (signal?.aborted) {
-      const aborted = new Error('Gemini provider probe aborted')
-      aborted.name = 'AbortError'
-      throw aborted
+      throw createAbortError(abortMessage, { cause: error })
     }
-    throw new Error('Gemini provider probe failed')
+    throw new Error(failureMessage, { cause: error })
   }
 }
 

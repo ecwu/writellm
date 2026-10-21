@@ -1,9 +1,10 @@
-import { randomUUID, createHash } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { mkdir, rename, rm, access, readFile, lstat, realpath, readdir } from 'node:fs/promises'
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import { z } from 'zod'
+import { sha256 } from '../../shared/hash'
 import {
   copyVerifiedFile,
   createVerifiedDatabaseBackup,
@@ -223,7 +224,7 @@ function schemaMigrationsHash(database: Database.Database): string {
   const rows = database
     .prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version')
     .all()
-  return createHash('sha256').update(JSON.stringify(rows)).digest('hex')
+  return sha256(JSON.stringify(rows))
 }
 
 function validateProjectDatabaseIdentity(database: Database.Database, projectId: string): void {

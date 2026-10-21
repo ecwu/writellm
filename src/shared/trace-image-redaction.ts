@@ -1,5 +1,5 @@
 import type { JSONType } from 'zod'
-import { createHash } from 'node:crypto'
+import { sha256 } from './hash'
 
 export function redactTraceImages(value: unknown): unknown {
   if (typeof value === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
@@ -38,7 +38,7 @@ function metadata(data: string, mimeType: string): Record<string, unknown> {
       : {}
   return {
     imageRedacted: true,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
+    sha256: sha256(bytes),
     mimeType,
     byteSize: bytes.length,
     base64Bytes: data.length,

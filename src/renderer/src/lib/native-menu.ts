@@ -4,6 +4,7 @@ import {
   type MenuCommand,
   type MenuState
 } from '../../../shared/contracts/application-menu'
+import { reportRendererOperationError } from '../diagnostics'
 
 export const hasOpenModal = (): boolean =>
   !!document.querySelector(
@@ -47,12 +48,7 @@ export function useNativeMenu(state: MenuState, execute: (command: MenuCommand) 
     if (!native) return
     // Main logs the original IPC failure before returning its sanitized error.
     void window.desktop.menu.update(JSON.parse(serialized)).catch((error) => {
-      const err = error instanceof Error ? error : new Error(String(error))
-      window.desktop.diagnostics.reportRendererError({
-        event: 'renderer.error',
-        message: err.message,
-        stack: err.stack
-      })
+      reportRendererOperationError(error, 'native-menu.update')
     })
   }, [native, serialized])
 }

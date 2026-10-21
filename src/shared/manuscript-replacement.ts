@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import type {
   BlockNoteBlockValue,
   BlockNoteDocument,
@@ -6,6 +5,7 @@ import type {
 } from './contracts/manuscript'
 import type { ManuscriptReplacementSkipReason } from './contracts/manuscript-replacement'
 import type { ManuscriptSearchTargetContract } from './contracts/manuscript-search'
+import { sha256 as hashSha256 } from './hash'
 import { findReadableCitations } from './readable-citation'
 
 type WritableSearchTarget = Exclude<
@@ -85,7 +85,7 @@ export function applyReplacementOperations(
     if (classification.skipReason !== null) {
       throw new ReplacementPreconditionError('Replacement target is no longer eligible')
     }
-    if (sha256(classification.sourceText) !== operation.sourceSliceHash) {
+    if (hashSha256(classification.sourceText) !== operation.sourceSliceHash) {
       throw new ReplacementPreconditionError('Replacement source text changed')
     }
     applyOne(document, operation.target, replacement)
@@ -312,8 +312,4 @@ function targetFrom(target: ManuscriptSearchTargetContract): number {
   return target.kind === 'block_inline' || target.kind === 'table_cell'
     ? target.flatRange.from
     : target.range.from
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
 }

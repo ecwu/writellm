@@ -59,11 +59,7 @@ import {
   agentRuntimeMessageBudget,
   estimateAgentTokens
 } from '../../shared/agent-context-budget'
-import {
-  activeAgentToolSetAllows,
-  agentModelVisibleToolSpecs,
-  agentToolEnvelope
-} from '../../shared/agent-tool-specs'
+import { agentModelVisibleToolSpecs, agentToolEnvelope } from '../../shared/agent-tool-specs'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
@@ -161,6 +157,7 @@ import {
   skillResultProjection,
   safeSkillActivityProjection
 } from './session-projections'
+import { authorizeAgentToolRequest } from './tool-request-policy'
 
 function skillPromptOverhead(): string {
   return `\n\n${SKILL_COMPANION_NOTE}\n\n${formatPromptBlock({
@@ -197,6 +194,28 @@ function citationRecoveryStateAfterToolResult(
 export interface StartedAgentRun {
   agentRunId: string
   completion: Promise<void>
+}
+
+type ReservedRunInput = {
+  agentSessionId: string
+  prompt: string
+  attachmentIds?: string[]
+  editorContext: AgentEditorContext
+  systemPrompt?: string
+  maxOutputTokens?: number
+  temperature?: number
+  replacement?: MessageReplacement
+  presentation?: AgentUserMessagePayload['presentation']
+  interactionMode?: AgentInteractionMode
+  operationId: string
+  agentRunId: string
+  controller: AbortController
+}
+
+type PreparedReservedRun = {
+  active: ActiveRun
+  automaticTitle: string | null
+  reasoningModel: boolean
 }
 
 type ModelCallFinishedEvent = Extract<AgentRuntimeEvent, { type: 'model_call_finished' }>
@@ -913,21 +932,7 @@ export class AgentSessionService {
     }
   }
 
-  async #startReservedRun(input: {
-    agentSessionId: string
-    prompt: string
-    attachmentIds?: string[]
-    editorContext: AgentEditorContext
-    systemPrompt?: string
-    maxOutputTokens?: number
-    temperature?: number
-    replacement?: MessageReplacement
-    presentation?: AgentUserMessagePayload['presentation']
-    interactionMode?: AgentInteractionMode
-    operationId: string
-    agentRunId: string
-    controller: AbortController
-  }): Promise<StartedAgentRun> {
+  async #startReservedRun(input: ReservedRunInput): Promise<StartedAgentRun> {
     input.controller.signal.throwIfAborted()
     return withLogContext(
       {
@@ -939,140 +944,149 @@ export class AgentSessionService {
       },
       () =>
         this.#withSessionProvider(input.agentSessionId, async (config, credential, resolved) => {
-          const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
-          const maxOutputTokens = agentOutputLimit(input.maxOutputTokens, modelLimits)
-          const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
-          const interactionMode =
-            input.interactionMode ?? this.#sessionInteractionMode(input.agentSessionId)
-          const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
-          const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, storedThinkingLevel)
-          if (thinkingLevel !== storedThinkingLevel) {
-            this.#reconcileThinkingLevel(input.agentSessionId, storedThinkingLevel, thinkingLevel)
-          }
-          const runtimeModel = agentRuntimeModelFromResolved(resolved)
-          const currentImages = await this.#loadImages(input.agentSessionId, input.attachmentIds)
-          const history = loadContinuousRuntimeHistory(this.options.database, input.agentSessionId)
-          this.#assertImageModel(
-            runtimeModel,
-            currentImages.length > 0 ||
-              history.some(
-                (message) => message.role === 'user' && (message.attachmentIds?.length ?? 0) > 0
-              )
-          )
-          input.controller.signal.throwIfAborted()
-          const now = this.#now()
-          const automaticTitle = this.#insertRunAndUserEvent({
-            agentSessionId: input.agentSessionId,
-            agentRunId: input.agentRunId,
-            config,
-            editorContext: input.editorContext,
-            prompt: input.prompt,
-            attachmentIds: input.attachmentIds,
-            approvalMode,
-            interactionMode,
-            thinkingLevel,
-            modelLimits,
-            presentation: input.presentation,
-            replacement: input.replacement,
-            now
-          })
-          this.options.attachments.release(
-            `draft:${input.agentSessionId}`,
-            input.attachmentIds ?? []
-          )
-          const active: ActiveRun = {
-            agentSessionId: input.agentSessionId,
-            agentRunId: input.agentRunId,
-            operationId: input.operationId,
-            controller: input.controller,
-            handle: null,
-            phase: 'routing',
-            config,
-            editorContext: input.editorContext,
-            approvalMode,
-            interactionMode,
-            thinkingLevel,
-            runtimeModel,
-            modelLimits,
-            credential,
-            currentRequest: input.prompt,
-            currentImages,
-            maxOutputTokens,
-            ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
-            authorizedModelRequestIds: new Set(),
-            pendingModelRequestIds: new Set(),
-            pendingMessages: [],
-            activeToolGroups: [],
-            citationRecoveryState: 'none',
-            snapshots: new Map(),
-            skillSnapshot: pendingSkillSnapshot(),
-            skillState: null,
-            skillPrompt: { mode: 'auto', mandatory: '', references: [] },
-            systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
-            partialText: '',
-            reviewPause: null,
-            pendingQuestion: null,
-            overflowRetryAttempted: false,
-            completion: Promise.resolve()
-          }
-          active.completion = this.#prepareAndRun(active, {
-            credential,
-            prompt: input.prompt,
-            maxOutputTokens,
-            ...(input.temperature === undefined ? {} : { temperature: input.temperature })
-          })
-            .catch((err) => this.#settleSetupFailure(active, err))
-            .finally(() => {
-              if (this.#coordinator.runs.get(active.agentRunId) === active) {
-                this.#coordinator.finishRun(active)
-              }
-              this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
-              void this.#publishSession(active.agentSessionId, false)
-            })
-          this.#coordinator.registerRun(active)
-          void this.#publishActivitySnapshot()
-          void this.#publishSession(
-            input.agentSessionId,
-            automaticTitle !== null && this.options.generateTitle !== undefined
-          )
-          if (automaticTitle !== null) {
-            if (this.options.generateTitle !== undefined) {
-              const titleController = new AbortController()
-              void this.#titles
-                .begin({
-                  agentSessionId: input.agentSessionId,
-                  agentRunId: input.agentRunId,
-                  operationId: input.operationId,
-                  config,
-                  credential,
-                  modelLimits,
-                  context: buildSessionTitleContext([
-                    { sequence: 1, role: 'user', content: input.prompt }
-                  ]),
-                  expectedTitle: automaticTitle,
-                  controller: titleController,
-                  automatic: true,
-                  reasoningModel: resolved.model.reasoning
-                })
-                .catch(() => undefined)
-            }
-          }
-          this.options.log.info(
-            {
-              event: 'agent.run.started',
-              replacedEventId: input.replacement?.targetEventId,
-              agentSessionId: input.agentSessionId,
-              agentRunId: input.agentRunId,
-              phase: 'skill_preparation',
-              interactionMode,
-              thinkingLevel,
-              activeCount: this.#coordinator.activeCount
-            },
-            'Agent run started and entered writing skill preparation'
-          )
-          return { agentRunId: input.agentRunId, completion: active.completion }
+          const prepared = await this.#prepareReservedRun(input, config, credential, resolved)
+          return this.#launchReservedRun(input, prepared)
         })
     )
+  }
+
+  async #prepareReservedRun(
+    input: ReservedRunInput,
+    config: Extract<ProviderConfig, { role: 'agent' }>,
+    credential: string,
+    resolved: ResolvedAgentCatalogModel
+  ): Promise<PreparedReservedRun> {
+    const modelLimits = agentModelLimitsFromResolved(resolved, this.#now())
+    const maxOutputTokens = agentOutputLimit(input.maxOutputTokens, modelLimits)
+    const approvalMode = this.#sessionApprovalMode(input.agentSessionId)
+    const interactionMode =
+      input.interactionMode ?? this.#sessionInteractionMode(input.agentSessionId)
+    const storedThinkingLevel = this.#sessionThinkingLevel(input.agentSessionId)
+    const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, storedThinkingLevel)
+    if (thinkingLevel !== storedThinkingLevel) {
+      this.#reconcileThinkingLevel(input.agentSessionId, storedThinkingLevel, thinkingLevel)
+    }
+    const runtimeModel = agentRuntimeModelFromResolved(resolved)
+    const currentImages = await this.#loadImages(input.agentSessionId, input.attachmentIds)
+    const history = loadContinuousRuntimeHistory(this.options.database, input.agentSessionId)
+    this.#assertImageModel(
+      runtimeModel,
+      currentImages.length > 0 ||
+        history.some(
+          (message) => message.role === 'user' && (message.attachmentIds?.length ?? 0) > 0
+        )
+    )
+    input.controller.signal.throwIfAborted()
+    const now = this.#now()
+    const automaticTitle = this.#insertRunAndUserEvent({
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      config,
+      editorContext: input.editorContext,
+      prompt: input.prompt,
+      attachmentIds: input.attachmentIds,
+      approvalMode,
+      interactionMode,
+      thinkingLevel,
+      modelLimits,
+      presentation: input.presentation,
+      replacement: input.replacement,
+      now
+    })
+    this.options.attachments.release(`draft:${input.agentSessionId}`, input.attachmentIds ?? [])
+    const active: ActiveRun = {
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      operationId: input.operationId,
+      controller: input.controller,
+      handle: null,
+      phase: 'routing',
+      config,
+      editorContext: input.editorContext,
+      approvalMode,
+      interactionMode,
+      thinkingLevel,
+      runtimeModel,
+      modelLimits,
+      credential,
+      currentRequest: input.prompt,
+      currentImages,
+      maxOutputTokens,
+      ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
+      authorizedModelRequestIds: new Set(),
+      pendingModelRequestIds: new Set(),
+      pendingMessages: [],
+      activeToolGroups: [],
+      citationRecoveryState: 'none',
+      snapshots: new Map(),
+      skillSnapshot: pendingSkillSnapshot(),
+      skillState: null,
+      skillPrompt: { mode: 'auto', mandatory: '', references: [] },
+      systemPrompt: input.systemPrompt ?? FALLBACK_AGENT_SYSTEM_PROMPT,
+      partialText: '',
+      reviewPause: null,
+      pendingQuestion: null,
+      overflowRetryAttempted: false,
+      completion: Promise.resolve()
+    }
+    return { active, automaticTitle, reasoningModel: resolved.model.reasoning }
+  }
+
+  #launchReservedRun(input: ReservedRunInput, prepared: PreparedReservedRun): StartedAgentRun {
+    const { active, automaticTitle, reasoningModel } = prepared
+    active.completion = this.#prepareAndRun(active, {
+      credential: active.credential,
+      prompt: input.prompt,
+      maxOutputTokens: active.maxOutputTokens,
+      ...(input.temperature === undefined ? {} : { temperature: input.temperature })
+    })
+      .catch((err) => this.#settleSetupFailure(active, err))
+      .finally(() => {
+        if (this.#coordinator.runs.get(active.agentRunId) === active) {
+          this.#coordinator.finishRun(active)
+        }
+        this.#releaseRunSlot(active.agentSessionId, active.agentRunId)
+        void this.#publishSession(active.agentSessionId, false)
+      })
+    this.#coordinator.registerRun(active)
+    void this.#publishActivitySnapshot()
+    void this.#publishSession(
+      input.agentSessionId,
+      automaticTitle !== null && this.options.generateTitle !== undefined
+    )
+    if (automaticTitle !== null && this.options.generateTitle !== undefined) {
+      const titleController = new AbortController()
+      void this.#titles
+        .begin({
+          agentSessionId: input.agentSessionId,
+          agentRunId: input.agentRunId,
+          operationId: input.operationId,
+          config: active.config,
+          credential: active.credential,
+          modelLimits: active.modelLimits,
+          context: buildSessionTitleContext([{ sequence: 1, role: 'user', content: input.prompt }]),
+          expectedTitle: automaticTitle,
+          controller: titleController,
+          automatic: true,
+          reasoningModel
+        })
+        // error-handling: allow owner=agent-title reason=background-completion
+        .catch(() => undefined)
+    }
+    this.options.log.info(
+      {
+        event: 'agent.run.started',
+        replacedEventId: input.replacement?.targetEventId,
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId,
+        phase: 'skill_preparation',
+        interactionMode: active.interactionMode,
+        thinkingLevel: active.thinkingLevel,
+        activeCount: this.#coordinator.activeCount
+      },
+      'Agent run started and entered writing skill preparation'
+    )
+    return { agentRunId: input.agentRunId, completion: active.completion }
   }
 
   async #prepareAndRun(
@@ -1692,6 +1706,7 @@ export class AgentSessionService {
     })
     void this.#publishActivitySnapshot()
     await this.#publishSession(agentSessionId, false)
+    // error-handling: allow owner=agent-compaction reason=background-completion
     void active.completion.catch(() => undefined)
     return { compactionId }
   }
@@ -2413,12 +2428,17 @@ export class AgentSessionService {
     signal: AbortSignal
   ): Promise<AgentToolResponse> {
     const active = this.#requireActive(agentRunId)
-    if (
-      request.projectSessionId !== this.options.projectSessionId ||
-      request.agentSessionId !== active.agentSessionId ||
-      request.agentRunId !== active.agentRunId ||
-      !active.authorizedModelRequestIds.has(request.modelRequestId)
-    ) {
+    const authorization = authorizeAgentToolRequest({
+      request,
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      authorizedModelRequestIds: active.authorizedModelRequestIds,
+      activeToolGroups: active.activeToolGroups,
+      interactionMode: active.interactionMode,
+      signalAborted: signal.aborted
+    })
+    if (authorization === 'capability_mismatch') {
       this.options.log.error(
         {
           event: 'agent.tool.unauthorized',
@@ -2434,17 +2454,10 @@ export class AgentSessionService {
       )
       return toolErrorResponse(request, 'unauthorized', 'Agent tool request is unauthorized', false)
     }
-    if (signal.aborted) {
+    if (authorization === 'aborted') {
       return toolErrorResponse(request, 'aborted', 'Agent tool request was aborted', true)
     }
-    if (
-      !activeAgentToolSetAllows(
-        'writing',
-        active.activeToolGroups,
-        request.toolName,
-        active.interactionMode
-      )
-    ) {
+    if (authorization === 'inactive_group') {
       this.options.log.warn(
         {
           event: 'agent.tool.inactive_group_rejected',
@@ -2496,170 +2509,291 @@ export class AgentSessionService {
         : AbortSignal.timeout(AGENT_TOOL_DESCRIPTORS[request.toolName].deadlineMs)
     const toolSignal = deadlineSignal === null ? signal : AbortSignal.any([signal, deadlineSignal])
     try {
-      let data: unknown
-      if (request.toolName === 'ask_user') {
-        data = await this.#waitForUserAnswer(active, request, toolSignal)
-      } else if (request.toolName === 'activate_tool_groups') {
-        const requested = request.args.groups
-        const alreadyActive = requested.filter((group) => active.activeToolGroups.includes(group))
-        const activated = requested.filter((group) => !active.activeToolGroups.includes(group))
-        const activeGroups = [...active.activeToolGroups, ...activated]
-        try {
-          this.#runtimeMessageBudget(active, active.systemPrompt, activeGroups)
-        } catch (err) {
-          throw new AgentToolDomainError(
-            'unavailable',
-            'The selected model cannot safely fit the requested writing tool groups',
-            false,
-            { cause: err }
-          )
+      const data = await this.#dispatchToolRequest(active, request, toolSignal, toolCallEvent)
+      return await this.#projectToolSuccess(active, request, data)
+    } catch (err) {
+      return this.#projectToolFailure(active, request, signal, deadlineSignal, toolStartedAt, err)
+    }
+  }
+
+  async #dispatchToolRequest(
+    active: ActiveRun,
+    request: AgentToolRequest,
+    signal: AbortSignal,
+    toolCallEvent: AgentEventRecord
+  ): Promise<unknown> {
+    if (request.toolName === 'ask_user') {
+      return this.#waitForUserAnswer(active, request, signal)
+    }
+    if (request.toolName === 'activate_tool_groups') {
+      const requested = request.args.groups
+      const alreadyActive = requested.filter((group) => active.activeToolGroups.includes(group))
+      const activated = requested.filter((group) => !active.activeToolGroups.includes(group))
+      const activeGroups = [...active.activeToolGroups, ...activated]
+      try {
+        this.#runtimeMessageBudget(active, active.systemPrompt, activeGroups)
+      } catch (err) {
+        throw new AgentToolDomainError(
+          'unavailable',
+          'The selected model cannot safely fit the requested writing tool groups',
+          false,
+          { cause: err }
+        )
+      }
+      active.activeToolGroups = activeGroups
+      const data = { activated, alreadyActive, activeGroups }
+      this.options.log.info(
+        {
+          event: 'agent.tool_groups.activated',
+          agentRunId: active.agentRunId,
+          activated,
+          alreadyActive,
+          activeToolGroups: activeGroups
+        },
+        'Activated writing tool groups for the current Agent run'
+      )
+      return data
+    }
+    if (request.toolName === 'read_writing_skill') {
+      if (this.options.skillRouter.read === undefined || active.skillState === null) {
+        throw new AgentToolDomainError('unavailable', 'Writing Skills are unavailable', true)
+      }
+      const read = await this.options.skillRouter.read(
+        active.skillState,
+        request.args.uri,
+        request.modelRequestId,
+        signal
+      )
+      active.skillSnapshot = read.snapshot
+      active.skillPrompt = read.prompt
+      active.skillTraceToolCallId = request.toolCallId
+      this.#updateSkillSnapshot(active.agentRunId, read.snapshot)
+      const trace = new AgentTraceRepository(
+        this.options.database,
+        this.options.log,
+        this.#now,
+        this.#createId
+      )
+      trace.capture({
+        modelRequestId: request.modelRequestId,
+        purpose: 'tool_continuation',
+        apiId: active.runtimeModel.api,
+        traceId: active.agentRunId,
+        spanId: request.modelRequestId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        toolCallId: request.toolCallId,
+        physicalAttempt: trace.nextDocumentOccurrence(request.modelRequestId, 'skill_content'),
+        documents: [
+          {
+            kind: 'skill_content',
+            value: {
+              skillId: read.data.skillId,
+              displayName: read.data.displayName,
+              commit: read.data.commit,
+              relativePath: read.data.relativePath,
+              sha256: read.data.sha256,
+              byteSize: read.data.byteSize,
+              content: read.data.content
+            }
+          }
+        ]
+      })
+      return read.data
+    }
+    return this.options.tools.execute({
+      toolName: request.toolName,
+      args: request.args,
+      editorContext: active.editorContext,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      toolCallId: request.toolCallId,
+      toolCallEventId: toolCallEvent.agentEventId,
+      modelRequestId: request.modelRequestId,
+      snapshot: active.snapshots.get(request.modelRequestId),
+      signal
+    })
+  }
+
+  async #projectToolSuccess(
+    active: ActiveRun,
+    request: AgentToolRequest,
+    rawData: unknown
+  ): Promise<AgentToolResponse> {
+    let data = rawData
+    const tools = this.options.tools
+    const proposal = mutationProposalToolResultSchema.safeParse(data)
+    if (proposal.success) {
+      // The approval decision reads the session's current mode rather than the
+      // run-start snapshot so mid-run mode changes apply to the next proposal.
+      const currentApprovalMode = this.#sessionApprovalMode(active.agentSessionId)
+      const shouldAutoApprove =
+        tools.shouldAutoApprove?.(
+          active.agentSessionId,
+          proposal.data.proposalId,
+          currentApprovalMode
+        ) ?? false
+      if (shouldAutoApprove) {
+        if (tools.approveProposalAutomatically === undefined) {
+          throw new AgentToolDomainError('unavailable', 'Automatic approval is unavailable', true)
         }
-        active.activeToolGroups = activeGroups
-        data = { activated, alreadyActive, activeGroups }
         this.options.log.info(
           {
-            event: 'agent.tool_groups.activated',
-            agentRunId: active.agentRunId,
-            activated,
-            alreadyActive,
-            activeToolGroups: activeGroups
-          },
-          'Activated writing tool groups for the current Agent run'
-        )
-      } else if (request.toolName === 'read_writing_skill') {
-        if (this.options.skillRouter.read === undefined || active.skillState === null) {
-          throw new AgentToolDomainError('unavailable', 'Writing Skills are unavailable', true)
-        }
-        const read = await this.options.skillRouter.read(
-          active.skillState,
-          request.args.uri,
-          request.modelRequestId,
-          toolSignal
-        )
-        active.skillSnapshot = read.snapshot
-        active.skillPrompt = read.prompt
-        active.skillTraceToolCallId = request.toolCallId
-        this.#updateSkillSnapshot(active.agentRunId, read.snapshot)
-        data = read.data
-        const trace = new AgentTraceRepository(
-          this.options.database,
-          this.options.log,
-          this.#now,
-          this.#createId
-        )
-        trace.capture({
-          modelRequestId: request.modelRequestId,
-          purpose: 'tool_continuation',
-          apiId: active.runtimeModel.api,
-          traceId: active.agentRunId,
-          spanId: request.modelRequestId,
-          agentSessionId: active.agentSessionId,
-          agentRunId: active.agentRunId,
-          toolCallId: request.toolCallId,
-          physicalAttempt: trace.nextDocumentOccurrence(request.modelRequestId, 'skill_content'),
-          documents: [
-            {
-              kind: 'skill_content',
-              value: {
-                skillId: read.data.skillId,
-                displayName: read.data.displayName,
-                commit: read.data.commit,
-                relativePath: read.data.relativePath,
-                sha256: read.data.sha256,
-                byteSize: read.data.byteSize,
-                content: read.data.content
-              }
-            }
-          ]
-        })
-      } else {
-        data = await this.options.tools.execute({
-          toolName: request.toolName,
-          args: request.args,
-          editorContext: active.editorContext,
-          agentSessionId: active.agentSessionId,
-          agentRunId: active.agentRunId,
-          toolCallId: request.toolCallId,
-          toolCallEventId: toolCallEvent.agentEventId,
-          modelRequestId: request.modelRequestId,
-          snapshot: active.snapshots.get(request.modelRequestId),
-          signal: toolSignal
-        })
-      }
-      const tools = this.options.tools
-      const proposal = mutationProposalToolResultSchema.safeParse(data)
-      if (proposal.success) {
-        // The approval decision reads the session's current mode rather than the
-        // run-start snapshot so mid-run mode changes apply to the next proposal.
-        const currentApprovalMode = this.#sessionApprovalMode(active.agentSessionId)
-        const shouldAutoApprove =
-          tools.shouldAutoApprove?.(
-            active.agentSessionId,
-            proposal.data.proposalId,
-            currentApprovalMode
-          ) ?? false
-        if (shouldAutoApprove) {
-          if (tools.approveProposalAutomatically === undefined) {
-            throw new AgentToolDomainError('unavailable', 'Automatic approval is unavailable', true)
-          }
-          this.options.log.info(
-            {
-              event: 'agent.approval.auto_started',
-              proposalId: proposal.data.proposalId,
-              kind: proposal.data.kind,
-              mode: currentApprovalMode
-            },
-            'Automatic Agent proposal approval started'
-          )
-          const outcome = await tools.approveProposalAutomatically(
-            active.agentSessionId,
-            proposal.data.proposalId,
-            true
-          )
-          data = submitResultFromOutcome(
-            outcome,
-            tools.getProposal?.(active.agentSessionId, outcome.effectiveProposalId),
-            {
-              createdSectionRefs: proposal.data.createdSectionRefs,
-              createdBlockRefs: proposal.data.createdBlockRefs
-            }
-          )
-        } else {
-          data = submitChangeResultSchema.parse({
-            proposal: {
-              proposalId: proposal.data.proposalId,
-              kind: proposal.data.kind,
-              status: 'pending'
-            },
-            application: {
-              status: 'not_applied',
-              ...(proposal.data.createdSectionRefs === undefined
-                ? {}
-                : { createdSectionRefs: proposal.data.createdSectionRefs }),
-              ...(proposal.data.createdBlockRefs === undefined
-                ? {}
-                : { createdBlockRefs: proposal.data.createdBlockRefs })
-            },
-            continuation: 'pause_for_review',
-            warnings: []
-          })
-          active.reviewPause = {
+            event: 'agent.approval.auto_started',
             proposalId: proposal.data.proposalId,
-            kind: proposal.data.kind
+            kind: proposal.data.kind,
+            mode: currentApprovalMode
+          },
+          'Automatic Agent proposal approval started'
+        )
+        const outcome = await tools.approveProposalAutomatically(
+          active.agentSessionId,
+          proposal.data.proposalId,
+          true
+        )
+        data = submitResultFromOutcome(
+          outcome,
+          tools.getProposal?.(active.agentSessionId, outcome.effectiveProposalId),
+          {
+            createdSectionRefs: proposal.data.createdSectionRefs,
+            createdBlockRefs: proposal.data.createdBlockRefs
           }
+        )
+      } else {
+        data = submitChangeResultSchema.parse({
+          proposal: {
+            proposalId: proposal.data.proposalId,
+            kind: proposal.data.kind,
+            status: 'pending'
+          },
+          application: {
+            status: 'not_applied',
+            ...(proposal.data.createdSectionRefs === undefined
+              ? {}
+              : { createdSectionRefs: proposal.data.createdSectionRefs }),
+            ...(proposal.data.createdBlockRefs === undefined
+              ? {}
+              : { createdBlockRefs: proposal.data.createdBlockRefs })
+          },
+          continuation: 'pause_for_review',
+          warnings: []
+        })
+        active.reviewPause = {
+          proposalId: proposal.data.proposalId,
+          kind: proposal.data.kind
         }
       }
-      const provenance = extractToolProvenance(data)
-      const resultPayload = agentToolResultPayloadSchema.parse({
+    }
+    const provenance = extractToolProvenance(data)
+    const resultPayload = agentToolResultPayloadSchema.parse({
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
+      isError: false,
+      result: request.toolName === 'read_writing_skill' ? skillResultProjection(data) : data,
+      error: null,
+      ...provenance,
+      timestamp: this.#now().getTime()
+    })
+    await this.#appendAndPublishEvent({
+      sessionId: active.agentSessionId,
+      runId: active.agentRunId,
+      type: 'tool_result',
+      payload: resultPayload,
+      modelRequestId: request.modelRequestId
+    })
+    const response = agentToolResponseSchema.parse({
+      ...toolResponseCapability(request),
+      schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
+      ok: true,
+      data
+    })
+    active.citationRecoveryState = citationRecoveryStateAfterToolResult(
+      active.citationRecoveryState,
+      request.toolName,
+      data
+    )
+    if (request.toolName === 'ask_user') {
+      this.#completePendingUserQuestion(active, request.toolCallId, true)
+    }
+    return response
+  }
+
+  async #projectToolFailure(
+    active: ActiveRun,
+    request: AgentToolRequest,
+    signal: AbortSignal,
+    deadlineSignal: ReturnType<typeof AbortSignal.timeout> | null,
+    toolStartedAt: number,
+    err: unknown
+  ): Promise<AgentToolResponse> {
+    const diagnostic = this.#runDiagnostic(active, err, 'tool')
+    this.options.log.error(
+      {
+        event: 'agent.tool.execution_failed',
+        traceId: active.agentRunId,
+        agentSessionId: active.agentSessionId,
+        err,
+        agentRunId: active.agentRunId,
+        modelRequestId: request.modelRequestId,
+        toolCallId: request.toolCallId,
+        toolName: request.toolName
+      },
+      'Agent tool execution failed'
+    )
+    const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
+    if (diagnostic.message) safe.message = diagnostic.message.slice(0, 1_000)
+    const citationRecoveryState = /citation|source label/iu.test(safe.message)
+      ? active.citationRecoveryState
+      : 'none'
+    const structured = structuredToolError(
+      safe.code,
+      safe.message,
+      safe.retryable,
+      request.toolName,
+      safe.recoveryUri,
+      citationRecoveryState
+    )
+    this.options.log.warn(
+      {
+        event: 'agent.tool.safe_failure_projected',
+        traceId: active.agentRunId,
+        agentSessionId: active.agentSessionId,
+        agentRunId: active.agentRunId,
+        modelRequestId: request.modelRequestId,
         toolCallId: request.toolCallId,
         toolName: request.toolName,
-        contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
-        isError: false,
-        result: request.toolName === 'read_writing_skill' ? skillResultProjection(data) : data,
-        error: null,
-        ...provenance,
-        timestamp: this.#now().getTime()
-      })
+        phase: 'dispatched',
+        code: structured.code,
+        category: structured.category,
+        citationRecoveryState,
+        recoveryAction: structured.recovery?.action,
+        recoveryTool: structured.recovery?.tool,
+        durationMs: Math.max(0, this.#now().getTime() - toolStartedAt)
+      },
+      'Projected a safe Agent tool failure'
+    )
+    const resultPayload = agentToolResultPayloadSchema.parse({
+      toolCallId: request.toolCallId,
+      toolName: request.toolName,
+      contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
+      isError: true,
+      result: null,
+      error: {
+        code: structured.code,
+        message: structured.message,
+        retryable: safe.retryable,
+        operationId: active.operationId,
+        category: structured.category,
+        recovery: structured.recovery,
+        details: diagnostic
+      },
+      citationIds: [],
+      knowledgeItemIds: [],
+      parseRevisionIds: [],
+      timestamp: this.#now().getTime()
+    })
+    try {
       await this.#appendAndPublishEvent({
         sessionId: active.agentSessionId,
         runId: active.agentRunId,
@@ -2667,106 +2801,15 @@ export class AgentSessionService {
         payload: resultPayload,
         modelRequestId: request.modelRequestId
       })
-      const response = agentToolResponseSchema.parse({
+      return agentToolResponseSchema.parse({
         ...toolResponseCapability(request),
         schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
-        ok: true,
-        data
+        ok: false,
+        error: { ...structured, details: diagnostic }
       })
-      active.citationRecoveryState = citationRecoveryStateAfterToolResult(
-        active.citationRecoveryState,
-        request.toolName,
-        data
-      )
+    } finally {
       if (request.toolName === 'ask_user') {
-        this.#completePendingUserQuestion(active, request.toolCallId, true)
-      }
-      return response
-    } catch (err) {
-      const diagnostic = this.#runDiagnostic(active, err, 'tool')
-      this.options.log.error(
-        {
-          event: 'agent.tool.execution_failed',
-          traceId: active.agentRunId,
-          agentSessionId: active.agentSessionId,
-          err,
-          agentRunId,
-          modelRequestId: request.modelRequestId,
-          toolCallId: request.toolCallId,
-          toolName: request.toolName
-        },
-        'Agent tool execution failed'
-      )
-      const safe = safeToolError(err, request.toolName, signal, deadlineSignal)
-      if (diagnostic.message) safe.message = diagnostic.message.slice(0, 1_000)
-      const citationRecoveryState = /citation|source label/iu.test(safe.message)
-        ? active.citationRecoveryState
-        : 'none'
-      const structured = structuredToolError(
-        safe.code,
-        safe.message,
-        safe.retryable,
-        request.toolName,
-        safe.recoveryUri,
-        citationRecoveryState
-      )
-      this.options.log.warn(
-        {
-          event: 'agent.tool.safe_failure_projected',
-          traceId: active.agentRunId,
-          agentSessionId: active.agentSessionId,
-          agentRunId,
-          modelRequestId: request.modelRequestId,
-          toolCallId: request.toolCallId,
-          toolName: request.toolName,
-          phase: 'dispatched',
-          code: structured.code,
-          category: structured.category,
-          citationRecoveryState,
-          recoveryAction: structured.recovery?.action,
-          recoveryTool: structured.recovery?.tool,
-          durationMs: Math.max(0, this.#now().getTime() - toolStartedAt)
-        },
-        'Projected a safe Agent tool failure'
-      )
-      const resultPayload = agentToolResultPayloadSchema.parse({
-        toolCallId: request.toolCallId,
-        toolName: request.toolName,
-        contractVersion: AGENT_TOOL_DESCRIPTORS[request.toolName].contractVersion,
-        isError: true,
-        result: null,
-        error: {
-          code: structured.code,
-          message: structured.message,
-          retryable: safe.retryable,
-          operationId: active.operationId,
-          category: structured.category,
-          recovery: structured.recovery,
-          details: diagnostic
-        },
-        citationIds: [],
-        knowledgeItemIds: [],
-        parseRevisionIds: [],
-        timestamp: this.#now().getTime()
-      })
-      try {
-        await this.#appendAndPublishEvent({
-          sessionId: active.agentSessionId,
-          runId: active.agentRunId,
-          type: 'tool_result',
-          payload: resultPayload,
-          modelRequestId: request.modelRequestId
-        })
-        return agentToolResponseSchema.parse({
-          ...toolResponseCapability(request),
-          schemaVersion: AGENT_TOOL_RESULT_SCHEMA_VERSION,
-          ok: false,
-          error: { ...structured, details: diagnostic }
-        })
-      } finally {
-        if (request.toolName === 'ask_user') {
-          this.#completePendingUserQuestion(active, request.toolCallId, false)
-        }
+        this.#completePendingUserQuestion(active, request.toolCallId, false)
       }
     }
   }

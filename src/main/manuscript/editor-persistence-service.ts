@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { readFile, rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
@@ -16,6 +15,7 @@ import { resolveProjectPath } from '../project/project-paths'
 import { prepareSectionContent } from './content'
 import type { ManuscriptService } from './manuscript-service'
 import { writeAtomicFile } from '../storage/atomic-file'
+import { sha256 as hashSha256 } from '../../shared/hash'
 
 const MANUAL_AUTOSAVE_BODY_LIMIT = 20
 
@@ -209,7 +209,7 @@ export class EditorPersistenceService {
       document: revision.content
     }
     const bytes = Buffer.from(JSON.stringify(envelope), 'utf8')
-    const fileSha256 = sha256(bytes)
+    const fileSha256 = hashSha256(bytes)
     const published = await writeAtomicFile(destination, bytes, {
       beforeRename: this.#faults.beforeMaterializationRename,
       shouldRename: () => {
@@ -275,6 +275,7 @@ export class EditorPersistenceService {
 
   async #serializePublication<T>(sectionId: string, task: () => Promise<T>): Promise<T> {
     const previous = this.#publicationQueues.get(sectionId) ?? Promise.resolve()
+    // error-handling: allow owner=publication-queue reason=queue-recovery
     const operation = previous.catch(() => undefined).then(task)
     const tail = operation.then(
       () => undefined,
@@ -315,7 +316,7 @@ export class EditorPersistenceService {
       // ensureCurrentMaterializations owns the original I/O error and safe section context.
       throw err
     }
-    if (bytes.byteLength !== row.byte_size || sha256(bytes) !== row.file_sha256) return false
+    if (bytes.byteLength !== row.byte_size || hashSha256(bytes) !== row.file_sha256) return false
     let envelope: unknown
     try {
       envelope = JSON.parse(bytes.toString('utf8'))
@@ -483,8 +484,4 @@ export class EditorPersistenceService {
 
 export function sectionMaterializationPath(sectionId: string): string {
   return `manuscript/sections/${encodeURIComponent(sectionId)}.blocknote.json`
-}
-
-function sha256(value: Uint8Array): string {
-  return createHash('sha256').update(value).digest('hex')
 }

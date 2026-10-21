@@ -358,6 +358,7 @@ export class KnowledgeImportService {
     })
     this.#operations.set(knowledgeItemId, operation)
     void operation
+      // error-handling: allow owner=knowledge-import reason=background-operation
       .catch(() => undefined)
       .finally(() => {
         this.#controllers.delete(knowledgeItemId)

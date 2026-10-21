@@ -90,10 +90,10 @@ export async function pressAppShortcut(page: Page, shortcut: string): Promise<vo
   await application(page).evaluate(({ BrowserWindow }, chord) => {
     const parts = chord.split('+')
     const keyCode = parts.pop() as string
+    const contents = BrowserWindow.getAllWindows()[0].webContents
     const modifiers = parts.map((part) =>
       part === 'ControlOrMeta' || part === 'Meta' ? 'meta' : part.toLowerCase()
-    )
-    const contents = BrowserWindow.getAllWindows()[0].webContents
+    ) as Parameters<typeof contents.sendInputEvent>[0]['modifiers']
     contents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
     contents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
   }, shortcut)

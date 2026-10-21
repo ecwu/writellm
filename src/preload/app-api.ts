@@ -1,130 +1,58 @@
 import { ipcRenderer } from 'electron'
-import {
-  accentPreferenceSchema,
-  appInfoSchema,
-  appQuitResultSchema,
-  citationDisplayModeSchema,
-  onboardingStateSchema,
-  setAccentPreferenceInputSchema,
-  setCitationDisplayModeInputSchema,
-  setDefaultAgentApprovalModeInputSchema,
-  setOnboardingStateInputSchema,
-  setThemePreferenceInputSchema,
-  themePreferenceSchema
-} from '../shared/contracts/app'
-import { agentApprovalModeSchema } from '../shared/contracts/agent'
-import { IPC_CHANNELS } from '../shared/contracts/channels'
-import {
-  createPublicationPresetInputSchema,
-  publicationPresetIdInputSchema,
-  publicationPresetSnapshotSchema,
-  updatePublicationPresetInputSchema
-} from '../shared/contracts/publication-presets'
+import { appIpcEndpoints } from '../shared/contracts/ipc-endpoints'
 import type { DesktopApi } from './desktop-api'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const appApi: DesktopApi['app'] = {
   async quit() {
-    appQuitResultSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appQuit))
+    await invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.quit)
   },
   async getInfo() {
-    return appInfoSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appGetInfo))
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getInfo)
   },
   async getThemePreference() {
-    return themePreferenceSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appGetThemePreference))
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getThemePreference)
   },
   async setThemePreference(input) {
-    return themePreferenceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.appSetThemePreference,
-        setThemePreferenceInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setThemePreference, input)
   },
   async getAccentPreference() {
-    return accentPreferenceSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.appGetAccentPreference)
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getAccentPreference)
   },
   async setAccentPreference(input) {
-    return accentPreferenceSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.appSetAccentPreference,
-        setAccentPreferenceInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setAccentPreference, input)
   },
   async getCitationDisplayMode() {
-    return citationDisplayModeSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.appGetCitationDisplayMode)
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getCitationDisplayMode)
   },
   async setCitationDisplayMode(input) {
-    return citationDisplayModeSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.appSetCitationDisplayMode,
-        setCitationDisplayModeInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setCitationDisplayMode, input)
   },
   async getDefaultAgentApprovalMode() {
-    return agentApprovalModeSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.appGetDefaultAgentApprovalMode)
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getDefaultAgentApprovalMode)
   },
   async setDefaultAgentApprovalMode(input) {
-    return agentApprovalModeSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.appSetDefaultAgentApprovalMode,
-        setDefaultAgentApprovalModeInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setDefaultAgentApprovalMode, input)
   },
   async getOnboardingState() {
-    return onboardingStateSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.appGetOnboardingState))
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.getOnboardingState)
   },
   async setOnboardingState(input) {
-    return onboardingStateSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.appSetOnboardingState,
-        setOnboardingStateInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setOnboardingState, input)
   },
   async publicationPresets() {
-    return publicationPresetSnapshotSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.publicationPresetsSnapshot)
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.publicationPresets)
   },
   async createPublicationPreset(input) {
-    return publicationPresetSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.publicationPresetsCreate,
-        createPublicationPresetInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.createPublicationPreset, input)
   },
   async updatePublicationPreset(input) {
-    return publicationPresetSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.publicationPresetsUpdate,
-        updatePublicationPresetInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.updatePublicationPreset, input)
   },
   async deletePublicationPreset(input) {
-    return publicationPresetSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.publicationPresetsDelete,
-        publicationPresetIdInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.deletePublicationPreset, input)
   },
   async setDefaultPublicationPreset(input) {
-    return publicationPresetSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.publicationPresetsSetDefault,
-        publicationPresetIdInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, appIpcEndpoints.setDefaultPublicationPreset, input)
   }
 }

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { utilityProcess } from 'electron'
 import type { Logger } from 'pino'
+import { createAbortError } from '../../shared/abort-error'
 import {
   mineruUtilityRequestSchema,
   mineruUtilityResponseSchema,
@@ -12,6 +13,7 @@ import {
   PersistentUtilityProcess,
   type UtilityMessageDecision
 } from '../workers/persistent-utility-process'
+import { reconstructUtilityError } from '../workers/utility-message'
 import type {
   MineruAllocatedResult,
   MineruDownloadedResult,
@@ -159,7 +161,7 @@ export class MineruClient implements MineruGateway {
     }
     const response = parsed.data
     if (response.type === 'error') {
-      const err = reconstructError(response.error)
+      const err = reconstructMineruError(response.error)
       this.log.error(
         { event: 'mineru.utility.failed', err, requestId },
         'MinerU utility request failed'
@@ -170,7 +172,7 @@ export class MineruClient implements MineruGateway {
   }
 }
 
-function reconstructError(input: {
+function reconstructMineruError(input: {
   name: string
   message: string
   stack?: string
@@ -178,14 +180,10 @@ function reconstructError(input: {
   providerCode?: string
   retryable: boolean
 }): MineruGatewayError {
-  const cause = new Error(input.message)
-  cause.name = input.name
-  if (input.stack !== undefined) cause.stack = input.stack
+  const cause = reconstructUtilityError(input)
   return new MineruGatewayError(input.retryable, input.httpStatus, input.providerCode, { cause })
 }
 
 function abortError(): Error {
-  const error = new Error('MinerU utility request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('MinerU utility request aborted')
 }

@@ -573,13 +573,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
             sectionRevisionId: current.revision.sectionRevisionId
           })
         })().catch((err: unknown) => {
-          const error = err instanceof Error ? err : new Error(String(err))
-          window.desktop.diagnostics.reportRendererError({
-            event: 'renderer.unhandled_rejection',
-            message: error.message,
-            ...(error.stack === undefined ? {} : { stack: error.stack }),
-            source: 'writing-workspace.final-flush'
-          })
+          reportRendererOperationError(err, 'writing-workspace.final-flush')
           setEditorSaveState('failed')
         })
       })
@@ -587,7 +581,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         if (disposed) release()
         else unsubscribe = release
       })
-      .catch(() => setEditorSaveState('failed'))
+      .catch((err) => {
+        reportRendererOperationError(err, 'writing-workspace.flush-subscription')
+        setEditorSaveState('failed')
+      })
     return () => {
       disposed = true
       unsubscribe?.()
@@ -627,7 +624,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
             current
           )
           editorRef.current?.releaseMutationBarrier()
-        })().catch(() => {
+        })().catch((err) => {
+          reportRendererOperationError(err, 'writing-workspace.agent-mutation-refresh')
           editorRef.current?.releaseMutationBarrier()
           props.onError('The applied Agent section change could not be reloaded.')
         })
@@ -636,7 +634,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         if (disposed) release()
         else unsubscribe = release
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'writing-workspace.agent-mutation-subscription')
         props.onError('Agent section change notifications are unavailable.')
       })
     return () => {
@@ -671,7 +670,8 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
             }
           }
           editorRef.current?.releaseMutationBarrier()
-        })().catch(() => {
+        })().catch((err) => {
+          reportRendererOperationError(err, 'writing-workspace.replacement-refresh')
           editorRef.current?.releaseMutationBarrier()
           props.onError('The replacement was committed, but the editor could not refresh it.')
         })
@@ -680,7 +680,10 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         if (disposed) release()
         else unsubscribe = release
       })
-      .catch(() => props.onError('Replacement change notifications are unavailable.'))
+      .catch((err) => {
+        reportRendererOperationError(err, 'writing-workspace.replacement-subscription')
+        props.onError('Replacement change notifications are unavailable.')
+      })
     return () => {
       disposed = true
       unsubscribe?.()

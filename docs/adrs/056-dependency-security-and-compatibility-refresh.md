@@ -184,3 +184,32 @@ Acceptance includes frozen installation, both audits, static checks, the complet
 Independent evidence can reuse a matching final build across unchanged boundaries.
 This host verifies macOS arm64 only. Other platform acceptance remains pending.
 No release metadata change, hosted workflow, tag, push, or publication is part of these migrations.
+
+## 2026-10-15 compatible maintenance amendment
+
+The user authorizes all safe updates after the Issue 2 dependency review.
+This batch updates 24 direct dependencies within their accepted major versions.
+DOCX normalization stabilizes bookmarks for the table of contents and their hyperlinks and page references.
+Manuscript text remains unchanged.
+
+Electron advances within 44.x, and Playwright advances within 1.x with its Linux credential-store patch preserved.
+Node declarations remain on 24.x. Exact pins remain exact, and caret declarations retain their policy.
+The host toolchain and project package-manager pin remain unchanged.
+
+Compatible security repairs update http-cache-semantics, source-map-js, and fast-copy within their parent ranges.
+The existing editor patch, unified Tiptap versions, and application-owned document formats remain authoritative.
+Release-age exceptions admit only exact reviewed versions when installation requires them.
+No provider capability, database migration, content schema, or process authority changes.
+
+Vite 8, electron-vite 6, plugin-react 6, Pi 1.2, and p-queue 10 remain separate migrations.
+BlockNote 0.56 requires a separate review of its breaking APIs, popup patch, and KaTeX dependency.
+KaTeX stays on 0.16 while rehype-katex requires that series.
+Mermaid stays on 12.1 because 12.2 introduces a separate KaTeX 0.18 dependency.
+Its low-severity advisory remains an explicit unresolved dependency finding.
+The sprintf-js advisory has no published repair and also remains unresolved.
+Cross-version overrides for xmldom, fast-uri, and undici remain excluded.
+
+Acceptance requires frozen installation, both dependency audits, the complete Electron-hosted suite, and the full package gate.
+The package gate builds one App for runtime scenarios, packaged interaction scenarios, and installers.
+The existing build also covers source-only interaction scenarios when their compiled inputs match.
+This host establishes macOS arm64 acceptance only.

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { utilityProcess } from 'electron'
 import type { Logger } from 'pino'
+import { createAbortError } from '../../shared/abort-error'
 import PQueueDefault from 'p-queue'
 import {
   auxiliaryUtilityResponseSchema,
@@ -17,6 +18,7 @@ import {
   PersistentUtilityProcess,
   type UtilityMessageDecision
 } from '../workers/persistent-utility-process'
+import { reconstructUtilityError } from '../workers/utility-message'
 
 type AuxiliarySuccessResponse = Exclude<AuxiliaryUtilityResponse, { type: 'error' }>
 
@@ -165,7 +167,7 @@ export class AuxiliaryModelClient
     }
     const response = parsed.data
     if (response.type === 'error') {
-      const err = reconstructError(response.error)
+      const err = reconstructUtilityError(response.error)
       this.log.error(
         { event: 'auxiliary_model.failed', err, requestId },
         'Auxiliary model request failed'
@@ -176,23 +178,6 @@ export class AuxiliaryModelClient
   }
 }
 
-function reconstructError(input: {
-  name: string
-  message: string
-  stack?: string
-  httpStatus?: number
-  providerCode?: string
-}): Error & { status?: number; providerCode?: string } {
-  const error: Error & { status?: number; providerCode?: string } = new Error(input.message)
-  error.name = input.name
-  if (input.stack !== undefined) error.stack = input.stack
-  if (input.httpStatus !== undefined) error.status = input.httpStatus
-  if (input.providerCode !== undefined) error.providerCode = input.providerCode
-  return error
-}
-
 function abortError(): Error {
-  const error = new Error('Auxiliary model request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Auxiliary model request aborted')
 }

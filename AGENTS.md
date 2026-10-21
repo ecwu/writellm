@@ -76,6 +76,9 @@ Report the result, evidence, verification, and unresolved risks.
   Preserve its stack and `cause`.
   Then recover explicitly, rethrow it, or return a safe error that retains the cause.
   A message such as "operation failed" without the original error is not acceptable.
+  The static gate rejects empty catches and zero-argument Promise catches without an explicit exception.
+  Document an intentional exception with `error-handling: allow owner=<owner> reason=<reason>` on the preceding comment line.
+  Name the existing logging owner and the reason that recovery discards the rejection.
 - Do not leak secrets or private content when logging the original error.
   Never log credentials, authorization/cookie headers, full prompts or responses, document bodies, embedding vectors, signed URLs, SQL parameters, or private absolute paths.
   Log safe IDs, hashes, counts, relative paths, status codes, and durations.
@@ -120,7 +123,7 @@ Reuse results that still cover the final source. Rerun only affected checks.
 | Electron, native libraries, worker entrypoint, Pino transport, package resources | Packaged runtime verification; full package gate for packaging/native compatibility changes |
 | Comprehensive release acceptance | Explicit complete acceptance with one build per invocation |
 
-- `pnpm check:fast`: Biome and Node/Renderer typechecks.
+- `pnpm check:fast`: Biome, the error-handling source guard, and Node/Renderer/E2E typechecks.
 - `pnpm test [files or directory] [-t name]`: Electron-hosted tests only. No filters means all
   Vitest tests. Prefer explicit filters for local changes. Reuse prior static checks when valid.
 - `pnpm test:e2e [file or --grep filters]`: selected E2E against an existing matching build;

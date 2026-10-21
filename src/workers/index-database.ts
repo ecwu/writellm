@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { sha256 } from '../shared/hash'
 import Database from 'better-sqlite3'
 import {
   INDEX_SCHEMA_VERSION,
@@ -1289,10 +1289,6 @@ export function hashSourceSet(sources: readonly IndexSource[], chunkerVersion: n
 
 export function generationIdFor(sourceSetSha256: string, chunkerVersion: number): string {
   return `generation-${sha256(Buffer.from(`${chunkerVersion}\0${sourceSetSha256}`)).slice(0, 40)}`
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }
 
 function emptyFilters(): KnowledgeSearchFilters {

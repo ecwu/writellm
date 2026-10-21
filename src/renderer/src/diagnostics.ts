@@ -12,6 +12,7 @@ export function reportRendererOperationError(err: unknown, source: string): void
       source,
       diagnostic
     })
+    // error-handling: allow owner=renderer-diagnostics reason=diagnostic-channel-failure
   } catch {
     // The diagnostic channel itself failed. Do not retry it or interrupt UI recovery.
   }

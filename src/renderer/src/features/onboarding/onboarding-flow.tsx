@@ -36,6 +36,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { ProjectCreationFields } from '@/features/project/project-creation-fields'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
 import { cn } from '@/lib/utils'
+import { reportRendererOperationError } from '../../diagnostics'
 
 type PendingOnboardingState = Extract<OnboardingState, { status: 'pending' }>
 
@@ -428,13 +429,7 @@ function ProjectStep(props: OnboardingFlowProps): React.JSX.Element {
 }
 
 function reportOnboardingError(source: string, error: unknown): void {
-  const normalized = error instanceof Error ? error : new Error(String(error))
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    message: normalized.message,
-    stack: normalized.stack,
-    source
-  })
+  reportRendererOperationError(error, source)
 }
 
 function isProviderReady(

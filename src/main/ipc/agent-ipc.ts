@@ -50,6 +50,7 @@ import {
   userUpdateWritingTaskResultSchema
 } from '../../shared/contracts/writing-task'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
 import type { AgentEventBroker } from '../agent/event-broker'
 import {
   buildApprovalContinuationPrompt,
@@ -64,7 +65,9 @@ import {
   clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService
 } from '../providers/agent-provider-catalog'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 
 export interface AgentIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -80,6 +83,25 @@ export function registerAgentIpc(options: {
   ipc?: AgentIpcMain
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const handle = (
+    channel: string,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: handler.constructor.name === 'AsyncFunction',
+        handle: (input, event) => handler(event, input)
+      })
+      return
+    }
+    ipc.handle(channel, handler)
+  }
   const readService = (projectSessionId: string) => {
     const context = options.manager.assertActiveSession(projectSessionId)
     return context.agentSessions
@@ -107,22 +129,19 @@ export function registerAgentIpc(options: {
     }
   }
 
-  ipc.handle(IPC_CHANNELS.agentListSessions, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentListSessions, (_event, raw: unknown) => {
     const input = agentListSessionsInputSchema.parse(raw)
     return agentListSessionsResultSchema.parse(
       readService(input.projectSessionId).listSessions(input.status)
     )
   })
-  ipc.handle(IPC_CHANNELS.agentGetSession, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentGetSession, (_event, raw: unknown) => {
     const input = agentSessionInputSchema.parse(raw)
     return agentCreateSessionResultSchema.parse(
       readService(input.projectSessionId).getSession(input.agentSessionId)
     )
   })
-  ipc.handle(IPC_CHANNELS.agentForkConversation, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentForkConversation, (_event, raw: unknown) => {
     const input = agentForkConversationInputSchema.parse(raw)
     return lifecycle('agent.session.fork', () =>
       agentForkConversationResultSchema.parse(
@@ -130,8 +149,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentCreateSession, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentCreateSession, async (_event, raw: unknown) => {
     const input = agentCreateSessionInputSchema.parse(raw)
     return lifecycle('agent.session.create', async () => {
       const selection = input.modelSelection ?? (await options.catalog.snapshot()).defaultSelection
@@ -152,8 +170,7 @@ export function registerAgentIpc(options: {
       )
     })
   })
-  ipc.handle(IPC_CHANNELS.agentGenerateSessionTitle, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentGenerateSessionTitle, async (_event, raw: unknown) => {
     const input = agentGenerateSessionTitleInputSchema.parse(raw)
     return lifecycle('agent.session.generate_title', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
@@ -162,8 +179,7 @@ export function registerAgentIpc(options: {
       )
     })
   })
-  ipc.handle(IPC_CHANNELS.agentArchiveSession, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentArchiveSession, (_event, raw: unknown) => {
     const input = agentArchiveSessionInputSchema.parse(raw)
     return lifecycle('agent.session.archive', () =>
       agentArchiveSessionResultSchema.parse(
@@ -171,8 +187,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentRestoreSession, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentRestoreSession, (_event, raw: unknown) => {
     const input = agentRestoreSessionInputSchema.parse(raw)
     return lifecycle('agent.session.restore', () =>
       agentRestoreSessionResultSchema.parse(
@@ -180,8 +195,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentSetModelSelection, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSetModelSelection, async (_event, raw: unknown) => {
     const input = agentSetModelSelectionInputSchema.parse(raw)
     return lifecycle('agent.session.set_model_selection', async () => {
       const catalog = options.catalog
@@ -203,8 +217,7 @@ export function registerAgentIpc(options: {
       return result
     })
   })
-  ipc.handle(IPC_CHANNELS.agentSetThinkingLevel, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSetThinkingLevel, async (_event, raw: unknown) => {
     const input = agentSetThinkingLevelInputSchema.parse(raw)
     return lifecycle('agent.session.set_thinking_level', async () => {
       const catalog = options.catalog
@@ -225,8 +238,7 @@ export function registerAgentIpc(options: {
       return result
     })
   })
-  ipc.handle(IPC_CHANNELS.agentSetApprovalMode, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSetApprovalMode, (_event, raw: unknown) => {
     const input = agentSetApprovalModeInputSchema.parse(raw)
     return lifecycle('agent.session.set_approval_mode', () =>
       agentSetApprovalModeResultSchema.parse(
@@ -237,8 +249,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentSetInteractionMode, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSetInteractionMode, (_event, raw: unknown) => {
     const input = agentSetInteractionModeInputSchema.parse(raw)
     return lifecycle('agent.session.set_interaction_mode', () =>
       agentSetInteractionModeResultSchema.parse(
@@ -249,8 +260,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentUpdateWritingTask, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentUpdateWritingTask, (_event, raw: unknown) => {
     const input = userUpdateWritingTaskInputSchema.parse(raw)
     return lifecycle('agent.writing_task.user_update', () => {
       const context = mutationContext(input.projectSessionId)
@@ -263,8 +273,7 @@ export function registerAgentIpc(options: {
       return userUpdateWritingTaskResultSchema.parse(context.writingTasks.updateByUser(input))
     })
   })
-  ipc.handle(IPC_CHANNELS.agentListEvents, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentListEvents, (_event, raw: unknown) => {
     const input = agentEventPageInputSchema.parse(raw)
     return agentEventPageSchema.parse(
       readService(input.projectSessionId).listEventPage(
@@ -274,21 +283,18 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentListRuns, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentListRuns, (_event, raw: unknown) => {
     const input = agentListRunsInputSchema.parse(raw)
     return agentListRunsResultSchema.parse(
       readService(input.projectSessionId).listRuns(input.agentSessionId, input.limit)
     )
   })
-  ipc.handle(IPC_CHANNELS.agentListProposals, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentListProposals, (_event, raw: unknown) => {
     const input = agentListRunsInputSchema.omit({ limit: true }).parse(raw)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     return agentListProposalsResultSchema.parse(context.agentMutations.list(input.agentSessionId))
   })
-  ipc.handle(IPC_CHANNELS.agentEditLastMessage, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentEditLastMessage, (_event, raw: unknown) => {
     const input = agentEditLastMessageInputSchema.parse(raw)
     return lifecycle('agent.message.edit', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
@@ -297,8 +303,7 @@ export function registerAgentIpc(options: {
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
     })
   })
-  ipc.handle(IPC_CHANNELS.agentStartRun, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentStartRun, (_event, raw: unknown) => {
     const input = agentStartRunInputSchema.parse(raw)
     return lifecycle('agent.run.start', async () => {
       const context = mutationContext(input.projectSessionId)
@@ -463,8 +468,7 @@ export function registerAgentIpc(options: {
       return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
     })
   })
-  ipc.handle(IPC_CHANNELS.agentSteerRun, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSteerRun, (_event, raw: unknown) => {
     const input = agentQueueInputSchema.parse(raw)
     return lifecycle('agent.run.steer', () =>
       mutationContext(input.projectSessionId).agentSessions.steer(
@@ -474,8 +478,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentFollowUpRun, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentFollowUpRun, (_event, raw: unknown) => {
     const input = agentQueueInputSchema.parse(raw)
     return lifecycle('agent.run.follow_up', () =>
       mutationContext(input.projectSessionId).agentSessions.followUp(
@@ -485,8 +488,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentSteerPendingFollowUp, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentSteerPendingFollowUp, (_event, raw: unknown) => {
     const input = agentPendingMessageActionInputSchema.parse(raw)
     return lifecycle('agent.run.pending_follow_up_steer', () =>
       mutationContext(input.projectSessionId).agentSessions.steerPendingFollowUp(
@@ -495,8 +497,7 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentDeletePendingFollowUp, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentDeletePendingFollowUp, (_event, raw: unknown) => {
     const input = agentPendingMessageActionInputSchema.parse(raw)
     return lifecycle('agent.run.pending_follow_up_delete', () =>
       mutationContext(input.projectSessionId).agentSessions.deletePendingFollowUp(
@@ -505,15 +506,13 @@ export function registerAgentIpc(options: {
       )
     )
   })
-  ipc.handle(IPC_CHANNELS.agentAbortRun, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentAbortRun, (_event, raw: unknown) => {
     const input = agentRunInputSchema.parse(raw)
     return lifecycle('agent.run.abort', () =>
       mutationContext(input.projectSessionId).agentSessions.abort(input.agentRunId)
     )
   })
-  ipc.handle(IPC_CHANNELS.agentAnswerUserQuestion, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentAnswerUserQuestion, (_event, raw: unknown) => {
     const input = agentAnswerUserQuestionInputSchema.parse(raw)
     return lifecycle('agent.question.answer', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
@@ -521,8 +520,7 @@ export function registerAgentIpc(options: {
       return agentAnswerUserQuestionResultSchema.parse({})
     })
   })
-  ipc.handle(IPC_CHANNELS.agentCompactSession, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentCompactSession, (_event, raw: unknown) => {
     const input = agentCompactSessionInputSchema.parse(raw)
     return lifecycle('agent.compaction.start', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions
@@ -531,8 +529,7 @@ export function registerAgentIpc(options: {
       )
     })
   })
-  ipc.handle(IPC_CHANNELS.agentStopCompaction, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentStopCompaction, (_event, raw: unknown) => {
     const input = agentStopCompactionInputSchema.parse(raw)
     return lifecycle('agent.compaction.stop', async () => {
       const service = mutationContext(input.projectSessionId).agentSessions

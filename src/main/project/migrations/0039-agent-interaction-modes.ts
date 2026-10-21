@@ -1,4 +1,5 @@
 import type { DatabaseMigration } from '../../db/migrations'
+import { hasColumn } from './helpers'
 
 const INTERACTION_MODE_CHECK = "CHECK (interaction_mode IN ('ask', 'plan', 'write'))"
 
@@ -18,14 +19,4 @@ export const migration0039: DatabaseMigration = {
       )
     }
   }
-}
-
-function hasColumn(
-  database: Parameters<DatabaseMigration['up']>[0],
-  table: string,
-  column: string
-): boolean {
-  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(
-    (entry) => entry.name === column
-  )
 }

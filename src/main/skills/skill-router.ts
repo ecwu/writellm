@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { formatSkillsForSystemPrompt } from './prompt'
 import type { Logger } from 'pino'
 import {
@@ -11,6 +10,7 @@ import { estimateAgentTokens } from '../../shared/agent-context-budget'
 import { MAX_SYSTEM_PROMPT_BYTES, type AgentSkillPromptInput } from '../agent/context'
 import { formatWriteLlmSkill, virtualSkillPath, type WriteLlmSkill } from './prompt'
 import type { SkillService } from './skill-service'
+import { sha256 } from '../../shared/hash'
 
 interface LoadedReference {
   skill: WriteLlmSkill
@@ -837,15 +837,13 @@ function provenance(skill: WriteLlmSkill) {
     displayName: skill.displayName,
     name: skill.name,
     commit: skill.commit,
-    manifestSha256: createHash('sha256')
-      .update(
-        JSON.stringify({
-          source: skill.source,
-          dependencies: skill.dependencies,
-          files: skill.files
-        })
-      )
-      .digest('hex')
+    manifestSha256: sha256(
+      JSON.stringify({
+        source: skill.source,
+        dependencies: skill.dependencies,
+        files: skill.files
+      })
+    )
   }
 }
 

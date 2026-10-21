@@ -4,6 +4,7 @@ node_modules/
 # Build and packaging output
 dist/
 out/
+output/
 
 # Test output
 coverage/

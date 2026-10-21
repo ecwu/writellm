@@ -7,26 +7,17 @@ import App from './App'
 import { Toaster } from './components/ui/sonner'
 import { ACTION_ERROR_TOAST_DURATION_MS } from './lib/notifications'
 import { ThemeProvider } from './theme-provider'
+import { reportRendererOperationError } from './diagnostics'
 
 window.addEventListener('error', (event) => {
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    message: event.message || 'Unknown renderer error',
-    stack: event.error instanceof Error ? event.error.stack : undefined,
-    source: event.filename || undefined,
-    line: event.lineno,
-    column: event.colno
-  })
+  reportRendererOperationError(
+    event.error ?? new Error(event.message || 'Unknown renderer error'),
+    event.filename || 'window.error'
+  )
 })
 
 window.addEventListener('unhandledrejection', (event) => {
-  const error =
-    event.reason instanceof Error ? event.reason : new Error('Unhandled renderer rejection')
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.unhandled_rejection',
-    message: error.message,
-    stack: error.stack
-  })
+  reportRendererOperationError(event.reason, 'window.unhandledrejection')
 })
 
 const rootElement = document.getElementById('root')

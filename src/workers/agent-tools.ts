@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../shared/abort-error'
 import type { AgentTool } from '@earendil-works/pi-agent-core'
 import type { MessagePortMain } from 'electron'
 import {
@@ -209,7 +210,5 @@ function escapeToolEnvelopeText(value: string): string {
 }
 
 function abortError(): Error {
-  const error = new Error('Agent tool request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Agent tool request aborted')
 }

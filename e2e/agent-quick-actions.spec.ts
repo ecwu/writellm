@@ -3,7 +3,9 @@ import { agentToggle } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { expect, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 
 test(
   'runs an exact selection quick action through the normal Agent conversation',
@@ -48,7 +50,10 @@ test(
       dialogPaths: [testRoot]
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Quick action Agent',
+        apiKey: 'e2e-secret'
+      })
       await createProject(launched.page, 'Quick action project')
       await launched.page.getByLabel('Section title').fill('Evidence notes')
       await launched.page.getByLabel('Section title').press('Tab')
@@ -108,13 +113,15 @@ test(
       await editor.click()
       await selectClaim()
       // An extra modifier is not the quick-action shortcut.
-      await launched.page.keyboard.press('ControlOrMeta+Alt+Shift+k')
+      await pressAppShortcut(launched.page, 'ControlOrMeta+Alt+Shift+k')
       await expect(launched.page.getByRole('menuitem', { name: /Check evidence/ })).toHaveCount(0)
 
       await selectClaim()
-      // ProseMirror adopts the DOM selection asynchronously; retry only until it registers.
+      // Restore editor focus and selection before dispatching each Chromium shortcut.
       await expect(async () => {
-        await launched.page.keyboard.press('ControlOrMeta+Shift+k')
+        await selectClaim()
+        await expect(editor).toBeFocused()
+        await pressAppShortcut(launched.page, 'ControlOrMeta+Shift+k')
         await expect(quickActions).toBeVisible({ timeout: 1_000 })
       }).toPass()
       await launched.page.keyboard.press('Escape')
@@ -143,7 +150,7 @@ test(
 
       const truth = await launched.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         const session = (
           await window.desktop.agent.listSessions({ projectSessionId: project.projectSessionId })
         )[0]
@@ -176,54 +183,11 @@ test(
 )
 
 function sendCompletion(response: ServerResponse, content: string): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache'
+  sendSharedCompletion(response, content, {
+    id: 'quick-action-response',
+    model: 'quick-writer',
+    requestId: null,
+    promptTokens: 20,
+    completionTokens: 12
   })
-  const chunks = [
-    {
-      id: 'quick-action-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'quick-writer',
-      choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }]
-    },
-    {
-      id: 'quick-action-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'quick-writer',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 20, completion_tokens: 12, total_tokens: 32 }
-    }
-  ]
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
-}
-
-async function configureAgentProvider(
-  page: import('@playwright/test').Page,
-  baseUrl: string
-): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Quick action Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Quick action Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: import('@playwright/test').Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
 }

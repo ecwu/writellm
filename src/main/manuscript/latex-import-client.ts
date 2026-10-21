@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import type { Logger } from 'pino'
+import { createAbortError } from '../../shared/abort-error'
 import {
   LATEX_IMPORT_TIMEOUT_MS,
   latexImportWorkerErrorSchema,
@@ -8,6 +9,7 @@ import {
   latexImportWorkerResultSchema,
   type LatexImportWorkerResult
 } from '../../shared/contracts/latex-import'
+import { reconstructUtilityError } from '../workers/utility-message'
 
 export interface LatexImportProcessFactory {
   fork(modulePath: string, args?: string[], options?: Electron.ForkOptions): UtilityProcess
@@ -77,8 +79,9 @@ export class LatexImportClient {
           reject(err)
         })
       const onAbort = (): void => {
-        const err = new Error('LaTeX import parsing was cancelled', { cause: input.signal?.reason })
-        err.name = 'AbortError'
+        const err = createAbortError('LaTeX import parsing was cancelled', {
+          cause: input.signal?.reason
+        })
         fail(err, 'manuscript.import.latex.cancelled')
       }
       const onExit = (code: number): void => {
@@ -114,7 +117,7 @@ export class LatexImportClient {
         }
         const error = latexImportWorkerErrorSchema.safeParse(raw)
         if (error.success && error.data.requestId === request.requestId) {
-          fail(new Error(error.data.error.message), 'manuscript.import.latex.parser_failed')
+          fail(reconstructUtilityError(error.data.error), 'manuscript.import.latex.parser_failed')
           return
         }
         fail(

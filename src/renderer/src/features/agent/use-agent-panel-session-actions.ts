@@ -16,6 +16,7 @@ import type {
 } from '../../../../shared/contracts/agent-ipc'
 import type { AgentPanelProps } from './agent-panel'
 import type { AgentPanelRuntimeState } from './use-agent-panel-runtime-state'
+import { reportRendererOperationError } from '../../diagnostics'
 
 export function useAgentPanelSessionActions(input: {
   props: AgentPanelProps
@@ -84,7 +85,10 @@ export function useAgentPanelSessionActions(input: {
     void window.desktop.providers
       .snapshot()
       .then((snapshot) => setProviderCatalog(snapshot.agentCatalog))
-      .catch((cause) => setError(errorMessage(cause)))
+      .catch((cause) => {
+        reportRendererOperationError(cause, 'agent.providers.snapshot')
+        setError(errorMessage(cause))
+      })
   }
 
   const setApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
@@ -103,6 +107,7 @@ export function useAgentPanelSessionActions(input: {
         )
       )
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.set-approval-mode')
       const message = errorMessage(cause)
       setError(message)
     } finally {
@@ -123,6 +128,7 @@ export function useAgentPanelSessionActions(input: {
       })
       setSessions((current) => upsertSession(current, updated))
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.set-interaction-mode')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -148,6 +154,7 @@ export function useAgentPanelSessionActions(input: {
       const snapshot = await window.desktop.providers.snapshot()
       setProviderCatalog(snapshot.agentCatalog)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.set-model-selection')
       const message = errorMessage(cause)
       setError(message)
     } finally {
@@ -173,6 +180,7 @@ export function useAgentPanelSessionActions(input: {
       )
       setProviderCatalog((current) => ({ ...current, defaultThinkingLevel: level }))
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.set-thinking-level')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -201,6 +209,7 @@ export function useAgentPanelSessionActions(input: {
       })
       setSessions((current) => upsertSession(current, updated))
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.generate-title')
       setError(errorMessage(cause))
     } finally {
       setTitleGeneratingIds((current) => updateSet(current, session.agentSessionId, false))
@@ -234,6 +243,7 @@ export function useAgentPanelSessionActions(input: {
         )
       }
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.archive')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -251,6 +261,7 @@ export function useAgentPanelSessionActions(input: {
       })
       setCompactionConfirmOpen(false)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.compact')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -268,6 +279,7 @@ export function useAgentPanelSessionActions(input: {
         compactionId: activeCompaction.compactionId
       })
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.stop-compaction')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -293,6 +305,7 @@ export function useAgentPanelSessionActions(input: {
       setActiveSessionId(updated.agentSessionId)
       setSessionSwitcherOpen(false)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.restore')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)

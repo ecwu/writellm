@@ -97,10 +97,10 @@ Choose the applicable command. Do not run all combined commands after every edit
 | --- | --- | --- |
 | `check` / `check:write` | Biome formatting and lint, read-only / safe fixes | Neither |
 | `format` / `format:check` / `lint` | Formatting only / format verification / lint only | Neither |
-| `typecheck` | Main and Renderer typechecks; `:node` and `:web` select one side | Neither |
+| `typecheck` | Main, Renderer, and E2E types; `:node`, `:web`, and `:e2e` select one scope | Neither |
 | `test [files or directory] [-t name]` | Electron-hosted Vitest; no filters means the complete Vitest suite | No build |
 | `test:e2e [file] [--grep pattern]` | Silent Playwright against the existing build; no filters means all source E2E | No build |
-| `check:fast` | Biome and both typechecks | Neither |
+| `check:fast` | Biome, the error-handling source guard, and all three typechecks | Neither |
 | `check:e2e [file] [--grep pattern]` | Static checks and selected real Electron scenarios | One fresh build, selected E2E |
 | `check:full` | Complete source acceptance | Static, all Vitest, one build, all source E2E |
 | `check:fixtures` | Recovery coverage inventory | Neither; inventory is not test execution |

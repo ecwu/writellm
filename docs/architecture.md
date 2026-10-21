@@ -1,7 +1,7 @@
 # WriteLLM v2 Architecture Baseline
 
-Status: accepted implementation baseline through [ADR 085](adrs/085-agent-image-input.md)
-Recorded: 2026-07-31. Current-rule consolidation: 2026-10-14.
+Status: accepted implementation baseline through [ADR 090](adrs/090-document-navigation-and-dependency-boundaries.md)
+Recorded: 2026-07-31. Current-rule consolidation: 2026-10-21.
 
 This document defines the accepted WriteLLM v2 architecture.
 WriteLLM opens one self-contained project folder at a time.
@@ -16,6 +16,7 @@ A capability is a revocable access permission. A bounded value has explicit limi
 This document contains current rules. ADRs record decisions, including designs that later ADRs replace.
 Use the accepted ADR that replaces an older decision.
 Historical dates and authorization records do not authorize a new task.
+[The decision index](adrs/README.md) routes readers to current rules and partial supersession notes.
 
 The active delivery state lives in [`docs/current-plan.md`](current-plan.md), while the compact
 tracker and Phase links live in [`docs/implementation-todo.md`](implementation-todo.md). The
@@ -201,7 +202,7 @@ search becomes available.
 
 | Area                    | Choice                                                                        |
 | ----------------------- | ----------------------------------------------------------------------------- |
-| Desktop runtime         | Electron 44.5.1; macOS 13 or later                                      |
+| Desktop runtime         | Electron 44; macOS 13 or later                                                |
 | Build and development   | electron-vite 5                                                               |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
@@ -214,8 +215,8 @@ search becomes available.
 | Structured logging      | Pino                                                                          |
 | Correlation context     | Pino child loggers and Node.js `AsyncLocalStorage`                            |
 | Log rotation            | pino-roll with application retention cleanup                                  |
-| Application database    | `app.sqlite`, better-sqlite3 with Kysely 0.29.6                              |
-| Project database        | per-project `project.sqlite`, better-sqlite3 with Kysely 0.29.6              |
+| Application database    | `app.sqlite`, better-sqlite3 prepared SQL and selected Kysely adapters          |
+| Project database        | per-project `project.sqlite`, better-sqlite3 prepared SQL and selected Kysely adapters |
 | Durable jobs            | project-local SQLite jobs table with p-queue runtime scheduling               |
 | Full-text search        | project-local SQLite FTS5                                                     |
 | Vector search           | project-local sqlite-vec behind a `VectorIndex` interface                     |
@@ -268,6 +269,12 @@ export interface RerankGateway {
 ```
 
 Pi owns the interactive agent loop and tool-call event model. AI SDK Core can implement embedding and reranking adapters. Provider configuration and trace metadata are normalized above both libraries.
+
+[ADR 087](adrs/087-native-sql-and-schema-contract.md) defines prepared SQL as the primary database implementation.
+Kysely remains the typed adapter where existing modules use it.
+An Electron-hosted test compares migrated project tables and columns with `ProjectDatabaseSchema`.
+The test also compares declared nullability and basic storage types.
+Migration and feature tests retain ownership of constraints, indexes, triggers, and JSON semantics.
 
 The active interactive boundary is the sessionful `AgentSessionRuntime` hosted in the single
 `agent-worker` process. Main owns durable session/run/event state, per-call `model_requests`,
@@ -497,6 +504,16 @@ src/shared/contracts/
 
 Do not introduce a broad RPC framework solely to reduce IPC boilerplate.
 
+[ADR 088](adrs/088-typed-ipc-endpoints.md) defines lightweight endpoint tables with shared schemas and explicit session requirements.
+Main retains sender authorization, input parsing, capability checks, and output parsing.
+Preload retains input and output parsing and exposes only named business methods.
+
+Renderer query keys include `projectSessionId` for every cached project read.
+Settings queries run while Settings is open.
+Project history queries retain session-scoped pagination and mutation invalidation.
+Streaming Agent and Notebook state retains its explicit event reducers and replay rules.
+Shared subscription cleanup releases late handles and suppresses obsolete UI callbacks.
+
 ## Observability And Logging
 
 Bounded diagnostics retain message, code, stage, cause, HTTP status, and stack after secret and private-content redaction.
@@ -723,6 +740,9 @@ manuscript/sections/<section-id>.blocknote.json
 ```
 
 The materialized file contains the current native BlockNote JSON plus a small schema/revision envelope. It is portable and inspectable but is rebuildable from `project.sqlite`. It is not a second authority.
+
+[ADR 089](adrs/089-section-write-authority.md) gives `SectionRepository` the shared section and revision write primitives.
+Editor and Agent services retain their transactions, approval checks, comment mapping, asset checks, and materialization duties.
 
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
@@ -1495,9 +1515,9 @@ remain deferred.
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
 the active image provider, source revision, block ID, and asset ID. The background worker performs
 one typed request through the fixed catalog in ADRs 051 and 052. Google Gemini retains exact-pinned
-`@google/genai@2.18.0`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
+`@google/genai`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
 Application Default Credentials and the three fixed Nano Banana model IDs; OpenAI
-`gpt-image-2` and xAI `grok-imagine-image-2.0` use exact-pinned `openai@7.5.0`, with xAI's client
+`gpt-image-2` and xAI `grok-imagine-image-2.0` use the exact-pinned OpenAI SDK, with xAI's client
 fixed to `https://api.x.ai/v1`. SDKs and provider transports are confined to that worker
 gateway and are not exposed through Main, preload, renderer, or Agent tool code. The tool produces
 one project asset and one typed insertion proposal, never a reusable network or filesystem

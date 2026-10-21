@@ -2,7 +2,8 @@ import {
   selectSearchableSections as selectSections,
   manuscriptHeadingPath as headingPath
 } from './manuscript-search-scope'
-import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { createHmac, randomBytes, randomUUID } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from 'pino'
 import {
@@ -665,8 +666,4 @@ function receiptProjection(
 ): Omit<AppliedReceipt, 'planId' | 'selectionFingerprint'> {
   const { planId: _planId, selectionFingerprint: _selectionFingerprint, ...projection } = receipt
   return projection
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
 }

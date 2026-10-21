@@ -1,10 +1,13 @@
 import { pressAppShortcut } from './application-menu'
-import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
+import { agentToggle } from './application-menu'
 import { mkdir } from 'node:fs/promises'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { expect, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { configureAgentProvider, createProject, closeProject } from './helpers/project'
+import { sendSse as sendSharedSse } from './helpers/mock-provider-sse'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 
 const SKILL_FIXTURE_ENV = 'WRITELLM_E2E_SKILL_FIXTURE_PATH'
 
@@ -91,7 +94,10 @@ test(
       }
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'E2E Agent',
+        apiKey: 'e2e-secret'
+      })
 
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
@@ -186,7 +192,7 @@ test(
         .poll(async () => {
           const project = (await launched.page.evaluate(() => window.desktop.projects.lifecycle()))
             .activeProject
-          if (project === undefined) return null
+          if (project === undefined || project === null) return null
           const session = (
             await launched.page.evaluate(
               ({ projectSessionId }) => window.desktop.agent.listSessions({ projectSessionId }),
@@ -238,7 +244,7 @@ test(
 
       const autoTruth = await launched.page.evaluate(async () => {
         const project = (await window.desktop.projects.lifecycle()).activeProject
-        if (project === undefined) throw new Error('Project is not open')
+        if (project === undefined || project === null) throw new Error('Project is not open')
         const session = (
           await window.desktop.agent.listSessions({
             projectSessionId: project.projectSessionId
@@ -377,59 +383,15 @@ function skillUri(skill: { skillId: string; commit: string }, relativePath = 'SK
 }
 
 function sendCompletion(response: ServerResponse, content: string): void {
-  sendSse(response, [
-    {
-      id: 'skill-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model',
-      choices: [{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }]
-    },
-    {
-      id: 'skill-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 20, completion_tokens: 6, total_tokens: 26 }
-    }
-  ])
+  sendSharedCompletion(response, content, {
+    id: 'skill-response',
+    model: 'writer-model',
+    requestId: null,
+    promptTokens: 20,
+    completionTokens: 6
+  })
 }
 
 function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache'
-  })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
-}
-
-async function configureAgentProvider(page: import('@playwright/test').Page, baseUrl: string) {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('E2E Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch E2E Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: import('@playwright/test').Page, name: string) {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
-
-async function closeProject(page: import('@playwright/test').Page) {
-  await openAppMenu(page, 'Project')
-  await clickAppMenuItem(page, 'Close project and return to chooser', false)
+  sendSharedSse(response, chunks)
 }

@@ -1,7 +1,9 @@
 import { reportRendererOperationError } from '../diagnostics'
 import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 export { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
+import { rendererQueryKeys } from '@/lib/query-keys'
 import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -65,7 +67,10 @@ import {
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
-import { notifyProviderCatalogChanged } from '@/features/providers/provider-catalog-events'
+import {
+  notifyProviderCatalogChanged,
+  subscribeProviderCatalogChanged
+} from '@/features/providers/provider-catalog-events'
 import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings'
 import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
@@ -114,17 +119,9 @@ export function SettingsCommand({
   onExportDiagnostics,
   onError
 }: SettingsCommandProps): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
-  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+  const queryClient = useQueryClient()
   const [section, setSection] = useState<SettingsSection>('general')
-  const [approvalMode, setApprovalMode] = useState<AgentApprovalMode>('manual')
-  const [skillSnapshot, setSkillSnapshot] = useState<SkillsSnapshot | null>(null)
-  const [publicationPresets, setPublicationPresets] = useState<PublicationPresetSnapshot | null>(
-    null
-  )
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState<string | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const {
     preference,
@@ -135,56 +132,118 @@ export function SettingsCommand({
     setCitationDisplayMode
   } = useTheme()
 
+  const appInfoQuery = useQuery({
+    queryKey: rendererQueryKeys.settings.appInfo,
+    enabled: open,
+    retry: false,
+    queryFn: async (): Promise<AppInfo> => {
+      try {
+        return await window.desktop.app.getInfo()
+      } catch (err) {
+        reportRendererOperationError(err, 'settings.app-info')
+        throw err
+      }
+    }
+  })
+  const providersQuery = useQuery({
+    queryKey: rendererQueryKeys.settings.providers,
+    enabled: open,
+    retry: false,
+    queryFn: async (): Promise<ProviderSettingsSnapshot> => {
+      try {
+        return await window.desktop.providers.snapshot()
+      } catch (err) {
+        reportRendererOperationError(err, 'settings.providers')
+        throw err
+      }
+    }
+  })
+  const approvalModeQuery = useQuery({
+    queryKey: rendererQueryKeys.settings.approvalMode,
+    enabled: open,
+    retry: false,
+    queryFn: async (): Promise<AgentApprovalMode> => {
+      try {
+        return await window.desktop.app.getDefaultAgentApprovalMode()
+      } catch (err) {
+        reportRendererOperationError(err, 'settings.approval-mode')
+        throw err
+      }
+    }
+  })
+  const skillsQuery = useQuery({
+    queryKey: rendererQueryKeys.settings.skills,
+    enabled: open,
+    retry: false,
+    queryFn: async (): Promise<SkillsSnapshot> => {
+      try {
+        return await window.desktop.skills.snapshot()
+      } catch (err) {
+        reportRendererOperationError(err, 'settings.skills')
+        throw err
+      }
+    }
+  })
+  const publicationPresetsQuery = useQuery({
+    queryKey: rendererQueryKeys.settings.publicationPresets,
+    enabled: open,
+    retry: false,
+    queryFn: async (): Promise<PublicationPresetSnapshot> => {
+      try {
+        return await window.desktop.app.publicationPresets()
+      } catch (err) {
+        reportRendererOperationError(err, 'settings.publication-presets')
+        throw err
+      }
+    }
+  })
+
+  const snapshot = providersQuery.data ?? null
+  const appInfo = appInfoQuery.data ?? null
+  const approvalMode = approvalModeQuery.data ?? 'manual'
+  const skillSnapshot = skillsQuery.data ?? null
+  const publicationPresets = publicationPresetsQuery.data ?? null
+  const loading =
+    open &&
+    [appInfoQuery, providersQuery, approvalModeQuery, skillsQuery, publicationPresetsQuery].some(
+      (query) => query.isPending
+    )
+  const loadError = [
+    appInfoQuery,
+    providersQuery,
+    approvalModeQuery,
+    skillsQuery,
+    publicationPresetsQuery
+  ].some((query) => query.isError)
+    ? 'Settings could not be loaded.'
+    : null
+
   useEffect(() => {
     if (!open) return
-    let current = true
     setSection(initialSection)
     setMobileSectionOpen(initialSection !== 'general')
-    setLoading(true)
-    setLoadError(null)
-    void Promise.all([
-      window.desktop.app.getInfo(),
-      window.desktop.providers.snapshot(),
-      window.desktop.app.getDefaultAgentApprovalMode(),
-      window.desktop.skills.snapshot(),
-      window.desktop.app.publicationPresets()
-    ])
-      .then(
-        ([
-          nextAppInfo,
-          nextSnapshot,
-          nextApprovalMode,
-          nextSkillSnapshot,
-          nextPublicationPresets
-        ]) => {
-          if (!current) return
-          setAppInfo(nextAppInfo)
-          setSnapshot(nextSnapshot)
-          setApprovalMode(nextApprovalMode)
-          setSkillSnapshot(nextSkillSnapshot)
-          setPublicationPresets(nextPublicationPresets)
-        }
-      )
-      .catch(() => {
-        if (current) setLoadError('Settings could not be loaded.')
-      })
-      .finally(() => {
-        if (current) setLoading(false)
-      })
-    return () => {
-      current = false
-    }
   }, [initialSection, open])
 
   useEffect(() => {
     if (!open) return
     return window.desktop.skills.subscribeChanges(() => {
-      void window.desktop.skills
-        .snapshot()
-        .then(setSkillSnapshot)
-        .catch(() => undefined)
+      void queryClient
+        .invalidateQueries({ queryKey: rendererQueryKeys.settings.skills })
+        .catch((err) => reportRendererOperationError(err, 'settings.skills.refresh'))
     })
-  }, [open])
+  }, [open, queryClient])
+
+  useEffect(() => {
+    if (!open) return
+    return subscribeProviderCatalogChanged((next) => {
+      void queryClient
+        .cancelQueries({ queryKey: rendererQueryKeys.settings.providers })
+        .then(() => {
+          queryClient.setQueryData(rendererQueryKeys.settings.providers, next)
+        })
+        .catch((err) => reportRendererOperationError(err, 'settings.providers.refresh'))
+    })
+  }, [open, queryClient])
 
   const selectTheme = async (next: ThemePreference): Promise<void> => {
     try {
@@ -206,7 +265,8 @@ export function SettingsCommand({
 
   const selectApprovalMode = async (mode: AgentApprovalMode): Promise<void> => {
     try {
-      setApprovalMode(await window.desktop.app.setDefaultAgentApprovalMode({ mode }))
+      const next = await window.desktop.app.setDefaultAgentApprovalMode({ mode })
+      queryClient.setQueryData(rendererQueryKeys.settings.approvalMode, next)
     } catch (err) {
       reportRendererOperationError(err, 'settings-command')
       onError('Default Agent approval mode could not be saved.')
@@ -223,8 +283,16 @@ export function SettingsCommand({
   }
 
   const updateProviderSnapshot = (next: ProviderSettingsSnapshot): void => {
-    setSnapshot(next)
+    queryClient.setQueryData(rendererQueryKeys.settings.providers, next)
     notifyProviderCatalogChanged(next)
+  }
+
+  const updateSkillSnapshot = (next: SkillsSnapshot): void => {
+    queryClient.setQueryData(rendererQueryKeys.settings.skills, next)
+  }
+
+  const updatePublicationPresets = (next: PublicationPresetSnapshot): void => {
+    queryClient.setQueryData(rendererQueryKeys.settings.publicationPresets, next)
   }
 
   return (
@@ -308,7 +376,7 @@ export function SettingsCommand({
             </span>
           </div>
           <div className='min-h-0 flex-1 overflow-hidden'>
-            {loading && snapshot === null ? (
+            {loading ? (
               <div className='flex h-full flex-col gap-4 p-6'>
                 <div className='flex justify-end'>
                   <SettingsCloseButton />
@@ -345,14 +413,14 @@ export function SettingsCommand({
               <WritingSkillsSettings
                 snapshot={skillSnapshot}
                 closeAction={<SettingsCloseButton />}
-                onSnapshot={setSkillSnapshot}
+                onSnapshot={updateSkillSnapshot}
                 onError={onError}
               />
             ) : section === 'publication' && publicationPresets ? (
               <PublicationPresetsSettings
                 snapshot={publicationPresets}
                 closeAction={<SettingsCloseButton />}
-                onSnapshot={setPublicationPresets}
+                onSnapshot={updatePublicationPresets}
                 onError={onError}
               />
             ) : section === 'shortcuts' ? (

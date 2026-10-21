@@ -15,6 +15,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
+import { formatBytes } from '@/lib/utils'
 
 export function ManuscriptImportDialog(props: {
   open: boolean
@@ -178,10 +179,4 @@ export function ManuscriptImportDialog(props: {
       </DialogContent>
     </Dialog>
   )
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1_024) return `${bytes} B`
-  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KiB`
-  return `${(bytes / 1_048_576).toFixed(1)} MiB`
 }

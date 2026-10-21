@@ -75,6 +75,7 @@ export class AgentSessionTitles {
         const active = this.#titleRequests.get(agentSessionId)
         if (active?.completion === completion) this.#titleRequests.delete(agentSessionId)
       })
+      // error-handling: allow owner=session-title reason=background-completion
       .catch(() => undefined)
     return completion
   }

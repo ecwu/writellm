@@ -8,895 +8,1044 @@ export const MODELS_DEV_PROVIDER_LOGOS = [
     id: '302ai',
     name: '302.AI',
     api: 'https://api.302.ai/v1',
-    sha256: '8944fea165d884416e1d7e3db74156badd187f6d26f0fb498fbaa854edf2d2ad'
+    sha256: '8944fea165d884416e1d7e3db74156badd187f6d26f0fb498fbaa854edf2d2ad',
+    asset: '302ai.svg'
   },
   {
     id: 'abacus',
     name: 'Abacus',
     api: 'https://routellm.abacus.ai/v1',
-    sha256: '52fb9fa436c8bf7b9e41dbd6c9d34b149629ea8dd21f9c40d0c969719d321a44'
+    sha256: '52fb9fa436c8bf7b9e41dbd6c9d34b149629ea8dd21f9c40d0c969719d321a44',
+    asset: 'abacus.svg'
   },
   {
     id: 'abliteration-ai',
     name: 'abliteration.ai',
     api: 'https://api.abliteration.ai/v1',
-    sha256: '2ae35aea48b8ce3d1c05fc24efa30bcc6a37b93376beb9b6a87e57b62c6bca68'
+    sha256: '2ae35aea48b8ce3d1c05fc24efa30bcc6a37b93376beb9b6a87e57b62c6bca68',
+    asset: 'abliteration-ai.svg'
   },
   {
     id: 'ai-router',
     name: 'AI-ROUTER',
     api: 'https://api.ai-router.dev/v1',
-    sha256: '58975180f1b6a2c09f25e7fff4abbdeff3f79bc4036a9d37a02c7d3d09845152'
+    sha256: '58975180f1b6a2c09f25e7fff4abbdeff3f79bc4036a9d37a02c7d3d09845152',
+    asset: 'ai-router.svg'
   },
   {
     id: 'aiand',
     name: 'ai&',
     api: 'https://api.aiand.com/v1',
-    sha256: '48993f0c7c26438b63d49cd79f47cfd8b932ddf4c05cf02ea7fd162262f911a9'
+    sha256: '48993f0c7c26438b63d49cd79f47cfd8b932ddf4c05cf02ea7fd162262f911a9',
+    asset: 'aiand.svg'
   },
   {
     id: 'aihubmix',
     name: 'AIHubMix',
     api: null,
-    sha256: '5ee54a5569ea977456e6b8a38b653278d76ac371163bf5034ac81686330d34f3'
+    sha256: '5ee54a5569ea977456e6b8a38b653278d76ac371163bf5034ac81686330d34f3',
+    asset: 'aihubmix.svg'
   },
   {
     id: 'alibaba',
     name: 'Alibaba',
     api: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
-    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8'
+    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8',
+    asset: 'alibaba.svg'
   },
   {
     id: 'alibaba-cn',
     name: 'Alibaba (China)',
     api: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    sha256: 'd213746e13d95448c442f660f4fbb31e194c8842c59ba9c21294dd1796cafa26'
+    sha256: 'd213746e13d95448c442f660f4fbb31e194c8842c59ba9c21294dd1796cafa26',
+    asset: 'alibaba-cn.svg'
   },
   {
     id: 'alibaba-coding-plan',
     name: 'Alibaba Coding Plan',
     api: 'https://coding-intl.dashscope.aliyuncs.com/v1',
-    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8'
+    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8',
+    asset: 'alibaba.svg'
   },
   {
     id: 'alibaba-coding-plan-cn',
     name: 'Alibaba Coding Plan (China)',
     api: 'https://coding.dashscope.aliyuncs.com/v1',
-    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8'
+    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8',
+    asset: 'alibaba.svg'
   },
   {
     id: 'alibaba-token-plan',
     name: 'Alibaba Token Plan',
     api: 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
-    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8'
+    sha256: '7c7290d96fec689132483ec52825da045d2de2af5a993d59401db460d4fd72a8',
+    asset: 'alibaba.svg'
   },
   {
     id: 'amazon-bedrock',
     name: 'Amazon Bedrock',
     api: null,
-    sha256: 'c161ec99fe224c4ba3cfc85015f852c7c5bb7edd37cc2772ffb8f94c20e5136e'
+    sha256: 'c161ec99fe224c4ba3cfc85015f852c7c5bb7edd37cc2772ffb8f94c20e5136e',
+    asset: 'amazon-bedrock.svg'
   },
   {
     id: 'ambient',
     name: 'Ambient',
     api: 'https://api.ambient.xyz/v1',
-    sha256: 'b4c99d9e3e3937ff5ebe2c0d47be225469d77d8bd99f59115146e8390bb89e33'
+    sha256: 'b4c99d9e3e3937ff5ebe2c0d47be225469d77d8bd99f59115146e8390bb89e33',
+    asset: 'ambient.svg'
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     api: null,
-    sha256: '7dbf450ab558c459b9a0f86d265ae6063560cb164189f78ce705d330f8d1426c'
+    sha256: '7dbf450ab558c459b9a0f86d265ae6063560cb164189f78ce705d330f8d1426c',
+    asset: 'anthropic.svg'
   },
   {
     id: 'anyapi',
     name: 'AnyAPI',
     api: 'https://api.anyapi.ai/v1',
-    sha256: '493ad694b051eb7b5baa9218bbd26e6b51ae339093a516ec2997b82aec8c73d9'
+    sha256: '493ad694b051eb7b5baa9218bbd26e6b51ae339093a516ec2997b82aec8c73d9',
+    asset: 'anyapi.svg'
   },
   {
     id: 'auriko',
     name: 'Auriko',
     api: 'https://api.auriko.ai/v1',
-    sha256: '768a4f078c1634d56076768af8f4640af4222238ccf6552c57ac7cf1375645bd'
+    sha256: '768a4f078c1634d56076768af8f4640af4222238ccf6552c57ac7cf1375645bd',
+    asset: 'auriko.svg'
   },
   {
     id: 'azure',
     name: 'Azure',
     api: null,
-    sha256: '2924519047a111586ca039c64e9d4add35c19d46e016d358732700df0581bab0'
+    sha256: '2924519047a111586ca039c64e9d4add35c19d46e016d358732700df0581bab0',
+    asset: 'azure.svg'
   },
   {
     id: 'azure-cognitive-services',
     name: 'Azure Cognitive Services',
     api: null,
-    sha256: '2924519047a111586ca039c64e9d4add35c19d46e016d358732700df0581bab0'
+    sha256: '2924519047a111586ca039c64e9d4add35c19d46e016d358732700df0581bab0',
+    asset: 'azure.svg'
   },
   {
     id: 'bailing',
     name: 'Bailing',
     api: 'https://api.tbox.cn/api/llm/v1/chat/completions',
-    sha256: '887eed0a996778dec1c6a4c215b4f0da27926a6b9b7c7ee3147fba18f54bd1bb'
+    sha256: '887eed0a996778dec1c6a4c215b4f0da27926a6b9b7c7ee3147fba18f54bd1bb',
+    asset: 'bailing.svg'
   },
   {
     id: 'baseten',
     name: 'Baseten',
     api: 'https://inference.baseten.co/v1',
-    sha256: '0efbb49608de2f872c57a5e253f4fa76a0da6bfc68dd14f99eafefd36f736225'
+    sha256: '0efbb49608de2f872c57a5e253f4fa76a0da6bfc68dd14f99eafefd36f736225',
+    asset: 'baseten.svg'
   },
   {
     id: 'berget',
     name: 'Berget.AI',
     api: 'https://api.berget.ai/v1',
-    sha256: 'c206dbcac2e84c8b2fb131e297a6adccac1a5723ed88eeaa9796dfa66d3dbf84'
+    sha256: 'c206dbcac2e84c8b2fb131e297a6adccac1a5723ed88eeaa9796dfa66d3dbf84',
+    asset: 'berget.svg'
   },
   {
     id: 'blueclaw',
     name: 'Blue Claw',
     api: 'https://openai.blueclaw.network/v1',
-    sha256: 'daab8cb9bd1ae74085b220e0c6c13c1e68432a1c8456cedbc98d91cd98429a0c'
+    sha256: 'daab8cb9bd1ae74085b220e0c6c13c1e68432a1c8456cedbc98d91cd98429a0c',
+    asset: 'blueclaw.svg'
   },
   {
     id: 'cerebras',
     name: 'Cerebras',
     api: null,
-    sha256: '21db4ac8204924f9d6b67d34a3ebac3d5eb6f30949526e2d519a9ec338127e84'
+    sha256: '21db4ac8204924f9d6b67d34a3ebac3d5eb6f30949526e2d519a9ec338127e84',
+    asset: 'cerebras.svg'
   },
   {
     id: 'claudinio',
     name: 'Claudinio',
     api: 'https://api.claudin.io/v1',
-    sha256: '3c298b4d9e448e83b738aa00adfd556b5e1183e12caa3d084611d4c4e8c858c8'
+    sha256: '3c298b4d9e448e83b738aa00adfd556b5e1183e12caa3d084611d4c4e8c858c8',
+    asset: 'claudinio.svg'
   },
   {
     id: 'cloudferro-sherlock',
     name: 'CloudFerro Sherlock',
     api: 'https://api-sherlock.cloudferro.com/openai/v1',
-    sha256: 'd53caf3e9603e8a3be9e1a53a4471244836809f3b3e817c1a788d2d53e3d502b'
+    sha256: 'd53caf3e9603e8a3be9e1a53a4471244836809f3b3e817c1a788d2d53e3d502b',
+    asset: 'cloudferro-sherlock.svg'
   },
   {
     id: 'cloudflare-ai-gateway',
     name: 'Cloudflare AI Gateway',
     api: null,
-    sha256: 'd21cbd07000a503026f9d221d04b9b630665efdd55b8e5121854b2a3cd7794b9'
+    sha256: 'd21cbd07000a503026f9d221d04b9b630665efdd55b8e5121854b2a3cd7794b9',
+    asset: 'cloudflare-ai-gateway.svg'
   },
   {
     id: 'cloudflare-workers-ai',
     name: 'Cloudflare Workers AI',
     api: null,
-    sha256: 'd21cbd07000a503026f9d221d04b9b630665efdd55b8e5121854b2a3cd7794b9'
+    sha256: 'd21cbd07000a503026f9d221d04b9b630665efdd55b8e5121854b2a3cd7794b9',
+    asset: 'cloudflare-ai-gateway.svg'
   },
   {
     id: 'cohere',
     name: 'Cohere',
     api: null,
-    sha256: 'ca0444f8c21fa78977f14018b651b3772a0beba689c0e5148f9add9cd05f4985'
+    sha256: 'ca0444f8c21fa78977f14018b651b3772a0beba689c0e5148f9add9cd05f4985',
+    asset: 'cohere.svg'
   },
   {
     id: 'crossmodel',
     name: 'CrossModel',
     api: 'https://api.crossmodel.ai/v1',
-    sha256: '0ef1aeba269e94135444abc9d7f1059ab81e69398704dda5dc1b97f38b980bc0'
+    sha256: '0ef1aeba269e94135444abc9d7f1059ab81e69398704dda5dc1b97f38b980bc0',
+    asset: 'crossmodel.svg'
   },
   {
     id: 'daoxe',
     name: 'DaoXE',
     api: 'https://daoxe.com/v1',
-    sha256: 'ea4b0fef52199c251e950bc29ea68b5944a8b11ecb30f9e16a136ff8dbf0f2d9'
+    sha256: 'ea4b0fef52199c251e950bc29ea68b5944a8b11ecb30f9e16a136ff8dbf0f2d9',
+    asset: 'daoxe.svg'
   },
   {
     id: 'deepinfra',
     name: 'Deep Infra',
     api: null,
-    sha256: 'e4f7a8a0de098555bf22bbabf848cfe8d06cd9960f9f0eb7c8c30ec41af85132'
+    sha256: 'e4f7a8a0de098555bf22bbabf848cfe8d06cd9960f9f0eb7c8c30ec41af85132',
+    asset: 'deepinfra.svg'
   },
   {
     id: 'deepseek',
     name: 'DeepSeek',
     api: 'https://api.deepseek.com/',
-    sha256: '6ef6f85e554b8cf007f94b67351e6f5921b2465d327ffbbcaf26d86b7bbb511e'
+    sha256: '6ef6f85e554b8cf007f94b67351e6f5921b2465d327ffbbcaf26d86b7bbb511e',
+    asset: 'deepseek.svg'
   },
   {
     id: 'digitalocean',
     name: 'DigitalOcean',
     api: 'https://inference.do-ai.run/v1',
-    sha256: '670b17fe40af697cf245edc2c134f001bbcffd44cb2619e0d64806eb9bb7eabf'
+    sha256: '670b17fe40af697cf245edc2c134f001bbcffd44cb2619e0d64806eb9bb7eabf',
+    asset: 'digitalocean.svg'
   },
   {
     id: 'dinference',
     name: 'DInference',
     api: 'https://api.dinference.com/v1',
-    sha256: 'ccde972e725bac95238d572241ab0d7e8a4dd332f22576eed98da97e495480a7'
+    sha256: 'ccde972e725bac95238d572241ab0d7e8a4dd332f22576eed98da97e495480a7',
+    asset: 'dinference.svg'
   },
   {
     id: 'drun',
     name: 'D.Run (China)',
     api: 'https://chat.d.run/v1',
-    sha256: '1e3bea8138fad0c96da400f788cae2cafcbf5d23fc9a87fa482b1027353ea2f3'
+    sha256: '1e3bea8138fad0c96da400f788cae2cafcbf5d23fc9a87fa482b1027353ea2f3',
+    asset: 'drun.svg'
   },
   {
     id: 'ebcloud',
     name: 'EBCloud',
     api: 'https://maas-api.ebcloud.com/v1',
-    sha256: 'ac7449c7bf4c4bf5b82ea6084a19b39ef6fb07a0c67a42da8bced29ea471018a'
+    sha256: 'ac7449c7bf4c4bf5b82ea6084a19b39ef6fb07a0c67a42da8bced29ea471018a',
+    asset: 'ebcloud.svg'
   },
   {
     id: 'empiriolabs',
     name: 'EmpirioLabs AI',
     api: 'https://api.empiriolabs.ai/v1',
-    sha256: '4ff9d32911ea45a865c7ff5fd8c5ba6a29f258677ae016cd3430f18bd39944ee'
+    sha256: '4ff9d32911ea45a865c7ff5fd8c5ba6a29f258677ae016cd3430f18bd39944ee',
+    asset: 'empiriolabs.svg'
   },
   {
     id: 'evroc',
     name: 'evroc',
     api: 'https://models.think.evroc.com/v1',
-    sha256: 'f66424ee4465d8b17aa5b17381d7d5bb011e6c41869ba27ffe42cb6fa3e7775a'
+    sha256: 'f66424ee4465d8b17aa5b17381d7d5bb011e6c41869ba27ffe42cb6fa3e7775a',
+    asset: 'evroc.svg'
   },
   {
     id: 'fastrouter',
     name: 'FastRouter',
     api: 'https://go.fastrouter.ai/api/v1',
-    sha256: '6402ebcc15dc93f941190eac2fb26d5cc147893ec22ceb19405634827f8c0a23'
+    sha256: '6402ebcc15dc93f941190eac2fb26d5cc147893ec22ceb19405634827f8c0a23',
+    asset: 'fastrouter.svg'
   },
   {
     id: 'fireworks-ai',
     name: 'Fireworks AI',
     api: 'https://api.fireworks.ai/inference/v1',
-    sha256: 'e5255f86e2f8464ce53ee096d03cce90465dd3bc3af4ff07af5ccc6afdcec132'
+    sha256: 'e5255f86e2f8464ce53ee096d03cce90465dd3bc3af4ff07af5ccc6afdcec132',
+    asset: 'fireworks-ai.svg'
   },
   {
     id: 'freemodel',
     name: 'FreeModel',
     api: 'https://cc.freemodel.dev/v1',
-    sha256: '539f9d0497f3cdb25e0ba039c8e1e43dd5406db3fe7c5a5974f6ec8001e005f1'
+    sha256: '539f9d0497f3cdb25e0ba039c8e1e43dd5406db3fe7c5a5974f6ec8001e005f1',
+    asset: 'freemodel.svg'
   },
   {
     id: 'friendli',
     name: 'Friendli',
     api: 'https://api.friendli.ai/serverless/v1',
-    sha256: 'b633425ac943f7ed04c3b7b3100ee8207b1770e766c5d1f0f0955f7351d36e78'
+    sha256: 'b633425ac943f7ed04c3b7b3100ee8207b1770e766c5d1f0f0955f7351d36e78',
+    asset: 'friendli.svg'
   },
   {
     id: 'github-copilot',
     name: 'GitHub Copilot',
     api: 'https://api.githubcopilot.com/',
-    sha256: '9e5aab40f4d256f649409e911d1cdcab0665a330b80d63dc3c5ae90d47f13e20'
+    sha256: '9e5aab40f4d256f649409e911d1cdcab0665a330b80d63dc3c5ae90d47f13e20',
+    asset: 'github-copilot.svg'
   },
   {
     id: 'github-models',
     name: 'GitHub Models',
     api: 'https://models.github.ai/inference',
-    sha256: 'ac4b7e884b82daca6c878d5fa4ad7d381c7bd9a0dc12f1fa757bfbc7bd29d89c'
+    sha256: 'ac4b7e884b82daca6c878d5fa4ad7d381c7bd9a0dc12f1fa757bfbc7bd29d89c',
+    asset: 'github-models.svg'
   },
   {
     id: 'gitlab',
     name: 'GitLab Duo',
     api: null,
-    sha256: 'da3329702102aa7a86fca9bdbad6c7af7e307344172db2c1e766b62fc9f6389d'
+    sha256: 'da3329702102aa7a86fca9bdbad6c7af7e307344172db2c1e766b62fc9f6389d',
+    asset: 'gitlab.svg'
   },
   {
     id: 'google',
     name: 'Google',
     api: null,
-    sha256: '4aa9a33b462ffc905f08254531234980cc20fb1135b309d089cefdc8dbfd1358'
+    sha256: '4aa9a33b462ffc905f08254531234980cc20fb1135b309d089cefdc8dbfd1358',
+    asset: 'google.svg'
   },
   {
     id: 'google-vertex',
     name: 'Vertex',
     api: null,
-    sha256: '790c97475af8dbd75e9d0d8b0c9d390a952c806466645eda2109e1e87e9b090b'
+    sha256: '790c97475af8dbd75e9d0d8b0c9d390a952c806466645eda2109e1e87e9b090b',
+    asset: 'google-vertex.svg'
   },
   {
     id: 'google-vertex-anthropic',
     name: 'Vertex (Anthropic)',
     api: null,
-    sha256: '790c97475af8dbd75e9d0d8b0c9d390a952c806466645eda2109e1e87e9b090b'
+    sha256: '790c97475af8dbd75e9d0d8b0c9d390a952c806466645eda2109e1e87e9b090b',
+    asset: 'google-vertex.svg'
   },
   {
     id: 'greenpt',
     name: 'GreenPT',
     api: 'https://api.greenpt.ai/v1',
-    sha256: 'c68be28b8ae57a8eda31330b1f010b124ea7ca091480effb01b9cdb44b56bb8f'
+    sha256: 'c68be28b8ae57a8eda31330b1f010b124ea7ca091480effb01b9cdb44b56bb8f',
+    asset: 'greenpt.svg'
   },
   {
     id: 'groq',
     name: 'Groq',
     api: null,
-    sha256: 'a15ee5f3d391688e28ef15f59e779c47661f6aa4fbb47a4125fc5243fd7a7db5'
+    sha256: 'a15ee5f3d391688e28ef15f59e779c47661f6aa4fbb47a4125fc5243fd7a7db5',
+    asset: 'groq.svg'
   },
   {
     id: 'helicone',
     name: 'Helicone',
     api: 'https://ai-gateway.helicone.ai/v1',
-    sha256: 'eacd48eeaa40a6b9ad7b1d0dd03e5bbfe436c4f3f76799eb53208dde59037c84'
+    sha256: 'eacd48eeaa40a6b9ad7b1d0dd03e5bbfe436c4f3f76799eb53208dde59037c84',
+    asset: 'helicone.svg'
   },
   {
     id: 'hetzner',
     name: 'Hetzner',
     api: 'https://inference.hetzner.com/api/v1',
-    sha256: '5b28cfc5947303f9d3731a9704ffb348fb1cfadfbee32b854c55b0856495c5d6'
+    sha256: '5b28cfc5947303f9d3731a9704ffb348fb1cfadfbee32b854c55b0856495c5d6',
+    asset: 'hetzner.svg'
   },
   {
     id: 'huggingface',
     name: 'Hugging Face',
     api: 'https://router.huggingface.co/v1',
-    sha256: '88126effdf398ec63584ffa0866f2467da33253076f17a72ca48f06e80a7f837'
+    sha256: '88126effdf398ec63584ffa0866f2467da33253076f17a72ca48f06e80a7f837',
+    asset: 'huggingface.svg'
   },
   {
     id: 'hyper',
     name: 'Charm Hyper',
     api: 'https://hyper.charm.land/v1',
-    sha256: '7f3ae069c305c7973d45965c7e57c5e252ec4e5a33739e75653fbd69b580a869'
+    sha256: '7f3ae069c305c7973d45965c7e57c5e252ec4e5a33739e75653fbd69b580a869',
+    asset: 'hyper.svg'
   },
   {
     id: 'iflowcn',
     name: 'iFlow',
     api: 'https://apis.iflow.cn/v1',
-    sha256: '58fd441e68f09799268321b5eb1fb1e57a3b00210d758979e528ed4d1774f9c6'
+    sha256: '58fd441e68f09799268321b5eb1fb1e57a3b00210d758979e528ed4d1774f9c6',
+    asset: 'iflowcn.svg'
   },
   {
     id: 'inception',
     name: 'Inception',
     api: 'https://api.inceptionlabs.ai/v1',
-    sha256: 'f97062e2848e1c0e7cd7f0b769fc125cc654af3ff99b997355e102e7941c1855'
+    sha256: 'f97062e2848e1c0e7cd7f0b769fc125cc654af3ff99b997355e102e7941c1855',
+    asset: 'inception.svg'
   },
   {
     id: 'inceptron',
     name: 'Inceptron',
     api: 'https://api.inceptron.io/v1',
-    sha256: '18ede31a72c03b25d60a59dc48d9e7dfbe8d8ab2a53180de5b77865d0c358f29'
+    sha256: '18ede31a72c03b25d60a59dc48d9e7dfbe8d8ab2a53180de5b77865d0c358f29',
+    asset: 'inceptron.svg'
   },
   {
     id: 'inference',
     name: 'Inference',
     api: 'https://inference.net/v1',
-    sha256: 'ab7934ac062be0d83f1695d98d4206c8e5176de28b1d9973a4b7b195d68c4053'
+    sha256: 'ab7934ac062be0d83f1695d98d4206c8e5176de28b1d9973a4b7b195d68c4053',
+    asset: 'inference.svg'
   },
   {
     id: 'inferx',
     name: 'InferX',
     api: 'https://model.inferx.net/endpoints/v1',
-    sha256: '8c3d19f811bf48383b0b75001876175f870abcf68e2d8870f7247e2ceb55935e'
+    sha256: '8c3d19f811bf48383b0b75001876175f870abcf68e2d8870f7247e2ceb55935e',
+    asset: 'inferx.svg'
   },
   {
     id: 'io-net',
     name: 'IO.NET',
     api: 'https://api.intelligence.io.solutions/api/v1',
-    sha256: '4dd672d8dd6796c0d33206279c962672be15809e2788ac7360f38b736992678c'
+    sha256: '4dd672d8dd6796c0d33206279c962672be15809e2788ac7360f38b736992678c',
+    asset: 'io-net.svg'
   },
   {
     id: 'jiekou',
     name: 'Jiekou.AI',
     api: 'https://api.jiekou.ai/openai',
-    sha256: '4d87214d6fdbc7b3e99899e5845f9e65f390bc67e2a96a4ce635f98b10adf747'
+    sha256: '4d87214d6fdbc7b3e99899e5845f9e65f390bc67e2a96a4ce635f98b10adf747',
+    asset: 'jiekou.svg'
   },
   {
     id: 'kenari',
     name: 'Kenari',
     api: 'https://kenari.id/v1',
-    sha256: '88e2c5be43095bd3e23c41083dae16070ba177f181ec73927e08df3cb7e530f7'
+    sha256: '88e2c5be43095bd3e23c41083dae16070ba177f181ec73927e08df3cb7e530f7',
+    asset: 'kenari.svg'
   },
   {
     id: 'kilo',
     name: 'Kilo Gateway',
     api: 'https://api.kilo.ai/api/gateway',
-    sha256: 'c004eb1a2824e97e77f07605d1113e5d7f10ed5b1b387b9b3be684d4d5d1e559'
+    sha256: 'c004eb1a2824e97e77f07605d1113e5d7f10ed5b1b387b9b3be684d4d5d1e559',
+    asset: 'kilo.svg'
   },
   {
     id: 'kimi-for-coding',
     name: 'Kimi For Coding',
     api: 'https://api.kimi.com/coding/v1',
-    sha256: 'f4bf2ef7a204beb6b222915eee9a7b7f5b2b8d3c84c9fcc270f0fa91b7b4d98e'
+    sha256: 'f4bf2ef7a204beb6b222915eee9a7b7f5b2b8d3c84c9fcc270f0fa91b7b4d98e',
+    asset: 'kimi-for-coding.svg'
   },
   {
     id: 'kuae-cloud-coding-plan',
     name: 'KUAE Cloud Coding Plan',
     api: 'https://coding-plan-endpoint.kuaecloud.net/v1',
-    sha256: '18584af91cb0994cdec452b008218151e8bf2b5b7e9df4f16a5787a792c298fa'
+    sha256: '18584af91cb0994cdec452b008218151e8bf2b5b7e9df4f16a5787a792c298fa',
+    asset: 'kuae-cloud-coding-plan.svg'
   },
   {
     id: 'lilac',
     name: 'Lilac',
     api: 'https://api.getlilac.com/v1',
-    sha256: 'fff12141a40588f3452a5767979a84ff4db064c19f32fa3af0fd2938c087bc17'
+    sha256: 'fff12141a40588f3452a5767979a84ff4db064c19f32fa3af0fd2938c087bc17',
+    asset: 'lilac.svg'
   },
   {
     id: 'llama',
     name: 'Llama',
     api: 'https://api.llama.com/compat/v1',
-    sha256: 'c474be122ff6a1de673d0ce98205d243b2415a64bb053faf5a995c7a0616b33f'
+    sha256: 'c474be122ff6a1de673d0ce98205d243b2415a64bb053faf5a995c7a0616b33f',
+    asset: 'llama.svg'
   },
   {
     id: 'llmgateway',
     name: 'LLM Gateway',
     api: 'https://api.llmgateway.io/v1',
-    sha256: '366cb44ed3b3d6df9bdb8b9093b0c5295ea0a632525a36a01789c53369cc8de3'
+    sha256: '366cb44ed3b3d6df9bdb8b9093b0c5295ea0a632525a36a01789c53369cc8de3',
+    asset: 'llmgateway.svg'
   },
   {
     id: 'llmtr',
     name: 'LLMTR',
     api: 'https://llmtr.com/v1',
-    sha256: '287d0cfc64ec5b31dfa9bcca0b3ec2515dea399028ab6848a48c0f3505057784'
+    sha256: '287d0cfc64ec5b31dfa9bcca0b3ec2515dea399028ab6848a48c0f3505057784',
+    asset: 'llmtr.svg'
   },
   {
     id: 'longcat',
     name: 'LongCat',
     api: 'https://api.longcat.chat/openai',
-    sha256: 'ee70b26328d26179bfd119be13da631386735cfd11de3967fbf53707d6ef5654'
+    sha256: 'ee70b26328d26179bfd119be13da631386735cfd11de3967fbf53707d6ef5654',
+    asset: 'longcat.svg'
   },
   {
     id: 'lucidquery',
     name: 'LucidQuery',
     api: 'https://api.lucidquery.com/v1',
-    sha256: '38c68d3a04ccf8d8ff885ad7d10ddd4ca9ab5b93f87d4e5b5c8e334e3adef232'
+    sha256: '38c68d3a04ccf8d8ff885ad7d10ddd4ca9ab5b93f87d4e5b5c8e334e3adef232',
+    asset: 'lucidquery.svg'
   },
   {
     id: 'lynkr',
     name: 'Lynkr',
     api: null,
-    sha256: '0aabc5b9cc08cc05501f8b08ec478b05dffb8756b84c0bdb967ddcdce2ac3e17'
+    sha256: '0aabc5b9cc08cc05501f8b08ec478b05dffb8756b84c0bdb967ddcdce2ac3e17',
+    asset: 'lynkr.svg'
   },
   {
     id: 'meganova',
     name: 'Meganova',
     api: 'https://api.meganova.ai/v1',
-    sha256: '84ad448bf2fcff2dae8d6f8afcb3c6c2e0b6c45ff5fe39dac1741fff2d329f92'
+    sha256: '84ad448bf2fcff2dae8d6f8afcb3c6c2e0b6c45ff5fe39dac1741fff2d329f92',
+    asset: 'meganova.svg'
   },
   {
     id: 'merge-gateway',
     name: 'Merge Gateway',
     api: null,
-    sha256: '414720b4707c85b54bcd72e376922b8260b1e55219cc8b3b3f4df9a575d25ada'
+    sha256: '414720b4707c85b54bcd72e376922b8260b1e55219cc8b3b3f4df9a575d25ada',
+    asset: 'merge-gateway.svg'
   },
   {
     id: 'meta',
     name: 'Meta',
     api: 'https://api.meta.ai/v1',
-    sha256: 'c474be122ff6a1de673d0ce98205d243b2415a64bb053faf5a995c7a0616b33f'
+    sha256: 'c474be122ff6a1de673d0ce98205d243b2415a64bb053faf5a995c7a0616b33f',
+    asset: 'llama.svg'
   },
   {
     id: 'minimax',
     name: 'MiniMax (minimax.io)',
     api: 'https://api.minimax.io/anthropic/v1',
-    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f'
+    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f',
+    asset: 'minimax.svg'
   },
   {
     id: 'minimax-cn',
     name: 'MiniMax (minimaxi.com)',
     api: 'https://api.minimaxi.com/anthropic/v1',
-    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f'
+    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f',
+    asset: 'minimax.svg'
   },
   {
     id: 'minimax-cn-coding-plan',
     name: 'MiniMax Token Plan (minimaxi.com)',
     api: 'https://api.minimaxi.com/anthropic/v1',
-    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f'
+    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f',
+    asset: 'minimax.svg'
   },
   {
     id: 'minimax-coding-plan',
     name: 'MiniMax Token Plan (minimax.io)',
     api: 'https://api.minimax.io/anthropic/v1',
-    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f'
+    sha256: '838a08522db09ae4fa8bb169ce67ad411fc325efff36ac6c62cfa9dba8d4444f',
+    asset: 'minimax.svg'
   },
   {
     id: 'mistral',
     name: 'Mistral',
     api: null,
-    sha256: '9c528cf9c8848be6c6768bccef75791a86ee1df9b5ad33680d6753a09b40d709'
+    sha256: '9c528cf9c8848be6c6768bccef75791a86ee1df9b5ad33680d6753a09b40d709',
+    asset: 'mistral.svg'
   },
   {
     id: 'moark',
     name: 'Moark',
     api: 'https://moark.com/v1',
-    sha256: 'fd2ae56c9e35fbb9b2ec59c90f716369fbc706b8467d9e5cdf1f2c7a80fd3149'
+    sha256: 'fd2ae56c9e35fbb9b2ec59c90f716369fbc706b8467d9e5cdf1f2c7a80fd3149',
+    asset: 'moark.svg'
   },
   {
     id: 'modal',
     name: 'Modal',
     api: 'https://inference.us-west.modal.direct/v1',
-    sha256: '16e8d2acf068f68c287a0985302ca4e70d1b13b1604601217d5496e29befefb6'
+    sha256: '16e8d2acf068f68c287a0985302ca4e70d1b13b1604601217d5496e29befefb6',
+    asset: 'modal.svg'
   },
   {
     id: 'model-oracle-ai',
     name: 'Model Oracle AI',
     api: 'https://api.modeloracle.com/api/v1',
-    sha256: 'cbb1bd686d4517fdc3f335ae62cf21a4361df8f5baa034814da0170a3cfd3487'
+    sha256: 'cbb1bd686d4517fdc3f335ae62cf21a4361df8f5baa034814da0170a3cfd3487',
+    asset: 'model-oracle-ai.svg'
   },
   {
     id: 'modelscope',
     name: 'ModelScope',
     api: 'https://api-inference.modelscope.cn/v1',
-    sha256: 'e28ce96c4f44a69d8a8eb641a9462d55ed9eeedb2ca6ada33ed106ab456f8692'
+    sha256: 'e28ce96c4f44a69d8a8eb641a9462d55ed9eeedb2ca6ada33ed106ab456f8692',
+    asset: 'modelscope.svg'
   },
   {
     id: 'moonshotai',
     name: 'Moonshot AI',
     api: 'https://api.moonshot.ai/v1',
-    sha256: '6cd95562b8e095b73dddfd51cca48e20ce44511c9c1276a68df18c89ec0ebb1c'
+    sha256: '6cd95562b8e095b73dddfd51cca48e20ce44511c9c1276a68df18c89ec0ebb1c',
+    asset: 'moonshotai.svg'
   },
   {
     id: 'moonshotai-cn',
     name: 'Moonshot AI (China)',
     api: 'https://api.moonshot.cn/v1',
-    sha256: '6cd95562b8e095b73dddfd51cca48e20ce44511c9c1276a68df18c89ec0ebb1c'
+    sha256: '6cd95562b8e095b73dddfd51cca48e20ce44511c9c1276a68df18c89ec0ebb1c',
+    asset: 'moonshotai.svg'
   },
   {
     id: 'nano-gpt',
     name: 'NanoGPT',
     api: 'https://nano-gpt.com/api/v1',
-    sha256: 'caba65fad36ec927388715ab27bcd92e3a486190e6868baaa772411af0e3ee3b'
+    sha256: 'caba65fad36ec927388715ab27bcd92e3a486190e6868baaa772411af0e3ee3b',
+    asset: 'nano-gpt.svg'
   },
   {
     id: 'nearai',
     name: 'NEAR AI Cloud',
     api: 'https://cloud-api.near.ai/v1',
-    sha256: '2b44b48bbaa83e1b39215b10425d4823b5ad14569ba8922d98079a0eeba338f4'
+    sha256: '2b44b48bbaa83e1b39215b10425d4823b5ad14569ba8922d98079a0eeba338f4',
+    asset: 'nearai.svg'
   },
   {
     id: 'nebius',
     name: 'Nebius Token Factory',
     api: 'https://api.tokenfactory.nebius.com/v1',
-    sha256: '875f4eb0e99dc12ab045ba6091b482f5240cedffb8069cbe9584b1a2500299a5'
+    sha256: '875f4eb0e99dc12ab045ba6091b482f5240cedffb8069cbe9584b1a2500299a5',
+    asset: 'nebius.svg'
   },
   {
     id: 'neon',
     name: 'Neon',
     api: null,
-    sha256: '522504a3bd1df6eee2e68d8b823ad080ba51a5d334999d112d93a579a3bd3f6a'
+    sha256: '522504a3bd1df6eee2e68d8b823ad080ba51a5d334999d112d93a579a3bd3f6a',
+    asset: 'neon.svg'
   },
   {
     id: 'neuralwatt',
     name: 'Neuralwatt',
     api: 'https://api.neuralwatt.com/v1',
-    sha256: '142706a51f574fe77af9c51d7765fda050b4f01a1800ab9cb7befd522240f338'
+    sha256: '142706a51f574fe77af9c51d7765fda050b4f01a1800ab9cb7befd522240f338',
+    asset: 'neuralwatt.svg'
   },
   {
     id: 'nova',
     name: 'Nova',
     api: 'https://api.nova.amazon.com/v1',
-    sha256: '08015bdc626168f1d31805be1cba857f083956ee00824a1ea1f29bb3218e6f83'
+    sha256: '08015bdc626168f1d31805be1cba857f083956ee00824a1ea1f29bb3218e6f83',
+    asset: 'nova.svg'
   },
   {
     id: 'novita-ai',
     name: 'NovitaAI',
     api: 'https://api.novita.ai/openai',
-    sha256: 'fbf4780f71d7c7b0643a54acaaeab7737269ce6f5d1616d49b9fcdd68073826d'
+    sha256: 'fbf4780f71d7c7b0643a54acaaeab7737269ce6f5d1616d49b9fcdd68073826d',
+    asset: 'novita-ai.svg'
   },
   {
     id: 'nvidia',
     name: 'Nvidia',
     api: 'https://integrate.api.nvidia.com/v1',
-    sha256: '0cd47ddcf4031ea79463e977fdcf8a24377d3d3406b375e6458fa1e482285a2c'
+    sha256: '0cd47ddcf4031ea79463e977fdcf8a24377d3d3406b375e6458fa1e482285a2c',
+    asset: 'nvidia.svg'
   },
   {
     id: 'ofox',
     name: 'Ofox',
     api: 'https://api.ofox.ai/v1',
-    sha256: '1dc33352413e7398a87acc3cc5874ca37cc7fc4a8f939e5a3d4889ae56195911'
+    sha256: '1dc33352413e7398a87acc3cc5874ca37cc7fc4a8f939e5a3d4889ae56195911',
+    asset: 'ofox.svg'
   },
   {
     id: 'ollama-cloud',
     name: 'Ollama Cloud',
     api: 'https://ollama.com/v1',
-    sha256: '02b368dd18e0b00a4a9fb5478f23a6f6e33853e3d714fb5a59bb6238990e450f'
+    sha256: '02b368dd18e0b00a4a9fb5478f23a6f6e33853e3d714fb5a59bb6238990e450f',
+    asset: 'ollama-cloud.svg'
   },
   {
     id: 'openai',
     name: 'OpenAI',
     api: null,
-    sha256: '6acee355e93999a74f0331e5961df0443b3b280ac312470f62bcc14dc9901f62'
+    sha256: '6acee355e93999a74f0331e5961df0443b3b280ac312470f62bcc14dc9901f62',
+    asset: 'openai.svg'
   },
   {
     id: 'opencode',
     name: 'OpenCode Zen',
     api: 'https://opencode.ai/zen/v1',
-    sha256: '16d025b9741c268d6d874c1d4d2eba53fbb7482992d2035fc698b0beb14ae9d1'
+    sha256: '16d025b9741c268d6d874c1d4d2eba53fbb7482992d2035fc698b0beb14ae9d1',
+    asset: 'opencode.svg'
   },
   {
     id: 'opencode-go',
     name: 'OpenCode Go',
     api: 'https://opencode.ai/zen/go/v1',
-    sha256: 'edce9db830cf09a19e4b03cbcb72a4a758a50b7368e7c60d7c837509f7da0677'
+    sha256: 'edce9db830cf09a19e4b03cbcb72a4a758a50b7368e7c60d7c837509f7da0677',
+    asset: 'opencode-go.svg'
   },
   {
     id: 'openrouter',
     name: 'OpenRouter',
     api: 'https://openrouter.ai/api/v1',
-    sha256: 'b732731c4dd0f7bb5edeb433f372858acce2d0a4519d654f9ce49e721418cdf1'
+    sha256: 'b732731c4dd0f7bb5edeb433f372858acce2d0a4519d654f9ce49e721418cdf1',
+    asset: 'openrouter.svg'
   },
   {
     id: 'ovhcloud',
     name: 'OVHcloud AI Endpoints',
     api: 'https://oai.endpoints.kepler.ai.cloud.ovh.net/v1',
-    sha256: 'e658181464a8a826cab538abb69e8f6fabef9842f8e5245a361e66dc0012fd46'
+    sha256: 'e658181464a8a826cab538abb69e8f6fabef9842f8e5245a361e66dc0012fd46',
+    asset: 'ovhcloud.svg'
   },
   {
     id: 'perplexity',
     name: 'Perplexity',
     api: null,
-    sha256: '8321ece853fb642ddbdb2ad0823c1397786aeacca202a0448a1c4bb0133205eb'
+    sha256: '8321ece853fb642ddbdb2ad0823c1397786aeacca202a0448a1c4bb0133205eb',
+    asset: 'perplexity.svg'
   },
   {
     id: 'perplexity-agent',
     name: 'Perplexity Agent',
     api: 'https://api.perplexity.ai/v1',
-    sha256: '8321ece853fb642ddbdb2ad0823c1397786aeacca202a0448a1c4bb0133205eb'
+    sha256: '8321ece853fb642ddbdb2ad0823c1397786aeacca202a0448a1c4bb0133205eb',
+    asset: 'perplexity.svg'
   },
   {
     id: 'pioneer',
     name: 'Pioneer',
     api: 'https://api.pioneer.ai/v1',
-    sha256: '5da60367b69609fc7141c3fca91c13c7df9b0628d4568feee0f0892665dc59ef'
+    sha256: '5da60367b69609fc7141c3fca91c13c7df9b0628d4568feee0f0892665dc59ef',
+    asset: 'pioneer.svg'
   },
   {
     id: 'poe',
     name: 'Poe',
     api: 'https://api.poe.com/v1',
-    sha256: '96d75d2086a761f9e3c4b94dbce432bf41661084caa5eeec2f2ebf06fa4865a1'
+    sha256: '96d75d2086a761f9e3c4b94dbce432bf41661084caa5eeec2f2ebf06fa4865a1',
+    asset: 'poe.svg'
   },
   {
     id: 'poolside',
     name: 'Poolside',
     api: 'https://inference.poolside.ai/v1',
-    sha256: '7df9d8915bbc82d6fd1c87d7c7a4ef2c85c6d6ff8df2c3f962114b2179c86aca'
+    sha256: '7df9d8915bbc82d6fd1c87d7c7a4ef2c85c6d6ff8df2c3f962114b2179c86aca',
+    asset: 'poolside.svg'
   },
   {
     id: 'privatemode-ai',
     name: 'Privatemode AI',
     api: null,
-    sha256: '437a7d6bb05bd1e0fbc30a39b8294cd83b1ec606744d38ee42882fe9291f4134'
+    sha256: '437a7d6bb05bd1e0fbc30a39b8294cd83b1ec606744d38ee42882fe9291f4134',
+    asset: 'privatemode-ai.svg'
   },
   {
     id: 'qihang-ai',
     name: 'QiHang',
     api: 'https://api.qhaigc.net/v1',
-    sha256: 'c2f882718214495dc83a7185ebb8e0f6f9f0e0f1a5720418bb8653bb989b3801'
+    sha256: 'c2f882718214495dc83a7185ebb8e0f6f9f0e0f1a5720418bb8653bb989b3801',
+    asset: 'qihang-ai.svg'
   },
   {
     id: 'qiniu-ai',
     name: 'Qiniu',
     api: 'https://api.qnaigc.com/v1',
-    sha256: 'c27efa97866b627cba5533cf5c2f408411247c4d341cf75f7e420419a3413367'
+    sha256: 'c27efa97866b627cba5533cf5c2f408411247c4d341cf75f7e420419a3413367',
+    asset: 'qiniu-ai.svg'
   },
   {
     id: 'routing-run',
     name: 'routing.run',
     api: 'https://api.routing.run/v1',
-    sha256: 'a694abf33174fcac2da87b3fcc5305ab6ddd56cf75ffe63a2a70c906d14ece1b'
+    sha256: 'a694abf33174fcac2da87b3fcc5305ab6ddd56cf75ffe63a2a70c906d14ece1b',
+    asset: 'routing-run.svg'
   },
   {
     id: 'scaleway',
     name: 'Scaleway',
     api: 'https://api.scaleway.ai/v1',
-    sha256: '2ef160560687a0d8a37ec85c790d0647c956f946d1ea4c63ba9d6504319d6fd3'
+    sha256: '2ef160560687a0d8a37ec85c790d0647c956f946d1ea4c63ba9d6504319d6fd3',
+    asset: 'scaleway.svg'
   },
   {
     id: 'siliconflow',
     name: 'SiliconFlow',
     api: 'https://api.siliconflow.com/v1',
-    sha256: 'cba9695ea4a4a9c5a8912d69de322d234d2431039e4991b07ef01b99d80378c7'
+    sha256: 'cba9695ea4a4a9c5a8912d69de322d234d2431039e4991b07ef01b99d80378c7',
+    asset: 'siliconflow.svg'
   },
   {
     id: 'siliconflow-cn',
     name: 'SiliconFlow (China)',
     api: 'https://api.siliconflow.cn/v1',
-    sha256: 'cba9695ea4a4a9c5a8912d69de322d234d2431039e4991b07ef01b99d80378c7'
+    sha256: 'cba9695ea4a4a9c5a8912d69de322d234d2431039e4991b07ef01b99d80378c7',
+    asset: 'siliconflow.svg'
   },
   {
     id: 'snowflake-cortex',
     name: 'Snowflake Cortex',
     api: null,
-    sha256: 'ce284a643f9332400d50283feef5f86ed1428b30f8869c41914035eb41daf4ae'
+    sha256: 'ce284a643f9332400d50283feef5f86ed1428b30f8869c41914035eb41daf4ae',
+    asset: 'snowflake-cortex.svg'
   },
   {
     id: 'stepfun',
     name: 'StepFun (China)',
     api: 'https://api.stepfun.com/v1',
-    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0'
+    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0',
+    asset: 'stepfun.svg'
   },
   {
     id: 'stepfun-ai',
     name: 'StepFun (Global)',
     api: 'https://api.stepfun.ai/v1',
-    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0'
+    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0',
+    asset: 'stepfun.svg'
   },
   {
     id: 'stepfun-ai-step-plan',
     name: 'StepFun Step Plan (Global)',
     api: 'https://api.stepfun.ai/step_plan/v1',
-    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0'
+    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0',
+    asset: 'stepfun.svg'
   },
   {
     id: 'stepfun-step-plan',
     name: 'StepFun Step Plan (China)',
     api: 'https://api.stepfun.com/step_plan/v1',
-    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0'
+    sha256: '2bbba2ed0bd7770b6f85671c2ec84857925b03dad1b0118d36c3fafb66d153e0',
+    asset: 'stepfun.svg'
   },
   {
     id: 'subconscious',
     name: 'Subconscious',
     api: 'https://api.subconscious.dev/v1',
-    sha256: '5a123602ada9e83707ce5a715983a2afe81661fcf0fc5e2f8eef052965cb74f3'
+    sha256: '5a123602ada9e83707ce5a715983a2afe81661fcf0fc5e2f8eef052965cb74f3',
+    asset: 'subconscious.svg'
   },
   {
     id: 'submodel',
     name: 'submodel',
     api: 'https://llm.submodel.ai/v1',
-    sha256: '2caa2d9c177d4d3ba1e11238f7c53db1d4c54b423cde790c4572723b15906424'
+    sha256: '2caa2d9c177d4d3ba1e11238f7c53db1d4c54b423cde790c4572723b15906424',
+    asset: 'submodel.svg'
   },
   {
     id: 'tencent-coding-plan',
     name: 'Tencent Coding Plan (China)',
     api: 'https://api.lkeap.cloud.tencent.com/coding/v3',
-    sha256: '542b8dcd6b0e257a4f5da0d8b6cfafabe8c880475b063b164efdf65f013f0741'
+    sha256: '542b8dcd6b0e257a4f5da0d8b6cfafabe8c880475b063b164efdf65f013f0741',
+    asset: 'tencent-coding-plan.svg'
   },
   {
     id: 'tencent-token-plan',
     name: 'Tencent Token Plan',
     api: 'https://api.lkeap.cloud.tencent.com/plan/v3',
-    sha256: 'cf6c2a80e571b92987f2f8b43083ac648e8d5fc27e754ca40a2503e41b422c2d'
+    sha256: 'cf6c2a80e571b92987f2f8b43083ac648e8d5fc27e754ca40a2503e41b422c2d',
+    asset: 'tencent-token-plan.svg'
   },
   {
     id: 'tencent-tokenhub',
     name: 'Tencent TokenHub',
     api: 'https://tokenhub.tencentmaas.com/v1',
-    sha256: 'cf6c2a80e571b92987f2f8b43083ac648e8d5fc27e754ca40a2503e41b422c2d'
+    sha256: 'cf6c2a80e571b92987f2f8b43083ac648e8d5fc27e754ca40a2503e41b422c2d',
+    asset: 'tencent-token-plan.svg'
   },
   {
     id: 'the-grid-ai',
     name: 'The Grid AI',
     api: 'https://api.thegrid.ai/v1',
-    sha256: '25a7ac3e7d97b9192286dd5b63e1a299a0adfc0f2a7579f0a42913c879774aa7'
+    sha256: '25a7ac3e7d97b9192286dd5b63e1a299a0adfc0f2a7579f0a42913c879774aa7',
+    asset: 'the-grid-ai.svg'
   },
   {
     id: 'thinkingmachines',
     name: 'Thinking Machines',
     api: 'https://tinker.thinkingmachines.dev/services/tinker-prod/anthropic/api/v1',
-    sha256: 'ed061dba055859433d8877c34e8b5d55bbd8caa884885a14420a784e4f45c9a1'
+    sha256: 'ed061dba055859433d8877c34e8b5d55bbd8caa884885a14420a784e4f45c9a1',
+    asset: 'thinkingmachines.svg'
   },
   {
     id: 'tinfoil',
     name: 'Tinfoil',
     api: 'https://inference.tinfoil.sh/v1',
-    sha256: 'd4abb885d2c29f40e8f34403f0b48ac550e155aefadcd7e7c71d368bbbc55fef'
+    sha256: 'd4abb885d2c29f40e8f34403f0b48ac550e155aefadcd7e7c71d368bbbc55fef',
+    asset: 'tinfoil.svg'
   },
   {
     id: 'togetherai',
     name: 'Together AI',
     api: null,
-    sha256: '112d3376fd4baf66b68f40ab79ae0585aeaf303904507ed04a059d7b65957822'
+    sha256: '112d3376fd4baf66b68f40ab79ae0585aeaf303904507ed04a059d7b65957822',
+    asset: 'togetherai.svg'
   },
   {
     id: 'trustedrouter',
     name: 'TrustedRouter',
     api: 'https://api.trustedrouter.com/v1',
-    sha256: '38d0f24dd8c4b6a0c5447fa908ac90d7afc9924a9e313bdb94e562cda5d48a96'
+    sha256: '38d0f24dd8c4b6a0c5447fa908ac90d7afc9924a9e313bdb94e562cda5d48a96',
+    asset: 'trustedrouter.svg'
   },
   {
     id: 'umans-ai',
     name: 'Umans AI',
     api: 'https://api.code.umans.ai/v1',
-    sha256: '7ca8ddfe672bec7857c3dac5c88c6f4328604bc31c08b3b798c937472d09bbe8'
+    sha256: '7ca8ddfe672bec7857c3dac5c88c6f4328604bc31c08b3b798c937472d09bbe8',
+    asset: 'umans-ai.svg'
   },
   {
     id: 'umans-ai-coding-plan',
     name: 'Umans AI Coding Plan',
     api: 'https://api.code.umans.ai/v1',
-    sha256: '7ca8ddfe672bec7857c3dac5c88c6f4328604bc31c08b3b798c937472d09bbe8'
+    sha256: '7ca8ddfe672bec7857c3dac5c88c6f4328604bc31c08b3b798c937472d09bbe8',
+    asset: 'umans-ai.svg'
   },
   {
     id: 'unorouter',
     name: 'UnoRouter',
     api: 'https://api.unorouter.com/v1',
-    sha256: '3a601dab873299a1f4f386ffc25dc8d9477438df7e0b97f5f708fbdde8f77460'
+    sha256: '3a601dab873299a1f4f386ffc25dc8d9477438df7e0b97f5f708fbdde8f77460',
+    asset: 'unorouter.svg'
   },
   {
     id: 'v0',
     name: 'v0',
     api: null,
-    sha256: 'f0c709d21f775e7c5bd19a65d65c1bbe4c067646c5984fb6b38168168bb8084b'
+    sha256: 'f0c709d21f775e7c5bd19a65d65c1bbe4c067646c5984fb6b38168168bb8084b',
+    asset: 'v0.svg'
   },
   {
     id: 'venice',
     name: 'Venice AI',
     api: null,
-    sha256: 'e957dac9d554d7a29bf71bb4dceebf28e3a101af9ba1b292ce2edfaf2de0d408'
+    sha256: 'e957dac9d554d7a29bf71bb4dceebf28e3a101af9ba1b292ce2edfaf2de0d408',
+    asset: 'venice.svg'
   },
   {
     id: 'vercel',
     name: 'Vercel AI Gateway',
     api: null,
-    sha256: '9eb6854be8ef2592843af9934fc051aa3c716506369badc4c817201fc5bdc350'
+    sha256: '9eb6854be8ef2592843af9934fc051aa3c716506369badc4c817201fc5bdc350',
+    asset: 'vercel.svg'
   },
   {
     id: 'vivgrid',
     name: 'Vivgrid',
     api: 'https://api.vivgrid.com/v1',
-    sha256: 'be9341832534a67de0cf5e4d38dc0025dcc537882eea771da03794e62ed460f9'
+    sha256: 'be9341832534a67de0cf5e4d38dc0025dcc537882eea771da03794e62ed460f9',
+    asset: 'vivgrid.svg'
   },
   {
     id: 'vultr',
     name: 'Vultr',
     api: 'https://api.vultrinference.com/v1',
-    sha256: '470421b0acd4906afbf9940c51a3bf6dd82ed0bb32c9d455b6a200c35e296a78'
+    sha256: '470421b0acd4906afbf9940c51a3bf6dd82ed0bb32c9d455b6a200c35e296a78',
+    asset: 'vultr.svg'
   },
   {
     id: 'xai',
     name: 'xAI',
     api: null,
-    sha256: '60f098f148e7c4a8daee0964f88f56d80216a93f6eff9dd19f0ea2c11dee1a22'
+    sha256: '60f098f148e7c4a8daee0964f88f56d80216a93f6eff9dd19f0ea2c11dee1a22',
+    asset: 'xai.svg'
   },
   {
     id: 'xiaomi',
     name: 'Xiaomi',
     api: 'https://api.xiaomimimo.com/v1',
-    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c'
+    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c',
+    asset: 'xiaomi.svg'
   },
   {
     id: 'xiaomi-token-plan-ams',
     name: 'Xiaomi Token Plan (Europe)',
     api: 'https://token-plan-ams.xiaomimimo.com/v1',
-    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c'
+    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c',
+    asset: 'xiaomi.svg'
   },
   {
     id: 'xiaomi-token-plan-cn',
     name: 'Xiaomi Token Plan (China)',
     api: 'https://token-plan-cn.xiaomimimo.com/v1',
-    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c'
+    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c',
+    asset: 'xiaomi.svg'
   },
   {
     id: 'xiaomi-token-plan-sgp',
     name: 'Xiaomi Token Plan (Singapore)',
     api: 'https://token-plan-sgp.xiaomimimo.com/v1',
-    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c'
+    sha256: '72155aaf747a45a2c42b3a5bc508c7b707d84da8493cae2249e412100210506c',
+    asset: 'xiaomi.svg'
   },
   {
     id: 'xpersona',
     name: 'Xpersona',
     api: 'https://www.xpersona.co/v1',
-    sha256: '3269b318b4fc01d7ad20081b392bd974ea25f8949ab3b26097113347d675ce61'
+    sha256: '3269b318b4fc01d7ad20081b392bd974ea25f8949ab3b26097113347d675ce61',
+    asset: 'xpersona.svg'
   },
   {
     id: 'zai',
     name: 'Z.AI',
     api: 'https://api.z.ai/api/paas/v4',
-    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285'
+    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285',
+    asset: 'zai.svg'
   },
   {
     id: 'zai-coding-plan',
     name: 'Z.AI Coding Plan',
     api: 'https://api.z.ai/api/coding/paas/v4',
-    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285'
+    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285',
+    asset: 'zai.svg'
   },
   {
     id: 'zeldoc',
     name: 'Zeldoc',
     api: 'https://api.zeldoc.ai/v1',
-    sha256: 'f17d5174885eb740174c005b1ab26bd0deeeb27bcf5e5e313bd22a9b89ca6066'
+    sha256: 'f17d5174885eb740174c005b1ab26bd0deeeb27bcf5e5e313bd22a9b89ca6066',
+    asset: 'zeldoc.svg'
   },
   {
     id: 'zenifra',
     name: 'Zenifra',
     api: 'https://ai.zenifra.com/v1',
-    sha256: '4451006fbb1de53d5d2e90a313e664eacec783f708066bc281b5362475a9f091'
+    sha256: '4451006fbb1de53d5d2e90a313e664eacec783f708066bc281b5362475a9f091',
+    asset: 'zenifra.svg'
   },
   {
     id: 'zenmux',
     name: 'ZenMux',
     api: 'https://zenmux.ai/api/v1',
-    sha256: '45657359f14e9cdc67fc317081dddaa1ea8ce6d5f1f8451408cf882c348942e6'
+    sha256: '45657359f14e9cdc67fc317081dddaa1ea8ce6d5f1f8451408cf882c348942e6',
+    asset: 'zenmux.svg'
   },
   {
     id: 'zhipuai',
     name: 'Zhipu AI',
     api: 'https://open.bigmodel.cn/api/paas/v4',
-    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285'
+    sha256: 'b7a98f409f376f42977b609e82d6937667ee3772c2d1f7e4bd23464e294c1285',
+    asset: 'zai.svg'
   },
   {
     id: 'zhipuai-coding-plan',
     name: 'Zhipu AI Coding Plan',
     api: 'https://open.bigmodel.cn/api/coding/paas/v4',
-    sha256: '18584af91cb0994cdec452b008218151e8bf2b5b7e9df4f16a5787a792c298fa'
+    sha256: '18584af91cb0994cdec452b008218151e8bf2b5b7e9df4f16a5787a792c298fa',
+    asset: 'kuae-cloud-coding-plan.svg'
   }
 ] as const
 

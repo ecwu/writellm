@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import { z } from 'zod'
 import {
   knowledgeCitationCoveragePageResultSchema,
@@ -272,27 +272,25 @@ function fingerprint(
   assembly: ReturnType<ManuscriptService['assemble']>,
   references: readonly ReferenceItem[]
 ): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        generationId,
-        outlineVersion: assembly.outlineVersion,
-        revisions: assembly.sections.map(({ section, revision }) => ({
-          sectionId: section.sectionId,
-          revisionId: revision.sectionRevisionId,
-          contentHash: revision.contentHash
-        })),
-        references: references.map((reference) => ({
-          referenceId: reference.referenceId,
-          citationKey: reference.citationKey,
-          title: reference.title,
-          evidenceAvailable: reference.evidenceAvailable,
-          knowledgeItemIds: reference.knowledgeItemIds,
-          updatedAt: reference.updatedAt
-        }))
-      })
-    )
-    .digest('hex')
+  return sha256(
+    JSON.stringify({
+      generationId,
+      outlineVersion: assembly.outlineVersion,
+      revisions: assembly.sections.map(({ section, revision }) => ({
+        sectionId: section.sectionId,
+        revisionId: revision.sectionRevisionId,
+        contentHash: revision.contentHash
+      })),
+      references: references.map((reference) => ({
+        referenceId: reference.referenceId,
+        citationKey: reference.citationKey,
+        title: reference.title,
+        evidenceAvailable: reference.evidenceAvailable,
+        knowledgeItemIds: reference.knowledgeItemIds,
+        updatedAt: reference.updatedAt
+      }))
+    })
+  )
 }
 
 function compareLabels(left: string, right: string): number {

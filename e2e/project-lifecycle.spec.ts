@@ -13,6 +13,7 @@ import {
   test,
   WINDOW_PRESENTATION_ENV
 } from './fixtures'
+import { closeProject } from './helpers/project'
 
 async function clickAndExpectProject(
   page: Page,
@@ -27,11 +28,6 @@ async function clickAndExpectProject(
     await dialog.getByRole('button', { name: 'Choose location' }).click()
   }
   await expectActiveProject(page, displayName)
-}
-
-async function closeProject(page: Page): Promise<void> {
-  await openAppMenu(page, 'Project')
-  await clickAppMenuItem(page, 'Close project and return to chooser', false)
 }
 
 async function clickRecentAndExpectProject(page: Page, displayName: string): Promise<void> {
@@ -374,7 +370,10 @@ test(
             return {
               activeProviderId: catalog.activeProviderId,
               available: Object.fromEntries(
-                catalog.sources.map((source) => [source.providerId, source.available])
+                catalog.sources.map((source) => {
+                  const imageSource = source as { providerId: string; available: boolean }
+                  return [imageSource.providerId, imageSource.available]
+                })
               ),
               leakedSecret: /e2e-(?:gemini|vertex|openai|xai)-secret/.test(JSON.stringify(catalog))
             }

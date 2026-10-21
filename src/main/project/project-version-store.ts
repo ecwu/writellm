@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import {
   chmod,
@@ -44,6 +44,7 @@ import {
   resolveProjectPath
 } from './project-paths'
 import { readProjectSnapshotManifest, type ProjectSnapshotManifest } from './project-snapshot'
+import { sha256 } from '../../shared/hash'
 
 export const PROJECT_HISTORY_FORMAT_VERSION = 1
 export const PROJECT_CHECKPOINT_FORMAT_VERSION = 1
@@ -83,20 +84,18 @@ function isMissing(error: unknown): boolean {
 }
 
 function stateSha256(snapshot: ProjectSnapshotManifest): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        projectId: snapshot.projectId,
-        projectFormatVersion: snapshot.projectFormatVersion,
-        projectDatabaseSchemaVersion: snapshot.projectDatabaseSchemaVersion,
-        schemaMigrationsSha256: snapshot.schemaMigrationsSha256,
-        database: snapshot.database,
-        files: [...snapshot.files].sort((left, right) =>
-          left.relativePath.localeCompare(right.relativePath)
-        )
-      })
-    )
-    .digest('hex')
+  return sha256(
+    JSON.stringify({
+      projectId: snapshot.projectId,
+      projectFormatVersion: snapshot.projectFormatVersion,
+      projectDatabaseSchemaVersion: snapshot.projectDatabaseSchemaVersion,
+      schemaMigrationsSha256: snapshot.schemaMigrationsSha256,
+      database: snapshot.database,
+      files: [...snapshot.files].sort((left, right) =>
+        left.relativePath.localeCompare(right.relativePath)
+      )
+    })
+  )
 }
 
 async function directoryStats(root: string): Promise<{ fileCount: number; totalBytes: number }> {

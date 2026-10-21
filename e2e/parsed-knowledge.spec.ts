@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { createProject } from './helpers/project'
 import { ZipFile } from 'yazl'
 
 function makeMinimalPdf(): string {
@@ -187,14 +188,6 @@ async function startNotebookAgentServer(sourceIds: () => string[] = () => []) {
     server.listen(0, '127.0.0.1', resolve)
   })
   return { server, port: (server.address() as AddressInfo).port, requestBodies }
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const create = page.getByRole('dialog', { name: 'Create project' })
-  await create.getByLabel('Project name').fill(name)
-  await create.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
 }
 
 async function diagnosticEventCount(page: Page, event: string): Promise<number> {

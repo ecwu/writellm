@@ -1,5 +1,4 @@
 import { useAgentImageDraft } from './use-agent-image-draft'
-import { agentUserMessagePayloadSchema } from '../../../../shared/contracts/agent'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AskUserAnswer } from '../../../../shared/contracts/agent-tools'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
@@ -34,7 +33,9 @@ import {
 } from './agent-panel-logic'
 import type { AgentPanelProps } from './agent-panel'
 import { useAgentPanelRuntimeState } from './use-agent-panel-runtime-state'
+import { useAgentPanelConversationActions } from './use-agent-panel-conversation-actions'
 import { useAgentPanelSessionActions } from './use-agent-panel-session-actions'
+import { reportRendererOperationError } from '../../diagnostics'
 
 export function useAgentPanelController(props: AgentPanelProps) {
   const runtime = useAgentPanelRuntimeState(props)
@@ -257,6 +258,26 @@ export function useAgentPanelController(props: AgentPanelProps) {
     onError: setError
   })
 
+  const { forkConversation, forkBusy, openForkSource, messageEdit, editLastMessageAndRestart } =
+    useAgentPanelConversationActions({
+      props,
+      activeSession,
+      activeSessionId,
+      replayedSessionId,
+      events,
+      activeSessionArchived,
+      scope,
+      loading,
+      busy,
+      setBusy,
+      setError,
+      setSessions,
+      refreshSessionTruth,
+      activeSessionIdRef: runtime.activeSessionIdRef,
+      composerTextareaRef,
+      openSession
+    })
+
   const startRun = async (
     content: string,
     approvedProposalId?: string,
@@ -369,6 +390,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       imageDraft.clear(session.agentSessionId, attachmentIds)
       return true
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       const message = errorMessage(cause)
       setError(message)
       return false
@@ -376,150 +398,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
       setBusy(false)
     }
   }
-  const [forkBusy, setForkBusy] = useState(false)
-  const forkInFlight = useRef(false)
-  const forkRequests = useRef(new Map<string, string>())
-  const [forkFocus, setForkFocus] = useState<string | null>(null)
-  const [sourceTarget, setSourceTarget] = useState<{ sessionId: string; eventId: string } | null>(
-    null
-  )
-  const projectRef = useRef(props.projectSessionId)
-  projectRef.current = props.projectSessionId
-  useEffect(() => {
-    if (!forkFocus || activeSessionId !== forkFocus || loading || busy) return
-    const frame = requestAnimationFrame(() => {
-      composerTextareaRef.current?.focus()
-      setForkFocus(null)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [forkFocus, activeSessionId, loading, busy, composerTextareaRef])
-  useEffect(() => {
-    if (
-      !sourceTarget ||
-      activeSessionId !== sourceTarget.sessionId ||
-      replayedSessionId !== sourceTarget.sessionId ||
-      loading
-    )
-      return
-    const frame = requestAnimationFrame(() => {
-      const element = document.querySelector(
-        `[data-event-id="${CSS.escape(sourceTarget.eventId)}"]`
-      )
-      if (element) {
-        element.scrollIntoView({ block: 'center' })
-        setSourceTarget(null)
-      } else {
-        setError('来源消息已被替换，当前显示来源会话。分支历史保持不变。')
-        setSourceTarget(null)
-      }
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [sourceTarget, activeSessionId, replayedSessionId, loading, setError])
-  const forkConversation = async (targetEventId: string): Promise<void> => {
-    if (activeSessionId === null || forkInFlight.current) return
-    const sourceSessionId = activeSessionId
-    const projectSessionId = props.projectSessionId
-    const key = `${projectSessionId}:${sourceSessionId}:${targetEventId}`
-    const requestId = forkRequests.current.get(key) ?? crypto.randomUUID()
-    forkRequests.current.set(key, requestId)
-    forkInFlight.current = true
-    setForkBusy(true)
-    setError(null)
-    try {
-      const created = await window.desktop.agent.forkConversation({
-        projectSessionId,
-        sourceSessionId,
-        targetEventId,
-        requestId
-      })
-      if (projectRef.current !== projectSessionId) return
-      forkRequests.current.delete(key)
-      setSessions((current) => [
-        created,
-        ...current.filter((session) => session.agentSessionId !== created.agentSessionId)
-      ])
-      if (runtime.activeSessionIdRef.current === sourceSessionId) {
-        openSession(created.agentSessionId)
-        setForkFocus(created.agentSessionId)
-      }
-    } catch (cause) {
-      if (projectRef.current === projectSessionId) setError(errorMessage(cause))
-    } finally {
-      forkInFlight.current = false
-      setForkBusy(false)
-    }
-  }
-  const openForkSource = async (): Promise<void> => {
-    if (!activeSession?.fork) return
-    const source = activeSession.fork
-    try {
-      const session = await window.desktop.agent.getSession({
-        projectSessionId: props.projectSessionId,
-        agentSessionId: source.sourceSessionId
-      })
-      if (
-        projectRef.current !== props.projectSessionId ||
-        runtime.activeSessionIdRef.current !== activeSession.agentSessionId
-      )
-        return
-      setSessions((current) => [
-        session,
-        ...current.filter((item) => item.agentSessionId !== session.agentSessionId)
-      ])
-      setSourceTarget({ sessionId: source.sourceSessionId, eventId: source.targetEventId })
-      openSession(source.sourceSessionId)
-    } catch (cause) {
-      setError(errorMessage(cause))
-    }
-  }
-  const editLastMessageAndRestart = async (
-    targetEventId: string,
-    content: string
-  ): Promise<boolean> => {
-    const edit = activeSession?.messageEdit
-    if (
-      activeSession === null ||
-      busy ||
-      activeSessionArchived ||
-      edit == null ||
-      edit.targetEventId !== targetEventId ||
-      edit.reason !== null
-    )
-      return false
-    const sessionId = activeSession.agentSessionId
-    setBusy(true)
-    setError(null)
-    try {
-      if (!(await props.flushCurrent())) {
-        setError('Save the active section before restarting the Agent.')
-        return false
-      }
-      await window.desktop.agent.editLastMessageAndRestart({
-        projectSessionId: props.projectSessionId,
-        agentSessionId: sessionId,
-        targetEventId,
-        expectedThroughSequence: edit.throughSequence,
-        content,
-        attachmentIds: agentUserMessagePayloadSchema.parse(
-          events.find((event) => event.agentEventId === targetEventId)?.payload
-        ).attachmentIds,
-        editorContext: editorContextForScope(
-          scope,
-          props.activeSectionId,
-          props.selection,
-          props.currentRevisionIds
-        )
-      })
-      await refreshSessionTruth(sessionId)
-      return true
-    } catch (cause) {
-      setError(errorMessage(cause))
-      return false
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const startRunRef = useRef(startRun)
   startRunRef.current = startRun
 
@@ -579,6 +457,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
         truth.runs.find((run) => run.agentRunId === agentRunId)?.status !== 'running'
       )
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       props.onError(errorMessage(cause))
       return false
     }
@@ -596,6 +475,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       })
       if (activeSessionId !== null) await refreshSessionTruth(activeSessionId)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       if (!(await reconcileInactiveRun(agentRunId))) {
         const message = errorMessage(cause)
         setError(message)
@@ -620,6 +500,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       })
       await refreshSessionTruth(activeSessionId)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       if (!(await reconcileInactiveRun(agentRunId))) setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -649,6 +530,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       })
       setRuns((current) => [run, ...current.filter((item) => item.agentRunId !== run.agentRunId)])
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -696,6 +578,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       )
       setTaskEditorOpen(false)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       setError(errorMessage(cause))
     } finally {
       setBusy(false)
@@ -724,6 +607,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       if (runtime.activeSessionIdRef.current === activeRun.agentSessionId) setPrompt('')
       imageDraft.clear(activeRun.agentSessionId, input.attachmentIds)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       if (await reconcileInactiveRun(activeRun.agentRunId)) return
       const message = errorMessage(cause)
       setError(message)
@@ -748,6 +632,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       if (action === 'steer') await window.desktop.agent.steerPendingFollowUp(input)
       else await window.desktop.agent.deletePendingFollowUp(input)
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       if (!(await reconcileInactiveRun(activeRun.agentRunId))) setError(errorMessage(cause))
     } finally {
       setPendingActionIds((current) => {
@@ -890,6 +775,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
         await props.refreshManuscript()
       }
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       const message = errorMessage(cause)
       setError(message)
     } finally {
@@ -922,6 +808,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       if (result.review.appliedCount > 0) await props.refreshManuscript()
       return result
     } catch (cause) {
+      reportRendererOperationError(cause, 'agent-panel.operation')
       setError(errorMessage(cause))
       throw cause
     } finally {
@@ -1070,7 +957,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     forkConversation,
     forkBusy,
     openForkSource,
-    messageEdit: activeSession?.messageEdit ?? null,
+    messageEdit,
     editLastMessageAndRestart,
     thinkingVisualState,
     headerStatus,

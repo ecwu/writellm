@@ -1,7 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { access, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { Logger } from 'pino'
+import { canonicalizeJson, type CanonicalJsonError } from '../../shared/canonical-json'
+import { sha256 } from '../../shared/hash'
 import {
   MANUSCRIPT_EXPORT_FORMAT,
   MANUSCRIPT_EXPORT_FORMAT_VERSION,
@@ -187,7 +189,7 @@ export async function createManuscriptExport(options: {
         })),
         availableReferenceTitles,
         options: options.publicationOptions,
-        hash: (value) => createHash('sha256').update(value).digest('hex')
+        hash: sha256
       })
       if (!publication.ready) {
         const err = new Error('Publication preflight contains blocking errors')
@@ -661,26 +663,20 @@ async function assertNoSymbolicSegments(root: string, relativePath: string): Pro
 }
 
 function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value))
-}
-
-function canonicalize(value: unknown): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value)) throw new Error('Manuscript export contains a non-finite number')
-    return value
+  const normalized = canonicalizeJson(value, {
+    onError: (error) => new Error(manuscriptCanonicalJsonErrorMessage(error), { cause: error })
+  })
+  const serialized = JSON.stringify(normalized)
+  if (serialized === undefined) {
+    throw new Error('Manuscript export is not JSON serializable')
   }
-  if (Array.isArray(value)) return value.map(canonicalize)
-  if (typeof value !== 'object') throw new Error('Manuscript export is not JSON serializable')
-  return Object.fromEntries(
-    Object.keys(value as Record<string, unknown>)
-      .sort()
-      .map((key) => [key, canonicalize((value as Record<string, unknown>)[key])])
-  )
+  return serialized
 }
 
-function sha256(value: string | Buffer): string {
-  return createHash('sha256').update(value).digest('hex')
+function manuscriptCanonicalJsonErrorMessage(error: CanonicalJsonError): string {
+  return error.kind === 'non_finite'
+    ? 'Manuscript export contains a non-finite number'
+    : 'Manuscript export is not JSON serializable'
 }
 
 async function ensureAbsent(path: string): Promise<void> {

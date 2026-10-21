@@ -41,11 +41,9 @@ const defaultLogo = await fetchLogo('__writellm_missing_provider__')
 const defaultLogoHash = sha256(defaultLogo)
 const skipped = []
 const entries = []
+const assetsByHash = new Map()
 
 await mkdir(logoDirectory, { recursive: true })
-for (const filename of await readdir(logoDirectory)) {
-  if (filename.endsWith('.svg')) await unlink(resolve(logoDirectory, filename))
-}
 
 const providers = Object.entries(catalog).sort(([left], [right]) => left.localeCompare(right))
 for (const [catalogKey, rawProvider] of providers) {
@@ -62,14 +60,25 @@ for (const [catalogKey, rawProvider] of providers) {
       continue
     }
     validateSvg(svg)
-    await writeFile(resolve(logoDirectory, `${provider.id}.svg`), `${svg.trim()}\n`, 'utf8')
-    entries.push({ ...provider, sha256: hash })
+    let asset = assetsByHash.get(hash)?.asset
+    if (asset === undefined) {
+      asset = `${provider.id}.svg`
+      assetsByHash.set(hash, { asset, svg })
+    }
+    entries.push({ ...provider, sha256: hash, asset })
   } catch (error) {
     skipped.push({
       id: provider.id,
       reason: error instanceof Error ? error.message : 'unknown logo error'
     })
   }
+}
+
+for (const filename of await readdir(logoDirectory)) {
+  if (filename.endsWith('.svg')) await unlink(resolve(logoDirectory, filename))
+}
+for (const { asset, svg } of assetsByHash.values()) {
+  await writeFile(resolve(logoDirectory, asset), `${svg.trim()}\n`, 'utf8')
 }
 
 const generatedAt = new Date().toISOString()

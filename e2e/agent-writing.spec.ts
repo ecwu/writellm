@@ -1,5 +1,5 @@
 import { pressAppShortcut } from './application-menu'
-import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
+import { agentToggle } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
@@ -7,6 +7,9 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 import { ZipFile } from 'yazl'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import { createProject, closeProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
+import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
 function makeMinimalPdf(): string {
   const objects = [
@@ -83,87 +86,27 @@ async function configureProvider(
   await page.keyboard.press('Escape')
 }
 
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
-
-async function closeProject(page: Page): Promise<void> {
-  await openAppMenu(page, 'Project')
-  await clickAppMenuItem(page, 'Close project and return to chooser', false)
-}
-
 function sendToolCall(
   response: ServerResponse,
   input: { responseId: string; toolCallId: string; name: string; args: unknown; text?: string }
 ): void {
-  sendSse(response, [
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model-resolved',
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: 'assistant',
-            ...(input.text === undefined ? {} : { content: input.text }),
-            tool_calls: [
-              {
-                index: 0,
-                id: input.toolCallId,
-                type: 'function',
-                function: { name: input.name, arguments: JSON.stringify(input.args) }
-              }
-            ]
-          },
-          finish_reason: null
-        }
-      ]
-    },
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-      usage: { prompt_tokens: 59_000, completion_tokens: 8, total_tokens: 59_008 }
-    }
-  ])
+  sendSharedToolCall(response, input, {
+    model: 'writer-model-resolved',
+    requestId: 'agent-e2e-request',
+    promptTokens: 59_000,
+    completionTokens: 8,
+    text: input.text
+  })
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
-  sendSse(response, [
-    {
-      id: 'agent-final-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model-resolved',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
-    },
-    {
-      id: 'agent-final-response',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'writer-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 59_000, completion_tokens: 9, total_tokens: 59_009 }
-    }
-  ])
-}
-
-function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'x-request-id': 'agent-e2e-request'
+  sendSharedCompletion(response, text, {
+    id: 'agent-final-response',
+    model: 'writer-model-resolved',
+    requestId: 'agent-e2e-request',
+    promptTokens: 59_000,
+    completionTokens: 9
   })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
 }
 
 test(
@@ -319,19 +262,21 @@ test(
       })
       expect(
         durableMessages.filter((message) =>
-          message.includes('Exhaust this request and preserve its diagnostic.')
+          (message as string).includes('Exhaust this request and preserve its diagnostic.')
         )
       ).toHaveLength(1)
       expect(
-        durableMessages.filter((message) => message.includes(afterExhaustionPrompt))
+        durableMessages.filter((message) => (message as string).includes(afterExhaustionPrompt))
       ).toHaveLength(1)
       expect(
         durableMessages.filter((message) =>
-          message.includes('Keep the partial response visible and report the stream failure.')
+          (message as string).includes(
+            'Keep the partial response visible and report the stream failure.'
+          )
         )
       ).toHaveLength(1)
       expect(
-        durableMessages.filter((message) => message.includes(afterPartialPrompt))
+        durableMessages.filter((message) => (message as string).includes(afterPartialPrompt))
       ).toHaveLength(1)
     } finally {
       await launched.app.close()
@@ -1119,7 +1064,7 @@ Continue only the original user request that remains unresolved after this appro
         })
         const retryCounts = eventPage.events.flatMap((event) => {
           if (event.type !== 'assistant_message') return []
-          return [event.payload.metadata.retryCount]
+          return [(event.payload.metadata as { retryCount: number | null }).retryCount]
         })
         const userMessages = eventPage.events.flatMap((event) => {
           if (event.type !== 'user_message') return []

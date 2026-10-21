@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto'
 import type { Logger } from 'pino'
+import { sha256 } from '../../shared/hash'
 import { agentModelLimitsSchema, type AgentModelLimits } from '../../shared/contracts/agent'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
@@ -37,9 +37,7 @@ export class ModelMetadataService {
         resolvedAt: this.now().toISOString()
       })
     }
-    const fingerprint = createHash('sha256')
-      .update(`${config.providerId}\0${config.baseUrl}\0${config.model}`)
-      .digest('hex')
+    const fingerprint = sha256(`${config.providerId}\0${config.baseUrl}\0${config.model}`)
     const cache = await this.settings.getModelLimitsCache()
     const cached = cache[fingerprint]
     const cachedAge =

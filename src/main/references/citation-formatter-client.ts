@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
 import type { Logger } from 'pino'
 import {
   citationFormatterRequestSchema,
@@ -69,7 +70,5 @@ export class CitationFormatterClient {
 }
 
 function abortError(): Error {
-  const error = new Error('Citation formatting was superseded')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Citation formatting was superseded')
 }

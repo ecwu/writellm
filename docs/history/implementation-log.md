@@ -6284,3 +6284,244 @@ The remote tag resolves to that exact commit on `main`.
 [Cross-platform tag build 38716401683](https://github.com/ecwu/writellm/actions/runs/38716401683) starts with the matching source revision.
 At handoff, the build is in progress. The existing publication workflow will publish after all four platform builds succeed.
 No workflow trigger, permission, or signing policy changes.
+
+
+## 2026-10-15 compatible dependency maintenance
+
+The user authorizes all safe updates after the [Issue 2](https://github.com/ecwu/writellm/issues/2) review.
+The starting source is `6570126e71fd65fdcb65938fd4890913500016a6`.
+The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-15-compatible-maintenance-amendment) records the accepted boundaries.
+This batch updates 24 direct dependencies and repairs three transitive dependency advisories within parent ranges.
+Exact pins remain exact, and caret declarations retain their range policy.
+
+| Package | Before | After |
+| --- | --- | --- |
+| `@ai-sdk/cohere` | 4.0.54 | 4.0.61 |
+| `@ai-sdk/openai-compatible` | 3.0.62 | 3.0.69 |
+| `@google/genai` | 2.26.0 | 2.30.0 |
+| `@playwright/test` | 1.63.0 | 1.64.1 |
+| `@tanstack/react-query` | 5.104.1 | 5.104.3 |
+| `@types/node` | 24.19.1 | 24.19.2 |
+| `ai` | 7.0.127 | 7.0.141 |
+| `axe-core` | 4.13.0 | 4.14.0 |
+| `dockview-react` | 8.4.0 | 8.5.1 |
+| `docx` | 9.8.1 | 9.11.0 |
+| `electron` | 44.5.1 | 44.7.2 |
+| `isomorphic-git` | 1.42.6 | 1.44.2 |
+| `lucide-react` | 1.49.0 | 1.57.0 |
+| `openai` | 7.27.0 | 7.34.0 |
+| `pdfjs-dist` | 6.3.289 | 6.4.299 |
+| `pino` | 10.3.1 | 10.4.0 |
+| `pino-pretty` | 13.1.3 | 13.2.0 |
+| `radix-ui` | 1.6.7 | 1.8.1 |
+| `react` | 19.3.0 | 19.3.1 |
+| `react-dom` | 19.3.0 | 19.3.1 |
+| `react-resizable-panels` | 4.14.1 | 4.14.5 |
+| `typebox` | 1.3.34 | 1.3.37 |
+| `vitest` | 5.0.3 | 5.0.4 |
+| `zod` | 4.6.5 | 4.6.7 |
+
+The security overrides select http-cache-semantics 4.3.0, source-map-js 1.2.2, and fast-copy 4.2.0.
+The full audit covers 1,183 entries and reports zero high or critical advisories, one moderate advisory, and one low advisory.
+The production audit covers 747 entries and reports one low advisory.
+The moderate sprintf-js advisory has no published repair.
+The low KaTeX advisory remains because rehype-katex requires the accepted 0.16 series.
+These dependency findings do not establish exploitability in WriteLLM.
+
+Playwright's Linux credential-store patch moves to 1.64.1 after review of its published Electron loader.
+The new loader filters empty switches, so the existing conditional switch remains compatible.
+Installation adds fourteen exact release-age exceptions for reviewed SDK, query, React, and Playwright packages.
+The [metadata inventory](../../.cache/verification/dependency-maintenance-2026-10-15/reviewed-metadata.json) records publication times, integrity values, and compatibility ranges.
+
+The first installation includes Mermaid 12.2, which introduces KaTeX 0.18 through its own dependency range.
+This batch restores Mermaid 12.1 before acceptance to retain one KaTeX 0.16.47 version.
+BlockNote stays on 0.55, and Pi stays on 1.0.0.
+Vite 8, electron-vite 6, plugin-react 6, p-queue 10, and the mathematical rendering migrations remain separate.
+Tiptap stays unified at 3.31.4.
+ProseMirror Model, State, View, and Transform retain one runtime version each.
+
+DOCX 9.11 automatically fills the table of contents and adds bookmarks with process-wide generated names.
+The first complete test run exposes two failures because these names make repeated exports differ.
+It reports 1,846 passing tests and two failures in 22.7 seconds, with three optional benchmarks skipped.
+
+The existing export normalization now assigns stable names to generated bookmarks and updates their hyperlinks and page references.
+It preserves application bookmark names and manuscript text.
+The regression assertions cover matching bookmark ends, links in the table of contents, page references, literal bookmark-like text, and byte-identical repeated exports.
+Six focused tests pass in 2.3 seconds after this repair.
+
+Final acceptance uses pnpm 11.28.3 and the canonical Electron test runner.
+Frozen installation passes in 232 milliseconds without dependency changes.
+The final complete suite passes 1,848 tests across 283 files in 22.5 seconds.
+Three optional benchmark tests remain skipped, with zero retries and zero unhandled errors.
+The full macOS arm64 package gate passes all ten stages in 278.2 seconds with one App build.
+It covers 33 recovery fixtures, native resources, twelve runtime scenarios, and all 45 packaged interaction scenarios.
+
+The runtime scenarios take 46.4 seconds, and packaged interaction evidence records 164.3 seconds.
+All interaction scenarios pass without retries or skips.
+The DMG and ZIP use the same tested App and pass structure and checksum inspection.
+The remaining 22 source-only scenarios reuse the matching build and pass in 54.9 seconds, without retries or skips.
+Together, packaged and source-only interaction coverage includes all 67 current scenarios.
+
+The host retains Node 26.11.1 and its pnpm 11.17.0 launcher.
+The launcher selects the fixed project pnpm 11.28.3 outside the sandbox.
+The host Node version exceeds the declared 24.x engine range and emits an engine warning.
+Native tests use Electron 44.7.2 with Node 24.21.0, module ABI 149, and Node-API 10.
+Native preparation selects `better-sqlite3/prebuilds/darwin-arm64.node` and successfully loads sqlite-vec 0.1.9.
+Windows, Linux, macOS x64, live-provider requests, signing identities, and notarization remain outside this local acceptance.
+
+The maintenance App and installers retain version 0.2026.10.2 and contain these uncommitted changes.
+This batch creates no commit, tag, push, or release.
+The earlier immutable release completes separately: its four-platform build succeeds and publishes four assets at 10:07:02 UTC.
+[Release 0.2026.10.2](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.2) remains tied to `d985a6a`.
+
+Evidence: [acceptance summary](../../.cache/verification/dependency-maintenance-2026-10-15/acceptance.json),
+[full audit](../../.cache/verification/dependency-maintenance-2026-10-15/audit-all.json),
+[production audit](../../.cache/verification/dependency-maintenance-2026-10-15/audit-production.json),
+[final Electron suite](../../.cache/verification/1792059013747-51360-28ae6d90/vitest-1792059013936-51361-157562a2.json),
+[package gate](../../.cache/verification/1792059063330-52084-953e88d7/stages-1792059063330-52084-953e88d7.json),
+[source-only scenarios](../../.cache/verification/1792059330442-58215-94be5e0e/e2e-1792059330787-58216-0c4da98f.json), and
+[package evidence](../../dist/macos-arm64/package-evidence.json).
+
+Issue 2 records this completed local maintenance batch and its remaining migrations.
+It stays open because upstream compatibility limits and other platform runtime acceptance remain unresolved.
+Final Biome verification passes for 893 files, and the document links and diff whitespace checks pass.
+
+## 2026-10-21 Issue 18 engineering quality
+
+The user authorizes the [Issue 18](https://github.com/ecwu/writellm/issues/18) audit repairs and engineering improvements.
+The starting source is `6570126e71fd65fdcb65938fd4890913500016a6`.
+Earlier dependency and DOCX maintenance remains intact in the combined working tree.
+[ADR 086](../adrs/086-issue-18-engineering-quality.md) records the maintenance boundaries.
+
+Renderer recovery paths now report their original failures through the shared diagnostics helper.
+The source guard rejects unmarked empty catches and promise catches without an error parameter.
+Intentional exceptions name their logging owner or recovery behavior.
+The guard handles TypeScript syntax, regular expressions, and JSX closing tags without a zero-progress scanner loop.
+Shared subscription cleanup releases late registrations and prevents disposed operations from changing visible error state.
+Project operations use session generations and action tokens to reject stale completions.
+History cleanup releases its own busy action without clearing a newer action.
+
+[ADR 087](../adrs/087-native-sql-and-schema-contract.md) describes prepared SQL as the primary project database implementation.
+Kysely remains available to existing typed repositories.
+The new schema contract test compares the migrated database with the declared table types through migration 0048.
+It covers table and column names, nullability, and basic storage types.
+It does not prove constraints, indexes, triggers, views, or JSON semantics.
+Six migrations share the bounded `hasColumn` helper without changes to migration SQL, versions, or checksums.
+
+[ADR 088](../adrs/088-typed-ipc-endpoints.md) defines shared IPC endpoint tables and Main/preload adapters.
+IPC means messages between application processes.
+The tables cover 169 operations across application, project, editor, manuscript, Knowledge/search, and Agent domains.
+Sender authorization, active-session or mutation authorization, logging, and four schema parsing boundaries remain in place.
+Recovery methods preserve their zero-argument public API while sending an empty wire payload.
+Subscriptions, capture dialogs, replay, and final editor flush retain explicit lifecycle adapters.
+Other domain handlers can migrate later when the shared adapter matches their contracts.
+
+[ADR 089](../adrs/089-section-write-authority.md) defines the shared section repository.
+Manuscript and approved Agent writes now share section creation, revision insertion, current-revision comparison, metadata updates, and tombstones.
+Callers retain transactions, approval, comment mapping, asset handling, materialization, and error ownership.
+Editor retention keeps its policy-specific revision compaction.
+
+Shared helpers now cover canonical JSON, SHA-256, cancellation errors, bounded durable writes, backup publication, and utility error reconstruction.
+Legacy model and trace fingerprints retain their numeric-key ordering and undefined-property behavior.
+Canonical JSON also preserves an own `__proto__` property without changing the object prototype.
+Streaming hashes, domain cursors, and byte-derived hashes keep their distinct contracts.
+The index worker uses the persistent utility-process lifecycle, including cancellation, crash recovery, and stale-response rejection.
+Provider probes share matching request handling.
+The LaTeX process remains disposable under ADR 033.
+
+Ownership-based extraction separates bootstrap Knowledge composition, project templates, manuscript exports, Agent conversation actions, and editor selection controls.
+Agent session preparation, tool policy, worker preflight, and finalization now have named stages.
+Project history and selected Settings data use React Query with scoped query keys.
+Commands and streaming Agent/Notebook reducers keep their existing event ownership.
+Large lifecycle modules can receive further extraction when a separate responsibility appears.
+This batch does not split `ProjectManager` or other modules solely to reduce their line count.
+
+E2E means tests that operate the real application.
+Fifteen E2E specifications share project and provider-stream helpers.
+The static gate now includes E2E typechecking, so missing fixture imports fail before a build.
+Migrations 0046–0048 share a test database harness.
+General service test setup retains domain-specific fixtures and remains a future maintenance opportunity.
+
+Repository cleanup removes thirteen tracked Playwright failure artifacts and ignores `output/`.
+Provider logo generation maps 149 providers to 125 stored SVGs and removes 24 duplicate files.
+The application removes its unused direct citeproc declaration and preserves version 2.4.63 through a documented root override.
+The frozen installation passes after the lockfile update.
+An offline attempt first fails because the pnpm store lacks package-policy metadata.
+The online frozen attempt passes without a toolchain substitution.
+
+[ADR 090](../adrs/090-document-navigation-and-dependency-boundaries.md) records the retained provider and archive library boundaries.
+Pi does not replace the existing embedding, reranking, and image provider capabilities.
+JSZip, Yauzl, and Yazl retain deterministic DOCX editing, bounded extraction, and test archive creation.
+The documentation entry point and ADR index provide navigation and partial supersession rules.
+Historical document paths remain stable.
+
+Acceptance uses pnpm 11.28.3 and the canonical Electron test runner.
+The complete suite passes 1,893 tests across 298 files in 25.8 seconds, or 26.4 seconds including the wrapper.
+Three optional benchmark tests remain skipped, with zero retries and zero unhandled errors.
+Fourteen affected verification-command tests pass again after E2E typechecking enters the static gate.
+That focused invocation takes 0.7 seconds.
+The final static gate passes all five stages in 4.5 seconds, including Biome for 941 files and all three typechecks.
+The E2E fixture correction also passes its affected formatting and typecheck commands.
+
+The recovery inventory covers 33 cases.
+The final macOS arm64 App passes resource/native inventory, signature policy, and twelve runtime scenarios.
+The final runtime scenarios take 39.2 seconds.
+All 45 packaged interaction scenarios pass in 150.4 seconds, without retries or skips.
+All 22 source-only scenarios pass in 52.4 seconds, without retries or skips.
+Together, these runs cover all 67 distinct interaction scenarios.
+The final DMG and ZIP use the same tested App and pass structure and checksum inspection.
+The provider Settings scenario also passes against that packaged App in 12.5 seconds.
+
+Acceptance retains the earlier failures rather than replacing their records.
+The first package invocation fails on four comment indentation differences before it creates an App.
+The next invocation stops after review identifies history action cleanup and E2E helper imports need repair.
+It creates one earlier App and records the interrupted interaction results.
+The next App receives one fresh build after the history cleanup repair.
+Its first complete interaction attempt passes 44 scenarios and fails one added test fixture.
+That fixture closes Main directly without a valid Renderer lifecycle transition.
+A second focused attempt confirms that a closed snapshot cannot satisfy the session event contract.
+The fixture removes this unsupported injection and retains the normal clone, history prompt, close, and reopen assertions.
+The corrected focused scenario passes in 4.0 seconds.
+Session-generation tests and source review cover stale operation guards.
+No supported UI route changes the session while the global history action is busy.
+The corrected packaged run passes all 45 scenarios in 150.4 seconds with the same intermediate App.
+Manual installer completion takes 30.1 seconds and preserves that App's complete content digest.
+This intermediate acceptance does not become the final result.
+
+The source-only run then passes 21 scenarios and exposes a provider logo regression.
+The manifest uses filenames with `.svg`, but the Renderer lookup originally removes that extension from its keys.
+The shared resolver now uses complete asset filenames and resolves provider aliases through the manifest.
+Three new regression tests cover every provider ID, shared aliases, and unknown fallback.
+The resolver and asset integrity tests pass all five cases in one second.
+This final product repair requires a new App and invalidates the intermediate installer output.
+The final full package gate passes all ten stages in 260.8 seconds with one App build.
+Earlier failed and interrupted gates account for two superseded App builds.
+The final source-only fixture adjustment requires no application rebuild.
+
+The next source-only run passes 21 scenarios but times out at the quick-action keyboard assertion.
+Source comparison finds no changed shortcut handler behavior after extraction.
+The fixture now restores editor focus and selection before each shortcut and uses the existing Chromium input helper.
+Five repeated application interactions pass, but `--repeat-each=5` violates the evidence reporter's unique scenario ID rule.
+That command fails and does not count as accepted evidence.
+The final source-only invocation uses one copy of each scenario and reuses the same build.
+No application code changes after the final package gate.
+
+The host uses Node 26.12.0 and its pnpm 11.17.0 launcher.
+The launcher selects the fixed project pnpm 11.28.3 outside the sandbox.
+The host Node version exceeds the declared 24.x engine range and emits an engine warning.
+Native tests use Electron 44.7.2 with Node 24.21.0, module ABI 149, and Node-API 10.
+Native preparation selects `better-sqlite3/prebuilds/darwin-arm64.node` and successfully loads sqlite-vec 0.1.9.
+Windows, Linux, macOS x64, live-provider requests, signing identities, and notarization remain outside this local acceptance.
+The App and installers retain version 0.2026.10.2 and contain the combined uncommitted maintenance changes.
+This task creates no commit, push, release, or GitHub issue update.
+
+Evidence: [acceptance summary](../../.cache/verification/issue18-acceptance.json),
+[complete Electron suite](../../.cache/verification/1792600020199-8102-dec2d390/vitest-1792600020700-8104-dd29737e.json),
+[logo regressions](../../.cache/verification/1792601813868-27889-a2e0838d/vitest-1792601814390-27890-b71176a9.json),
+[final package gate](../../.cache/verification/1792601830536-28114-8feec9fe/stages-1792601830536-28114-8feec9fe.json),
+[packaged provider Settings](../../.cache/verification/1792602078958-30627-5007ba12/e2e-1792602079325-30628-2c4c7f8d.json),
+[source-only scenarios](../../.cache/verification/1792602364532-33502-242abb00/e2e-1792602364868-33504-e84db144.json), and
+[package evidence](../../dist/macos-arm64/package-evidence.json).
+
+The acceptance summary retains the prior attempt reports and their dispositions.
+Final document links, guidance consistency, and diff whitespace checks pass.

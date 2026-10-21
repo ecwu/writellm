@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError, isAbortError } from '../../shared/abort-error'
 import type { Logger } from 'pino'
 import type { IndexCandidate } from '../../shared/contracts/indexing'
 import type { RerankResult } from '../../shared/contracts/model-runtime'
@@ -327,11 +328,5 @@ function snippet(text: string): string {
 }
 
 function abortError(): Error {
-  const error = new Error('Retrieval operation aborted')
-  error.name = 'AbortError'
-  return error
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return createAbortError('Retrieval operation aborted')
 }

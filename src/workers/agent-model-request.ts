@@ -1,4 +1,5 @@
 import { providerErrorDetails, providerErrorMessage } from './agent-provider-errors'
+import { createAbortError } from '../shared/abort-error'
 import { traceJsonValue as jsonValue } from '../shared/trace-image-redaction'
 import type { AgentRunResult, AgentUtilityRequest } from '../shared/contracts/model-runtime'
 import {
@@ -199,9 +200,7 @@ export async function runAgentModelRequest(
     throw error
   }
   if (finalMessage.stopReason === 'aborted') {
-    const error = new Error('Agent provider request aborted')
-    error.name = 'AbortError'
-    throw error
+    throw createAbortError('Agent provider request aborted')
   }
   if (finalMessage.stopReason === 'length') {
     throw new AgentOutputLimitError(request.input.maxOutputTokens)
@@ -287,6 +286,7 @@ function reportTraceError(
   if (onTraceError === undefined) return
   try {
     onTraceError(error)
+    // error-handling: allow owner=agent-trace reason=reporter-fallback
   } catch {
     // Trace is observational. If its reporter transport is closed, no safe
     // diagnostic channel remains; keep the provider result independent of it.

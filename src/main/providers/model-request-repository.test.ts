@@ -99,6 +99,27 @@ describe('ModelRequestRepository', () => {
     project.close()
   })
 
+  it('preserves legacy request fingerprints for optional fields and numeric keys', async () => {
+    const project = await database()
+    const repository = new ModelRequestRepository(project, log, undefined, () => 'model-legacy')
+    const request = {
+      '10': 'ten',
+      '2': 'two',
+      temperature: undefined,
+      nested: { topP: undefined, value: 1 }
+    }
+    const record = await repository.start({ operation: 'agent', provider, request, inputItems: 1 })
+    const row = await project.kysely
+      .selectFrom('model_requests')
+      .select('request_fingerprint')
+      .where('model_request_id', '=', record.modelRequestId)
+      .executeTakeFirstOrThrow()
+    expect(row.request_fingerprint).toBe(
+      '0131b1d2673b981a9e5d2a908a5c712170dcbfab2ba2ced88714b5102bb8fa8e'
+    )
+    project.close()
+  })
+
   it('allows one terminal transition and persists only a safe error classification', async () => {
     const project = await database()
     const repository = new ModelRequestRepository(project, log)

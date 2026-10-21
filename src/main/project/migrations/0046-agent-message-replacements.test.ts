@@ -1,61 +1,25 @@
 import Database from 'better-sqlite3'
-import { dirname, join } from 'node:path'
-import { readdir } from 'node:fs/promises'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { openProjectDatabase } from '../project-database'
+import { createService, FakeAgentRuntime } from '../../agent/session-service.test-support'
 import {
-  createDatabase,
-  createService,
-  FakeAgentRuntime,
-  log
-} from '../../agent/session-service.test-support'
-
-const manifest = {
-  format: 'writellm-project' as const,
-  formatVersion: 1 as const,
-  projectId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
-  createdAt: '2026-07-21T00:00:00.000Z'
-}
-
-async function legacyProject(fail = false) {
-  const project = await createDatabase()
-  createService(project, new FakeAgentRuntime()).createSession('Preserved conversation')
-  const root = project.immediate((db) => {
-    db.exec(`DROP TABLE agent_attachments;
-DROP VIEW agent_conversation_history;
-      DROP TABLE agent_history_references;
-      DROP TABLE agent_conversation_forks;
-      DROP VIEW agent_effective_events;
-      DROP TRIGGER agent_edit_proposal_effect;
-      DROP TRIGGER agent_edit_comment_effect;
-      DROP TABLE agent_message_replacements;
-      DROP TABLE agent_edit_effects;
-      DELETE FROM schema_migrations WHERE version >= 46;
-      UPDATE schema_manifest SET schema_version = 45;
-      PRAGMA user_version = 45;`)
-    if (fail) db.exec('CREATE TABLE agent_message_replacements (fixture TEXT)')
-    return dirname(dirname(db.name))
-  })
-  project.close()
-  return root
-}
+  legacyProject,
+  listMigrationBackups,
+  migrationRecoveryFixtures,
+  openMigrationDatabase
+} from './migration-test-harness'
 
 describe('migration 0046 message replacements', () => {
   it('creates a verified pre-migration backup and keeps existing conversation evidence', async () => {
-    const root = await legacyProject()
-    const database = await openProjectDatabase({
-      projectRoot: root,
-      manifest,
-      applicationVersion: 'test',
-      log
-    })
+    const root = await legacyProject(migrationRecoveryFixtures.messageReplacements)
+    const database = await openMigrationDatabase(root)
     expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(48)
     expect(database.immediate((db) => db.pragma('integrity_check', { simple: true }))).toBe('ok')
     expect(database.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
     expect(createService(database, new FakeAgentRuntime()).listSessions()[0].title).toBe(
       'Preserved conversation'
     )
-    const names = await readdir(join(root, '.writellm', 'backups'))
+    const names = await listMigrationBackups(root)
     const backupName = names.find(
       (name) => name.startsWith('migration-') && name.endsWith('.sqlite')
     )
@@ -73,10 +37,8 @@ describe('migration 0046 message replacements', () => {
   })
 
   it('retains an intact original and recoverable backup when migration fails', async () => {
-    const root = await legacyProject(true)
-    await expect(
-      openProjectDatabase({ projectRoot: root, manifest, applicationVersion: 'test', log })
-    ).rejects.toThrow()
+    const root = await legacyProject(migrationRecoveryFixtures.messageReplacements, true)
+    await expect(openMigrationDatabase(root)).rejects.toThrow()
     const original = new Database(join(root, '.writellm', 'project.sqlite'), { readonly: true })
     expect(original.pragma('user_version', { simple: true })).toBe(45)
     expect(original.pragma('integrity_check', { simple: true })).toBe('ok')
@@ -84,10 +46,6 @@ describe('migration 0046 message replacements', () => {
       'Preserved conversation'
     )
     original.close()
-    expect(
-      (await readdir(join(root, '.writellm', 'backups'))).some((name) =>
-        name.startsWith('migration-')
-      )
-    ).toBe(true)
+    expect((await listMigrationBackups(root)).length > 0).toBe(true)
   })
 })

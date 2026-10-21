@@ -111,6 +111,8 @@ export function useWorkbench(
       reportWorkbenchError(err, 'workbench.navigation')
       errorRef.current('The workspace action failed. Try again.')
     })
+    // The serial queue catch above reports the original error and presents recovery UI.
+    // error-handling: allow owner=workbench reason=queue-recovery
     return next.catch(() => undefined)
   }, [])
   const activate = useCallback(

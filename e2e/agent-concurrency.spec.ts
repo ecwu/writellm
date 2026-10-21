@@ -2,32 +2,8 @@ import { agentToggle, openAppMenu, clickAppMenuItem } from './application-menu'
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
-import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Concurrent Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('concurrency-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Concurrent Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, projectName: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(projectName)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, projectName)
-}
+import { expect, launchApp, scenario, test } from './fixtures'
+import { configureAgentProvider, createProject } from './helpers/project'
 
 function sendCompletion(response: ServerResponse, text: string, responseId: string): void {
   if (response.destroyed) return
@@ -149,7 +125,10 @@ test(
       dialogPaths: [testRoot]
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Concurrent Agent',
+        apiKey: 'concurrency-secret'
+      })
       await createProject(launched.page, 'Concurrent Agent project')
       await launched.page.getByLabel('Section title').fill('Current section')
       await launched.page.getByLabel('Section title').press('Tab')

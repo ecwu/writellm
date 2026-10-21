@@ -18,6 +18,9 @@ import type { ProjectManager } from '../project/project-manager'
 import type { AgentImageProcessClient } from '../agent/image-process-client'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
 import { authorizeSender } from './authorize-sender'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
+import { registerIpcEndpoint } from './endpoint'
 
 export function registerAgentAttachmentIpc(options: {
   manager: ProjectManager
@@ -31,20 +34,37 @@ export function registerAgentAttachmentIpc(options: {
     AbortController,
     { session: string; agentSessionId: string; completion: Promise<void> }
   >()
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const safeError = (channel: string, err: unknown): never => {
+    reportIpcFailure(
+      options.log,
+      { event: 'agent.attachment.ipc_failed', err, channel },
+      'Agent image action failed'
+    )
+    throw new Error(
+      'Image action failed. Reopen the project or choose a supported image within the size limits.',
+      { cause: err }
+    )
+  }
   const handle = (channel: string, listener: Parameters<IpcMain['handle']>[1]): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(options.ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: true,
+        onError: (err) => safeError(channel, err),
+        handle: (input, event) => listener(event, input)
+      })
+      return
+    }
     options.ipc.handle(channel, async (event, raw: unknown) => {
       try {
         return await listener(event, raw)
       } catch (err) {
-        reportIpcFailure(
-          options.log,
-          { event: 'agent.attachment.ipc_failed', err, channel },
-          'Agent image action failed'
-        )
-        throw new Error(
-          'Image action failed. Reopen the project or choose a supported image within the size limits.',
-          { cause: err }
-        )
+        return safeError(channel, err)
       }
     })
   }

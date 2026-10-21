@@ -1,5 +1,7 @@
 import { reportRendererOperationError } from '../../diagnostics'
-import { useCallback, useEffect, useState } from 'react'
+import { rendererQueryKeys } from '@/lib/query-keys'
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { GitCommitHorizontal, History, TriangleAlert } from 'lucide-react'
 import type {
   ActiveProject,
@@ -50,6 +52,11 @@ import { Textarea } from '@/components/ui/textarea'
 
 export type VersionHistoryView = 'create' | 'history' | null
 
+type VersionHistoryRequest = {
+  projectSessionId: string
+  generation: number
+}
+
 export function ProjectVersionHistory({
   projectSessionId,
   view,
@@ -65,16 +72,100 @@ export function ProjectVersionHistory({
   onProjectRestored(project: ActiveProject): void
   onError(message: string): void
 }): React.JSX.Element {
+  const queryClient = useQueryClient()
+  const statusKey = rendererQueryKeys.projectVersionHistory.status(projectSessionId)
+  const checkpointsKey = rendererQueryKeys.projectVersionHistory.checkpoints(projectSessionId)
+  const comparisonKey = rendererQueryKeys.projectVersionHistory.comparison(projectSessionId)
+  const mountedRef = useRef(true)
+  const liveProjectSessionIdRef = useRef(projectSessionId)
+  const requestGenerationRef = useRef(0)
+  liveProjectSessionIdRef.current = projectSessionId
+  useEffect(() => {
+    liveProjectSessionIdRef.current = projectSessionId
+    mountedRef.current = true
+    requestGenerationRef.current += 1
+    return () => {
+      mountedRef.current = false
+      requestGenerationRef.current += 1
+    }
+  }, [projectSessionId])
+  const beginRequest = (): VersionHistoryRequest => ({
+    projectSessionId,
+    generation: ++requestGenerationRef.current
+  })
+  const isCurrentRequest = (request: VersionHistoryRequest): boolean =>
+    mountedRef.current &&
+    liveProjectSessionIdRef.current === request.projectSessionId &&
+    requestGenerationRef.current === request.generation
+  const invalidateHistoryQuery = useCallback(
+    (queryKey: readonly unknown[], source: string): void => {
+      void queryClient.invalidateQueries({ queryKey }).catch((err) => {
+        reportRendererOperationError(err, source)
+      })
+    },
+    [queryClient]
+  )
   const [state, setState] = useState<VersionHistoryState>('uninitialized')
   const [promptOpen, setPromptOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [name, setName] = useState('')
   const [note, setNote] = useState('')
-  const [checkpoints, setCheckpoints] = useState<CheckpointEntry[]>([])
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
-  const [comparison, setComparison] = useState<'up-to-date' | 'uncheckpointed-changes' | null>(null)
   const [restoreTarget, setRestoreTarget] = useState<CheckpointEntry | null>(null)
   const [reinitializeOpen, setReinitializeOpen] = useState(false)
+
+  const statusQuery = useQuery({
+    queryKey: statusKey,
+    queryFn: async () => {
+      try {
+        return await window.desktop.projects.versionHistoryStatus({ projectSessionId })
+      } catch (err) {
+        reportRendererOperationError(err, 'project-version-history.status')
+        throw err
+      }
+    },
+    retry: false
+  })
+  const historyReady = statusQuery.data?.state === 'ready'
+  const checkpointsQuery = useInfiniteQuery({
+    queryKey: checkpointsKey,
+    enabled: view === 'history' && historyReady,
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
+      try {
+        return await window.desktop.projects.listCheckpoints({
+          projectSessionId,
+          ...(pageParam === undefined ? {} : { cursor: pageParam }),
+          limit: 50
+        })
+      } catch (err) {
+        reportRendererOperationError(err, 'project-version-history.checkpoints')
+        throw err
+      }
+    },
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    retry: false
+  })
+  const comparisonQuery = useQuery({
+    queryKey: comparisonKey,
+    enabled: view === 'history' && historyReady,
+    queryFn: async () => {
+      try {
+        return await window.desktop.projects.compareCheckpointState({ projectSessionId })
+      } catch (err) {
+        reportRendererOperationError(err, 'project-version-history.comparison')
+        throw err
+      }
+    },
+    retry: false
+  })
+  const checkpoints = checkpointsQuery.data?.pages.flatMap((page) => page.checkpoints) ?? []
+  const nextCursor = checkpointsQuery.data?.pages.at(-1)?.nextCursor ?? null
+  const comparison = comparisonQuery.data?.status ?? null
+  const historyLoading =
+    view === 'history' &&
+    historyReady === true &&
+    (checkpointsQuery.isPending || comparisonQuery.isPending)
+  const viewBusy = busy || historyLoading
 
   const updateState = useCallback(
     (next: VersionHistoryState): void => {
@@ -84,82 +175,74 @@ export function ProjectVersionHistory({
     [onStateChange]
   )
 
-  const refreshStatus = useCallback(async (): Promise<void> => {
-    try {
-      const status = await window.desktop.projects.versionHistoryStatus({ projectSessionId })
-      updateState(status.state)
-      setPromptOpen(status.state === 'uninitialized' && !status.promptDismissed)
-    } catch (err) {
-      reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to inspect project version history.')
+  useEffect(() => {
+    const status = statusQuery.data
+    if (status === undefined) return
+    updateState(status.state)
+    setPromptOpen(status.state === 'uninitialized' && !status.promptDismissed)
+  }, [statusQuery.data, updateState])
+
+  useEffect(() => {
+    if (statusQuery.error) onError('Unable to inspect project version history.')
+  }, [onError, statusQuery.error])
+
+  useEffect(() => {
+    if (checkpointsQuery.error || comparisonQuery.error) {
+      onError('Unable to load project version history.')
     }
-  }, [onError, projectSessionId, updateState])
-
-  useEffect(() => {
-    void refreshStatus()
-  }, [refreshStatus])
-
-  useEffect(() => {
-    if (view !== 'history' || state !== 'ready') return
-    setBusy(true)
-    void Promise.all([
-      window.desktop.projects.listCheckpoints({ projectSessionId, limit: 50 }),
-      window.desktop.projects.compareCheckpointState({ projectSessionId })
-    ])
-      .then(([page, current]) => {
-        setCheckpoints(page.checkpoints)
-        setNextCursor(page.nextCursor)
-        setComparison(current.status)
-      })
-      .catch(() => onError('Unable to load project version history.'))
-      .finally(() => setBusy(false))
-  }, [onError, projectSessionId, state, view])
+  }, [checkpointsQuery.error, comparisonQuery.error, onError])
 
   const loadEarlier = async (): Promise<void> => {
-    if (nextCursor === null) return
+    if (!checkpointsQuery.hasNextPage || checkpointsQuery.isFetchingNextPage) return
+    const request = beginRequest()
     setBusy(true)
     try {
-      const page = await window.desktop.projects.listCheckpoints({
-        projectSessionId,
-        cursor: nextCursor,
-        limit: 50
-      })
-      setCheckpoints((current) => [...current, ...page.checkpoints])
-      setNextCursor(page.nextCursor)
+      await checkpointsQuery.fetchNextPage()
+      if (!isCurrentRequest(request)) return
     } catch (err) {
-      reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to load earlier checkpoints.')
+      reportRendererOperationError(err, 'project-version-history.checkpoints.next-page')
+      if (isCurrentRequest(request)) onError('Unable to load earlier checkpoints.')
     } finally {
-      setBusy(false)
+      if (isCurrentRequest(request)) setBusy(false)
     }
   }
 
   const enable = async (): Promise<void> => {
+    const request = beginRequest()
     setBusy(true)
     try {
       await window.desktop.projects.enableVersionHistory({ projectSessionId })
+      queryClient.setQueryData(statusKey, { state: 'ready', promptDismissed: true })
+      invalidateHistoryQuery(checkpointsKey, 'project-version-history.checkpoints.invalidate')
+      invalidateHistoryQuery(comparisonKey, 'project-version-history.comparison.invalidate')
+      if (!isCurrentRequest(request)) return
       updateState('ready')
       setPromptOpen(false)
     } catch (err) {
       reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to enable project version history.')
-      await refreshStatus()
+      if (isCurrentRequest(request)) onError('Unable to enable project version history.')
+      invalidateHistoryQuery(statusKey, 'project-version-history.status.invalidate')
     } finally {
-      setBusy(false)
+      if (isCurrentRequest(request)) setBusy(false)
     }
   }
 
   const dismiss = async (): Promise<void> => {
+    const request = beginRequest()
     try {
-      await window.desktop.projects.dismissVersionHistoryPrompt({ projectSessionId })
+      const next = await window.desktop.projects.dismissVersionHistoryPrompt({ projectSessionId })
+      queryClient.setQueryData(statusKey, next)
+      if (!isCurrentRequest(request)) return
+      updateState(next.state)
       setPromptOpen(false)
     } catch (err) {
       reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to save the version history preference.')
+      if (isCurrentRequest(request)) onError('Unable to save the version history preference.')
     }
   }
 
   const createCheckpoint = async (): Promise<void> => {
+    const request = beginRequest()
     setBusy(true)
     try {
       await window.desktop.projects.createCheckpoint({
@@ -167,48 +250,63 @@ export function ProjectVersionHistory({
         name,
         ...(note.trim() === '' ? {} : { note })
       })
+      invalidateHistoryQuery(checkpointsKey, 'project-version-history.checkpoints.invalidate')
+      invalidateHistoryQuery(comparisonKey, 'project-version-history.comparison.invalidate')
+      if (!isCurrentRequest(request)) return
       setName('')
       setNote('')
       onViewChange(null)
     } catch (err) {
       reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to create the checkpoint.')
+      if (isCurrentRequest(request)) onError('Unable to create the checkpoint.')
     } finally {
-      setBusy(false)
+      if (isCurrentRequest(request)) setBusy(false)
     }
   }
 
   const restoreCheckpoint = async (): Promise<void> => {
     if (restoreTarget === null) return
+    const request = beginRequest()
     setBusy(true)
     try {
       const restored = await window.desktop.projects.restoreCheckpoint({
         projectSessionId,
         oid: restoreTarget.oid
       })
+      invalidateHistoryQuery(statusKey, 'project-version-history.status.invalidate')
+      invalidateHistoryQuery(checkpointsKey, 'project-version-history.checkpoints.invalidate')
+      invalidateHistoryQuery(comparisonKey, 'project-version-history.comparison.invalidate')
+      if (!isCurrentRequest(request)) return
       onProjectRestored(restored.project)
       setRestoreTarget(null)
       onViewChange(null)
     } catch (err) {
       reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to restore the checkpoint. The original project was preserved.')
+      if (isCurrentRequest(request)) {
+        onError('Unable to restore the checkpoint. The original project was preserved.')
+      }
     } finally {
-      setBusy(false)
+      if (isCurrentRequest(request)) setBusy(false)
     }
   }
 
   const reinitialize = async (): Promise<void> => {
+    const request = beginRequest()
     setBusy(true)
     try {
       await window.desktop.projects.reinitializeVersionHistory({ projectSessionId })
+      queryClient.setQueryData(statusKey, { state: 'ready', promptDismissed: true })
+      invalidateHistoryQuery(checkpointsKey, 'project-version-history.checkpoints.invalidate')
+      invalidateHistoryQuery(comparisonKey, 'project-version-history.comparison.invalidate')
+      if (!isCurrentRequest(request)) return
       updateState('ready')
       setReinitializeOpen(false)
       onViewChange(null)
     } catch (err) {
       reportRendererOperationError(err, 'project-version-history')
-      onError('Unable to reinitialize project version history.')
+      if (isCurrentRequest(request)) onError('Unable to reinitialize project version history.')
     } finally {
-      setBusy(false)
+      if (isCurrentRequest(request)) setBusy(false)
     }
   }
 
@@ -225,11 +323,11 @@ export function ProjectVersionHistory({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy} onClick={() => void dismiss()}>
+            <AlertDialogCancel disabled={viewBusy} onClick={() => void dismiss()}>
               Not now
             </AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={() => void enable()}>
-              {busy ? <Spinner /> : null}
+            <AlertDialogAction disabled={viewBusy} onClick={() => void enable()}>
+              {viewBusy ? <Spinner /> : null}
               Enable history
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -271,11 +369,14 @@ export function ProjectVersionHistory({
             </Field>
           </FieldGroup>
           <DialogFooter>
-            <Button variant='outline' disabled={busy} onClick={() => onViewChange(null)}>
+            <Button variant='outline' disabled={viewBusy} onClick={() => onViewChange(null)}>
               Cancel
             </Button>
-            <Button disabled={busy || name.trim() === ''} onClick={() => void createCheckpoint()}>
-              {busy ? <Spinner /> : <GitCommitHorizontal />}
+            <Button
+              disabled={viewBusy || name.trim() === ''}
+              onClick={() => void createCheckpoint()}
+            >
+              {viewBusy ? <Spinner /> : <GitCommitHorizontal />}
               Create checkpoint
             </Button>
           </DialogFooter>
@@ -314,14 +415,14 @@ export function ProjectVersionHistory({
                   <Button
                     size='sm'
                     variant='outline'
-                    disabled={busy}
+                    disabled={viewBusy}
                     onClick={() => setReinitializeOpen(true)}
                   >
                     Reinitialize
                   </Button>
                 </ItemActions>
               </Item>
-            ) : busy ? (
+            ) : viewBusy ? (
               <div className='flex items-center gap-2 py-8 text-sm text-muted-foreground'>
                 <Spinner /> Comparing the current project and loading checkpoints…
               </div>
@@ -346,7 +447,7 @@ export function ProjectVersionHistory({
                       <Button
                         size='sm'
                         variant='outline'
-                        disabled={busy}
+                        disabled={viewBusy}
                         onClick={() => setRestoreTarget(checkpoint)}
                       >
                         Restore
@@ -355,8 +456,8 @@ export function ProjectVersionHistory({
                   </Item>
                 ))}
                 {nextCursor === null ? null : (
-                  <Button variant='outline' disabled={busy} onClick={() => void loadEarlier()}>
-                    {busy ? <Spinner /> : null}
+                  <Button variant='outline' disabled={viewBusy} onClick={() => void loadEarlier()}>
+                    {viewBusy ? <Spinner /> : null}
                     Load earlier checkpoints
                   </Button>
                 )}
@@ -369,7 +470,7 @@ export function ProjectVersionHistory({
       <AlertDialog
         open={restoreTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !busy) setRestoreTarget(null)
+          if (!open && !viewBusy) setRestoreTarget(null)
         }}
       >
         <AlertDialogContent>
@@ -381,9 +482,9 @@ export function ProjectVersionHistory({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={() => void restoreCheckpoint()}>
-              {busy ? <Spinner /> : null}
+            <AlertDialogCancel disabled={viewBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={viewBusy} onClick={() => void restoreCheckpoint()}>
+              {viewBusy ? <Spinner /> : null}
               Restore checkpoint
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -393,7 +494,7 @@ export function ProjectVersionHistory({
       <AlertDialog
         open={reinitializeOpen}
         onOpenChange={(open) => {
-          if (!open && !busy) setReinitializeOpen(false)
+          if (!open && !viewBusy) setReinitializeOpen(false)
         }}
       >
         <AlertDialogContent>
@@ -406,9 +507,9 @@ export function ProjectVersionHistory({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={busy} onClick={() => void reinitialize()}>
-              {busy ? <Spinner /> : null}
+            <AlertDialogCancel disabled={viewBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction disabled={viewBusy} onClick={() => void reinitialize()}>
+              {viewBusy ? <Spinner /> : null}
               Reinitialize history
             </AlertDialogAction>
           </AlertDialogFooter>

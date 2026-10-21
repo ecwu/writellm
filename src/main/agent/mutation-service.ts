@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { findCitationClusters } from '../../shared/citation-cluster'
+import { sha256 } from '../../shared/hash'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
@@ -46,6 +47,7 @@ import type { ProjectDatabase } from '../project/project-database'
 import { decodeStoredSectionContent, extractSectionAgentText } from '../manuscript/content'
 import { assetUrl, type ManuscriptAssetService } from '../manuscript/asset-service'
 import { updateCommentAnchors } from '../manuscript/comment-anchor-mapping'
+import { SectionRepository } from '../manuscript/section-repository'
 import type { ModelExecutionService } from '../providers/model-execution-service'
 import type { EditorPersistenceService } from '../manuscript/editor-persistence-service'
 import type { ManuscriptService } from '../manuscript/manuscript-service'
@@ -82,7 +84,6 @@ import {
   readSections,
   assertOutlineCreateIdsAvailable,
   briefFieldsFromRow,
-  insertSectionRevision,
   updateAppliedProposal,
   updateTerminalProposal,
   proposalFromRow,
@@ -257,9 +258,7 @@ export class MutationProposalService {
       if (canonical === null || canonical === undefined || typeof canonical !== 'object')
         return false
       if (!('id' in canonical) || canonical.id !== blockId) return false
-      return (
-        createHash('sha256').update(JSON.stringify(canonical)).digest('hex') === expectedBlockHash
-      )
+      return sha256(JSON.stringify(canonical)) === expectedBlockHash
     })
     if (!found) {
       throw new AgentToolDomainError(
@@ -365,7 +364,7 @@ export class MutationProposalService {
         canonical.id === blockId &&
         'type' in canonical &&
         canonical.type === 'image' &&
-        createHash('sha256').update(JSON.stringify(canonical)).digest('hex') === expectedBlockHash
+        sha256(JSON.stringify(canonical)) === expectedBlockHash
       )
     })
     if (!found) {
@@ -1041,7 +1040,7 @@ export class MutationProposalService {
           proposalId,
           agentSessionId,
           promptLength: payload.mutation.prompt.length,
-          promptHash: createHash('sha256').update(payload.mutation.prompt).digest('hex'),
+          promptHash: sha256(payload.mutation.prompt),
           aspectRatio: payload.mutation.aspectRatio,
           imageSize: payload.mutation.imageSize
         },
@@ -2041,71 +2040,48 @@ export class MutationProposalService {
         const deleted = beforeRows.filter((section) => !afterIds.has(section.section_id))
         const revisionIds = new Map(created.map((section) => [section.sectionId, this.#createId()]))
 
-        database
-          .prepare(
-            `UPDATE sections SET position = position + 1000000
-              WHERE manuscript_id = ? AND deleted_at IS NULL`
-          )
-          .run(mutation.manuscriptId)
+        SectionRepository.parkAllPositions(database, mutation.manuscriptId)
         for (const node of [...created].sort((left, right) => left.level - right.level)) {
-          database
-            .prepare(
-              `INSERT INTO sections (
-                 section_id, manuscript_id, parent_section_id, position, level, title,
-                 objective, status, current_revision_id, created_at, updated_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .run(
-              node.sectionId,
-              mutation.manuscriptId,
-              node.parentSectionId,
-              node.position,
-              node.level,
-              node.title,
-              node.objective,
-              node.status,
-              revisionIds.get(node.sectionId),
-              now,
-              now
-            )
+          SectionRepository.insertSection(database, {
+            sectionId: node.sectionId,
+            manuscriptId: mutation.manuscriptId,
+            parentSectionId: node.parentSectionId,
+            position: node.position,
+            level: node.level,
+            title: node.title,
+            objective: node.objective,
+            status: node.status,
+            currentRevisionId: revisionIds.get(node.sectionId) as string,
+            createdAt: now,
+            updatedAt: now
+          })
         }
         for (const node of simulation.nodes.filter((section) => beforeIds.has(section.sectionId))) {
-          database
-            .prepare(
-              `UPDATE sections
-                  SET parent_section_id = ?, position = ?, level = ?, title = ?,
-                      objective = ?, status = ?, updated_at = ?
-                WHERE section_id = ? AND manuscript_id = ? AND deleted_at IS NULL`
-            )
-            .run(
-              node.parentSectionId,
-              node.position,
-              node.level,
-              node.title,
-              node.objective,
-              node.status,
-              now,
-              node.sectionId,
-              mutation.manuscriptId
-            )
-        }
-        for (const section of [...deleted].sort((left, right) => right.level - left.level)) {
-          const tombstoned = database
-            .prepare(
-              `UPDATE sections SET deleted_at = ?, updated_at = ?
-                WHERE section_id = ? AND deleted_at IS NULL`
-            )
-            .run(now, now, section.section_id)
-          if (tombstoned.changes !== 1) {
+          if (
+            !SectionRepository.updateNode(database, {
+              sectionId: node.sectionId,
+              manuscriptId: mutation.manuscriptId,
+              parentSectionId: node.parentSectionId,
+              position: node.position,
+              level: node.level,
+              title: node.title,
+              objective: node.objective,
+              status: node.status,
+              updatedAt: now
+            })
+          ) {
             throw new MutationSimulationError('target_missing', 'Outline section does not exist')
           }
-          database
-            .prepare('DELETE FROM section_materializations WHERE section_id = ?')
-            .run(section.section_id)
+        }
+        for (const section of [...deleted].sort((left, right) => right.level - left.level)) {
+          if (!SectionRepository.tombstone(database, section.section_id, now)) {
+            throw new MutationSimulationError('target_missing', 'Outline section does not exist')
+          }
+          SectionRepository.removeMaterialization(database, section.section_id)
         }
         for (const node of created) {
           const revisionId = revisionIds.get(node.sectionId) as string
-          insertSectionRevision(database, {
+          SectionRepository.insertRevision(database, {
             revisionId,
             sectionId: node.sectionId,
             revisionNumber: 1,
@@ -2151,7 +2127,7 @@ export class MutationProposalService {
           mutation
         )
         const revisionId = this.#createId()
-        insertSectionRevision(database, {
+        SectionRepository.insertRevision(database, {
           revisionId,
           sectionId: mutation.sectionId,
           revisionNumber: base.revision_number + 1,
@@ -2164,13 +2140,15 @@ export class MutationProposalService {
           agentProposalId: proposalId,
           createdAt: now
         })
-        const sectionUpdate = database
-          .prepare(
-            `UPDATE sections SET current_revision_id = ?, updated_at = ?
-              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-          )
-          .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
-        if (sectionUpdate.changes !== 1) throw staleBase('section')
+        if (
+          !SectionRepository.updateCurrentRevision(database, {
+            sectionId: mutation.sectionId,
+            expectedRevisionId: mutation.baseRevisionId,
+            revisionId,
+            updatedAt: now
+          })
+        )
+          throw staleBase('section')
         updateCommentAnchors(database, mutation.sectionId)
         updateAppliedProposal(database, proposalId, now, { appliedRevisionId: revisionId })
         materializeRevisionIds = [revisionId]
@@ -2236,7 +2214,7 @@ export class MutationProposalService {
           patch
         )
         const revisionId = this.#createId()
-        insertSectionRevision(database, {
+        SectionRepository.insertRevision(database, {
           revisionId,
           sectionId: mutation.sectionId,
           revisionNumber: base.revision_number + 1,
@@ -2249,13 +2227,15 @@ export class MutationProposalService {
           agentProposalId: proposalId,
           createdAt: now
         })
-        const sectionUpdate = database
-          .prepare(
-            `UPDATE sections SET current_revision_id = ?, updated_at = ?
-              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-          )
-          .run(revisionId, now, mutation.sectionId, mutation.baseRevisionId)
-        if (sectionUpdate.changes !== 1) throw staleBase('section')
+        if (
+          !SectionRepository.updateCurrentRevision(database, {
+            sectionId: mutation.sectionId,
+            expectedRevisionId: mutation.baseRevisionId,
+            revisionId,
+            updatedAt: now
+          })
+        )
+          throw staleBase('section')
         updateCommentAnchors(database, mutation.sectionId)
         updateAppliedProposal(database, proposalId, now, { appliedRevisionId: revisionId })
         materializeRevisionIds = [revisionId]
@@ -2317,7 +2297,7 @@ export class MutationProposalService {
     }
     const now = this.#now().toISOString()
     const undoRevisionId = this.#createId()
-    insertSectionRevision(database, {
+    SectionRepository.insertRevision(database, {
       revisionId: undoRevisionId,
       sectionId: section.section_id,
       revisionNumber: applied.revision_number + 1,
@@ -2334,13 +2314,15 @@ export class MutationProposalService {
       agentProposalId: null,
       createdAt: now
     })
-    const sectionUpdate = database
-      .prepare(
-        `UPDATE sections SET current_revision_id = ?, updated_at = ?
-          WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-      )
-      .run(undoRevisionId, now, section.section_id, applied.section_revision_id)
-    if (sectionUpdate.changes !== 1) throw staleBase('section')
+    if (
+      !SectionRepository.updateCurrentRevision(database, {
+        sectionId: section.section_id,
+        expectedRevisionId: applied.section_revision_id,
+        revisionId: undoRevisionId,
+        updatedAt: now
+      })
+    )
+      throw staleBase('section')
     updateCommentAnchors(database, section.section_id)
     const proposalUpdate = database
       .prepare(

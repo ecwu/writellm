@@ -10,9 +10,11 @@ import {
   readableCitationResolutionInputSchema,
   readableCitationResolutionResultSchema
 } from '../../shared/contracts/search'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { knowledgeIpcEndpoints } from '../../shared/contracts/ipc-endpoints-knowledge'
 import type { ProjectManager } from '../project/project-manager'
 import { resolveReadableCitation } from '../search/readable-citation-resolver'
-import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 
 export function registerSearchIpc(options: {
   manager: ProjectManager
@@ -21,8 +23,26 @@ export function registerSearchIpc(options: {
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): () => void {
   const ipc = options.ipc ?? ipcMain
-  ipc.handle(IPC_CHANNELS.knowledgeSearch, async (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(knowledgeIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const handle = (
+    channel: string,
+    listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: listener.constructor.name === 'AsyncFunction',
+        handle: (input, event) => listener(event, input)
+      })
+      return
+    }
+    ipc.handle(channel, listener)
+  }
+  handle(IPC_CHANNELS.knowledgeSearch, async (_event, rawInput: unknown) => {
     const input = knowledgeSearchInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     if (!context.projectIndex.isRetrievalAvailable()) {
@@ -49,8 +69,7 @@ export function registerSearchIpc(options: {
       release?.()
     }
   })
-  ipc.handle(IPC_CHANNELS.knowledgeExpandCitations, async (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeExpandCitations, async (_event, rawInput: unknown) => {
     const input = citationExpansionInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     if (!context.projectIndex.isRetrievalAvailable()) {
@@ -77,8 +96,7 @@ export function registerSearchIpc(options: {
       release?.()
     }
   })
-  ipc.handle(IPC_CHANNELS.knowledgeResolveReadableCitation, async (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeResolveReadableCitation, async (_event, rawInput: unknown) => {
     const input = readableCitationResolutionInputSchema.parse(rawInput)
     const context = options.manager.assertActiveSession(input.projectSessionId)
     const controller = new AbortController()

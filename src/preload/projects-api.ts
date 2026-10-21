@@ -1,281 +1,115 @@
 import { ipcRenderer } from 'electron'
-import { IPC_CHANNELS } from '../shared/contracts/channels'
-import { diagnosticExportResultSchema } from '../shared/contracts/diagnostics'
 import {
-  checkpointOperationResultSchema,
-  compareCheckpointStateInputSchema,
-  compareCheckpointStateResultSchema,
-  createCheckpointInputSchema,
-  dismissVersionHistoryPromptInputSchema,
-  enableVersionHistoryInputSchema,
-  listCheckpointsInputSchema,
-  listCheckpointsResultSchema,
-  projectCreateInputSchema,
-  projectCloneCancelResultSchema,
-  projectCloneInputSchema,
   projectLifecycleEventSchema,
-  projectLifecycleSnapshotSchema,
-  projectRecoveryActionInputSchema,
-  projectSnapshotResultSchema,
-  recentProjectOpenInputSchema,
-  recentProjectRemoveInputSchema,
-  recentProjectsSchema,
-  projectSelectionResultSchema,
-  projectSessionInputSchema,
-  reinitializeVersionHistoryInputSchema,
-  restoreCheckpointInputSchema,
-  restoreCheckpointResultSchema,
-  versionHistoryStatusSchema
+  projectSessionInputSchema
 } from '../shared/contracts/projects'
-import {
-  manuscriptExportCancelResultSchema,
-  manuscriptExportInputSchema,
-  manuscriptExportResultSchema
-} from '../shared/contracts/manuscript-export'
-import {
-  deleteUserProjectTemplateInputSchema,
-  projectTemplateCatalogSchema,
-  projectTemplateExtractionPreviewSchema,
-  saveUserProjectTemplateInputSchema
-} from '../shared/contracts/project-templates'
+import { projectIpcEndpoints } from '../shared/contracts/ipc-endpoints-project'
 import type { DesktopApi } from './desktop-api'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const projectsApi: DesktopApi['projects'] = {
   async lifecycle() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectGetLifecycle)
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.lifecycle)
   },
   async recent() {
-    return recentProjectsSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.projectGetRecent))
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.recent)
   },
   async removeRecent(input) {
-    return recentProjectsSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRemoveRecent,
-        recentProjectRemoveInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.removeRecent, input)
   },
   async create(input) {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectCreate, projectCreateInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.create, input)
   },
   async open() {
-    return projectSelectionResultSchema.parse(await ipcRenderer.invoke(IPC_CHANNELS.projectOpen))
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.open)
   },
   async openRecent(input) {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectOpenRecent,
-        recentProjectOpenInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.openRecent, input)
   },
   async close(input) {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectClose, projectSessionInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.close, input)
   },
   async switch(input) {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectSwitch, projectSessionInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.switch, input)
   },
   async clone(input) {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectClone, projectCloneInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.clone, input)
   },
   async cancelClone(input) {
-    return projectCloneCancelResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectCloneCancel,
-        projectCloneInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.cancelClone, input)
   },
   async templates() {
-    return projectTemplateCatalogSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.projectTemplatesList)
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.templates)
   },
   async previewTemplate(input) {
-    return projectTemplateExtractionPreviewSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectTemplatePreview,
-        projectSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.previewTemplate, input)
   },
   async saveTemplate(input) {
-    return projectTemplateCatalogSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectTemplateSave,
-        saveUserProjectTemplateInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.saveTemplate, input)
   },
   async deleteTemplate(input) {
-    return projectTemplateCatalogSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectTemplateDelete,
-        deleteUserProjectTemplateInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.deleteTemplate, input)
   },
   async retryOpen() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryRetryOpen,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.retryOpen, {})
   },
   async recoverStaleLock() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryStaleLock,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.recoverStaleLock, {})
   },
   async retryClose() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryRetryClose,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.retryClose, {})
   },
   async discardIncompleteCreate() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.discardIncompleteCreate, {})
   },
   async locateMoved() {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryLocateMoved,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.locateMoved, {})
   },
   async exportRecoveryDiagnostics() {
-    return diagnosticExportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryExportDiagnostics,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.exportRecoveryDiagnostics, {})
   },
   async returnToClosed() {
-    return projectLifecycleSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectRecoveryReturnToClosed,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.returnToClosed, {})
   },
   async createSnapshot(input) {
-    return projectSnapshotResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectSnapshotCreate,
-        projectSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.createSnapshot, input)
   },
   async restoreSnapshot() {
-    return projectSelectionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectSnapshotRestore,
-        projectRecoveryActionInputSchema.parse({})
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.restoreSnapshot, {})
   },
   async exportManuscript(input) {
-    return manuscriptExportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectManuscriptExport,
-        manuscriptExportInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.exportManuscript, input)
   },
   async cancelManuscriptExport(input) {
-    return manuscriptExportCancelResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectManuscriptExportCancel,
-        projectSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.cancelManuscriptExport, input)
   },
   async versionHistoryStatus(input) {
-    return versionHistoryStatusSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryStatus,
-        projectSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.versionHistoryStatus, input)
   },
   async enableVersionHistory(input) {
-    return checkpointOperationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryEnable,
-        enableVersionHistoryInputSchema.parse(input)
-      )
-    ).checkpoint
+    return (await invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.enableVersionHistory, input))
+      .checkpoint
   },
   async reinitializeVersionHistory(input) {
-    return checkpointOperationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryReinitialize,
-        reinitializeVersionHistoryInputSchema.parse(input)
-      )
+    return (
+      await invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.reinitializeVersionHistory, input)
     ).checkpoint
   },
   async dismissVersionHistoryPrompt(input) {
-    return versionHistoryStatusSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryDismissPrompt,
-        dismissVersionHistoryPromptInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.dismissVersionHistoryPrompt, input)
   },
   async createCheckpoint(input) {
-    return checkpointOperationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryCreateCheckpoint,
-        createCheckpointInputSchema.parse(input)
-      )
-    ).checkpoint
+    return (await invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.createCheckpoint, input))
+      .checkpoint
   },
   async listCheckpoints(input) {
-    return listCheckpointsResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryListCheckpoints,
-        listCheckpointsInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.listCheckpoints, input)
   },
   async compareCheckpointState(input) {
-    return compareCheckpointStateResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryCompareState,
-        compareCheckpointStateInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.compareCheckpointState, input)
   },
   async restoreCheckpoint(input) {
-    return restoreCheckpointResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.projectHistoryRestoreCheckpoint,
-        restoreCheckpointInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.restoreCheckpoint, input)
   },
   async subscribe(input, listener) {
     const parsedInput = projectSessionInputSchema.parse(input)
@@ -285,16 +119,16 @@ export const projectsApi: DesktopApi['projects'] = {
         listener(lifecycleEvent)
       }
     }
-    ipcRenderer.on(IPC_CHANNELS.projectLifecycleEvent, handler)
+    ipcRenderer.on(projectIpcEndpoints.subscribe.channel, handler)
     try {
-      await ipcRenderer.invoke(IPC_CHANNELS.projectSubscribeLifecycle, parsedInput)
+      await invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.subscribe, parsedInput)
     } catch (err) {
-      ipcRenderer.removeListener(IPC_CHANNELS.projectLifecycleEvent, handler)
+      ipcRenderer.removeListener(projectIpcEndpoints.subscribe.channel, handler)
       throw err
     }
     return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.projectLifecycleEvent, handler)
-      void ipcRenderer.invoke(IPC_CHANNELS.projectUnsubscribeLifecycle, parsedInput)
+      ipcRenderer.removeListener(projectIpcEndpoints.subscribe.channel, handler)
+      void invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.unsubscribe, parsedInput)
     }
   }
 }

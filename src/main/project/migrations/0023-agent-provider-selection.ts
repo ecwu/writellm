@@ -1,4 +1,5 @@
 import type { DatabaseMigration } from '../../db/migrations'
+import { hasColumn } from './helpers'
 
 export const migration0023: DatabaseMigration = {
   version: 23,
@@ -42,14 +43,4 @@ export const migration0023: DatabaseMigration = {
        WHERE provider_label = '' OR model_label = '';
     `)
   }
-}
-
-function hasColumn(
-  database: Parameters<DatabaseMigration['up']>[0],
-  table: string,
-  column: string
-): boolean {
-  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(
-    (entry) => entry.name === column
-  )
 }

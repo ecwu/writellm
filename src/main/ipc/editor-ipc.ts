@@ -10,6 +10,8 @@ import {
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { editorIpcEndpoints } from '../../shared/contracts/ipc-endpoints-editor'
 import {
   editorFlushAckInputSchema,
   editorFlushRequestSchema,
@@ -49,7 +51,7 @@ import {
 } from '../project/project-manager'
 import { resolveProjectPath } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
-import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
 import { manuscriptSectionToMarkdown } from '../../shared/manuscript-markdown'
 import {
@@ -108,13 +110,31 @@ export function registerEditorIpc(options: {
   const subscribers = new Map<string, Map<string, WebContents>>()
   const activeSections = new Map<string, string>()
   const pending = new Map<string, PendingFlush>()
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(editorIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const handle = (
+    channel: string,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: handler.constructor.name === 'AsyncFunction',
+        handle: (input, event) => handler(event, input)
+      })
+      return
+    }
+    ipc.handle(channel, handler)
+  }
   const importService = new ManuscriptImportService({
     log: options.logger,
     parseLatex: options.parseLatex
   })
 
-  ipc.handle(IPC_CHANNELS.editorOpen, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorOpen, (_event, input: unknown) => {
     const parsed = editorSessionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const result = openEditorResultSchema.parse(context.editorPersistence.openEditor())
@@ -123,8 +143,7 @@ export function registerEditorIpc(options: {
     }
     return result
   })
-  ipc.handle(IPC_CHANNELS.editorLoadSection, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorLoadSection, (_event, input: unknown) => {
     const parsed = loadSectionInputSchema.parse(input)
     const result = editorSectionSchema.parse(
       options.manager
@@ -134,23 +153,20 @@ export function registerEditorIpc(options: {
     activeSections.set(parsed.projectSessionId, result.section.sectionId)
     return result
   })
-  ipc.handle(IPC_CHANNELS.editorSetActiveSection, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorSetActiveSection, (_event, input: unknown) => {
     const parsed = loadSectionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     context.manuscript.getSection(parsed.sectionId)
     activeSections.set(parsed.projectSessionId, parsed.sectionId)
   })
-  ipc.handle(IPC_CHANNELS.editorSaveSectionDocument, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorSaveSectionDocument, async (_event, input: unknown) => {
     const parsed = saveSectionDocumentInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const result = await saveWithConflictResult(() => context.editorPersistence.save(parsed))
     options.manager.assertActiveSession(parsed.projectSessionId)
     return result
   })
-  ipc.handle(IPC_CHANNELS.editorCreateImportPlan, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorCreateImportPlan, async (_event, input: unknown) => {
     const parsed = manuscriptImportPlanRequestSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const selectedPath =
@@ -167,24 +183,21 @@ export function registerEditorIpc(options: {
     options.manager.assertActiveSession(parsed.projectSessionId)
     return manuscriptImportPlanResultSchema.parse({ status: 'ready', plan })
   })
-  ipc.handle(IPC_CHANNELS.editorApplyImportPlan, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorApplyImportPlan, async (_event, input: unknown) => {
     const parsed = manuscriptImportApplyInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const result = await importService.apply(context, parsed)
     options.manager.assertActiveSession(parsed.projectSessionId)
     return manuscriptImportApplyResultSchema.parse(result)
   })
-  ipc.handle(IPC_CHANNELS.editorCancelImportPlan, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorCancelImportPlan, async (_event, input: unknown) => {
     const parsed = manuscriptImportCancelInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     return manuscriptImportCancelResultSchema.parse(
       await importService.cancel(context, parsed.planId)
     )
   })
-  ipc.handle(IPC_CHANNELS.editorExportNativeJson, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorExportNativeJson, async (_event, input: unknown) => {
     const parsed = exportNativeJsonInputSchema.parse(input)
     try {
       const context = options.manager.assertActiveSession(parsed.projectSessionId)
@@ -210,8 +223,7 @@ export function registerEditorIpc(options: {
       throw new Error('Native JSON export could not be completed', { cause: err })
     }
   })
-  ipc.handle(IPC_CHANNELS.editorExportMarkdown, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorExportMarkdown, async (_event, input: unknown) => {
     const parsed = exportMarkdownInputSchema.parse(input)
     try {
       const context = options.manager.assertActiveSession(parsed.projectSessionId)
@@ -246,8 +258,7 @@ export function registerEditorIpc(options: {
       throw new Error('Markdown export could not be completed', { cause: err })
     }
   })
-  ipc.handle(IPC_CHANNELS.editorUploadAsset, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorUploadAsset, async (_event, input: unknown) => {
     const parsed = uploadManuscriptAssetInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const bytes = decodeBase64(parsed.dataBase64)
@@ -260,8 +271,7 @@ export function registerEditorIpc(options: {
     options.manager.assertActiveSession(parsed.projectSessionId)
     return manuscriptAssetResultSchema.parse(result)
   })
-  ipc.handle(IPC_CHANNELS.editorResolveAsset, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorResolveAsset, (_event, input: unknown) => {
     const parsed = manuscriptAssetPreviewInputSchema.parse(input)
     try {
       const context = options.manager.assertActiveSession(parsed.projectSessionId)
@@ -290,32 +300,28 @@ export function registerEditorIpc(options: {
       return manuscriptAssetPreviewResultSchema.parse({ status: 'session-revoked' })
     }
   })
-  ipc.handle(IPC_CHANNELS.editorListAssets, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorListAssets, async (_event, input: unknown) => {
     const parsed = manuscriptAssetWorkspaceInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const page = await context.manuscriptAssets.listWorkspace(parsed)
     options.manager.assertActiveSession(parsed.projectSessionId)
     return manuscriptAssetWorkspacePageSchema.parse(page)
   })
-  ipc.handle(IPC_CHANNELS.editorDeleteAsset, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorDeleteAsset, async (_event, input: unknown) => {
     const parsed = deleteManuscriptAssetInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const result = await context.manuscriptAssets.deleteUnprotected(parsed.assetId)
     options.manager.assertActiveSession(parsed.projectSessionId)
     return deleteManuscriptAssetResultSchema.parse(result)
   })
-  ipc.handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
     const parsed = editorFlushSubscriptionInputSchema.parse(input)
     options.manager.assertActiveSession(parsed.projectSessionId)
     const leases = subscribers.get(parsed.projectSessionId) ?? new Map<string, WebContents>()
     leases.set(parsed.subscriptionId, event.sender)
     subscribers.set(parsed.projectSessionId, leases)
   })
-  ipc.handle(IPC_CHANNELS.editorUnsubscribeFlush, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorUnsubscribeFlush, (event, input: unknown) => {
     const parsed = editorFlushSubscriptionInputSchema.parse(input)
     const leases = subscribers.get(parsed.projectSessionId)
     if (leases?.get(parsed.subscriptionId)?.id === event.sender.id) {
@@ -323,8 +329,7 @@ export function registerEditorIpc(options: {
       if (leases.size === 0) subscribers.delete(parsed.projectSessionId)
     }
   })
-  ipc.handle(IPC_CHANNELS.editorFinalFlushSave, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorFinalFlushSave, async (event, input: unknown) => {
     const parsed = finalFlushSaveInputSchema.parse(input)
     const currentPending = pending.get(parsed.closingToken)
     if (currentPending?.senderId !== event.sender.id)
@@ -337,8 +342,7 @@ export function registerEditorIpc(options: {
           : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
-  ipc.handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
     const parsed = editorFlushAckInputSchema.parse(input)
     const currentPending = pending.get(parsed.closingToken)
     if (

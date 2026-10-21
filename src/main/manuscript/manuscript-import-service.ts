@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, posix, relative, resolve, sep } from 'node:path'
 import type { Logger } from 'pino'
+import { sha256 } from '../../shared/hash'
 import {
   MANUSCRIPT_IMPORT_PLAN_VERSION,
   MAX_MANUSCRIPT_IMPORT_ASSETS,
@@ -259,6 +260,7 @@ export class ManuscriptImportService {
       )
       return plan
     } catch (err) {
+      // error-handling: allow owner=manuscript-import reason=cleanup-preserves-original
       await input.context.filesystem.removeTree(stageRelativePath).catch(() => undefined)
       this.options.log.error(
         {
@@ -1109,10 +1111,6 @@ function countBlocks(document: BlockNoteDocument): number {
   }
   visit(document)
   return total
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }
 
 function hashManifest(entries: readonly StageManifestEntry[]): string {

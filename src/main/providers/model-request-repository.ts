@@ -1,5 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
+import { canonicalizeJson, type CanonicalJsonError } from '../../shared/canonical-json'
+import { sha256 } from '../../shared/hash'
 import type { ModelExecutionMetadata } from '../../shared/contracts/model-runtime'
 import type { AgentThinkingLevel, ProviderConfig } from '../../shared/contracts/providers'
 import type { ModelRequestOperationKind, ModelRequestStatus } from '../project/database-types'
@@ -298,36 +300,24 @@ export class ModelRequestRepository {
 }
 
 function fingerprint(value: unknown): string {
-  return createHash('sha256').update(canonicalJson(value)).digest('hex')
+  const normalized = canonicalizeJson(value, {
+    omitUndefinedObjectProperties: true,
+    onError: (error) => new Error(modelFingerprintErrorMessage(error), { cause: error })
+  })
+  const serialized = JSON.stringify(normalized)
+  if (serialized === undefined)
+    throw new Error('Model request fingerprint input is not serializable')
+  return sha256(serialized)
 }
 
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalize(value, new Set()))
-}
-
-function canonicalize(value: unknown, seen: Set<object>): unknown {
-  if (value === null || typeof value !== 'object') {
-    if (typeof value === 'bigint' || typeof value === 'function' || typeof value === 'symbol') {
-      throw new Error('Model request fingerprint input is not serializable')
-    }
-    return value
-  }
-  if (seen.has(value)) throw new Error('Model request fingerprint input contains a cycle')
-  seen.add(value)
-  try {
-    if (Array.isArray(value)) return value.map((item) => canonicalize(item, seen))
-    if (Object.getPrototypeOf(value) !== Object.prototype) {
-      throw new Error('Model request fingerprint input must contain plain data')
-    }
-    return Object.keys(value)
-      .sort()
-      .reduce<Record<string, unknown>>((result, key) => {
-        const member = (value as Record<string, unknown>)[key]
-        if (member !== undefined) result[key] = canonicalize(member, seen)
-        return result
-      }, {})
-  } finally {
-    seen.delete(value)
+function modelFingerprintErrorMessage(error: CanonicalJsonError): string {
+  switch (error.kind) {
+    case 'cycle':
+      return 'Model request fingerprint input contains a cycle'
+    case 'non_plain':
+      return 'Model request fingerprint input must contain plain data'
+    default:
+      return 'Model request fingerprint input is not serializable'
   }
 }
 

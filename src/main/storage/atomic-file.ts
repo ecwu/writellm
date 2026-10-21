@@ -43,7 +43,9 @@ export async function writeAtomicFile(
     await syncDirectory(dirname(destination))
     return true
   } finally {
+    // error-handling: allow owner=atomic-file reason=cleanup-preserves-original
     await handle?.close().catch(() => undefined)
+    // error-handling: allow owner=atomic-file reason=cleanup-preserves-original
     await rm(temporary, { force: true }).catch(() => undefined)
   }
 }

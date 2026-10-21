@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { readBoundedAgentImage } from './attachment-file'
 import type { Logger } from 'pino'
 import {
@@ -6,6 +6,7 @@ import {
   agentImageContentSchema,
   type AgentImageContent
 } from '../../shared/contracts/agent-attachments'
+import { sha256 as hashSha256 } from '../../shared/hash'
 import type { ProjectDatabase } from '../project/project-database'
 import { ProjectFilesystem } from '../project/project-filesystem'
 import { validateImageBytes } from '../manuscript/asset-service'
@@ -64,7 +65,7 @@ export class AgentAttachmentService {
     const copy = Buffer.from(sending.data, 'base64')
     const copyDimensions = validateImageBytes(copy, sending.mimeType)
     if (
-      hash(copy) !== sending.sha256 ||
+      hashSha256(copy) !== sending.sha256 ||
       copyDimensions.width !== sending.width ||
       copyDimensions.height !== sending.height
     ) {
@@ -84,7 +85,7 @@ export class AgentAttachmentService {
         attachmentId,
         agentSessionId,
         name.slice(0, 500),
-        hash(bytes),
+        hashSha256(bytes),
         originalPath,
         bytes.length,
         original.mimeType,
@@ -283,7 +284,7 @@ export class AgentAttachmentService {
       await this.#filesystem.assertExistingRegularFile(path),
       size
     )
-    if (bytes.length !== size || hash(bytes) !== sha256)
+    if (bytes.length !== size || hashSha256(bytes) !== sha256)
       throw new Error('Stored image attachment integrity failed')
     return bytes
   }
@@ -299,8 +300,4 @@ export class AgentAttachmentService {
       maxAttempts: 5
     })
   }
-}
-
-function hash(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

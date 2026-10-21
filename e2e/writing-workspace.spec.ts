@@ -5,14 +5,7 @@ import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { IPC_CHANNELS } from '../src/shared/contracts/channels'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
+import { createProject, closeProject } from './helpers/project'
 
 async function expectBriefTitle(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: 'Brief', exact: true }).click()
@@ -86,14 +79,6 @@ async function moveSectionUp(page: Page, sourceTitle: string): Promise<void> {
   await outline.getByRole('button', { name: 'Up', exact: true }).click()
   await outline.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(outline).not.toBeVisible()
-}
-
-async function closeProject(page: Page): Promise<void> {
-  await openAppMenu(page, 'Project')
-  await clickAppMenuItem(page, 'Close project and return to chooser', false)
-  await expect
-    .poll(async () => (await page.evaluate(() => window.desktop.projects.lifecycle())).state)
-    .toBe('closed')
 }
 
 async function placeCaret(paragraph: Locator, offset?: number): Promise<void> {
@@ -878,7 +863,7 @@ test(
       await expect(launched.page.getByText('0 results', { exact: true })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Close Find' }).click()
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(launched.page.locator('[data-inline-content-type="math"]')).toHaveCount(4)
@@ -1114,7 +1099,7 @@ Hello \textbf{reviewed} import with $x^2$.
       await evidence.click()
       await expect(sectionEditor(launched.page)).toContainText('\\cite{missing-key}')
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       const reopenedOpening = launched.page.getByTestId(/^outline-section-/).filter({
@@ -1225,7 +1210,7 @@ test(
       await expect(rules.getByText('Translate LLM consistently.', { exact: true })).toBeVisible()
       await expect(rules.getByRole('switch', { name: 'Deactivate rule' })).toBeChecked()
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await launched.page.getByRole('button', { name: 'Open project', exact: true }).click()
       // Reopen restores the selected tool. Outline's project header can remain hidden.
       await expect
@@ -1444,7 +1429,7 @@ test(
         launched.page.getByTestId(/^outline-section-/).filter({ hasText: 'Conclusion' })
       ).toContainText('Completed')
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await launched.page.getByRole('button', { name: 'Open project' }).click()
       await expectActiveProject(launched.page, projectName)
@@ -1544,7 +1529,7 @@ test(
       await expect(cachedEditor).toContainText('Opening evidence')
       await cachedEditor.click()
       await launched.page.keyboard.type(' Final flush draft')
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await launched.page
@@ -1554,7 +1539,7 @@ test(
       await expect(sectionEditor(launched.page)).toContainText('Final flush draft')
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Introduction')
       await expect(readdir(join(projectRoot, 'manuscript', 'sections'))).resolves.toHaveLength(3)
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await launched.app.close()
       relaunched = await launchApp({
@@ -1734,7 +1719,7 @@ test(
       await launched.page.keyboard.press('ControlOrMeta+z')
       await expect(editor).toContainText('External canonical update')
       await expect(editor).not.toContainText('Local stale draft')
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
     } finally {
       await launched.app.close()
@@ -1795,7 +1780,7 @@ test(
         )
         .toEqual({ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect(launched.page.getByRole('heading', { name: /Open a workspace/ })).toBeVisible()
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expect(launched.page.locator('textarea#section-title')).toHaveValue(longTitle)
@@ -1832,7 +1817,7 @@ test(
         )
         .toBe(true)
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await openAppMenu(launched.page, 'Project')
       await clickAppMenuItem(launched.page, 'Restore snapshot', false)
       await expectActiveProject(launched.page, 'Snapshot backup')
@@ -1881,7 +1866,8 @@ test(
       await expectAppMenuItem(launched.page, 'Enable version history…', { visible: true })
       await launched.page.keyboard.press('Escape')
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
+
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(sectionEditor(launched.page)).toContainText('Independent clone content')
@@ -1944,7 +1930,7 @@ test(
       await save.getByRole('button', { name: 'Save template', exact: true }).click()
       await expect(save).not.toBeVisible()
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await rm(sourceRoot, { recursive: true, force: true })
       await launched.page.getByRole('button', { name: 'Create project', exact: true }).click()
       const create = launched.page.getByRole('dialog', { name: 'Create project' })
@@ -2055,7 +2041,7 @@ test(
         recursive: true
       })
       expect(originalNames.some((name) => name.endsWith('研究 source.pdf'))).toBe(true)
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await expect
         .poll(
           () =>
@@ -2501,7 +2487,7 @@ test(
               }
             ]
           })
-          if (!saved.ok) throw new Error(saved.error.message)
+          if (saved.ok === false) throw new Error(saved.error.message)
         },
         {
           pngBase64:
@@ -2629,7 +2615,7 @@ test(
       expect(markdown).toContain('![Edited uploaded pixel]')
       expect(markdown).toMatch(/\.\.\/assets\/[0-9a-f]{64}\.png/)
 
-      await closeProject(launched.page)
+      await closeProject(launched.page, true)
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       await expect(
@@ -2717,7 +2703,7 @@ test(
             }
           ]
         })
-        if (!firstSaved.ok) throw new Error(firstSaved.error.message)
+        if (firstSaved.ok === false) throw new Error(firstSaved.error.message)
         const created = await window.desktop.manuscript.createSection({
           projectSessionId,
           create: {
@@ -2759,7 +2745,7 @@ test(
             }
           ]
         })
-        if (!secondSaved.ok) throw new Error(secondSaved.error.message)
+        if (secondSaved.ok === false) throw new Error(secondSaved.error.message)
         return {
           projectSessionId,
           firstSectionId: first.section.sectionId,

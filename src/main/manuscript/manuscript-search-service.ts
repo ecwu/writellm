@@ -3,9 +3,9 @@ import {
   manuscriptHeadingPath as headingPath,
   toSearchable
 } from './manuscript-search-scope'
-import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import type { Logger } from 'pino'
+import { sha256 } from '../../shared/hash'
 import {
   MANUSCRIPT_SEARCH_MAX_RESULTS,
   manuscriptSearchNavigationResultSchema,
@@ -260,7 +260,7 @@ export class ManuscriptSearchService {
         for (const match of matches) {
           const target = targetForSurfaceMatch(surface, match)
           const slice = surface.text.slice(match.from, match.to)
-          if (hash(slice) === input.sourceSliceHash && sameTargetLocation(target, input.target)) {
+          if (sha256(slice) === input.sourceSliceHash && sameTargetLocation(target, input.target)) {
             const result = manuscriptSearchNavigationResultSchema.parse({
               status: 'valid',
               sectionId: sectionEntry.section.sectionId,
@@ -336,12 +336,8 @@ function surfaceMatchesTarget(
   }
 }
 
-function hash(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
-}
-
 function fingerprintAssembly(assembly: ManuscriptAssembly): string {
-  return hash(
+  return sha256(
     JSON.stringify({
       version: 1,
       outlineVersion: assembly.outlineVersion,
@@ -351,8 +347,8 @@ function fingerprintAssembly(assembly: ManuscriptAssembly): string {
         position: section.position,
         level: section.level,
         status: section.status,
-        titleHash: hash(section.title),
-        objectiveHash: hash(section.objective ?? ''),
+        titleHash: sha256(section.title),
+        objectiveHash: sha256(section.objective ?? ''),
         revisionId: revision.sectionRevisionId,
         contentHash: revision.contentHash
       }))
@@ -361,7 +357,7 @@ function fingerprintAssembly(assembly: ManuscriptAssembly): string {
 }
 
 function fingerprintRequest(input: ParsedManuscriptSearchInput): string {
-  return hash(
+  return sha256(
     JSON.stringify({
       version: 1,
       query: input.query,
@@ -373,7 +369,7 @@ function fingerprintRequest(input: ParsedManuscriptSearchInput): string {
 }
 
 function cursorChecksum(payload: Omit<CursorPayload, 'checksum'>): string {
-  return hash(JSON.stringify(payload))
+  return sha256(JSON.stringify(payload))
 }
 
 function encodeCursor(
@@ -434,7 +430,7 @@ function hashMatch(
   target: NavigationTarget,
   sourceSliceHash: string
 ): string {
-  return hash(JSON.stringify({ version: 1, caseSensitive, target, sourceSliceHash }))
+  return sha256(JSON.stringify({ version: 1, caseSensitive, target, sourceSliceHash }))
 }
 
 function targetLocation(target: NavigationTarget): unknown {
@@ -470,7 +466,7 @@ function createHit(
   const after = Math.min(600, surface.text.length - match.to)
   const excerptFrom = match.from - before
   const excerptTo = match.to + after
-  const sourceSliceHash = hash(surface.text.slice(match.from, match.to))
+  const sourceSliceHash = sha256(surface.text.slice(match.from, match.to))
   return {
     matchId: hashMatch(input.caseSensitive, target, sourceSliceHash),
     sourceSliceHash,

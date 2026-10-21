@@ -2,7 +2,7 @@ import { MessageChannelMain, type MessagePortMain, type UtilityProcess } from 'e
 import type { Logger } from 'pino'
 import type { ProcessRole, Subsystem } from '../../shared/observability/log-schema'
 import type { LogCollector } from '../observability/log-collector'
-import { attachUtilityLogPort } from '../observability/utility-logs'
+import { attachUtilityLogPort, captureUtilityStderr } from '../observability/utility-logs'
 
 export interface PersistentUtilityProcessFactory {
   fork(modulePath: string, args?: string[], options?: Electron.ForkOptions): UtilityProcess
@@ -38,6 +38,9 @@ export class PersistentUtilityProcess {
   readonly #subsystem?: Subsystem
   readonly #component?: string
   readonly #args: string[]
+  readonly #stdio: 'ignore' | 'pipe'
+  readonly #attachLoggingPort: boolean
+  readonly #rejectStaleResponses: boolean
   readonly #pending = new Map<string, PendingRequest<unknown>>()
   #child: UtilityProcess | undefined
   #detachLogPort: (() => void) | undefined
@@ -54,6 +57,9 @@ export class PersistentUtilityProcess {
     subsystem?: Subsystem
     component?: string
     args?: string[]
+    stdio?: 'ignore' | 'pipe'
+    attachLoggingPort?: boolean
+    rejectStaleResponses?: boolean
   }) {
     this.#modulePath = options.modulePath
     this.#serviceName = options.serviceName
@@ -64,6 +70,13 @@ export class PersistentUtilityProcess {
     this.#subsystem = options.subsystem
     this.#component = options.component
     this.#args = options.args ?? []
+    this.#stdio = options.stdio ?? 'ignore'
+    this.#attachLoggingPort = options.attachLoggingPort ?? true
+    this.#rejectStaleResponses = options.rejectStaleResponses ?? false
+  }
+
+  get running(): boolean {
+    return this.#child !== undefined
   }
 
   request<T>(options: {
@@ -72,6 +85,7 @@ export class PersistentUtilityProcess {
     signal: AbortSignal
     rejectOnAbort: Error
     cancelPayload?: unknown
+    terminateOnAbort?: boolean
     transfer?: MessagePortMain[]
     onMessage: UtilityMessageHandler<T>
   }): Promise<T> {
@@ -104,6 +118,7 @@ export class PersistentUtilityProcess {
         this.#pending.delete(options.requestId)
         pending.signal.removeEventListener('abort', pending.onAbort)
         reject(pending.rejectOnAbort)
+        if (options.terminateOnAbort === true) this.#terminate(options.rejectOnAbort)
       }
       const pending: PendingRequest<T> = {
         requestId: options.requestId,
@@ -148,10 +163,10 @@ export class PersistentUtilityProcess {
     }
   }
 
-  terminate(): void {
+  terminate(reason = new Error(`${this.#serviceName} terminated`)): void {
     if (this.#closed) return
     this.#closed = true
-    this.#rejectAll(new Error(`${this.#serviceName} terminated`))
+    this.#rejectAll(reason)
     const child = this.#child
     this.#child = undefined
     this.#detachLogPort?.()
@@ -159,13 +174,25 @@ export class PersistentUtilityProcess {
     child?.kill()
   }
 
+  /**
+   * Stop the current child and reject active requests while keeping this
+   * supervisor available for a later request. This is used when a worker
+   * owns rebuildable state and must be recreated after a protocol failure.
+   */
+  reset(reason = new Error(`${this.#serviceName} reset`)): void {
+    if (this.#closed) return
+    this.#terminate(reason)
+  }
+
   #ensureChild(): UtilityProcess {
     if (this.#child !== undefined) return this.#child
     const child = this.#factory.fork(this.#modulePath, this.#args, {
       serviceName: this.#serviceName,
-      stdio: 'ignore'
+      stdio: this.#stdio
     })
+    if (this.#stdio === 'pipe') captureUtilityStderr(child, this.#log as Logger)
     if (
+      this.#attachLoggingPort &&
       this.#collector !== undefined &&
       this.#processRole !== undefined &&
       this.#subsystem !== undefined &&
@@ -224,10 +251,21 @@ export class PersistentUtilityProcess {
     }
     const pending = this.#pending.get(requestId)
     if (pending === undefined) {
+      const error = this.#rejectStaleResponses
+        ? new Error('Persistent utility worker response request ID is not pending')
+        : undefined
       this.#log.warn(
-        { event: 'worker.utility.response_stale', requestId, serviceName: this.#serviceName },
+        {
+          event: 'worker.utility.response_stale',
+          ...(error === undefined ? {} : { err: error }),
+          requestId,
+          serviceName: this.#serviceName
+        },
         'Persistent utility worker returned a stale response'
       )
+      if (this.#rejectStaleResponses) {
+        this.#terminate(error as Error)
+      }
       return
     }
     let decision: UtilityMessageDecision<unknown>
@@ -261,10 +299,11 @@ export class PersistentUtilityProcess {
     this.#child = undefined
     this.#detachLogPort?.()
     this.#detachLogPort = undefined
-    this.#rejectAll(new Error(`${this.#serviceName} exited before responding (${code})`))
+    const error = new Error(`${this.#serviceName} exited before responding (${code})`)
+    this.#rejectAll(error)
     if (!this.#closed) {
       this.#log.warn(
-        { event: 'worker.utility.exited', code, serviceName: this.#serviceName },
+        { event: 'worker.utility.exited', err: error, code, serviceName: this.#serviceName },
         'Persistent utility worker exited'
       )
     }

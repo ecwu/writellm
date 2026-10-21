@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { sha256 } from '../../shared/hash'
 import type { AgentApprovalMode, AgentEditorContext } from '../../shared/contracts/agent'
 import {
   agentProposalToolNameSchema,
@@ -643,7 +644,7 @@ function normalizeSectionArguments(
     const block = blocks.get(target.blockId)
     if (block === undefined)
       throw new AgentToolDomainError('conflict', 'Target block no longer exists')
-    const actual = createHash('sha256').update(JSON.stringify(block)).digest('hex')
+    const actual = sha256(JSON.stringify(block))
     if (actual !== target.expectedBlockHash) {
       throw new AgentToolDomainError(
         'conflict',
@@ -839,9 +840,7 @@ function normalizeSectionArguments(
         }
         throw new AgentToolDomainError('conflict', 'Source image block no longer exists')
       }
-      const actualSourceHash = createHash('sha256')
-        .update(JSON.stringify(sourceBlock))
-        .digest('hex')
+      const actualSourceHash = sha256(JSON.stringify(sourceBlock))
       if (actualSourceHash !== operation.source.expectedBlockHash) {
         throw new AgentToolDomainError(
           'conflict',

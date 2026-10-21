@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
 import { utilityProcess } from 'electron'
 import type { Logger } from 'pino'
 import {
@@ -112,7 +113,5 @@ export class ProviderProbeClient {
 }
 
 function abortError(): Error {
-  const error = new Error('Provider probe aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Provider probe aborted')
 }

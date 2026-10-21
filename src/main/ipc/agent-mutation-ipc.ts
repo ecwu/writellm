@@ -12,8 +12,11 @@ import {
   undoMutationProposalInputSchema
 } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 import type { MutationEventBroker } from '../agent/mutation-event-broker'
 import {
   changeSetBatchInputSchema,
@@ -33,6 +36,25 @@ export function registerAgentMutationIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const handle = (
+    channel: string,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: handler.constructor.name === 'AsyncFunction',
+        handle: (input, event) => handler(event, input)
+      })
+      return
+    }
+    ipc.handle(channel, handler)
+  }
   const service = (projectSessionId: string) => {
     const context = options.manager.assertMutationSession(projectSessionId)
     return context.agentMutations
@@ -88,8 +110,7 @@ export function registerAgentMutationIpc(options: {
     }
   }
 
-  ipc.handle(IPC_CHANNELS.agentProposalApprove, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentProposalApprove, (_event, rawInput: unknown) => {
     const input = approveMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.approve', input.proposalId, async () => {
       assertWritableSession(input.projectSessionId, input.agentSessionId)
@@ -105,8 +126,7 @@ export function registerAgentMutationIpc(options: {
       return result
     })
   })
-  ipc.handle(IPC_CHANNELS.agentProposalReject, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentProposalReject, (_event, rawInput: unknown) => {
     const input = rejectMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.reject', input.proposalId, async () => {
       assertWritableSession(input.projectSessionId, input.agentSessionId)
@@ -122,8 +142,7 @@ export function registerAgentMutationIpc(options: {
       return result
     })
   })
-  ipc.handle(IPC_CHANNELS.agentProposalUndo, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentProposalUndo, (_event, rawInput: unknown) => {
     const input = undoMutationProposalInputSchema.parse(rawInput)
     return lifecycle('agent.proposal.undo', input.proposalId, async () => {
       assertWritableSession(input.projectSessionId, input.agentSessionId)
@@ -134,8 +153,7 @@ export function registerAgentMutationIpc(options: {
       return result
     })
   })
-  ipc.handle(IPC_CHANNELS.agentChangeSetBatch, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentChangeSetBatch, (_event, rawInput: unknown) => {
     const input = changeSetBatchInputSchema.parse(rawInput)
     return lifecycle('agent.change_set.batch', input.commandId, async () => {
       assertWritableSession(input.projectSessionId, input.agentSessionId)
@@ -153,8 +171,7 @@ export function registerAgentMutationIpc(options: {
       )
     })
   })
-  ipc.handle(IPC_CHANNELS.agentCancelImageGeneration, (event, rawInput: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.agentCancelImageGeneration, (_event, rawInput: unknown) => {
     const input = cancelImageGenerationInputSchema.parse(rawInput)
     assertWritableSession(input.projectSessionId, input.agentSessionId)
     return cancelImageGenerationResultSchema.parse({

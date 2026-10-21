@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { reportRendererOperationError } from '../../diagnostics'
 import {
   Sheet,
   SheetContent,
@@ -57,12 +58,15 @@ export function KnowledgeMappingViewer(props: {
               projectSessionId: props.projectSessionId,
               previewId: result.previewId
             })
-            .catch(() => undefined)
+            .catch((err) => reportRendererOperationError(err, 'knowledge-mapping.release-preview'))
           return
         }
         setPreview({ previewId: result.previewId, url: result.url })
       })
-      .catch(() => props.onError('The original PDF could not be loaded.'))
+      .catch((err) => {
+        reportRendererOperationError(err, 'knowledge-mapping.create-preview')
+        props.onError('The original PDF could not be loaded.')
+      })
     return () => {
       cancelled = true
     }
@@ -81,7 +85,10 @@ export function KnowledgeMappingViewer(props: {
         setPdf(document)
         setPageNumber((props.initialPageIndex ?? 0) + 1)
       })
-      .catch(() => props.onError('The PDF could not be rendered.'))
+      .catch((err) => {
+        reportRendererOperationError(err, 'knowledge-mapping.load-pdf')
+        props.onError('The PDF could not be rendered.')
+      })
     return () => {
       cancelled = true
       void loadingTask.destroy()
@@ -97,7 +104,7 @@ export function KnowledgeMappingViewer(props: {
           projectSessionId: props.projectSessionId,
           previewId: preview.previewId
         })
-        .catch(() => undefined)
+        .catch((err) => reportRendererOperationError(err, 'knowledge-mapping.release-preview'))
     }
   }, [preview, props.projectSessionId])
 
@@ -140,7 +147,8 @@ export function KnowledgeMappingViewer(props: {
         })
         return renderTask.promise
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'knowledge-mapping.render-page')
         if (!cancelled) props.onError('The PDF page could not be rendered.')
       })
     return () => {

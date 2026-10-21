@@ -1,4 +1,5 @@
-import { matchesShortcut, shortcutLabel } from '@/lib/keyboard-shortcuts'
+import { shortcutLabel } from '@/lib/keyboard-shortcuts'
+import { reportRendererOperationError } from '../../diagnostics'
 import {
   autocompleteExtension,
   refreshAutocomplete,
@@ -8,7 +9,6 @@ import type { BlockNoteDocument, SectionRevision } from '../../../../shared/cont
 import type { ReferenceSearchCandidate } from '../../../../shared/contracts/references'
 import {
   AGENT_QUICK_ACTIONS,
-  agentQuickActionSelectedTextSchema,
   type AgentQuickActionId,
   type AgentQuickActionRequest
 } from '../../../../shared/contracts/agent-quick-actions'
@@ -96,7 +96,7 @@ import {
 } from './editor-schema'
 import { isCitationCommandAllowed } from './citation-command'
 import { CitationSearchPopover, type CitationSearchState } from './citation-search-popover'
-import { inlineMathGuardExtension, selectionContainsStructuredSource } from './inline-math-guard'
+import { inlineMathGuardExtension } from './inline-math-guard'
 import { resolveProjectAssetUrl } from './project-asset-url'
 import {
   readableCitationExtension,
@@ -107,11 +107,8 @@ import {
   manuscriptSearchHighlightExtension,
   refreshSearchHighlight
 } from './search-highlight-extension'
-import {
-  captureCommentSegments,
-  commentHighlightExtension,
-  refreshCommentHighlights
-} from './comment-highlight-extension'
+import { commentHighlightExtension, refreshCommentHighlights } from './comment-highlight-extension'
+import { useSectionEditorSelection } from './use-section-editor-selection'
 
 export type SaveState = 'clean' | 'saving' | 'saved' | 'mirror-pending' | 'conflict' | 'failed'
 
@@ -514,66 +511,10 @@ const SectionEditorSession = forwardRef<
     if (!mountedRef.current || !dirtyRef.current || saveBlockedRef.current || isComposing()) return
     timerRef.current = setTimeout(() => {
       timerRef.current = undefined
+      // error-handling: allow owner=manuscript-editor reason=save-recovery
       void save().catch(() => undefined) // save reports the original error and retains the draft.
     }, 1_500)
   }
-
-  const lastExactSelectionRef = useRef<EditorExactSelectionSnapshot | null>(null)
-
-  const captureSelection = useCallback((): EditorExactSelectionSnapshot | null => {
-    const selection = editor.getSelection()
-    const parsedText = agentQuickActionSelectedTextSchema.safeParse(editor.getSelectedText())
-    if (selection !== undefined && parsedText.success && selection.blocks.length > 0) {
-      const selectedBlockIds = selection.blocks.map((block) => block.id)
-      const cursorBlockId = editor.getTextCursorPosition().block.id
-      const snapshot = {
-        activeBlockId: selectedBlockIds.includes(cursorBlockId)
-          ? cursorBlockId
-          : (selectedBlockIds[0] ?? cursorBlockId),
-        selectedBlockIds,
-        selectedText: parsedText.data,
-        capturedAt: Date.now(),
-        capturedRevisionId: baseRef.current.sectionRevisionId,
-        capturedContentHash: baseRef.current.contentHash,
-        commentSegments: captureCommentSegments(
-          editor.prosemirrorView.state.doc,
-          editor.prosemirrorView.state.selection.from,
-          editor.prosemirrorView.state.selection.to
-        )
-      }
-      lastExactSelectionRef.current = snapshot
-      return snapshot
-    }
-    lastExactSelectionRef.current = null
-    return null
-  }, [editor])
-
-  const requestAddComment = useCallback((): void => {
-    const proseMirrorSelection = editor.prosemirrorView.state.selection
-    if (
-      selectionContainsStructuredSource(
-        editor.prosemirrorView.state.doc,
-        proseMirrorSelection.from,
-        proseMirrorSelection.to
-      ) ||
-      selectionContainsTable(
-        editor.prosemirrorView.state.doc,
-        proseMirrorSelection.from,
-        proseMirrorSelection.to
-      )
-    ) {
-      props.onQuickActionError?.(
-        'Comments currently support prose, lists, and links. Select text outside tables, formulas, or diagrams.'
-      )
-      return
-    }
-    const selection = captureSelection()
-    if (selection === null || selection.commentSegments.length === 0) {
-      props.onQuickActionError?.('Select manuscript text before adding a comment.')
-      return
-    }
-    props.onAddComment?.(selection)
-  }, [captureSelection, editor, props.onAddComment, props.onQuickActionError])
 
   useEffect(() => {
     void props.comments
@@ -581,48 +522,26 @@ const SectionEditorSession = forwardRef<
     refreshCommentHighlights(editor.prosemirrorView)
   }, [editor, props.comments, props.selectedCommentThreadId])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (props.active === false) return
-      if (!matchesShortcut(event, 'comment') || !props.onAddComment) return
-      if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
-      event.preventDefault()
-      requestAddComment()
-    }
-    window.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [editor, requestAddComment, props.onAddComment, props.active])
-
-  const requestQuickAction = useCallback(
-    (action: AgentQuickActionId): void => {
-      const proseMirrorSelection = editor.prosemirrorView.state.selection
-      if (
-        selectionContainsStructuredSource(
-          editor.prosemirrorView.state.doc,
-          proseMirrorSelection.from,
-          proseMirrorSelection.to
-        )
-      ) {
-        props.onQuickActionError?.(
-          'Quick actions cannot cross formulas or diagrams. Select prose only, or ask the Agent to edit the whole block.'
-        )
-        return
-      }
-      const selection = captureSelection()
-      if (selection === null) {
-        props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
-        return
-      }
-      if (action === 'custom') {
-        setCustomSelection(selection)
-        setCustomInstruction('')
-        setCustomQuickActionOpen(true)
-        return
-      }
-      props.onQuickActionRequest?.({ action }, selection)
-    },
-    [captureSelection, editor, props.onQuickActionError, props.onQuickActionRequest]
-  )
+  const {
+    captureSelection,
+    clearSelectionSnapshot,
+    handleSelectionChange,
+    handleQuickActionShortcut,
+    requestAddComment,
+    requestQuickAction
+  } = useSectionEditorSelection({
+    editor,
+    baseRevisionRef: baseRef,
+    active: props.active,
+    onSelectionContextChange: props.onSelectionContextChange,
+    onQuickActionRequest: props.onQuickActionRequest,
+    onQuickActionError: props.onQuickActionError,
+    onAddComment: props.onAddComment,
+    setQuickActionMenuOpen,
+    setCustomQuickActionOpen,
+    setCustomInstruction,
+    setCustomSelection
+  })
 
   const searchReferences = useCallback(
     (query: string, delay = 150): void => {
@@ -639,7 +558,8 @@ const SectionEditorSession = forwardRef<
             if (citationSearchSequenceRef.current !== sequence) return
             setCitationSearchState({ status: 'ready', ...result })
           })
-          .catch(() => {
+          .catch((err) => {
+            reportEditorError('manuscript.editor.reference-search', err)
             if (citationSearchSequenceRef.current !== sequence) return
             setCitationSearchState({ status: 'error' })
           })
@@ -751,34 +671,9 @@ const SectionEditorSession = forwardRef<
   )
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (props.active === false) return
-      if (!matchesShortcut(event, 'quickActions')) return
-      if (!editor.prosemirrorView.hasFocus() || editor.prosemirrorView.state.selection.empty) return
-      event.preventDefault()
-      event.stopPropagation()
-      const proseMirrorSelection = editor.prosemirrorView.state.selection
-      if (
-        selectionContainsStructuredSource(
-          editor.prosemirrorView.state.doc,
-          proseMirrorSelection.from,
-          proseMirrorSelection.to
-        )
-      ) {
-        props.onQuickActionError?.(
-          'Quick actions cannot cross formulas or diagrams. Select prose only, or ask the Agent to edit the whole block.'
-        )
-        return
-      }
-      if (captureSelection() === null) {
-        props.onQuickActionError?.('Select text in the manuscript before using a quick action.')
-        return
-      }
-      setQuickActionMenuOpen(true)
-    }
-    window.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [captureSelection, editor, props.onQuickActionError, props.active])
+    window.addEventListener('keydown', handleQuickActionShortcut, { capture: true })
+    return () => window.removeEventListener('keydown', handleQuickActionShortcut, { capture: true })
+  }, [handleQuickActionShortcut])
 
   const resolveCitation = useCallback(
     (request: ReadableCitationActivation): void => {
@@ -805,7 +700,8 @@ const SectionEditorSession = forwardRef<
             setCitationDialog({ phase: 'unavailable', request, reason: result.reason })
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          reportEditorError('manuscript.editor.citation-resolve', err)
           if (citationRequestSequenceRef.current === sequence) {
             setCitationDialog({ phase: 'error', request })
           }
@@ -834,7 +730,8 @@ const SectionEditorSession = forwardRef<
           new Map(snapshot.citations.map((citation) => [citation.raw, citation.formatted]))
         )
       })
-      .catch(() => {
+      .catch((err) => {
+        reportEditorError('manuscript.editor.citation-format', err)
         if (formatRequestRef.current !== request) return
         notifyActionError('Formatted citations are temporarily unavailable')
       })
@@ -1128,26 +1025,14 @@ const SectionEditorSession = forwardRef<
             onChange={(_editor, { getChanges }) => {
               // setEditable emits an update too; it must not create a dirty draft.
               if (getChanges().length === 0) return
-              lastExactSelectionRef.current = null
+              clearSelectionSnapshot()
               props.onCitationDocumentChange?.(toCanonicalDocument(editor.document))
               dirtyRef.current = true
               if (saveBlockedRef.current) return
               setSaveState('clean')
               scheduleAutosave()
             }}
-            onSelectionChange={() => {
-              const cursor = editor.getTextCursorPosition()
-              const selection = editor.getSelection()
-              if (selection === undefined || editor.getSelectedText().trim().length === 0) {
-                lastExactSelectionRef.current = null
-              }
-              props.onSelectionContextChange?.({
-                activeBlockId: cursor.block.id,
-                selectedBlockIds: selection?.blocks.map((block) => block.id) ?? [cursor.block.id],
-                selectedText:
-                  selection === undefined ? null : (captureSelection()?.selectedText ?? null)
-              })
-            }}
+            onSelectionChange={handleSelectionChange}
             className='writing-editor min-h-[32rem] py-6'
           >
             <SuggestionMenuController
@@ -1265,6 +1150,8 @@ const SectionEditorSession = forwardRef<
             size='sm'
             onClick={() => {
               saveBlockedRef.current = false
+              // save reports the original error and retains the draft.
+              // error-handling: allow owner=manuscript-editor reason=save-recovery
               void save().catch(() => undefined)
             }}
           >
@@ -1540,26 +1427,6 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-function selectionContainsTable(
-  document: {
-    nodesBetween(
-      from: number,
-      to: number,
-      callback: (node: { type: { name: string } }) => boolean
-    ): void
-  },
-  from: number,
-  to: number
-): boolean {
-  let found = false
-  document.nodesBetween(from, to, (node) => {
-    if (!['table', 'tableRow', 'tableCell', 'tableHeader'].includes(node.type.name)) return !found
-    found = true
-    return false
-  })
-  return found
-}
-
 function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
   const labels: Record<SaveState, string> = {
     clean: 'Unsaved',
@@ -1580,12 +1447,5 @@ function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
 }
 
 function reportEditorError(source: string, error: unknown): void {
-  const original =
-    error instanceof Error ? error : new Error('Unknown editor failure', { cause: error })
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    source,
-    message: original.message,
-    stack: original.stack
-  })
+  reportRendererOperationError(error, source)
 }

@@ -1,100 +1,27 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
-import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('CP50 Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('cp50-e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch CP50 Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
+import { expect, launchApp, scenario, test } from './fixtures'
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
+import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
 function sendToolCall(
   response: ServerResponse,
   input: { responseId: string; toolCallId: string; name: string; args: unknown }
 ): void {
-  sendSse(response, [
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'cp50-model-resolved',
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: input.toolCallId,
-                type: 'function',
-                function: { name: input.name, arguments: JSON.stringify(input.args) }
-              }
-            ]
-          },
-          finish_reason: null
-        }
-      ]
-    },
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'cp50-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
-    }
-  ])
+  sendSharedToolCall(response, input, {
+    model: 'cp50-model-resolved',
+    requestId: 'cp50-e2e-request'
+  })
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
-  sendSse(response, [
-    {
-      id: 'cp50-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'cp50-model-resolved',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
-    },
-    {
-      id: 'cp50-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'cp50-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }
-    }
-  ])
-}
-
-function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'x-request-id': 'cp50-e2e-request'
+  sendSharedCompletion(response, text, {
+    id: 'cp50-completion',
+    model: 'cp50-model-resolved',
+    requestId: 'cp50-e2e-request'
   })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
 }
 
 test(
@@ -199,7 +126,10 @@ test(
       dialogPaths: [testRoot]
     })
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'CP50 Agent',
+        apiKey: 'cp50-e2e-secret'
+      })
       await createProject(launched.page, projectName)
       if (!(await launched.page.getByTestId('agent-panel').isVisible()))
         await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()

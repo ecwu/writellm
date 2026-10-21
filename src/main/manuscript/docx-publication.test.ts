@@ -77,8 +77,14 @@ describe('DOCX publication renderer', () => {
     expect(documentXml).toContain('Figure 1. A deterministic pixel')
     const bookmarkStarts = [...documentXml.matchAll(/<w:bookmarkStart\b[^>]*w:id="(\d+)"/gu)]
     const bookmarkEnds = [...documentXml.matchAll(/<w:bookmarkEnd\b[^>]*w:id="(\d+)"/gu)]
-    expect(bookmarkStarts.map((match) => match[1])).toEqual(['1', '2'])
-    expect(bookmarkEnds.map((match) => match[1])).toEqual(['1', '2'])
+    expect(bookmarkStarts.map((match) => match[1])).toEqual(['1', '2', '3', '4', '5', '6'])
+    expect(bookmarkEnds.map((match) => match[1]).sort()).toEqual(['1', '2', '3', '4', '5', '6'])
+    const tocBookmarks = [...documentXml.matchAll(/<w:bookmarkStart\b[^>]*w:name="(_Toc\d+)"/gu)]
+    expect(tocBookmarks.map((match) => match[1])).toEqual(['_Toc1', '_Toc2', '_Toc3', '_Toc4'])
+    for (const [, name] of tocBookmarks) {
+      expect(documentXml).toContain(`w:anchor="${name}"`)
+      expect(documentXml).toContain(`PAGEREF ${name} \\h`)
+    }
     expect(relationshipsXml).toContain('https://example.com/research')
     expect(footerXml).toContain('PAGE')
     expect(footerXml).toContain('NUMPAGES')
@@ -87,6 +93,7 @@ describe('DOCX publication renderer', () => {
     expect(extracted.value).toContain('Publication fixture 文档')
     expect(extracted.value).toContain('Introduction 介绍')
     expect(extracted.value).toContain('Evidence')
+    expect(extracted.value).toContain('Evidence _Toc3')
     expect(extracted.value).toContain('[1]')
     expect(extracted.value).toContain('References')
     expect(extracted.value).toContain('Research Source')
@@ -149,7 +156,7 @@ function fixtureAssembly(): PublicationAssembly {
       {
         type: 'paragraph',
         content: [
-          { type: 'text', text: 'Evidence ', style: { ...emptyStyle(), bold: true } },
+          { type: 'text', text: 'Evidence _Toc3 ', style: { ...emptyStyle(), bold: true } },
           { type: 'citation', number: 1, title: 'Research Source', pageIndex: 1, raw: '[Source]' },
           { type: 'text', text: ' and ', style: emptyStyle() },
           { type: 'math', source: 'E = mc^2' },

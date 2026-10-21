@@ -4,6 +4,7 @@ import { AGENT_RUN_PROMPT_MAX_CHARACTERS } from '../../../../shared/contracts/ag
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { reportRendererOperationError } from '../../diagnostics'
 
 export function MessageCopyButton({ content }: { content: string }): React.JSX.Element {
   const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
@@ -22,13 +23,7 @@ export function MessageCopyButton({ content }: { content: string }): React.JSX.E
       if (timer.current !== null) clearTimeout(timer.current)
       timer.current = setTimeout(() => setStatus('idle'), 2_000)
     } catch (err) {
-      const original = err instanceof Error ? err : new Error(String(err))
-      window.desktop.diagnostics.reportRendererError({
-        event: 'renderer.error',
-        source: 'agent.message.copy',
-        message: original.message,
-        stack: original.stack
-      })
+      reportRendererOperationError(err, 'agent.message.copy')
       setStatus('failed')
     }
   }

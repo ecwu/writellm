@@ -1,100 +1,32 @@
 import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
-
-async function configureAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Clarification Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('clarification-e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Clarification Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
-}
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
+import { configureAgentProvider, createProject } from './helpers/project'
+import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
+import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
 function sendToolCall(
   response: ServerResponse,
   input: { responseId: string; toolCallId: string; args: unknown }
 ): void {
-  sendSse(response, [
+  sendSharedToolCall(
+    response,
+    { ...input, name: 'ask_user' },
     {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
       model: 'clarification-model-resolved',
-      choices: [
-        {
-          index: 0,
-          delta: {
-            role: 'assistant',
-            tool_calls: [
-              {
-                index: 0,
-                id: input.toolCallId,
-                type: 'function',
-                function: { name: 'ask_user', arguments: JSON.stringify(input.args) }
-              }
-            ]
-          },
-          finish_reason: null
-        }
-      ]
-    },
-    {
-      id: input.responseId,
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'clarification-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-      usage: { prompt_tokens: 10, completion_tokens: 6, total_tokens: 16 }
+      requestId: 'clarification-e2e-request',
+      completionTokens: 6
     }
-  ])
+  )
 }
 
 function sendCompletion(response: ServerResponse, text: string): void {
-  sendSse(response, [
-    {
-      id: 'clarification-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'clarification-model-resolved',
-      choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }]
-    },
-    {
-      id: 'clarification-completion',
-      object: 'chat.completion.chunk',
-      created: 1,
-      model: 'clarification-model-resolved',
-      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }
-    }
-  ])
-}
-
-function sendSse(response: ServerResponse, chunks: unknown[]): void {
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    'x-request-id': 'clarification-e2e-request'
+  sendSharedCompletion(response, text, {
+    id: 'clarification-completion',
+    model: 'clarification-model-resolved',
+    requestId: 'clarification-e2e-request'
   })
-  for (const chunk of chunks) response.write(`data: ${JSON.stringify(chunk)}\n\n`)
-  response.end('data: [DONE]\n\n')
 }
 
 test(
@@ -196,7 +128,10 @@ test(
     })
     let restarted: typeof launched | undefined
     try {
-      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`, {
+        providerName: 'Clarification Agent',
+        apiKey: 'clarification-e2e-secret'
+      })
       await createProject(launched.page, 'Clarification workflow')
       await launched.page.getByRole('button', { name: /^AI tasks:/ }).click()
       await launched.page.getByRole('menuitem', { name: 'Open Agent', exact: true }).click()

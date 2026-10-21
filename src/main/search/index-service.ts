@@ -1,4 +1,6 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
+import { sha256 } from '../../shared/hash'
 import type { Logger } from 'pino'
 import {
   INDEX_CHUNKER_VERSION,
@@ -702,12 +704,6 @@ function hashSourceSet(sources: readonly IndexSource[]): string {
   )
 }
 
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
-}
-
 function abortError(): Error {
-  const error = new Error('Index operation aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Index operation aborted')
 }

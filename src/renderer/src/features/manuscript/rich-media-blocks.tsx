@@ -8,6 +8,7 @@ import {
 import { Workflow } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTheme } from '../../theme-provider'
+import { reportRendererOperationError } from '../../diagnostics'
 import { MediaMetadataPopover } from './media-metadata-popover'
 
 const diagramConfig = {
@@ -83,7 +84,8 @@ function DiagramBlock({
           setError(undefined)
         }
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'manuscript.diagram.preview')
         if (!disposed) setError('This Mermaid diagram is not valid or uses unsafe content.')
       })
     return () => {

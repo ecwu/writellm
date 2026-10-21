@@ -218,7 +218,8 @@ export function NotebookWorkspace(
         const pending = pendingEventsRef.current.splice(0).sort((a, b) => a.revision - b.revision)
         for (const event of pending) applyEvent(event)
       })
-      .catch(() => {
+      .catch((err) => {
+        reportRendererOperationError(err, 'notebook.subscription')
         if (!disposed) setConnectionError(true)
       })
     return () => {
@@ -237,7 +238,8 @@ export function NotebookWorkspace(
         .then((candidate) => {
           if (!disposed) applySnapshot(candidate)
         })
-        .catch(() => {
+        .catch((err) => {
+          reportRendererOperationError(err, 'notebook.snapshot.refresh')
           if (!disposed) setConnectionError(true)
         })
     }

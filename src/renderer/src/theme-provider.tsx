@@ -12,6 +12,7 @@ import type {
   CitationDisplayMode,
   ThemePreference
 } from '../../shared/contracts/app'
+import { reportRendererOperationError } from './diagnostics'
 
 export type ResolvedTheme = 'light' | 'dark'
 
@@ -32,12 +33,7 @@ function systemTheme(): ResolvedTheme {
 }
 
 function reportThemeError(event: string, error: unknown): void {
-  const original = error instanceof Error ? error : new Error(String(error))
-  window.desktop.diagnostics.reportRendererError({
-    event: 'renderer.error',
-    message: `${event}: ${original.message || 'Theme operation failed'}`,
-    stack: original.stack
-  })
+  reportRendererOperationError(error, event)
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }): React.JSX.Element {

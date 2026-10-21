@@ -47,11 +47,10 @@ import {
   prepareSectionContent,
   prepareValidatedSectionContent
 } from './content'
-import { recordRevisionAssetReferences } from './asset-service'
 import { updateCommentAnchors } from './comment-anchor-mapping'
 import { ManuscriptRepository } from './manuscript-repository'
+import { SectionRepository } from './section-repository'
 
-const POSITION_OFFSET = 1_000_000_000
 const appendRevisionMetadataSchema = appendSectionRevisionInputSchema.omit({ content: true })
 
 export interface SectionDeletionGuard {
@@ -229,7 +228,7 @@ export class ManuscriptService {
             'Section position is outside the sibling list'
           )
         }
-        parkSiblings(database, manuscript.manuscript_id, parsed.parentSectionId)
+        SectionRepository.parkSiblings(database, manuscript.manuscript_id, parsed.parentSectionId)
         siblings.splice(parsed.position, 0, {
           section_id: sectionId,
           manuscript_id: manuscript.manuscript_id,
@@ -244,27 +243,20 @@ export class ManuscriptService {
           created_at: now,
           updated_at: now
         })
-        database
-          .prepare(
-            `INSERT INTO sections (
-              section_id, manuscript_id, parent_section_id, position, level, title, objective,
-              status, current_revision_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            sectionId,
-            manuscript.manuscript_id,
-            parsed.parentSectionId,
-            parsed.position,
-            (parent?.level ?? 0) + 1,
-            parsed.title,
-            parsed.objective,
-            parsed.status,
-            revisionId,
-            now,
-            now
-          )
-        insertRevision(database, {
+        SectionRepository.insertSection(database, {
+          sectionId,
+          manuscriptId: manuscript.manuscript_id,
+          parentSectionId: parsed.parentSectionId,
+          position: parsed.position,
+          level: (parent?.level ?? 0) + 1,
+          title: parsed.title,
+          objective: parsed.objective,
+          status: parsed.status,
+          currentRevisionId: revisionId,
+          createdAt: now,
+          updatedAt: now
+        })
+        SectionRepository.insertRevision(database, {
           revisionId,
           sectionId,
           revisionNumber: 1,
@@ -277,7 +269,7 @@ export class ManuscriptService {
           agentProposalId: null,
           createdAt: now
         })
-        normalizeSiblings(database, siblings)
+        SectionRepository.normalizeSiblings(database, siblings)
         incrementOutline(database, manuscript.manuscript_id, now)
         return this.#repository.section(sectionId, database) as SectionTable
       })
@@ -354,25 +346,20 @@ export class ManuscriptService {
             nextPosition.get(parentKey) ?? siblingRows(existing, parentSectionId ?? null).length
           nextPosition.set(parentKey, position + 1)
           const prepared = prepareSectionContent(draft.document, draft.sectionId)
-          database
-            .prepare(
-              `INSERT INTO sections (
-                section_id, manuscript_id, parent_section_id, position, level, title, objective,
-                status, current_revision_id, created_at, updated_at
-              ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'drafting', ?, ?, ?)`
-            )
-            .run(
-              draft.sectionId,
-              manuscript.manuscript_id,
-              parentSectionId ?? null,
-              position,
-              draft.outlineLevel,
-              draft.title,
-              draft.revisionId,
-              now,
-              now
-            )
-          insertRevision(database, {
+          SectionRepository.insertSection(database, {
+            sectionId: draft.sectionId,
+            manuscriptId: manuscript.manuscript_id,
+            parentSectionId: parentSectionId ?? null,
+            position,
+            level: draft.outlineLevel,
+            title: draft.title,
+            objective: null,
+            status: 'drafting',
+            currentRevisionId: draft.revisionId,
+            createdAt: now,
+            updatedAt: now
+          })
+          SectionRepository.insertRevision(database, {
             revisionId: draft.revisionId,
             sectionId: draft.sectionId,
             revisionNumber: 1,
@@ -385,7 +372,6 @@ export class ManuscriptService {
             agentProposalId: null,
             createdAt: now
           })
-          recordRevisionAssetReferences(database, draft.revisionId, prepared.content, now)
           created.push({
             section: this.#repository.section(draft.sectionId, database) as SectionTable,
             revision: this.#repository.revision(draft.revisionId, database) as SectionRevisionTable
@@ -443,12 +429,16 @@ export class ManuscriptService {
           next.objective !== current.objective ||
           next.status !== current.status
         if (!changed) return current
-        const updated = database
-          .prepare(
-            `UPDATE sections SET title = ?, objective = ?, status = ?, updated_at = ?
-              WHERE section_id = ? AND deleted_at IS NULL RETURNING *`
-          )
-          .get(next.title, next.objective, next.status, now, parsed.sectionId) as SectionTable
+        const updated = SectionRepository.updateMetadata(database, {
+          sectionId: parsed.sectionId,
+          title: next.title,
+          objective: next.objective,
+          status: next.status,
+          updatedAt: now
+        })
+        if (updated === undefined) {
+          throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+        }
         incrementOutline(database, manuscript.manuscript_id, now)
         return updated
       })
@@ -522,26 +512,40 @@ export class ManuscriptService {
             'Section position is outside the sibling list'
           )
         }
-        parkSiblings(database, manuscript.manuscript_id, target.parent_section_id)
+        SectionRepository.parkSiblings(database, manuscript.manuscript_id, target.parent_section_id)
         if (target.parent_section_id !== parsed.parentSectionId)
-          parkSiblings(database, manuscript.manuscript_id, parsed.parentSectionId)
+          SectionRepository.parkSiblings(database, manuscript.manuscript_id, parsed.parentSectionId)
         destinationSiblings.splice(parsed.position, 0, target)
-        normalizeSiblings(database, sourceSiblings)
-        normalizeSiblings(database, destinationSiblings, target.section_id, parsed.parentSectionId)
+        SectionRepository.normalizeSiblings(database, sourceSiblings)
+        SectionRepository.normalizeSiblings(
+          database,
+          destinationSiblings,
+          target.section_id,
+          parsed.parentSectionId
+        )
         const levelDelta = (parent?.level ?? 0) + 1 - target.level
-        database
-          .prepare(
-            `UPDATE sections SET parent_section_id = ?, level = level + ?, updated_at = ?
-              WHERE section_id = ? AND deleted_at IS NULL`
-          )
-          .run(parsed.parentSectionId, levelDelta, now, target.section_id)
+        if (
+          !SectionRepository.updateHierarchy(database, {
+            sectionId: target.section_id,
+            manuscriptId: manuscript.manuscript_id,
+            parentSectionId: parsed.parentSectionId,
+            position: parsed.position,
+            level: target.level + levelDelta,
+            updatedAt: now
+          })
+        ) {
+          throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+        }
         for (const descendantId of descendants) {
-          database
-            .prepare(
-              `UPDATE sections SET level = level + ?, updated_at = ?
-                WHERE section_id = ? AND deleted_at IS NULL`
-            )
-            .run(levelDelta, now, descendantId)
+          if (
+            !SectionRepository.shiftLevel(database, {
+              sectionId: descendantId,
+              levelDelta,
+              updatedAt: now
+            })
+          ) {
+            throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+          }
         }
         incrementOutline(database, manuscript.manuscript_id, now)
         return this.#repository.section(target.section_id, database) as SectionTable
@@ -600,21 +604,15 @@ export class ManuscriptService {
           )
         }
         const now = this.#now().toISOString()
-        const deleted = database
-          .prepare(
-            `UPDATE sections SET deleted_at = ?, updated_at = ?
-              WHERE section_id = ? AND deleted_at IS NULL`
-          )
-          .run(now, now, sectionId)
-        if (deleted.changes !== 1) {
+        if (!SectionRepository.tombstone(database, sectionId, now)) {
           throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
         }
-        database.prepare('DELETE FROM section_materializations WHERE section_id = ?').run(sectionId)
+        SectionRepository.removeMaterialization(database, sectionId)
         const siblings = siblingRows(rows, target.parent_section_id).filter(
           (item) => item.section_id !== sectionId
         )
-        parkSiblings(database, manuscript.manuscript_id, target.parent_section_id)
-        normalizeSiblings(database, siblings)
+        SectionRepository.parkSiblings(database, manuscript.manuscript_id, target.parent_section_id)
+        SectionRepository.normalizeSiblings(database, siblings)
         incrementOutline(database, manuscript.manuscript_id, now)
         return manuscript.manuscript_id
       })
@@ -700,7 +698,7 @@ export class ManuscriptService {
             'The section body has changed'
           )
         }
-        insertRevision(database, {
+        SectionRepository.insertRevision(database, {
           revisionId,
           sectionId: section.section_id,
           revisionNumber: current.revision_number + 1,
@@ -714,14 +712,14 @@ export class ManuscriptService {
           agentProposalId: parsed.agentProposalId,
           createdAt: now
         })
-        recordRevisionAssetReferences(database, revisionId, prepared.content, now)
-        const updated = database
-          .prepare(
-            `UPDATE sections SET current_revision_id = ?, updated_at = ?
-              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-          )
-          .run(revisionId, now, section.section_id, current.section_revision_id)
-        if (updated.changes !== 1) {
+        if (
+          !SectionRepository.updateCurrentRevision(database, {
+            sectionId: section.section_id,
+            expectedRevisionId: current.section_revision_id,
+            revisionId,
+            updatedAt: now
+          })
+        ) {
           throw new ManuscriptDomainError(
             'section_revision_conflict',
             'The section body has changed'
@@ -808,7 +806,7 @@ export class ManuscriptService {
           )
         }
         const revisionId = this.#createId()
-        insertRevision(database, {
+        SectionRepository.insertRevision(database, {
           revisionId,
           sectionId: section.section_id,
           revisionNumber: current.revision_number + 1,
@@ -821,14 +819,14 @@ export class ManuscriptService {
           agentProposalId: null,
           createdAt: now
         })
-        recordRevisionAssetReferences(database, revisionId, prepared.content, now)
-        const updated = database
-          .prepare(
-            `UPDATE sections SET current_revision_id = ?, updated_at = ?
-              WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-          )
-          .run(revisionId, now, section.section_id, current.section_revision_id)
-        if (updated.changes !== 1) {
+        if (
+          !SectionRepository.updateCurrentRevision(database, {
+            sectionId: section.section_id,
+            expectedRevisionId: current.section_revision_id,
+            revisionId,
+            updatedAt: now
+          })
+        ) {
           throw new ManuscriptDomainError(
             'section_revision_conflict',
             'The section body has changed'
@@ -898,7 +896,7 @@ export class ManuscriptService {
       const prepared = prepareSectionContent(document, section.section_id)
       const revisionId = this.#createId()
       const now = this.#now().toISOString()
-      insertRevision(database, {
+      SectionRepository.insertRevision(database, {
         revisionId,
         sectionId: section.section_id,
         revisionNumber: applied.revision_number + 1,
@@ -911,14 +909,14 @@ export class ManuscriptService {
         agentProposalId: null,
         createdAt: now
       })
-      recordRevisionAssetReferences(database, revisionId, prepared.content, now)
-      const updated = database
-        .prepare(
-          `UPDATE sections SET current_revision_id = ?, updated_at = ?
-            WHERE section_id = ? AND current_revision_id = ? AND deleted_at IS NULL`
-        )
-        .run(revisionId, now, section.section_id, applied.section_revision_id)
-      if (updated.changes !== 1) {
+      if (
+        !SectionRepository.updateCurrentRevision(database, {
+          sectionId: section.section_id,
+          expectedRevisionId: applied.section_revision_id,
+          revisionId,
+          updatedAt: now
+        })
+      ) {
         throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
       }
       updateCommentAnchors(database, section.section_id)
@@ -1185,48 +1183,6 @@ function orderOutline(rows: SectionTable[]): SectionTable[] {
   return ordered
 }
 
-function parkSiblings(
-  database: Database.Database,
-  manuscriptId: string,
-  parentId: string | null
-): void {
-  if (parentId === null)
-    database
-      .prepare(
-        `UPDATE sections SET position = position + ?
-          WHERE manuscript_id = ? AND parent_section_id IS NULL AND deleted_at IS NULL`
-      )
-      .run(POSITION_OFFSET, manuscriptId)
-  else
-    database
-      .prepare(
-        `UPDATE sections SET position = position + ?
-          WHERE manuscript_id = ? AND parent_section_id = ? AND deleted_at IS NULL`
-      )
-      .run(POSITION_OFFSET, manuscriptId, parentId)
-}
-
-function normalizeSiblings(
-  database: Database.Database,
-  rows: SectionTable[],
-  movedId?: string,
-  parentId?: string | null
-): void {
-  rows.forEach((row, position) => {
-    if (row.section_id === movedId)
-      database
-        .prepare(
-          `UPDATE sections SET parent_section_id = ?, position = ?
-            WHERE section_id = ? AND deleted_at IS NULL`
-        )
-        .run(parentId ?? null, position, row.section_id)
-    else
-      database
-        .prepare('UPDATE sections SET position = ? WHERE section_id = ? AND deleted_at IS NULL')
-        .run(position, row.section_id)
-  })
-}
-
 function incrementOutline(database: Database.Database, manuscriptId: string, now: string): void {
   database
     .prepare(
@@ -1242,44 +1198,4 @@ function assertOutlineVersion(manuscript: ManuscriptTable, baseOutlineVersion: n
       'The manuscript outline has changed'
     )
   }
-}
-
-function insertRevision(
-  database: Database.Database,
-  input: {
-    revisionId: string
-    sectionId: string
-    revisionNumber: number
-    source: SectionRevisionTable['source']
-    sourceClass: SectionRevisionTable['source_class']
-    prepared: ReturnType<typeof prepareSectionContent>
-    priorRevisionId: string | null
-    agentRunId: string | null
-    agentToolCallId: string | null
-    agentProposalId: string | null
-    createdAt: string
-  }
-): void {
-  database
-    .prepare(
-      `INSERT INTO section_revisions (section_revision_id, section_id, revision_number, source, source_class, content_json, content_schema_version, content_hash, prior_revision_id, word_count, character_count, count_algorithm_version, agent_run_id, agent_tool_call_id, agent_proposal_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(
-      input.revisionId,
-      input.sectionId,
-      input.revisionNumber,
-      input.source,
-      input.sourceClass,
-      input.prepared.contentJson,
-      input.prepared.contentSchemaVersion,
-      input.prepared.contentHash,
-      input.priorRevisionId,
-      input.prepared.wordCount,
-      input.prepared.characterCount,
-      input.prepared.countAlgorithmVersion,
-      input.agentRunId,
-      input.agentToolCallId,
-      input.agentProposalId,
-      input.createdAt
-    )
 }

@@ -1,286 +1,115 @@
-import {
-  agentAttachmentImportSchema,
-  agentAttachmentSelectSchema,
-  agentAttachmentSelectionSchema,
-  agentAttachmentScopeSchema,
-  agentAttachmentActionSchema,
-  agentAttachmentSchema
-} from '../shared/contracts/agent-attachments'
 import { ipcRenderer } from 'electron'
-import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
-  agentArchiveSessionInputSchema,
-  agentArchiveSessionResultSchema,
-  agentAnswerUserQuestionInputSchema,
-  agentAnswerUserQuestionResultSchema,
-  agentSessionInputSchema,
-  agentForkConversationInputSchema,
-  agentForkConversationResultSchema,
-  agentCreateSessionInputSchema,
-  agentCreateSessionResultSchema,
-  agentCompactSessionInputSchema,
-  agentCompactSessionResultSchema,
+  agentActivityDeliverySchema,
   agentEventPageInputSchema,
   agentEventPageSchema,
-  agentListProposalsResultSchema,
-  agentListRunsInputSchema,
-  agentListRunsResultSchema,
-  agentListSessionsInputSchema,
-  agentListSessionsResultSchema,
   agentProjectActivitySnapshotSchema,
   agentProjectActivitySubscriptionInputSchema,
-  agentGenerateSessionTitleInputSchema,
-  agentGenerateSessionTitleResultSchema,
-  agentPendingMessageActionInputSchema,
-  agentQueueInputSchema,
   agentRendererEventSchema,
-  agentActivityDeliverySchema,
-  agentRestoreSessionInputSchema,
-  agentRestoreSessionResultSchema,
-  agentRunInputSchema,
-  agentSetApprovalModeInputSchema,
-  agentSetApprovalModeResultSchema,
-  agentSetInteractionModeInputSchema,
-  agentSetInteractionModeResultSchema,
-  agentSetModelSelectionInputSchema,
-  agentSetModelSelectionResultSchema,
-  agentSetThinkingLevelInputSchema,
-  agentSetThinkingLevelResultSchema,
-  agentEditLastMessageInputSchema,
-  agentStartRunInputSchema,
-  agentStartRunResultSchema,
-  agentStopCompactionInputSchema,
-  agentStopCompactionResultSchema,
   agentSubscriptionInputSchema,
   type AgentRendererEvent
 } from '../shared/contracts/agent-ipc'
+import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
-  userUpdateWritingTaskInputSchema,
-  userUpdateWritingTaskResultSchema
-} from '../shared/contracts/writing-task'
-import {
-  changeSetBatchInputSchema,
-  changeSetBatchResultSchema
-} from '../shared/contracts/agent-change-set'
-import {
-  approveMutationProposalInputSchema,
-  approveMutationProposalResultSchema,
-  cancelImageGenerationInputSchema,
-  cancelImageGenerationResultSchema,
-  mutationProposalActionResultSchema,
   mutationProposalChangedSchema,
-  mutationSubscriptionInputSchema,
-  rejectMutationProposalInputSchema,
-  undoMutationProposalInputSchema
+  mutationSubscriptionInputSchema
 } from '../shared/contracts/agent-mutations'
+import { agentIpcEndpoints } from '../shared/contracts/ipc-endpoints-agent'
 import type { DesktopApi } from './desktop-api'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const agentApi: DesktopApi['agent'] = {
   async importImage(input) {
-    return agentAttachmentSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentImportImage,
-        agentAttachmentImportSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.importImage, input)
   },
   async selectImages(input) {
-    return agentAttachmentSelectionSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentSelectImages,
-        agentAttachmentSelectSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.selectImages, input)
   },
   async pasteImage(input) {
-    return agentAttachmentSchema
-      .nullable()
-      .parse(
-        await ipcRenderer.invoke(
-          IPC_CHANNELS.agentPasteImage,
-          agentAttachmentScopeSchema.parse(input)
-        )
-      )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.pasteImage, input)
   },
   async getImage(input) {
-    return agentAttachmentSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.agentGetImage, agentAttachmentActionSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.getImage, input)
   },
   async releaseImage(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.agentReleaseImage,
-      agentAttachmentActionSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.releaseImage, input)
   },
   async listSessions(input) {
-    return agentListSessionsResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentListSessions,
-        agentListSessionsInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.listSessions, input)
   },
   async getSession(input) {
-    return agentCreateSessionResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.agentGetSession, agentSessionInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.getSession, input)
   },
   async forkConversation(input) {
-    return agentForkConversationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentForkConversation,
-        agentForkConversationInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.forkConversation, input)
   },
   async createSession(input) {
-    return agentCreateSessionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentCreateSession,
-        agentCreateSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.createSession, input)
   },
   async generateSessionTitle(input) {
-    return agentGenerateSessionTitleResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentGenerateSessionTitle,
-        agentGenerateSessionTitleInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.generateSessionTitle, input)
   },
   async archiveSession(input) {
-    return agentArchiveSessionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentArchiveSession,
-        agentArchiveSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.archiveSession, input)
   },
   async restoreSession(input) {
-    return agentRestoreSessionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentRestoreSession,
-        agentRestoreSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.restoreSession, input)
   },
   async setApprovalMode(input) {
-    return agentSetApprovalModeResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentSetApprovalMode,
-        agentSetApprovalModeInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setApprovalMode, input)
   },
   async setInteractionMode(input) {
-    return agentSetInteractionModeResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentSetInteractionMode,
-        agentSetInteractionModeInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setInteractionMode, input)
   },
   async setModelSelection(input) {
-    return agentSetModelSelectionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentSetModelSelection,
-        agentSetModelSelectionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setModelSelection, input)
   },
   async setThinkingLevel(input) {
-    return agentSetThinkingLevelResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentSetThinkingLevel,
-        agentSetThinkingLevelInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setThinkingLevel, input)
   },
   async updateWritingTask(input) {
-    return userUpdateWritingTaskResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentUpdateWritingTask,
-        userUpdateWritingTaskInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.updateWritingTask, input)
   },
   async listEvents(input) {
-    return agentEventPageSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.agentListEvents, agentEventPageInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.listEvents, input)
   },
   async listRuns(input) {
-    return agentListRunsResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.agentListRuns, agentListRunsInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.listRuns, input)
   },
   async listProposals(input) {
-    return agentListProposalsResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentListProposals,
-        agentListRunsInputSchema.omit({ limit: true }).parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.listProposals, input)
   },
   async editLastMessageAndRestart(input) {
-    return agentStartRunResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentEditLastMessage,
-        agentEditLastMessageInputSchema.parse(input)
-      )
+    return (
+      await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.editLastMessageAndRestart, input)
     ).run
   },
   async startRun(input) {
-    return agentStartRunResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.agentStartRun, agentStartRunInputSchema.parse(input))
-    ).run
+    return (await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.startRun, input)).run
   },
   async steerRun(input) {
-    await ipcRenderer.invoke(IPC_CHANNELS.agentSteerRun, agentQueueInputSchema.parse(input))
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.steerRun, input)
   },
   async followUpRun(input) {
-    await ipcRenderer.invoke(IPC_CHANNELS.agentFollowUpRun, agentQueueInputSchema.parse(input))
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.followUpRun, input)
   },
   async steerPendingFollowUp(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.agentSteerPendingFollowUp,
-      agentPendingMessageActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.steerPendingFollowUp, input)
   },
   async deletePendingFollowUp(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.agentDeletePendingFollowUp,
-      agentPendingMessageActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.deletePendingFollowUp, input)
   },
   async abortRun(input) {
-    await ipcRenderer.invoke(IPC_CHANNELS.agentAbortRun, agentRunInputSchema.parse(input))
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.abortRun, input)
   },
   async answerUserQuestion(input) {
-    agentAnswerUserQuestionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentAnswerUserQuestion,
-        agentAnswerUserQuestionInputSchema.parse(input)
-      )
-    )
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.answerUserQuestion, input)
   },
   async compactSession(input) {
-    return agentCompactSessionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentCompactSession,
-        agentCompactSessionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.compactSession, input)
   },
   async stopCompaction(input) {
-    agentStopCompactionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentStopCompaction,
-        agentStopCompactionInputSchema.parse(input)
-      )
-    )
+    await invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.stopCompaction, input)
   },
   async subscribeEvents(input, listener) {
     const subscription = agentSubscriptionInputSchema.parse({
@@ -391,44 +220,19 @@ export const agentApi: DesktopApi['agent'] = {
     }
   },
   async approveProposal(input) {
-    return approveMutationProposalResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentProposalApprove,
-        approveMutationProposalInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.approveProposal, input)
   },
   async rejectProposal(input) {
-    return mutationProposalActionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentProposalReject,
-        rejectMutationProposalInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.rejectProposal, input)
   },
   async undoProposal(input) {
-    return mutationProposalActionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentProposalUndo,
-        undoMutationProposalInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.undoProposal, input)
   },
   async decideChangeSet(input) {
-    return changeSetBatchResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentChangeSetBatch,
-        changeSetBatchInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.decideChangeSet, input)
   },
   async cancelImageGeneration(input) {
-    return cancelImageGenerationResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.agentCancelImageGeneration,
-        cancelImageGenerationInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.cancelImageGeneration, input)
   },
   async subscribeSectionChanged(input, listener) {
     const subscription = mutationSubscriptionInputSchema.parse({

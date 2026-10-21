@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import {
   readCitationsArgsSchema,
   readCitationsResultSchema,
@@ -7,6 +6,7 @@ import {
   type ReadCitationsResult,
   type SearchKnowledgeResult
 } from '../../shared/contracts/agent-tools'
+import { sha256 } from '../../shared/hash'
 import type { RetrievalService } from '../search/retrieval-service'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
 
@@ -114,7 +114,7 @@ export async function executeCitationRead(input: {
           chunkId: citation.chunkId,
           sourceTitle: citation.title,
           text,
-          contentHash: createHash('sha256').update(citation.text).digest('hex'),
+          contentHash: sha256(citation.text),
           offset: request.offset,
           totalChars: citation.text.length,
           nextOffset,

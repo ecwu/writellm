@@ -5,6 +5,8 @@ import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { SectionRevision } from '../../shared/contracts/manuscript'
+import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
+import { knowledgeIpcEndpoints } from '../../shared/contracts/ipc-endpoints-knowledge'
 import {
   knowledgeCitationCoveragePageInputSchema,
   knowledgeCitationCoveragePageResultSchema,
@@ -63,7 +65,7 @@ import {
   formattedReferenceSnapshotInputSchema,
   formattedReferenceSnapshotSchema
 } from '../../shared/contracts/references'
-import { authorizeSender } from './authorize-sender'
+import { registerIpcEndpoint } from './endpoint'
 import { createBibliographyExport } from '../references/reference-bibliography-export'
 import { assertInTextCslStyle } from '../../shared/csl-style'
 import { normalizeCitationTitle } from '../../shared/readable-citation'
@@ -98,25 +100,41 @@ export function registerKnowledgeIpc(options: {
       expiresAt: number
     }
   >()
+  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
+    Object.values(knowledgeIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
+  )
+  const handle = (
+    channel: string,
+    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
+  ): void => {
+    const endpoint = endpointByChannel.get(channel)
+    if (endpoint !== undefined) {
+      registerIpcEndpoint(ipc, endpoint, {
+        developmentUrl: options.developmentUrl,
+        manager: options.manager,
+        alwaysAsync: handler.constructor.name === 'AsyncFunction',
+        handle: (input, event) => handler(event, input)
+      })
+      return
+    }
+    ipc.handle(channel, handler)
+  }
 
-  ipc.handle(IPC_CHANNELS.knowledgeList, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeList, (_event, input: unknown) => {
     const parsed = knowledgeListInputSchema.parse(input)
     return knowledgeListResultSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).knowledgeImports.list()
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceList, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceList, (_event, input: unknown) => {
     const parsed = referenceListInputSchema.parse(input)
     return referenceListResultSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).references.list(parsed.query)
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceSearch, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceSearch, (_event, input: unknown) => {
     const parsed = referenceSearchInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const startedAt = Date.now()
@@ -149,8 +167,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.referenceBibliographySnapshot, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceBibliographySnapshot, (_event, input: unknown) => {
     const parsed = bibliographySnapshotInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     return bibliographySnapshotResultSchema.parse(
@@ -158,8 +175,7 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceChooseBibliography, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceChooseBibliography, async (_event, input: unknown) => {
     const parsed = bibliographyChooseInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
@@ -179,8 +195,7 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceRefreshBibliography, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceRefreshBibliography, async (_event, input: unknown) => {
     const parsed = bibliographySnapshotInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
@@ -191,8 +206,7 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referencePrepareImport, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referencePrepareImport, async (_event, input: unknown) => {
     const parsed = bibliographyPrepareImportInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
@@ -225,8 +239,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.referenceImportAttachmentsPage, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceImportAttachmentsPage, async (_event, input: unknown) => {
     const parsed = bibliographyImportAttachmentsPageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
@@ -243,8 +256,7 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceConfirmImport, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceConfirmImport, async (_event, input: unknown) => {
     const parsed = bibliographyConfirmImportInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     if (options.bibliographyConnectors === undefined) {
@@ -274,8 +286,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.referenceExportBibliography, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceExportBibliography, async (_event, input: unknown) => {
     const parsed = bibliographyExportInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const citedKeys = new Set(
@@ -340,8 +351,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.referencePlanLegacyConversion, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referencePlanLegacyConversion, (_event, input: unknown) => {
     const parsed = legacyCitationConversionPlanInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const index = context.manuscript.getReferenceIndex()
@@ -366,8 +376,7 @@ export function registerKnowledgeIpc(options: {
     return legacyCitationConversionPlanSchema.parse({ planId, ...planned })
   })
 
-  ipc.handle(IPC_CHANNELS.referenceApplyLegacyConversion, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceApplyLegacyConversion, async (_event, input: unknown) => {
     const parsed = legacyCitationConversionApplyInputSchema.parse(input)
     const plan = legacyConversionPlans.get(parsed.planId)
     legacyConversionPlans.delete(parsed.planId)
@@ -487,16 +496,14 @@ export function registerKnowledgeIpc(options: {
     })
   })
 
-  ipc.handle(IPC_CHANNELS.referenceGetSettings, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceGetSettings, (_event, input: unknown) => {
     const parsed = bibliographySnapshotInputSchema.parse(input)
     return referenceSettingsSchema.parse(
       options.manager.assertActiveSession(parsed.projectSessionId).references.settings()
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceSetSettings, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceSetSettings, (_event, input: unknown) => {
     const parsed = referenceSettingsInputSchema.parse(input)
     return referenceSettingsSchema.parse(
       options.manager
@@ -505,8 +512,7 @@ export function registerKnowledgeIpc(options: {
     )
   })
 
-  ipc.handle(IPC_CHANNELS.referenceChooseCustomStyle, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceChooseCustomStyle, async (_event, input: unknown) => {
     const parsed = referenceCustomStyleInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const path = options.selectCustomStyleForTest
@@ -552,8 +558,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.referenceFormatSnapshot, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.referenceFormatSnapshot, async (_event, input: unknown) => {
     const parsed = formattedReferenceSnapshotInputSchema.parse(input)
     if (options.citationFormatting === undefined) {
       throw new Error('Citation formatting is unavailable')
@@ -564,8 +569,7 @@ export function registerKnowledgeIpc(options: {
     return formattedReferenceSnapshotSchema.parse(result)
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeIndexStatus, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeIndexStatus, async (_event, input: unknown) => {
     const parsed = knowledgeListInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const readiness = context.projectIndex.readiness()
@@ -586,8 +590,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeCitationCoveragePage, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeCitationCoveragePage, async (_event, input: unknown) => {
     const parsed = knowledgeCitationCoveragePageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const startedAt = Date.now()
@@ -649,8 +652,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeChooseAndImport, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeChooseAndImport, async (_event, input: unknown) => {
     const parsed = knowledgeListInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const paths = options.selectFilesForTest
@@ -672,8 +674,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeImportDropped, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeImportDropped, async (_event, input: unknown) => {
     const parsed = knowledgeImportPathsInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     try {
@@ -690,16 +691,14 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeCancel, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeCancel, (_event, input: unknown) => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const service = options.manager.assertMutationSession(parsed.projectSessionId).knowledgeImports
     service.cancel(parsed.knowledgeItemId)
     return knowledgeListResultSchema.parse(service.list())
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeDelete, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeDelete, async (_event, input: unknown) => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
@@ -723,8 +722,7 @@ export function registerKnowledgeIpc(options: {
     }
   }
 
-  ipc.handle(IPC_CHANNELS.knowledgeReveal, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeReveal, async (_event, input: unknown) => {
     try {
       await openOriginal(input, true)
     } catch (err) {
@@ -736,8 +734,7 @@ export function registerKnowledgeIpc(options: {
       throw new Error('The original file could not be revealed', { cause: err })
     }
   })
-  ipc.handle(IPC_CHANNELS.knowledgeOpenOriginal, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeOpenOriginal, async (_event, input: unknown) => {
     try {
       await openOriginal(input, false)
     } catch (err) {
@@ -750,8 +747,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeStartParse, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeStartParse, async (_event, input: unknown) => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     try {
@@ -767,8 +763,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeCancelParse, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeCancelParse, async (_event, input: unknown) => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     try {
@@ -786,8 +781,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeRefreshEmbeddings, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeRefreshEmbeddings, async (_event, input: unknown) => {
     const parsed = knowledgeEmbeddingRefreshInputSchema.parse(input)
     const context = options.manager.assertMutationSession(parsed.projectSessionId)
     try {
@@ -810,8 +804,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeCreatePdfPreview, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeCreatePdfPreview, async (_event, input: unknown) => {
     const parsed = pdfPreviewInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     if (options.pdfPreview === undefined) throw new Error('PDF preview is unavailable')
@@ -848,15 +841,13 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeReleasePdfPreview, (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeReleasePdfPreview, (_event, input: unknown) => {
     const parsed = pdfPreviewReleaseInputSchema.parse(input)
     options.manager.assertActiveSession(parsed.projectSessionId)
     options.pdfPreview?.revoke(parsed.previewId, parsed.projectSessionId)
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeMappingPage, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeMappingPage, async (_event, input: unknown) => {
     const parsed = knowledgeMappingPageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     try {
@@ -879,8 +870,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeParsedMetadata, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeParsedMetadata, async (_event, input: unknown) => {
     const parsed = knowledgeItemActionInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     try {
@@ -897,8 +887,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeParsedBlocks, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeParsedBlocks, async (_event, input: unknown) => {
     const parsed = parsedKnowledgeBlockPageInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     try {
@@ -920,8 +909,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeParsedMarkdown, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeParsedMarkdown, async (_event, input: unknown) => {
     const parsed = parsedKnowledgeMarkdownInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     try {
@@ -941,8 +929,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  ipc.handle(IPC_CHANNELS.knowledgeParsedAsset, async (event, input: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
+  handle(IPC_CHANNELS.knowledgeParsedAsset, async (_event, input: unknown) => {
     const parsed = parsedKnowledgeAssetInputSchema.parse(input)
     const context = options.manager.assertActiveSession(parsed.projectSessionId)
     try {

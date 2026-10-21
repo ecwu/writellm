@@ -169,6 +169,7 @@ export function reportIpcFailure(
     if (isExpectedRejection(fields.err)) log.warn(fields, message)
     else log.error(fields, message)
     markIpcFailureReported(fields.err)
+    // error-handling: allow owner=ipc-observability reason=diagnostic-channel-failure
   } catch {
     // The diagnostic channel itself failed. Preserve the operation's original outcome.
   }

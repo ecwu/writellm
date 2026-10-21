@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
 import {
   reconstructAgentDiagnosticError,
   serializeAgentDiagnosticError,
@@ -648,9 +649,7 @@ function legacyLimits(contextWindowTokens?: number | null): AgentModelLimits {
 }
 
 function abortError(): Error {
-  const error = new Error('Agent model request aborted')
-  error.name = 'AbortError'
-  return error
+  return createAbortError('Agent model request aborted')
 }
 
 function decodeAgentRuntimeAuth(value: string): {

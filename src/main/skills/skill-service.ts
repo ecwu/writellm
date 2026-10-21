@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { access, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, posix } from 'node:path'
 import type { Logger } from 'pino'
+import { sha256 } from '../../shared/hash'
 import { parse as parseYaml } from 'yaml'
 import {
   inspectGithubSkillResultSchema,
@@ -1386,8 +1387,4 @@ function decodeUtf8(bytes: Uint8Array): string {
 
 function gitBlobSha(bytes: Uint8Array): string {
   return createHash('sha1').update(`blob ${bytes.byteLength}\0`).update(bytes).digest('hex')
-}
-
-function sha256(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

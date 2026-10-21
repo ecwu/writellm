@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.2 passes local package acceptance. The four-platform tag build is running. The Issue 4 sequence remains complete.
-Recorded: 2026-10-15
+Status: Issue 18 engineering maintenance and Issue 2 compatible dependency maintenance pass local macOS arm64 acceptance. Release 0.2026.10.2 is published.
+Recorded: 2026-10-21
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -10,12 +10,30 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
-Release 0.2026.10.2 includes the completed Issue 4 sequence, test-suite audit, and IPC logging follow-ups.
-Local macOS arm64 acceptance passes all twelve packaged runtime scenarios and all 45 packaged interaction scenarios.
-The complete package gate takes 250.0 seconds, with one App build and zero retries or skips.
-The DMG and ZIP are ready for local use. Tag `v0.2026.10.2` points to release commit `d985a6a` on remote `main`.
-[The four-platform build](https://github.com/ecwu/writellm/actions/runs/38716401683) is running. Successful completion triggers automatic publication.
-[Release preparation evidence](history/implementation-log.md#2026-10-15-release-02026102-preparation) records commands, artifacts, and platform limits.
+Issue 18 maintenance improves error reporting, shared helpers, IPC declarations, section writes, service ownership, and repository hygiene.
+[ADR 086](adrs/086-issue-18-engineering-quality.md) defines the maintenance boundaries.
+The verified source includes the earlier dependency and DOCX maintenance.
+The complete Electron suite passes 1,893 tests, with three optional benchmarks skipped.
+The final logo correction passes five focused tests, including three new resolver regressions.
+The final package gate passes all ten stages in 260.8 seconds with one App build.
+It covers twelve runtime scenarios and all 45 packaged interaction scenarios.
+The remaining 22 source-only scenarios pass, for 67 distinct interaction scenarios without automatic retries or skips.
+The provider Settings scenario also passes against the packaged App.
+The local App, DMG, and ZIP retain version 0.2026.10.2 and correspond to the verified combined runtime source.
+[Issue 18 evidence](history/implementation-log.md#2026-10-21-issue-18-engineering-quality) records fixes, retained boundaries, prior failures, and verification.
+Further ownership-based decomposition and general service test fixture consolidation remain deferred, non-blocking maintenance under ADR 086.
+
+Issue 2 compatible maintenance updates 24 direct dependencies and repairs three transitive dependency advisories.
+The final Electron suite passes 1,848 tests, with three optional benchmarks skipped.
+Local macOS arm64 acceptance passes twelve packaged runtime scenarios and all 67 interaction scenarios.
+The ten-stage package gate takes 278.2 seconds, with one App build and zero retries or skipped interaction scenarios.
+The local App, DMG, and ZIP contain the verified maintenance changes and retain version 0.2026.10.2.
+[Dependency maintenance evidence](history/implementation-log.md#2026-10-15-compatible-dependency-maintenance) records changes, failures, final results, and platform limits.
+
+[Release 0.2026.10.2](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.2) is published with four assets.
+Its [four-platform build](https://github.com/ecwu/writellm/actions/runs/38716401683) completes successfully on its first attempt.
+Tag `v0.2026.10.2` remains fixed at `d985a6a`.
+[Release preparation evidence](history/implementation-log.md#2026-10-15-release-02026102-preparation) records the earlier immutable release artifacts.
 
 The test-suite audit passes the complete local gate on macOS arm64.
 All 67 source E2E scenarios and 1,845 Electron-hosted tests pass, with zero retries.
@@ -68,10 +86,20 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 
 ## Current authorized work
 
+The authorized Issue 18 maintenance passes local acceptance for the combined source.
+The changes retain existing security, data integrity, and provider capability boundaries.
+The user authorizes committing and pushing the combined maintenance and updating and closing Issue 18.
+
+The user authorizes all safe dependency updates after the 2026-10-15 Issue 2 review.
+The compatible batch covers 24 direct dependencies and three transitive security repairs under ADR 056.
+Frozen installation, both dependency audits, the complete Electron suite, and local packaged acceptance are complete.
+The full audit retains one moderate sprintf-js advisory and one low KaTeX advisory.
+The production audit retains only the low KaTeX advisory.
+Vite 8, Pi 1.2, p-queue 10, BlockNote 0.56, Mermaid 12.2, and KaTeX remain separate migrations.
+
 The requested local App build and release workflow trigger are complete.
-Server-side build and automatic publication remain in progress.
-No implementation work is currently authorized. The Issue 4 sequence is complete.
-`docs/audits/2026-10-10-dependency-size-audit.md` remains untracked and outside commits.
+The earlier four-platform tag build and automatic publication are complete.
+The Issue 4 sequence is complete.
 The error ownership review follow-ups are resolved. No follow-up candidate remains open.
 
 ## Deferred

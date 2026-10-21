@@ -1,20 +1,7 @@
-import { openAppMenu, clickAppMenuItem } from './application-menu'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, test } from './fixtures'
-
-async function createProject(page: Page, name: string): Promise<void> {
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create project' })
-  await dialog.getByLabel('Project name').fill(name)
-  await dialog.getByRole('button', { name: 'Choose location' }).click()
-  await expectActiveProject(page, name)
-}
-
-async function closeProject(page: Page): Promise<void> {
-  await openAppMenu(page, 'Project')
-  await clickAppMenuItem(page, 'Close project and return to chooser', false)
-}
+import { createProject, closeProject } from './helpers/project'
 
 async function currentProjectSessionId(page: Page): Promise<string> {
   return page.evaluate(async () => {

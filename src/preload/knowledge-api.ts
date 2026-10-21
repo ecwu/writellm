@@ -1,346 +1,130 @@
 import { ipcRenderer, webUtils } from 'electron'
-import { IPC_CHANNELS } from '../shared/contracts/channels'
-import {
-  knowledgeCitationCoveragePageInputSchema,
-  knowledgeCitationCoveragePageResultSchema,
-  knowledgeEmbeddingRefreshInputSchema,
-  knowledgeImportPathsInputSchema,
-  knowledgeIndexStatusSchema,
-  knowledgeItemActionInputSchema,
-  knowledgeListInputSchema,
-  knowledgeListResultSchema,
-  parsedKnowledgeAssetInputSchema,
-  parsedKnowledgeAssetSchema,
-  parsedKnowledgeBlockPageInputSchema,
-  parsedKnowledgeBlockPageSchema,
-  parsedKnowledgeMarkdownInputSchema,
-  parsedKnowledgeMarkdownSchema,
-  parsedKnowledgeMetadataSchema
-} from '../shared/contracts/knowledge'
-import {
-  knowledgeMappingPageInputSchema,
-  knowledgeMappingPageSchema,
-  pdfPreviewInputSchema,
-  pdfPreviewReleaseInputSchema,
-  pdfPreviewResultSchema
-} from '../shared/contracts/knowledge-mapping'
-import {
-  citationExpansionInputSchema,
-  citationExpansionResultSchema,
-  knowledgeSearchInputSchema,
-  knowledgeSearchResultSchema,
-  readableCitationResolutionInputSchema,
-  readableCitationResolutionResultSchema
-} from '../shared/contracts/search'
-import {
-  bibliographyChooseInputSchema,
-  bibliographyPrepareImportInputSchema,
-  bibliographyImportPlanSchema,
-  bibliographyImportAttachmentsPageInputSchema,
-  bibliographyImportAttachmentsPageSchema,
-  bibliographyConfirmImportInputSchema,
-  bibliographyConfirmImportResultSchema,
-  bibliographyExportInputSchema,
-  bibliographyExportResultSchema,
-  legacyCitationConversionPlanInputSchema,
-  legacyCitationConversionPlanSchema,
-  legacyCitationConversionApplyInputSchema,
-  legacyCitationConversionApplyResultSchema,
-  bibliographySnapshotInputSchema,
-  bibliographySnapshotResultSchema,
-  formattedReferenceSnapshotInputSchema,
-  formattedReferenceSnapshotSchema,
-  referenceListInputSchema,
-  referenceListResultSchema,
-  referenceSearchInputSchema,
-  referenceSearchResultSchema,
-  referenceSettingsInputSchema,
-  referenceCustomStyleInputSchema,
-  referenceSettingsSchema
-} from '../shared/contracts/references'
+import { knowledgeIpcEndpoints } from '../shared/contracts/ipc-endpoints-knowledge'
 import type { DesktopApi } from './desktop-api'
+import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const knowledgeApi: DesktopApi['knowledge'] = {
   async listReferences(input) {
-    return referenceListResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.referenceList, referenceListInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.listReferences, input)
   },
   async searchReferences(input) {
-    return referenceSearchResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceSearch,
-        referenceSearchInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.searchReferences, input)
   },
   async bibliographySnapshot(input) {
-    return bibliographySnapshotResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceBibliographySnapshot,
-        bibliographySnapshotInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.bibliographySnapshot, input)
   },
   async chooseBibliography(input) {
-    return bibliographySnapshotResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceChooseBibliography,
-        bibliographyChooseInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.chooseBibliography, input)
   },
   async refreshBibliography(input) {
-    return bibliographySnapshotResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceRefreshBibliography,
-        bibliographySnapshotInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.refreshBibliography, input)
   },
   async prepareReferenceImport(input) {
-    return bibliographyImportPlanSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referencePrepareImport,
-        bibliographyPrepareImportInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.prepareReferenceImport, input)
   },
   async referenceImportAttachmentsPage(input) {
-    return bibliographyImportAttachmentsPageSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceImportAttachmentsPage,
-        bibliographyImportAttachmentsPageInputSchema.parse(input)
-      )
+    return invokeIpcEndpoint(
+      ipcRenderer,
+      knowledgeIpcEndpoints.referenceImportAttachmentsPage,
+      input
     )
   },
   async confirmReferenceImport(input) {
-    return bibliographyConfirmImportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceConfirmImport,
-        bibliographyConfirmImportInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.confirmReferenceImport, input)
   },
   async exportBibliography(input) {
-    return bibliographyExportResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceExportBibliography,
-        bibliographyExportInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.exportBibliography, input)
   },
   async planLegacyCitationConversion(input) {
-    return legacyCitationConversionPlanSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referencePlanLegacyConversion,
-        legacyCitationConversionPlanInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.planLegacyCitationConversion, input)
   },
   async applyLegacyCitationConversion(input) {
-    return legacyCitationConversionApplyResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceApplyLegacyConversion,
-        legacyCitationConversionApplyInputSchema.parse(input)
-      )
+    return invokeIpcEndpoint(
+      ipcRenderer,
+      knowledgeIpcEndpoints.applyLegacyCitationConversion,
+      input
     )
   },
   async referenceSettings(input) {
-    return referenceSettingsSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceGetSettings,
-        bibliographySnapshotInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.referenceSettings, input)
   },
   async setReferenceSettings(input) {
-    return referenceSettingsSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceSetSettings,
-        referenceSettingsInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.setReferenceSettings, input)
   },
   async chooseCustomReferenceStyle(input) {
-    return referenceSettingsSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceChooseCustomStyle,
-        referenceCustomStyleInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.chooseCustomReferenceStyle, input)
   },
   async formatReferences(input) {
-    return formattedReferenceSnapshotSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.referenceFormatSnapshot,
-        formattedReferenceSnapshotInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.formatReferences, input)
   },
   async list(input) {
-    return knowledgeListResultSchema.parse(
-      await ipcRenderer.invoke(IPC_CHANNELS.knowledgeList, knowledgeListInputSchema.parse(input))
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.list, input)
   },
   async indexStatus(input) {
-    return knowledgeIndexStatusSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeIndexStatus,
-        knowledgeListInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.indexStatus, input)
   },
   async citationCoveragePage(input) {
-    return knowledgeCitationCoveragePageResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeCitationCoveragePage,
-        knowledgeCitationCoveragePageInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.citationCoveragePage, input)
   },
   async chooseAndImport(input) {
-    return knowledgeListResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeChooseAndImport,
-        knowledgeListInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.chooseAndImport, input)
   },
   async importDropped(input) {
     const paths = input.files.map((file) => webUtils.getPathForFile(file)).filter(Boolean)
-    return knowledgeListResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeImportDropped,
-        knowledgeImportPathsInputSchema.parse({
-          projectSessionId: input.projectSessionId,
-          paths
-        })
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.importDropped, {
+      projectSessionId: input.projectSessionId,
+      paths
+    })
   },
   async cancel(input) {
-    return knowledgeListResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeCancel,
-        knowledgeItemActionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.cancel, input)
   },
   async delete(input) {
-    return knowledgeListResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeDelete,
-        knowledgeItemActionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.delete, input)
   },
   async reveal(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeReveal,
-      knowledgeItemActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.reveal, input)
   },
   async openOriginal(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeOpenOriginal,
-      knowledgeItemActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.openOriginal, input)
   },
   async startParse(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeStartParse,
-      knowledgeItemActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.startParse, input)
   },
   async cancelParse(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeCancelParse,
-      knowledgeItemActionInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.cancelParse, input)
   },
   async refreshEmbeddings(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeRefreshEmbeddings,
-      knowledgeEmbeddingRefreshInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.refreshEmbeddings, input)
   },
   async createPdfPreview(input) {
-    return pdfPreviewResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeCreatePdfPreview,
-        pdfPreviewInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.createPdfPreview, input)
   },
   async releasePdfPreview(input) {
-    await ipcRenderer.invoke(
-      IPC_CHANNELS.knowledgeReleasePdfPreview,
-      pdfPreviewReleaseInputSchema.parse(input)
-    )
+    await invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.releasePdfPreview, input)
   },
   async mappingPage(input) {
-    return knowledgeMappingPageSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeMappingPage,
-        knowledgeMappingPageInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.mappingPage, input)
   },
   async parsedMetadata(input) {
-    return parsedKnowledgeMetadataSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeParsedMetadata,
-        knowledgeItemActionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.parsedMetadata, input)
   },
   async parsedBlocks(input) {
-    return parsedKnowledgeBlockPageSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeParsedBlocks,
-        parsedKnowledgeBlockPageInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.parsedBlocks, input)
   },
   async parsedMarkdown(input) {
-    return parsedKnowledgeMarkdownSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeParsedMarkdown,
-        parsedKnowledgeMarkdownInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.parsedMarkdown, input)
   },
   async parsedAsset(input) {
-    return parsedKnowledgeAssetSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeParsedAsset,
-        parsedKnowledgeAssetInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.parsedAsset, input)
   },
   async search(input) {
-    return knowledgeSearchResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeSearch,
-        knowledgeSearchInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.search, input)
   },
   async expandCitations(input) {
-    return citationExpansionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeExpandCitations,
-        citationExpansionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.expandCitations, input)
   },
   async resolveReadableCitation(input) {
-    return readableCitationResolutionResultSchema.parse(
-      await ipcRenderer.invoke(
-        IPC_CHANNELS.knowledgeResolveReadableCitation,
-        readableCitationResolutionInputSchema.parse(input)
-      )
-    )
+    return invokeIpcEndpoint(ipcRenderer, knowledgeIpcEndpoints.resolveReadableCitation, input)
   }
 }

@@ -1,7 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Issues 15 and 17 pass local acceptance and pause for Claude review. Checkpoint 84 passes local acceptance. Checkpoint 77 remains paused.
-Recorded: 2026-10-14
+Status: Issue 18 maintenance and Issue 2 compatible maintenance pass local acceptance. Checkpoint 77 remains paused.
+Recorded: 2026-10-21
 
 This file lists checkpoint status and links to detailed evidence.
 
@@ -20,6 +20,12 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 18 maintenance: targeted engineering repairs pass local macOS arm64 acceptance under [ADR 086](adrs/086-issue-18-engineering-quality.md).
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-18-engineering-quality).
+
+- [x] Issue 2 compatible maintenance: update 24 direct dependencies and repair three dependency advisories.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-15-compatible-dependency-maintenance).
+
 - [x] Issue 15: consolidate current rules and delivery evidence. Local acceptance and Claude review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-document-consolidation).
 - [x] Issue 17: classify error recovery and logging ownership. Local acceptance and Claude review pass.
@@ -32,7 +38,7 @@ Status markers:
 - [x] Issue 14: separate Agent queries, titles, compaction, and run registrations. Local acceptance and Claude review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
 
-- [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and Claude review pass; a baseline quick-action UI failure stays open.
+- [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and Claude review pass; the test-suite audit resolves the earlier quick-action UI failure.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-third-batch-simplification).
 
 - [x] Issue 6: consolidate save normalization and reuse prepared revision content. Local acceptance and Claude review pass.

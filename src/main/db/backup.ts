@@ -6,12 +6,18 @@ import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import { syncDirectory, syncFile } from '../storage/durable-sync'
 import { assertDatabaseIntegrity, type IntegrityCheckLevel } from './integrity'
-import type { OpenedDatabase } from './open-database'
 
 export interface VerifiedDatabaseBackup {
   path: string
   sha256: string
   size: number
+}
+
+type DatabaseBackupSource = {
+  backup(
+    destinationFile: string,
+    options?: Database.BackupOptions
+  ): Promise<Database.BackupMetadata>
 }
 
 export interface VerifyDatabaseFileOptions {
@@ -123,7 +129,7 @@ export async function verifyDatabaseFile(
 }
 
 export async function createVerifiedDatabaseBackup(options: {
-  source: Database.Database
+  source: DatabaseBackupSource
   destination: string
   databaseRole: 'app' | 'project'
   applicationId?: number
@@ -177,60 +183,10 @@ export async function createVerifiedDatabaseBackup(options: {
   }
 }
 
-export async function createVerifiedOpenedDatabaseBackup(options: {
-  source: Pick<OpenedDatabase<unknown>, 'backup'>
-  destination: string
-  databaseRole: 'app' | 'project'
-  applicationId?: number
-  signal?: AbortSignal
-  log?: Pick<Logger, 'info' | 'error'>
-  validate?: (database: Database.Database) => void
-}): Promise<VerifiedDatabaseBackup> {
-  const partial = `${options.destination}.${randomUUID()}.partial`
-  await mkdir(dirname(options.destination), { recursive: true })
-  try {
-    options.log?.info(
-      { event: 'db.backup.started', databaseRole: options.databaseRole },
-      `Starting ${options.databaseRole} database backup`
-    )
-    await options.source.backup(partial, backupOptions(options.signal))
-    await normalizeBackupFile(partial)
-    const verified = await verifyDatabaseFile(partial, {
-      databaseRole: 'backup',
-      applicationId: options.applicationId,
-      integrity: 'quick',
-      log: options.log,
-      validate: options.validate
-    })
-    await syncFile(partial)
-    await publishFileWithoutReplacement(partial, options.destination)
-    options.log?.info(
-      {
-        event: 'db.backup.completed',
-        databaseRole: options.databaseRole,
-        size: verified.size,
-        sha256: verified.sha256
-      },
-      `${options.databaseRole} database backup completed`
-    )
-    return { ...verified, path: options.destination }
-  } catch (err) {
-    options.log?.error(
-      { event: 'db.backup.failed', err, databaseRole: options.databaseRole },
-      `${options.databaseRole} database backup failed`
-    )
-    throw new Error(`${options.databaseRole} database backup failed`, { cause: err })
-  } finally {
-    try {
-      await rm(partial, { force: true })
-    } catch (err) {
-      options.log?.error(
-        { event: 'db.backup.partial_cleanup_failed', err, databaseRole: options.databaseRole },
-        `${options.databaseRole} database backup partial cleanup failed`
-      )
-    }
-  }
-}
+// Keep the legacy export for callers that use the opened-database name. Both
+// database connection shapes expose the same backup operation and share one
+// implementation so cleanup and verification cannot drift.
+export const createVerifiedOpenedDatabaseBackup = createVerifiedDatabaseBackup
 
 export async function verifyAndPublishDatabaseBackup(options: {
   partialPath: string

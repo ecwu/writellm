@@ -9,7 +9,7 @@ import type { WorkbenchGridNode } from '../src/shared/contracts/workbench'
 async function toolGroups(page: Page) {
   return page.evaluate(async () => {
     const lifecycle = await window.desktop.projects.lifecycle()
-    if (lifecycle.state !== 'open') return []
+    if (lifecycle.state !== 'open' || lifecycle.activeProject === null) return []
     const layout = await window.desktop.workbench.read({
       projectSessionId: lifecycle.activeProject.projectSessionId
     })
@@ -436,7 +436,7 @@ test(
         .poll(async () =>
           page.evaluate(async () => {
             const lifecycle = await window.desktop.projects.lifecycle()
-            if (lifecycle.state !== 'open') return false
+            if (lifecycle.state !== 'open' || lifecycle.activeProject === null) return false
             return (
               (
                 await window.desktop.workbench.read({

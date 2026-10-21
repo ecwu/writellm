@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
 import {
   agentDiagnosticErrorSchema,
   type AgentDiagnosticError
 } from '../../shared/agent-diagnostic-error'
+import { sha256 } from '../../shared/hash'
 import type { AgentAssistantMessagePayload, AgentEventType } from '../../shared/contracts/agent'
 import type { AgentEventRecord } from '../../shared/contracts/agent-ipc'
 import { skillRunSnapshotSchema, type SkillRunSnapshot } from '../../shared/contracts/skills'
@@ -75,7 +75,7 @@ export function insertEvent(
 }
 
 export function fingerprint(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  return sha256(JSON.stringify(value))
 }
 
 export function readRunError(value: string | null): {

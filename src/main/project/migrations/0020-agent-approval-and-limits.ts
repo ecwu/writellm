@@ -1,4 +1,5 @@
 import type { DatabaseMigration } from '../../db/migrations'
+import { hasColumn } from './helpers'
 
 const LEGACY_LIMITS = JSON.stringify({
   contextWindowTokens: 131072,
@@ -31,14 +32,4 @@ export const migration0020: DatabaseMigration = {
         )`)
     }
   }
-}
-
-function hasColumn(
-  database: Parameters<DatabaseMigration['up']>[0],
-  table: string,
-  column: string
-): boolean {
-  return (database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).some(
-    (row) => row.name === column
-  )
 }

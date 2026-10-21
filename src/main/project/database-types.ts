@@ -375,6 +375,74 @@ export interface AgentWritingTaskTable {
   updated_at: string
 }
 
+export interface AgentChangeSetCommandTable {
+  command_id: string
+  writing_task_id: string
+  agent_session_id: string
+  request_fingerprint: string
+  action: 'apply' | 'reject'
+  ordered_proposal_ids_json: string
+  reject_reason: string | null
+  checkpoint_status: 'not_requested' | 'pending' | 'created' | 'unavailable' | 'failed'
+  checkpoint_requested: number
+  next_index: number
+  results_json: string
+  status: 'prepared' | 'running' | 'completed' | 'stopped'
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentMessageReplacementTable {
+  replacement_run_id: string
+  agent_session_id: string
+  target_event_id: string
+  from_sequence: number
+  through_sequence: number
+  created_at: string
+}
+
+export interface AgentEditEffectTable {
+  effect_id: string
+  agent_session_id: string
+  after_sequence: number
+}
+
+export interface AgentConversationForkTable {
+  agent_session_id: string
+  source_session_id: string
+  target_event_id: string
+  through_sequence: number
+  request_id: string
+}
+
+export interface AgentHistoryReferenceTable {
+  history_entry_id: string
+  agent_session_id: string
+  source_event_id: string
+  sequence: number
+}
+
+export interface AgentAttachmentTable {
+  attachment_id: string
+  agent_session_id: string
+  name: string
+  original_sha256: string
+  original_path: string
+  original_bytes: number
+  original_mime: string
+  original_width: number
+  original_height: number
+  image_sha256: string
+  image_path: string
+  image_bytes: number
+  image_mime: string
+  image_width: number
+  image_height: number
+  created_at: string
+  released_at: string
+  deletion_state: 'active' | 'deleting'
+}
+
 export interface ManuscriptAssetTable {
   asset_id: string
   sha256: string
@@ -623,7 +691,14 @@ export interface ProjectDatabaseSchema {
   }
   manuscript_comment_changes: { thread_id: string; proposal_id: string }
   agent_writing_tasks: AgentWritingTaskTable
+  agent_change_set_commands: AgentChangeSetCommandTable
+  agent_message_replacements: AgentMessageReplacementTable
+  agent_edit_effects: AgentEditEffectTable
+  agent_conversation_forks: AgentConversationForkTable
+  agent_history_references: AgentHistoryReferenceTable
+  agent_attachments: AgentAttachmentTable
   manuscript_assets: ManuscriptAssetTable
+  manuscript_asset_variants: ManuscriptAssetVariantTable
   section_revision_assets: SectionRevisionAssetTable
   parse_tasks: ParseTaskTable
   parse_revisions: ParseRevisionTable

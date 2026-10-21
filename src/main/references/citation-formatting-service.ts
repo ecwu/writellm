@@ -1,5 +1,6 @@
 import { canonicalJson } from '../../shared/canonical-json'
-import { createHash } from 'node:crypto'
+import { createAbortError } from '../../shared/abort-error'
+import { sha256 } from '../../shared/hash'
 import { readFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import type { CitationFormatterCluster } from '../../shared/contracts/citation-formatting'
@@ -210,11 +211,5 @@ function debounce(signal: AbortSignal): Promise<void> {
 }
 
 function abortError(): Error {
-  const error = new Error('Citation formatting was superseded')
-  error.name = 'AbortError'
-  return error
-}
-
-function sha256(value: string): string {
-  return createHash('sha256').update(value).digest('hex')
+  return createAbortError('Citation formatting was superseded')
 }

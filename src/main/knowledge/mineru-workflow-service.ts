@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, open, readFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import type { Logger } from 'pino'
-import { syncFile } from '../storage/durable-sync'
+import { syncFile, writeDurable } from '../storage/durable-sync'
 import { mineruRawManifestSchema, type MineruRawManifest } from '../../shared/contracts/mineru'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
 import { getProviderCapability } from '../providers/capability-registry'
@@ -16,6 +16,7 @@ import type {
   ParseTaskTable
 } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
+import { sha256 as hashSha256 } from '../../shared/hash'
 import { ProjectFilesystem } from '../project/project-filesystem'
 import { extractMineruArchive } from './mineru-archive'
 import type { MineruGateway } from './mineru-gateway'
@@ -879,7 +880,7 @@ export class MineruWorkflowService {
         await this.#filesystem.resolveForCreation(`${stagingRelativePath}/manifest.json`),
         bytes
       )
-      const manifestSha256 = createHash('sha256').update(bytes).digest('hex')
+      const manifestSha256 = hashSha256(bytes)
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
         const current = requireTask(database, parseTaskId)
@@ -1038,7 +1039,7 @@ export class MineruWorkflowService {
         await this.#filesystem.assertExistingRegularFile(`${revision.relative_path}/manifest.json`)
       )
       const manifest = mineruRawManifestSchema.parse(JSON.parse(bytes.toString('utf8')))
-      const hash = createHash('sha256').update(bytes).digest('hex')
+      const hash = hashSha256(bytes)
       if (
         manifest.parseRevisionId !== revision.parse_revision_id ||
         manifest.remoteTaskId !== task.remote_task_id ||
@@ -1187,17 +1188,15 @@ async function audited(service: MineruWorkflowService, context: JobHandlerContex
 }
 
 function providerFingerprint(config: MineruProviderConfig): string {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        providerId: config.providerId,
-        baseUrl: config.baseUrl,
-        model: config.model,
-        batchLimit: config.batchLimit,
-        fileSizeLimitMb: config.fileSizeLimitMb
-      })
-    )
-    .digest('hex')
+  return hashSha256(
+    JSON.stringify({
+      providerId: config.providerId,
+      baseUrl: config.baseUrl,
+      model: config.model,
+      batchLimit: config.batchLimit,
+      fileSizeLimitMb: config.fileSizeLimitMb
+    })
+  )
 }
 
 function readWorkReferences(
@@ -1272,16 +1271,6 @@ function insertEvent(
        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(parseTaskId, fromState, toState, event, remoteState, errorCode, occurredAt)
-}
-
-async function writeDurable(path: string, bytes: Buffer): Promise<void> {
-  const handle = await open(path, 'wx', 0o600)
-  try {
-    await handle.writeFile(bytes)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
 }
 
 async function digestFile(path: string): Promise<{ sha256: string; byteSize: number }> {

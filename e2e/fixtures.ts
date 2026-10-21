@@ -72,7 +72,7 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
       [PROJECT_DIALOG_PATHS_ENV]: JSON.stringify(options.dialogPaths ?? []),
       [KNOWLEDGE_DIALOG_PATHS_ENV]: JSON.stringify(options.knowledgeDialogPaths ?? []),
       [BIBLIOGRAPHY_DIALOG_PATH_ENV]: options.bibliographyDialogPath
-    }
+    } as unknown as Record<string, string>
   })
   if (process.platform === 'linux') {
     const backend = await app.evaluate(async ({ app, safeStorage }) => {

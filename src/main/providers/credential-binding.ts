@@ -1,8 +1,8 @@
-import { createHash } from 'node:crypto'
 import type { Kysely, Transaction } from 'kysely'
 import type { Logger } from 'pino'
 import type { OpenedDatabase } from '../db/open-database'
 import type { AppDatabaseSchema } from '../app-db/database-types'
+import { sha256 } from '../../shared/hash'
 
 export interface ProviderSecurityIdentity {
   providerConfigId: string
@@ -43,9 +43,7 @@ export function credentialBindingFingerprint(input: {
   provider: string
   configJson: string
 }): string {
-  return createHash('sha256')
-    .update(JSON.stringify(providerSecurityIdentity(input)))
-    .digest('hex')
+  return sha256(JSON.stringify(providerSecurityIdentity(input)))
 }
 
 export async function expectedCredentialBinding(

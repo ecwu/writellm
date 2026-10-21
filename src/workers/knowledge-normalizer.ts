@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto'
-import { mkdir, open } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import { dirname, extname, posix } from 'node:path'
 import {
   normalizedKnowledgeBlockSchema,
@@ -7,6 +6,8 @@ import {
 } from '../shared/contracts/knowledge'
 import type { MineruUtilityRequest, MineruUtilityResponse } from '../shared/contracts/mineru'
 import { chooseMineruContentListPath } from '../shared/mineru-content-list'
+import { readBounded, writeDurable } from '../main/storage/durable-sync'
+import { sha256 } from '../shared/hash'
 
 const MAX_CONTENT_LIST_BYTES = 100 * 1024 * 1024
 const MAX_BLOCKS = 20_000
@@ -76,7 +77,9 @@ async function normalizeContentList(
 ): Promise<NormalizedKnowledgeBlock[]> {
   const record = inventory.get(contentList)
   if (record === undefined) throw new Error('Content-list inventory record is missing')
-  const bytes = await readBounded(`${request.rawRoot}/${contentList}`, MAX_CONTENT_LIST_BYTES)
+  const bytes = await readBounded(`${request.rawRoot}/${contentList}`, MAX_CONTENT_LIST_BYTES, {
+    invalidMessage: 'Normalizer input file size is invalid'
+  })
   if (sha256(bytes) !== record.sha256) throw new Error('MinerU content list hash does not match')
   const raw = JSON.parse(bytes.toString('utf8')) as unknown
   if (!Array.isArray(raw) || raw.length > MAX_BLOCKS) {
@@ -164,7 +167,8 @@ async function normalizeMarkdownFallback(
     throw new Error('MinerU result lacks content_list.json and full.md')
   const bytes = await readBounded(
     `${request.rawRoot}/${markdownFile.relativePath}`,
-    MAX_CONTENT_LIST_BYTES
+    MAX_CONTENT_LIST_BYTES,
+    { invalidMessage: 'Normalizer input file size is invalid' }
   )
   if (sha256(bytes) !== inventory.get(markdownFile.relativePath)?.sha256) {
     throw new Error('MinerU Markdown hash does not match')
@@ -377,7 +381,9 @@ async function copyAsset(input: {
   const mimeType = imageMime(extension)
   const relativePath = `images/${record.sha256}${extension}`
   if (!input.assets.has(relativePath)) {
-    const bytes = await readBounded(`${input.rawRoot}/${sourceRelativePath}`, MAX_ASSET_BYTES)
+    const bytes = await readBounded(`${input.rawRoot}/${sourceRelativePath}`, MAX_ASSET_BYTES, {
+      invalidMessage: 'Normalizer input file size is invalid'
+    })
     if (bytes.byteLength !== record.byteSize || sha256(bytes) !== record.sha256) {
       throw new Error('MinerU asset hash or size does not match')
     }
@@ -433,31 +439,4 @@ function stableBlockId(
   contentHash: string
 ): string {
   return `kb_${sha256(Buffer.from(`${parseRevisionId}\0${ordinal}\0${providerId ?? ''}\0${contentHash}`)).slice(0, 32)}`
-}
-
-async function readBounded(path: string, maxBytes: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const stat = await handle.stat()
-    if (!stat.isFile() || stat.size <= 0 || stat.size > maxBytes) {
-      throw new Error('Normalizer input file size is invalid')
-    }
-    return await handle.readFile()
-  } finally {
-    await handle.close()
-  }
-}
-
-async function writeDurable(path: string, bytes: Buffer): Promise<void> {
-  const handle = await open(path, 'wx', 0o600)
-  try {
-    await handle.writeFile(bytes)
-    await handle.sync()
-  } finally {
-    await handle.close()
-  }
-}
-
-function sha256(bytes: Buffer): string {
-  return createHash('sha256').update(bytes).digest('hex')
 }

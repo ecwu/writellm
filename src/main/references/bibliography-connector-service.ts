@@ -600,6 +600,7 @@ export class BibliographyConnectorService {
           this.#debounceTimers.delete(connectorId)
           const connector = this.#repository.find(connectorId)
           if (connector === null) return
+          // error-handling: allow owner=bibliography-watch reason=background-refresh
           void this.refresh(connectorId, connector.projectId).catch(() => undefined)
         }, 300)
       )
