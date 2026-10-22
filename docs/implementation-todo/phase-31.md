@@ -38,28 +38,4 @@ the system-level failure detector for incomplete Skill preparation.
 
 ### Local evidence
 
-- Two focused CP82 batches passed 96 and 84 tests respectively, covering explicit injection,
-  dependency ordering/deduplication/cycles/limits, atomic budget fallback, non-blocking automatic
-  completion and dependency failure, tool isolation, current-registry continuation, historical
-  error labels, and Renderer warning projection.
-- `pnpm check:fast` passed. The complete Electron gate passed 229 files and 1,253 tests with three
-  benchmark skips, followed by a successful production build. Its first parallel attempt recorded
-  the existing trace SQL timing variance at 10.759 seconds against a 10-second threshold; the exact
-  focused benchmark passed in 1.667 seconds before the clean complete rerun.
-- The updated Writing Skill E2E scenario passed independently, then `pnpm check:e2e` rebuilt the
-  application and passed all 49 scenarios without failures, flakes, or skips. It verified two
-  explicit roots in the first provider context without root tool calls, five authorized reference
-  reads, one visible automatic complementary Skill read, and complete schema-v3 provenance.
-- The scoped Impeccable detector returned no findings. `git diff --check` passed. No package,
-  release, commit, tag, push, signing, notarization, promotion, or publication action was performed.
-- Under separate trial-build authorization, the three intentionally changed protected Agent test
-  source hashes and the obsolete fail-closed test name were refreshed in the recovery manifest.
-  The complete no-Team-ID macOS arm64 package gate then passed 31 recovery fixtures from 29
-  sources, 53,318 ASAR entries, all 12 packaged runtime smoke scenarios, and all 34 packaged
-  Electron scenarios without failures, flakes, or skips. It produced
-  `WriteLLM-0.2026.8.49-arm64.dmg` (239,010,676 bytes,
-  `cfc8551ecbc8043e0cf2f7f4ca2550d8782df950fa6006751f78055008a0b10d`) and
-  `WriteLLM-0.2026.8.49-arm64.zip` (237,203,201 bytes,
-  `0edfbf0b7b570f892b3c4d589afb12f88b598dfb3219f393c0acebc2dbc34624`) under
-  `dist/macos-arm64`. No Developer ID signing, notarization, release, commit, tag, push, promotion,
-  or publication action was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-31.md#local-evidence).

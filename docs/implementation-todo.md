@@ -1,9 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs are committed and pushed. Release 0.2026.10.3 is published.
-Issue 18 maintenance is committed, pushed, and closed.
-Issue 2 compatible maintenance passes local acceptance. Checkpoint 77 remains paused.
-Recorded: 2026-10-21
+Status: Release 0.2026.10.3 is published. The ADR 092 documentation evidence archive is pushed to `main`.
+Checkpoint 77 remains paused.
+Recorded: 2026-10-22
 
 This file lists checkpoint status and links to detailed evidence.
 
@@ -22,6 +21,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Documentation evidence archive under [ADR 092](adrs/092-documentation-evidence-archive.md): committed and pushed to `main`.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-22-documentation-evidence-archive).
 - [x] Pi 1.3 and compatible dependency maintenance pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md); changes are committed in `0f8d964`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance).
 - [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are committed in `ad0786e`.

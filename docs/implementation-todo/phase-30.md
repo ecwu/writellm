@@ -35,22 +35,4 @@ and expose immediate manual compaction through `/compact`.
 
 ### Local evidence
 
-- Focused planner, prompt, checkpoint, Main integration, and Renderer logic coverage passed 59
-  tests, including 10,000 low-token tool events and the 51,806-token/1,048,576-token reproduction.
-- `pnpm check:fast` passed. The Electron gate passed 229 files and 1,246 tests with three benchmark
-  skips, followed by a successful production build. A transient parallel-suite trace reconstruction
-  measurement was isolated and passed in 1.86 seconds on focused rerun before the final clean gate.
-- Fresh full Electron E2E passed all 49 scenarios without failures, flakes, or skips. The grounded
-  Agent scenario verified the header confirmation remains and `/compact` clears the composer,
-  performs exactly one existing manual compaction call, and creates no ordinary user turn.
-- `git diff --check` passed. No package, release, commit, tag, push, signing, notarization,
-  promotion, or publication action was performed.
-- Under separate user authorization, the complete no-Team-ID macOS arm64 package gate passed 31
-  recovery fixtures from 29 sources, verified 53,318 ASAR entries and all 12 packaged runtime
-  smoke scenarios, and passed all 34 packaged Electron scenarios without failures, flakes, or
-  skips. It produced `WriteLLM-0.2026.8.49-arm64.dmg` (239,010,230 bytes,
-  `e69917cb1e44b1125962b68b3d790bb279e24172381facc76325ecd24e7a49c4`) and
-  `WriteLLM-0.2026.8.49-arm64.zip` (237,206,167 bytes,
-  `6779135acae153e2d4528df991a51fb4477824d5e626e5230c9ec264f07d8bad`) under
-  `dist/macos-arm64`. No Developer ID signing, notarization, tag, release, promotion, or
-  publication action was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-30.md#local-evidence).

@@ -30,36 +30,4 @@ commit, tag, push, hosted CI, signing, notarization, promotion, or publication i
 
 ## Local evidence
 
-- Protocol v12 exposes nine core writing tools and seven disjoint demand groups whose merge covers
-  the complete writing tool set. Notebook remains restricted to Knowledge search and citation
-  reads, and both Worker and Main reject tools outside the current active set.
-- Activation is isolated, bounded to one through three unique groups, monotonic within a run, reset
-  for a new run, and capacity-checked before mutation. Run start, continuation, compaction, and
-  overflow recovery use the exact active envelope and message budget.
-- Every model-visible parameter schema has an object root with `properties`; union roots retain
-  their original constraints through `allOf`. The strict OpenAI-compatible loopback Harness
-  accepted the full request and streamed a response without a provider-specific branch.
-- A real LM Studio run accepted the earlier empty root wrapper but emitted 370 `read_section({})`
-  calls, each rejected by Worker preflight at `/`. Root unions now project every branch property,
-  the intersection of required fields, and merged literal discriminators onto the model-visible
-  object root while retaining the original union beneath `allOf`. Regression coverage verifies
-  non-empty `read_section` and `generate_image` roots, valid variants, and rejection of `{}`.
-- The compatibility maintenance passed 44 focused schema, Worker, session, and budget tests plus
-  `pnpm check:fast`. `pnpm check:electron` passed 201 files / 1,160 tests with three intentional
-  benchmark skips and completed the production build; the fresh `pnpm check:e2e` build passed all
-  47/47 scenarios with no flaky, skipped, or failed scenario.
-- The final no-identity `pnpm check:package` verified all 27 recovery cases from 25 sources,
-  Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 12 packaged smoke
-  scenarios, and 34/34 packaged E2E scenarios. It produced the trial App, DMG, and ZIP under
-  `dist/macos-arm64`; release signing, notarization, and publication did not run.
-- 153 focused shared-contract, Worker, Main, and provider tests plus the two-test prompt-budget
-  baseline passed. `pnpm check:fast` passed.
-- `pnpm check:electron` passed 201 files / 1,158 tests with three intentional benchmark skips and
-  completed the production build. The final fresh `pnpm check:e2e` build passed all 47/47 scenarios
-  with no flaky, skipped, or failed scenario.
-- The separately authorized local `pnpm check:package` refreshed the intentionally changed Agent
-  recovery-source digest, verified all 27 recovery cases from 25 sources, Electron 43.4.1 / ABI
-  148, arm64 native modules, 53,287 ASAR entries, all 12 packaged smoke scenarios, and 34/34
-  packaged E2E scenarios. It produced the no-Team-ID App, DMG, and ZIP from the current dirty
-  worktree. `pnpm check:release`, Apple Developer ID signing, notarization, and publication did not
-  run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-24.md#local-evidence).

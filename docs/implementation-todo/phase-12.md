@@ -81,27 +81,7 @@ implementation complete.
 
 ### Local evidence
 
-- The Settings Command contains one unlabeled ordered peer list. General uses Appearance, Writing,
-  and Agent defaults fieldsets; credential security and diagnostics exist only on About &
-  Diagnostics.
-- Focused Renderer coverage passed five tests for navigation order, General composition, the fixed
-  shortcut guide, secure credential state, and unsafe-backend warnings. The focused Real-Electron
-  flow verified preference persistence, both new peers, close behavior, focus return, and WCAG axe
-  checks.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 188 files / 1048 tests with three
-  intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all
-  41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
-- Desktop screenshots of Keyboard Shortcuts and About & Diagnostics were inspected. The scoped
-  Impeccable detector returned no findings, and `git diff --check` passed.
-  No shared contract, IPC, persistence, migration, dependency, package/release, hosted CI, commit,
-  push, signing, notarization, promotion, or publication action ran as part of checkpoint
-  completion.
-- A later separately authorized hands-on build passed the no-identity macOS arm64 package gate from
-  the current dirty worktree. Native/ASAR inventory, 12/12 packaged smoke scenarios, and 28/28
-  packaged E2E scenarios passed before the gate produced the unpacked App, DMG, and ZIP. No
-  candidate, commit, tag, push, Apple Developer ID signature, notarization, release, promotion, or
-  publication ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence).
 ### Acceptance gate
 
 - The Settings list remains one unlabeled flat level in the approved order; provider readiness
@@ -147,22 +127,7 @@ Decision: accepted ADR 055; implementation complete.
 
 ### Local evidence
 
-- Shared/parser, v1/v2/v3 contract normalization, Main routing, session preparation, replay,
-  Renderer matching, and error-projection tests cover leading and escaped mentions, ordered
-  multi-Skill loads, explicit-only Skills, conflicts, unavailable and excessive mentions,
-  prompt/reference budgets, dependencies, and fail-closed final answers.
-- The fresh Real-Electron fixture selected two Skills using Enter and Tab, retained the ordinary
-  `$e2e-writing $e2e-humanize` prompt text in the model request, visibly loaded both requested
-  Skills plus one Agent-discovered complement, read five complete references, and projected two
-  Requested plus one Discovered provenance row in Agent Details.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 187 files / 1043 tests with three
-  intentional benchmark skips and completed the production build. `pnpm check:e2e` passed all 41
-  fresh Real-Electron scenarios with no flaky, skipped, or failed scenario. All 25 recovery
-  fixtures from 23 sources passed.
-- Desktop and Agent Details screenshots were inspected; the scoped Impeccable detector returned no
-  findings, and `git diff --check` passed. No tag, package, release, hosted CI, commit,
-  push, signing, notarization, promotion, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-1).
 ### Acceptance gate
 
 - Up to four distinct leading `$name` mentions remain verbatim prompt text and resolve in order;
@@ -212,20 +177,7 @@ complete.
 
 ### Local evidence
 
-- Version-2 actual-load snapshots, version-1 normalization, exact replay candidates, ordered
-  top-level/dependency provenance, and retained reference hashes are covered by focused shared,
-  Main/router, worker, session, and Renderer tests. No migration 0037 or session selection IPC is
-  present; legacy migration 0026 columns are ignored rather than becoming current product state.
-- The Real-Electron Skill fixture loaded two top-level Skills and five complete reference files via
-  visible `read_writing_skill` calls. It verified no composer or Details selection control, the
-  aggregate timeline activity, safe persisted projections, and read-only Agent Details provenance.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 186 files / 1031 tests with three
-  intentional benchmark skips and completed the production build. The final `pnpm check:e2e`
-  passed all 41 fresh Real-Electron scenarios with no flaky, skipped, or failed scenario.
-- Desktop and Agent Details screenshots were inspected using the established shadcn and Impeccable
-  interaction criteria. `git diff --check` passed. No package/release gate, hosted CI,
-  commit, push, signing, notarization, promotion, or publication ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-2).
 ### Acceptance gate
 
 - No run inherits a Skill choice from a session or Renderer draft. Version-1 run snapshots remain
@@ -303,24 +255,7 @@ dependency, package/release work, hosted CI, commit, push, or publication action
 
 ### Local evidence
 
-Implementation and runtime verification are complete. Three focused Renderer files passed 13
-tests. `pnpm check:electron` passed 179 test files / 915 tests with three opt-in benchmarks skipped,
-then completed the production build. Fresh focused Real-Electron runs passed the grounded Agent
-workflow, outdated-proposal refresh, and Thinking-level memory scenarios; they verified the
-one-row composer, Add context routing, slash filtering and Enter selection, truthful approval
-descriptions, model/effort summary, unsupported-effort state, and a persisted lower-case `high`
-trigger label. Two bounded screenshot rounds covered the default composer plus slash, approval,
-and model/effort popovers. The scoped Biome pass covered all seven changed TypeScript/E2E files,
-the full 594-file Biome pass succeeded with JSON formatting disabled, the Impeccable detector
-returned no findings, and `git diff --check` passed.
-
-At this intermediate verification point, ordinary `pnpm check:fast` also reported formatting in a
-user-owned concurrent `.vscode/settings.json` edit, which was intentionally preserved. TypeScript,
-all scoped code formatting/lint rules, full Electron tests/build, focused E2E, UI inspection, and
-diff checks passed. The subsequent ADR 039/040 refinements, final hands-on rebuild and commit, and
-later repository-wide green gates closed Checkpoint 48; no package or release gate was required for
-the Renderer-only implementation itself.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-3).
 ### Hands-on App build authorization
 
 On 2026-08-13 the user explicitly authorized one local no-identity macOS arm64 unpacked App build
@@ -341,31 +276,10 @@ promotion was performed.
 
 ### ADR 039 refinement evidence
 
-The hands-on approval shorthand and desktop-width refinement is complete. Scoped Biome passed
-the two changed Agent components and affected E2E file. Two focused Renderer files passed 11
-tests, and `pnpm check:electron` passed 179 test files / 915 tests with the same three opt-in
-benchmarks skipped before completing the production build. A fresh focused Real-Electron Agent
-workflow passed with zero flaky, skipped, or failed scenarios; it asserted `Manual`, `Section`, and
-`YOLO`, one disclosure icon only, the three truthful descriptions, and non-overlapping approval,
-model, and Send bounds in the configured desktop panel. Screenshot inspection confirmed the compact
-default row and approval menu. The Impeccable detector returned no findings and `git diff --check`
-passed. No second App package, release, hosted CI, commit, or push was run.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#adr-039-refinement-evidence).
 ### ADR 040 refinement evidence
 
-The circular idle Send refinement is complete. Scoped Biome passed the changed Agent component
-and E2E file, and the two focused Renderer files passed 11 tests. The first full Electron run
-reported one unrelated 5-second timeout in the existing manuscript-export malformed-read-back
-case while 914 tests passed; that exact case passed alone in 428 ms, and the complete rerun then
-passed 179 test files / 915 tests with three opt-in benchmarks skipped before completing the
-production build. Two fresh focused Real-Electron passes completed the grounded Agent workflow
-with zero flaky, skipped, or failed scenarios. Runtime assertions verified the `Send` accessible
-name and title, circular class, Lucide upward-arrow icon, empty visible label, enabled state, and
-the existing non-overlap bounds. Screenshot inspection covered both disabled and enabled button
-states in the configured desktop panel. The Impeccable detector returned no findings and the final diff
-check passed. Queue, Steer, retry, and Stop were unchanged; no second App package, release, hosted
-CI, commit, or push was run.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#adr-040-refinement-evidence).
 ### Final hands-on rebuild and commit authorization
 
 On 2026-08-13 the user explicitly authorized a fresh no-identity macOS arm64 unpacked App build
@@ -432,57 +346,14 @@ hosted CI, push, or publication work is authorized.
 
 ### Local evidence
 
-- `pnpm check:fast` passed the all-file Biome gate plus Node and Renderer typechecks.
-- Focused contract, Main, IPC, model-client, worker, and Renderer runs passed; the final focused
-  runtime rerun reported 3 files / 72 tests after model-request capability revocation was added.
-- `pnpm check:electron` passed 179 test files / 922 tests with 3 opt-in benchmarks skipped, then
-  completed the production Electron/Vite build. The expected non-fatal macOS
-  `task_name_for_pid` diagnostics did not interrupt Vitest.
-- The freshly built focused Real-Electron scenario passed 1/1. It queued two visible messages,
-  deleted one, promoted the other, verified the promoted content reached the next provider request,
-  and verified the deleted content did not. The same scenario passed in both preceding all-scenario
-  attempts.
-- Two full fresh E2E attempts reached 36/38 and 37/38. The only repeated failure, reproduced alone,
-  is the pre-existing Writing Skill picker popover remaining open and intercepting the Agent details
-  Close click; one independent References fixture failed only on the first attempt and passed on
-  the second. Neither path exercises pending messages or the changed runtime protocol.
-- An original-resolution Agent-panel screenshot with two queued rows showed no overlap; the list,
-  Steer/Delete actions, composer controls, and circular Stop remained contained. The Impeccable
-  detector reported `[]`, and `git diff --check` passed.
-- No database migration, dependency, package/release gate, App artifact, commit, push, tag, signing,
-  notarization, hosted CI, publication, or promotion action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-4).
 ## Checkpoint 50: Agent Tool Contract Reliability And Scope Discipline
 
 Decision: accepted ADR 042; implementation complete after independent Checkpoint 49 closure.
 
 ### Hands-on evidence
 
-The screenshot run recorded 69 tool attempts, including 27 Pi-local preflight failures and ten
-dispatched execution errors. Subsequent continuation runs raised the conversation total to 187
-attempts, 69 preflight failures, and twelve execution errors. `submit_section_change` caused 68 of
-the 81 explicit failures, `submit_outline_change` caused twelve, and `read_writing_skill` caused
-one. In the primary run, 19 of 27 section preflight failures clearly omitted the operation-level
-`anchor`; later calls used fabricated or stale block preconditions. Five outline submissions hit
-the reproducible mismatch in which normalization counts the moving node but simulation has already
-removed it. Both SQLite integrity checks passed, and successful calls in the same conversation
-exclude a provider-wide or database-wide failure.
-
-Across the project database, 347 attempts exercise only 14 of the 20 model-visible tools. Section
-submission failed 68/90, outline submission 14/23, historical contract-v3 image generation 11/19,
-and Writing Skill reads 2/9; the other ten exercised tools recorded no failures, while six tools
-have no hands-on sample. The current generated tool envelope is 55,220 bytes and section submission
-alone is 25,140 bytes because it embeds the recursive BlockNote schema. No generated field has a
-description, and at least nine cross-field Zod refinements are absent from the JSON Schema that Pi
-validates. CP50 therefore covers the entire tool surface rather than assuming unexercised tools are
-correct.
-
-The original request covered only the Brief and outline. After approval, the generic continuation
-prompt, a null writing task, `check_draft` completeness findings, and the selected Writing Skill
-combined to widen the run into section-body drafting. The UI then hid dispatched error details
-behind `Proposal could not be prepared`, while undispatched failures appeared only as durable
-diagnostic events and not as useful timeline entries.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#hands-on-evidence).
 ### User outcome
 
 Every model-visible tool exposes a compact, accurate smallest-valid call, prerequisite source,
@@ -646,22 +517,7 @@ new event type or database migration is required.
 
 ### Local evidence
 
-- Focused contract, mutation, session, worker/event, prompt, Renderer, and compatibility suites
-  passed, including all-tool Main/preflight fixtures, contract-v1-v8 replay, section/image/outline
-  regressions, safe diagnostic projection, and Pi-local error-result continuation.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 179 test files / 931 tests with three skips
-  and its production build.
-- A fresh build preceded the unpacked Electron suite; all 39 scenarios passed. The deterministic
-  `agent.cp50-scope-and-preflight` scenario recorded zero preflight failures, exactly the expected
-  contract-v8 Brief/outline/check calls, and no `submit_section_change` call.
-- `pnpm check:package` passed the Electron 43.1.0 / ABI 148 native inventory, all recovery fixture
-  checks, 12 packaged smoke scenarios, and all 27 packaged E2E scenarios with no flaky, skipped, or
-  failed scenario. The no-Team-ID gate produced structurally verified local DMG and ZIP artifacts;
-  it did not sign, notarize, publish, push, or run hosted CI.
-- The user excluded a real Gemini request from this checkpoint's test plan. CP50 therefore closes
-  on provider-neutral deterministic and packaged evidence; no model fallback or external request
-  was performed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-5).
 ### Explicit exclusions and sequencing
 
 Checkpoint 50 keeps exactly the existing 20 model-visible tool names. It adds no generic edit tool,
@@ -696,11 +552,7 @@ push, hosted CI, signing, notarization, publication, and release remain unauthor
 
 ### Local evidence
 
-- New `src/main/agent/tools-approval-policy.test.ts` covers the full mode-by-kind matrix,
-  including Brief/Writing Rules remaining manual in Write Auto and auto-applying in YOLO.
-- The session-service approval matrix cases were updated to the new semantics; both focused
-  suites passed (67 tests).
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-6).
 ### Explicit exclusions
 
 No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
@@ -729,10 +581,7 @@ signing, notarization, publication, or release action was authorized or performe
 
 ### Local evidence
 
-- New session-service tests cover a mid-run mode change being honored at proposal decision time
-  and a mode change succeeding while a proposal awaits review; the focused session and policy
-  suites passed (69 tests).
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-7).
 ### Explicit exclusions
 
 No migration, dependency, provider, worker, durable job, package, commit, push, hosted CI,
@@ -781,19 +630,7 @@ Decision: accepted ADR 046; implementation and authorized delivery complete.
 
 ### Local evidence
 
-- Seven focused test files passed 120 tests. The prompt-budget review passed its two focused tests
-  after accepting the intentional policy-size change from 10,421 to 10,963 characters.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 180 files and 956 tests with the three
-  benchmark suites skipped, followed by the production build.
-- The focused long-document Real-Electron scenario proved RQ1/RQ2 historical projection while RQ3
-  body text, `blockId`, `blockHash`, and `revisionId` remained complete. The full E2E gate passed
-  40/40 scenarios with no flaky, skipped, or failed result.
-- The recovery verifier passed all 25 fixtures from 23 sources. `pnpm check:package` verified
-  Electron 43.1.0 / ABI 148, the no-Team-ID macOS arm64 App, all 12 packaged smoke scenarios, and
-  28/28 packaged E2E scenarios including the long-document regression.
-- The accepted local environment reports Node 26.7.0 against the repository's Node 24 engine
-  range; pnpm 11.17.0, Electron ABI/native checks, every required gate, and the app build completed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-8).
 ### Explicit exclusions
 
 Checkpoint 51 adds no model-visible tool, IPC method, database migration, dependency, durable job,
@@ -845,25 +682,7 @@ Decision: accepted ADR 047; implementation complete.
 
 ### Local evidence (2026-08-18)
 
-- Focused coverage/index verification passed 16 tests; focused Knowledge IPC verification passed
-  7 tests. Fixtures cover NFC/trim, case sensitivity, page suffixes, repeated occurrences,
-  ambiguity, unmatched citations, zero denominator, filters/query, pagination-bound snapshots,
-  active-generation changes, safe projection, explicit index states, cancellation, strict bounds,
-  sender authorization, and session revocation.
-- `pnpm check:fast` passed. The final `pnpm check:electron` passed 181 test files / 965 tests with
-  three intentionally skipped benchmark tests, followed by a successful production build.
-- A fresh `pnpm check:e2e` passed all 41/41 scenarios with no flaky, skipped, or failed scenario.
-  `knowledge.citation-coverage` exercised four indexed sources, cited/uncited/ambiguous/unmatched
-  results, title filters, editor flush, and the updated snapshot after another manuscript edit.
-  The existing section-conflict scenario additionally proved that a failed flush does not open
-  Checks.
-- The completed-page screenshot was inspected at the real Electron desktop viewport. The scoped
-  Impeccable detector returned no findings, and final Biome plus `git diff --check` passed. Local
-  Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0,
-  Electron 43.1.0 / ABI 148, native preparation, tests, and builds all completed.
-- No migration, package gate, commit, push, hosted CI, signing, notarization, release, or
-  publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-2026-08-18).
 ### Explicit exclusions
 
 Checkpoint 52 adds no database migration, stored coverage history, section scope, manual ignore,
@@ -913,26 +732,7 @@ Decision: accepted ADR 048; implementation complete.
 
 ### Local evidence (2026-08-18)
 
-- Five focused contract, normalization, proposal, policy, and tool-envelope suites passed 54 tests;
-  the explicit prompt-budget baseline suite passed 2 more. They cover root/anchored insertion,
-  metadata and `figureId` retention, new block identity, twenty-tool/8 KiB bounds, forged input,
-  same-section/non-image/nested/missing/stale/unread/cross-project source cases, target anchors,
-  inactive assets, active annotations, and cross-section `moveBlocks` recovery.
-- The SPACE fixture used a registered upload asset and real Main proposal/database services. A
-  pending destination proposal left the source untouched; approval copied the image after the
-  target paragraph; exact source removal then left one target image and zero image model requests.
-  A changed source hash left both copies and persisted no removal proposal.
-- `pnpm check:fast` passed. The final `pnpm check:electron` passed 182 test files / 980 tests with
-  three intentionally skipped benchmark tests, followed by a successful production build. The
-  deliberate policy growth updated the reviewed prompt baseline from 10,963 to 11,667 bytes and
-  remains below the 16 KiB policy limit.
-- A fresh `pnpm check:e2e` build passed all 41/41 Real-Electron scenarios with no flaky, skipped,
-  or failed scenario. Final Biome and `git diff --check` passed. Local Node 26.7.0 remains outside
-  the repository's Node 24 engine range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed
-  the authorized gates.
-- No package gate, migration, provider call, commit, push, hosted CI, signing, notarization,
-  release, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-2026-08-18-1).
 ### Explicit exclusions
 
 Checkpoint 53 adds no migration, new tool name, proposal kind, IPC, Renderer surface, provider
@@ -990,22 +790,7 @@ Decision: accepted ADR 049; implementation complete.
 
 ### Local evidence
 
-- The focused contract/planner/projection/prompt/session/Renderer suite passed 8 files / 107 tests.
-  It covers long Chinese and English request middles, long terminal assistant text, token-first
-  source selection, 240-event paging, adaptive small/large budgets, v1/v2/v3 compatibility,
-  conversation-memory authority, rolling handoff continuity, unsafe-fallback rejection, and a
-  newest 20k-plus raw turn borrowing unused checkpoint budget without truncation.
-- `pnpm check:fast` passed Biome over 601 files plus Node and Renderer typechecks. The deliberate
-  policy addition updated the reviewed fixed-prompt baseline to 12,148 bytes and remains under the
-  16 KiB policy ceiling.
-- `pnpm check:electron` passed 182 test files / 984 tests with three intentionally skipped
-  benchmark tests, followed by a successful production build.
-- A fresh `pnpm check:e2e` build passed all 41/41 Real-Electron scenarios with no flaky, skipped,
-  or failed scenario. Final `git diff --check` passed.
-- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
-  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
-  provider, commit, push, signing, notarization, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-9).
 ### Explicit exclusions
 
 Checkpoint 54 adds no editable memory/rule ledger, compaction table, database migration, durable
@@ -1059,23 +844,7 @@ change to the existing context-compaction policy.
 
 ### Local evidence
 
-- The focused context-indicator and Agent view-model suites passed 2 files / 27 tests. They cover
-  exact and estimated labels, compact counts, clamped progress, ARIA/focus semantics, unknown
-  hiding, run correlation, model/preset mismatch, originating-run limits, and provider
-  input-plus-cache fallback.
-- `pnpm check:fast` passed Biome over 603 files plus Node and Renderer typechecks.
-  `pnpm check:electron` passed 183 test files / 990 tests with three intentionally skipped
-  benchmark files/tests, followed by a successful production build.
-- The fresh focused Real-Electron `agent.grounded-proposal-workflow` scenario passed. It verifies
-  pre-response absence, 45-percent progress semantics, keyboard focus, the exact tooltip, and
-  non-overlap among Approval, ring, model, and Send in the configured desktop panel.
-- Default and focused-tooltip screenshots were inspected. The scoped Impeccable detector returned
-  no findings, the independent Impeccable finish reviewer returned `ship` with no material
-  findings, and `git diff --check` passed.
-- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
-  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
-  provider, commit, push, signing, notarization, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-10).
 ## Checkpoint 56: Agent Plan Bottom Progress Capsule
 
 Decision: user-approved plan; implementation complete. No new ADR is required because the
@@ -1120,27 +889,7 @@ refinement preserves ADR 025's task identity, state machine, persistence, and Re
 
 ### Local evidence
 
-- The focused Agent panel suite passed 11/11 tests. The new view-model regression proves that
-  `Step N / Total` uses the `currentStepId` position even when `completedCount` differs, and covers
-  terminal and missing-current-step labels. `pnpm check:fast` passed Biome over 603 files plus Node
-  and Renderer typechecks.
-- The final `pnpm check:electron` passed 183 test files / 991 tests with three intentionally skipped
-  benchmark files/tests, followed by a successful production build. The fresh focused
-  Real-Electron `agent.writing-task-identity` scenario passed against that build.
-- The Real-Electron scenario covers Enter, Space, Escape, trigger focus restoration, accessible
-  dialog naming, plan editing, Resume, change-set expansion, nested Reject Dialog, batch result,
-  post-close proposal focus, archive/restore, restart recovery, and historical change-set access.
-- Collapsed and open desktop Agent-panel screenshots were inspected. The capsule remains centered
-  in its own row, the Popover stays within panel bounds, internal content wraps or scrolls, and
-  neither the message timeline nor composer is covered.
-- The scoped Impeccable detector returned no findings. The independent finish reviewer identified
-  close-autofocus and dialog-naming gaps; both were fixed with regression assertions, and the
-  bounded re-review returned `ready` with no unresolved risk. Final formatting and
-  `git diff --check` passed.
-- Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm 11.17.0 and
-  Electron 43.1.0 / ABI 148 completed the authorized gates. No package/release, hosted CI,
-  provider, migration, dependency, commit, push, signing, notarization, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-11).
 ### Explicit exclusions
 
 Checkpoint 56 adds no IPC method, database migration, shared contract, Agent tool, provider call,
@@ -1190,30 +939,7 @@ Decision: accepted ADR 051; implementation complete.
 
 ### Local evidence
 
-- Focused contract, migration/repository, ProviderService, IPC, worker serialization/probe,
-  Main model-request/asset, and Renderer suites passed 10 files / 83 tests. They cover the fixed
-  provider/model directory, endpoint rejection, nullable OpenAI auto size, exact OpenAI/xAI SDK
-  request bodies, bounded base64/MIME/error handling, cancellation, non-generating model probes,
-  legacy Gemini migration, independent credentials, explicit switching, fail-closed removal, and
-  exact provider/model lineage.
-- `pnpm check:fast` passed. The final `pnpm check:electron` passed 184 files / 1009 tests with three
-  intentional benchmark skips, then completed the production build. The macOS
-  `task_name_for_pid` diagnostics were non-fatal and Vitest produced its normal passing summary.
-- The updated focused Real-Electron settings lifecycle passed 1/1, then the fresh full suite passed
-  41/41 with no flaky, skipped, or failed scenario. It saves all three encrypted credentials,
-  switches the active source, proves removing the active OpenAI source clears selection without
-  erasing Gemini/xAI, verifies snapshots omit all three secrets, activates xAI, and reopens with
-  the same state. The successful generation path is covered without billing by the worker/Main
-  HTTP and asset fixtures; no product test seam or custom endpoint was added.
-- The recovery manifest passed all 25 cases from 23 sources after refreshing the three intentionally
-  changed test-source hashes. `pnpm check:package` passed the no-Team-ID macOS arm64 unpacked app,
-  native/ASAR/resource inventory, app.sqlite v9, all 12 packaged smoke scenarios, all 28 packaged
-  Real-Electron scenarios, and DMG/ZIP creation plus structural hashes.
-- `git diff --check` passed. Local Node 26.7.0 remains outside the repository's Node 24 engine
-  range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate. No live
-  OpenAI/xAI image request, hosted CI, commit, push, signing identity, notarization, release,
-  promotion, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-12).
 ### Explicit exclusions
 
 No Responses API image generation, image editing, masks, reference images, transparent output,
@@ -1265,33 +991,7 @@ sandbox, and project-session capability authority.
 
 ### Local evidence (2026-08-19)
 
-- The new three-test Renderer suite passed headings, paragraphs, lists, quotes, GFM table scroll,
-  code, KaTeX, Mermaid interception, Typeset classes, loss counting, Brief/objective/References
-  exclusion, HTTPS filtering, and strict `writellm-asset:` acceptance. The existing conversion and
-  rich-media tests remained green.
-- The focused Real-Electron workspace, conflict, and rich-media scenarios passed. They prove the
-  Outline action is absent, Preview is an independent active rail destination with no Dialog,
-  an unsaved body flushes before navigation, a stale-save conflict stays in Manuscript, section
-  order/body survives projection, objectives stay private, the project-asset capability resolves,
-  sanitized Mermaid, KaTeX, captions, and return-to-section context remain intact in the desktop
-  layout.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 185 test files / 1012 tests with three
-  intentional benchmark skips and completed the production build. A fresh full
-  `pnpm test:e2e` passed 41/41 scenarios with no flaky, skipped, or failed scenario.
-- Light desktop and dark rich-media screenshots were inspected. The
-  scoped Impeccable detector returned no findings, final Biome passed, and `git diff --check`
-  passed. Local Node 26.7.0 remains outside the repository's Node 24 engine range; pinned pnpm
-  11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate.
-- No package/release gate, migration, dependency install, billable provider call, hosted CI,
-  commit, push, signing, notarization, release, promotion, or publication ran.
-
-Packaging addendum: after Checkpoint 58 completion, the user separately authorized one local
-no-identity macOS arm64 unpacked App build for hands-on use. `pnpm build:unpack` passed the
-Electron 43.1.0 / ABI 148 native and ASAR/resource inventory, all 12 packaged runtime smoke
-scenarios, and all 28 packaged Real-Electron scenarios with no flaky, skipped, or failed result.
-It produced `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing identity discovery,
-notarization, hosted CI, commit, push, release, promotion, or publication was performed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-2026-08-19).
 ### Explicit exclusions
 
 Checkpoint 58 adds no IPC method, shared contract, database migration, persisted preview state,
@@ -1333,28 +1033,7 @@ Decision: accepted ADR 052; implementation complete.
 
 ### Local evidence
 
-- Focused shared-contract, ProviderService, provider/auxiliary worker client, worker request, IPC,
-  Renderer, and model-execution lineage suites passed 9 files / 83 tests. They cover the
-  four-source order, strict Project ID/global/model directory, Vertex API-key rejection, omitted
-  credential envelopes, ADC client initialization, non-generating `countTokens`, one image request,
-  size mapping, cancellation, safe errors, inline-image validation, ambient activation/removal,
-  and exact `google-vertex` provider/model lineage.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 185 files / 1026 tests with three
-  intentional benchmark skips, then completed the production build. Electron's macOS
-  `task_name_for_pid` diagnostics were non-fatal and Vitest produced its normal passing summary.
-- The first complete Real-Electron run passed 40/41 and exposed one overly strict test expectation
-  for the visible model label; after correcting that assertion, the fresh complete suite passed
-  41/41 with no flaky, skipped, or failed scenario. It saves Vertex without a credential field,
-  activates and removes it without changing Gemini, resaves it, and verifies restart recovery.
-- All 25 recovery fixtures from 23 sources passed after refreshing the two intentionally changed
-  source hashes. `pnpm check:package` passed the no-Team-ID macOS arm64 App, native/ASAR/resource
-  inventory, app.sqlite v9, all 12 packaged smoke scenarios, all 28 packaged E2E scenarios, and
-  DMG/ZIP creation plus structural hashes.
-- `git diff --check` passed. Local Node 26.7.0 remains outside the repository's Node 24 engine
-  range; pinned pnpm 11.17.0 and Electron 43.1.0 / ABI 148 completed every authorized gate. No live
-  ADC probe, billable image request, hosted CI, commit, push, signing identity, notarization,
-  release, promotion, or publication action ran.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-12.md#local-evidence-13).
 ### Hands-on repair evidence
 
 - The first live trial returned a Vertex candidate and one inline image through local ADC, then

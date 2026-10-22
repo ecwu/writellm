@@ -47,22 +47,7 @@ presentation projection cannot participate in proposal approval or mutation appl
 
 ### Local evidence
 
-- Exact-pinned `border-beam@1.3.0` and `thinking-orbs@0.2.0` passed local package-source review;
-  both are Renderer-only, dependency-free, MIT packages with bounded animation lifecycles,
-  offscreen handling, and reduced-motion behavior. `pnpm install --frozen-lockfile` passed.
-- Focused shared/Main/Renderer coverage passed 4 files / 61 tests. The complete Electron-hosted
-  gate passed 189 files / 1054 tests with three intentional benchmark skips, followed by the
-  production build.
-- The fresh complete Real-Electron gate passed 41/41 scenarios. It directly asserts the running
-  thinking indicator, review attention wrapper, Brief presentation, Outline presentation, and
-  retained section diff behavior.
-- Desktop section review plus semantic Outline runtime screenshots were inspected.
-  Scoped Impeccable detection returned no findings; `pnpm check:fast` and `git diff --check`
-  passed.
-- The complete E2E run exposed an existing References selector race. The test now targets the
-  sidebar that contains Manuscript references; its focused rerun and the final full suite passed.
-  Product behavior was unchanged.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-13.md#local-evidence).
 ### Explicit exclusions
 
 No inline proposal editing, full Outline snapshot, generic JSON/schema diff framework, database
@@ -116,34 +101,7 @@ Kysely 0.29, KaTeX 0.18, @shadcn/react 0.3, or thinking-orbs 0.3 migrations.
 
 ### Local evidence
 
-- The direct dependency lines named by ADR 056 were updated together. Same-major pnpm overrides
-  refresh `fast-uri`, `brace-expansion`, `undici`, and `tar` only within parent-admitted ranges;
-  `pnpm install --frozen-lockfile` passed against the resulting reproducible lockfile.
-- The original production audit contained 19 advisories: seven high, eleven moderate, and one
-  low. Final `pnpm audit --prod` and complete `pnpm audit` both reported zero advisories. Source
-  inspection found no `Kysely<any>`, user-derived `sql.lit`, or dynamic JSON-path construction.
-- Focused characterization passed 5 files / 58 tests for persisted BlockNote v1-v3 content,
-  stable IDs, custom image/math/Mermaid/nested blocks, no-op canonical JSON and content hashes,
-  malicious/legitimate Mermaid attributes, malformed PDF fail-closed cleanup, and Google provider
-  contracts. The focused BlockNote Real-Electron control scenario also passed.
-- `pnpm check:fast` passed. The canonical Electron-hosted gate passed 192 files / 1062 tests with
-  three intentional benchmark skips, followed by the production build. All 25 recovery fixtures
-  from 23 sources passed with manifest SHA-256
-  `4b4d3e989fbedf3d8caff2f51c673bc0bce9fb42d572c1d2fb3f6064d00046d9`.
-- The fresh complete Real-Electron suite passed 42/42 scenarios. It covers BlockNote 0.54 slash
-  menu, formatting, Mermaid, keyboard, and stable replacement focus behavior in
-  addition to provider/Agent, project history, PDF worker, custom protocol, and CSP regressions.
-- The final no-identity macOS arm64 package gate passed Electron 43.4.1 / embedded Node 24.18.1 /
-  ABI 148 preparation, Mach-O arm64 `better-sqlite3` 12.11.1 and `sqlite-vec` 0.1.9 inventory,
-  53,145 ASAR entries, all 12 packaged runtime smoke scenarios, 29/29 packaged E2E scenarios, and
-  DMG/ZIP structural inspection. The first package attempt had one Settings mouse-click
-  acknowledgement timeout despite the dialog opening; a focused rerun passed, the unrelated
-  Agent-context setup switched to the global keyboard Settings entry, and the complete final gate
-  passed with no flaky, skipped, or failed scenario.
-- Biome formatting/static checks and `git diff --check` passed. The scoped Impeccable hook's sole
-  report was an exact `<img>` string inside a sanitizer test rather than rendered UI; that exact
-  test-only false positive is suppressed with no product finding left open.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-13.md#local-evidence-1).
 ### Explicit exclusions
 
 No BlockNote native Math/Diagram or collaboration feature, product capability, IPC, persistence

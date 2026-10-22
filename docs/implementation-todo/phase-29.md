@@ -196,18 +196,4 @@ Checkpoint 80 is accepted only when all tests prove these invariants:
 
 ### Local evidence
 
-- `pnpm check:fast` passed after the final protocol, migration, Main, Worker, IPC, preload, and
-  Renderer changes.
-- The canonical Electron gate passed 228 test files with 1,240 tests; three benchmark files/tests
-  remained intentionally skipped, and the production build succeeded.
-- The focused `agent.request-retry` Electron scenario passed both before-content and interrupted
-  stream paths, proving exact provider-request body reuse and one durable user message per long
-  request.
-- The complete fresh Electron E2E suite passed all 49 scenarios without flakes, skips, or failures.
-- The complete no-Team-ID macOS arm64 package gate verified 31 recovery fixtures from 29 sources,
-  53,318 ASAR entries, all 12 packaged runtime smoke scenarios, and all 34 packaged Electron
-  scenarios. It produced the unpacked App, DMG, and ZIP under `dist/macos-arm64`.
-- `git diff --check` passed. No package, release, commit, tag, push, signing, notarization,
-  promotion, or publication action was performed before the separately requested package build;
-  that build performed no release, commit, tag, push, signing, notarization, promotion, or
-  publication action.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-29.md#local-evidence).

@@ -37,16 +37,4 @@ notarization, promotion, or publication is authorized.
 
 ## Local evidence
 
-- `pnpm --config.engine-strict=false check:fast` passed with pnpm 11.17.0 after the separately
-  authorized package-manager pin alignment; the override is limited to the host's Node 26 versus
-  the repository's unchanged Node 24 engine range.
-- `node scripts/run-tests.mjs` passed 1,180 tests with three benchmark tests skipped.
-- `npm run build` passed after the canonical Electron native-target check and both typechecks.
-- `npm run test:e2e` passed all 47 Electron Playwright scenarios after a focused Protocol v13
-  assertion update; the suite includes Ask → Plan → Write selector behavior in the desktop composer.
-- Under separate post-checkpoint authorization, the recovery fixture manifest was refreshed for
-  three intentionally changed Agent test sources and `pnpm --config.engine-strict=false
-  check:package` passed: 31 recovery fixtures, 12 packaged smoke scenarios, 34 packaged Electron
-  scenarios, and structurally verified unsigned arm64 DMG and ZIP artifacts.
-- `git diff --check` passed. Signing, notarization, release, commit, tag, and push commands were not
-  run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-25.md#local-evidence).

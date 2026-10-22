@@ -529,19 +529,7 @@ mapping invariants or performance decision gate fail.
 
 ### Completion evidence
 
-- The 1,000-section fixture serializes to 10,419,993 bytes and contains 4,051 surfaces, including
-  1,001 Unicode slow-path surfaces and one 75,000-UTF-16-unit decomposed surface. After five
-  warmups, 30 Node v24.18.0 arm64 samples passed at p50 32.34 ms, p95 34.66 ms, and maximum
-  synchronous Main slice 12.02 ms.
-- Focused source-map, semantic-span, Main service, IPC, Agent compatibility, editor decoration,
-  panel, outline-targeting, and close-path suites pass. Exact revalidation accepts an
-  unrelated new revision only when the path, original range, and slice remain identical.
-- `check:fast`; `check:electron` with 146 passing files, 798 passing tests, two opt-in benchmark
-  skips, and a production build; fresh focused and full Real-Electron E2E with 26/26 scenarios;
-  all 25 recovery fixtures from 23 sources; one clean scoped Impeccable detector run followed by
-  a fresh finish review and remediation; and `git diff --check` pass.
-- Package/release, hosted CI, commit, tag, push, and publication were not run.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence).
 ### Explicitly deferred
 
 Regular expressions, fuzzy/semantic search, accent-insensitive or full Unicode case folding,
@@ -703,19 +691,7 @@ review-only outcome.
 
 ### Completion evidence
 
-The focused contract, prompt, Main, IPC, and Renderer suite passed 55 tests. `check:fast` passed.
-`check:electron` passed 150 Electron-hosted test files and 816 tests with three opt-in files/tests
-skipped, followed by a successful production build. The focused CP31 Real-Electron scenario proved
-the keyboard entry, exact frozen selection, ordinary conversation reuse, Main-owned evidence task,
-review-only completion, and no proposal; the fresh full suite passed all 28 scenarios. The 25-case
-recovery fixture verifier passed, scoped Impeccable detection returned no findings, and
-`git diff --check` passed. Package/release, hosted CI, commit, tag, push, and publication were not
-run for the CP31 implementation gate. On 2026-08-12 the user separately authorized release
-metadata `0.2026.8.16` and an unsigned local macOS arm64 App build for hands-on testing; its package
-gate passed 12 packaged runtime smoke scenarios, 17 packaged E2E scenarios, and all 25 recovery
-fixtures, verified arm64 native resources plus a no-Team-ID signature, and produced the App, DMG,
-and ZIP.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-1).
 ## Checkpoint 32: Deterministic Review And Problem Set
 
 Implementation authorized together with CP45 and CP33 under accepted ADR 024. The existing
@@ -775,13 +751,7 @@ projection and never starts a review.
 
 ### Acceptance evidence
 
-Focused contract, deterministic-check, context, Agent-tool, Review Issue, mutation-reconciliation,
-IPC, migration, and Workbench tests are implemented. Final evidence passed `check:fast`;
-`check:electron` with 154 passing Electron-hosted test files, 829 passing tests, and three skipped
-opt-in files/tests; a production build; focused Agent-native and passive-Workbench scenarios;
-fresh full Real-Electron E2E with 30/30 scenarios; all 25 recovery fixtures from 23 sources; clean
-scoped Impeccable detection; and `git diff --check`.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence).
 ## Checkpoint 34A: Writing-Task Identity And Plan Model
 
 ### User outcome
@@ -816,15 +786,7 @@ versions are monotonic; every progress event carries an exact task/step correlat
 
 ### Acceptance evidence
 
-Accepted ADR 025 defines UUID task/step identity, the bounded plan state machine, monotonic
-optimistic versions, and one narrow project-local table. The implementation adds ordinary Agent
-task tools, exact proposal correlation, and a passive conversation projection without adding a
-scheduler, worker, subagent, or manuscript authority. Focused tests, `check:fast`, `check:electron`
-with 157 passing files and 835 passing tests, the production build, focused and full Real-Electron
-E2E with 31/31 scenarios, all 25 recovery fixtures, scoped Impeccable detection, and
-`git diff --check` passed. The task scenario proves identity across archive/restore, project close,
-and application restart.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-1).
 ## Checkpoint 34B: Writing-Task Progress, Reconciliation, And Recovery
 
 ### User outcome
@@ -855,15 +817,7 @@ recoverable.
 
 ### Acceptance evidence
 
-Migration 0031 adds exact nullable task/step snapshots to ordinary Agent runs. Main derives bounded
-per-step progress from correlated run status and authoritative proposal outcomes, including
-pending review, verified effects, stopped/failed work, report-only completion, and explicit
-disagreement. Idle user revisions reuse the optimistic CP34A service; Resume sends a Main-authored
-request to the same conversation and first calls `get_writing_task`. Focused reconciliation,
-migration, IPC, and session tests, `check:fast`, `check:electron` with 158 passing files and 839
-passing tests, the production build, focused and fresh full Real-Electron E2E with 31/31 scenarios,
-all 25 recovery fixtures, scoped Impeccable detection, and `git diff --check` passed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-2).
 ## Checkpoint 35A: Read-Only Cross-Section Change-Set Review
 
 ### User outcome
@@ -894,14 +848,7 @@ grouping.
 
 ### Acceptance evidence
 
-The Renderer derives one bounded task change set from exact proposal task/step correlation,
-preserves every refresh-chain outcome, groups brief/outline/body/image authorities, shows persisted
-per-item exact diffs and stale refresh-required state, and navigates to the ordinary proposal
-surface. It adds no persistence, IPC, provider work, or mutation authority. Focused projection
-tests, `check:fast`, `check:electron` with 158 passing files and 840 passing tests, a production
-build, and the focused Real-Electron task scenario passed; the scenario covers Agent-created task
-and proposal, rejection, archive/restore, and app restart reconstruction.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-3).
 ## Checkpoint 35B: Change-Set Batch Decisions And Apply
 
 Decision record: accepted
@@ -938,16 +885,7 @@ action may bypass each proposal's current authorization and validation.
 
 ### Acceptance evidence
 
-Accepted ADR 026 fixes deterministic Brief/Outline/body/image ordering, stop-on-adverse partial
-results, durable per-command idempotence, crash-window reconciliation, and ready-only optional
-history checkpoints. Main invokes the existing proposal approval/rejection services item by item;
-it records no duplicate proposal authority and performs no model work. Focused tests cover
-dependency ordering, conflicts, partial results, replay, the crash-after-effect window, approval
-audit repair, undo drift, migration, IPC authorization, and the Renderer batch surface. Final gates
-passed `check:fast`; `check:electron` with 160 files and 844 tests; the production build; 31/31
-fresh full Real-Electron scenarios including durable batch rejection through restart; all 25
-recovery fixtures from 23 sources; scoped Impeccable detection; and `git diff --check`.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-4).
 ## Checkpoint 43A: Figure Identity, Caption, And Alt Text
 
 Decision record: accepted
@@ -983,16 +921,7 @@ proposals, export, and version-history restore; Review Center reports exact figu
 
 ### Acceptance evidence
 
-Accepted ADR 027 fixes stable application-owned figure IDs, explicit caption/alt metadata,
-derived-only numbering, a typed publication figure node, and additive deterministic review checks.
-Migration 0033 widens the revision constraint, preserves every historical revision body, appends a
-new normalized current revision using the next free history number, copies asset references, and
-passes foreign-key validation. Focused migration, history, export, review, schema, and Renderer
-tests passed. Final gates passed `check:electron` with 162 files and 848 tests; the production
-build; 31/31 fresh full Real-Electron scenarios including metadata edit, export, project reopen,
-and stable identity; all 25 recovery fixtures from 23 sources; scoped Impeccable detection; and
-`git diff --check`.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-5).
 ## Checkpoint 42: Manuscript Asset Workspace
 
 Decision record: accepted
@@ -1031,14 +960,7 @@ workspace must never expose absolute paths or raw asset bytes outside existing c
 
 ### Acceptance evidence
 
-Accepted ADR 028 keeps `manuscript_assets` as the only catalog, adds validated dimensions and a
-two-phase deletion state, and fixes current/history/proposal protection plus cursor pagination.
-Focused migration, asset-service, mutation, IPC, and Renderer coverage passed. Final gates passed
-`check:electron` with 163 files and 851 tests; the production build; focused and fresh full
-Real-Electron E2E with 31/31 scenarios including listing, protected usage, unprotected deletion,
-exact navigation, and reopen; all 25 recovery fixtures from 23 sources; scoped Impeccable
-detection; and `git diff --check`.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-evidence-6).
 ## Checkpoint 43B: Image Iteration And Candidate Lineage
 
 Status: Completed locally on 2026-08-13 under accepted ADR 029. The ordinary `generate_image`
@@ -1119,12 +1041,7 @@ any allowed loss must appear in a machine-readable and human-readable report.
 
 ### Completion evidence (2026-08-13)
 
-Complete. One non-persisted typed assembly projects current revision identities, references,
-verified assets, figure metadata, reusable options, deterministic findings, and a source hash.
-The passive preflight dialog exposes exact issue navigation and readiness; converter entry is
-fail-closed. Focused tests, `check:fast`, and the shared CP38/39 `check:electron` gate passed 165
-files / 857 tests with three opt-in skips plus the production build.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-2026-08-13).
 ## Checkpoint 39: DOCX Publication
 
 ### User outcome
@@ -1163,15 +1080,7 @@ only after canonicalization.
 
 ### Completion evidence (2026-08-13)
 
-Complete with `docx@9.7.1`, `jszip@3.10.1`, and `fast-xml-parser@5.10.1` exact runtime pins and
-`mammoth@1.12.1` as an exact dev pin. The isolated converter preserves headings, text styles,
-lists, tables, figures/captions/alt text, links, citations, References, TOC, bookmarks, page
-numbers, and CJK fonts. KaTeX MathML maps common fractions/scripts/radicals to OMML; unsupported
-math, Mermaid, and WebP produce explicit losses. OOXML relationship/drawing IDs, metadata dates,
-ZIP timestamps, entry order, and compression are canonicalized, with byte-identical repeated
-fixtures. Independent structural and semantic reopen tests, whole-export/IPC/menu integration,
-`check:fast`, and the shared 165-file / 857-test Electron plus production-build gate passed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-2026-08-13-1).
 ## Checkpoint 40: LaTeX Publication
 
 ### User outcome
@@ -1218,16 +1127,7 @@ compiler.
 
 ### Completion evidence (2026-08-13)
 
-Complete under accepted ADR 030. One deterministic XeLaTeX/ctexart emitter covers CJK/Latin text,
-reserved characters, headings/labels, links, common formulas, lists, quotes, tables, figures,
-captions, numeric citations, References, and contained hashed assets. KaTeX validation plus a
-dangerous-command denylist prevents formula injection; context-specific escaping and listing
-terminator neutralization preserve the template boundary. Missing structured bibliography data,
-Mermaid source, unsupported math, and span/listing changes are explicit losses. Repeated whole
-exports are byte-identical, the full source reopens through exact-pinned unified-latex, and
-`check:electron` passed 166 files / 860 tests plus the production build. No local XeLaTeX is
-installed, so optional manual compilation is not claimed.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-2026-08-13-2).
 ## Checkpoint 41A: PDF Publication
 
 ### User outcome
@@ -1261,16 +1161,7 @@ cancellation, and packaged execution.
 
 ### Completion evidence (2026-08-13)
 
-Complete under accepted ADR 031. Main renders the immutable CP38 assembly in one hidden,
-sandboxed BrowserWindow with an ephemeral asset-only protocol and a fixed print profile. A bounded
-two-pass, conditionally three-pass pipeline resolves TOC pages through `pdfjs-dist`; cancellation
-destroys the browser and cleans staging. The target-runtime spike independently proved selectable
-mixed CJK/Latin text, heading bookmarks, internal and external links, images, headers/footers, and
-page destinations. Focused and large-manuscript tests, `check:fast`, and `check:electron` passed
-with 167 files / 868 tests plus the production build. The required package gate passed 12 packaged
-smoke scenarios and 19/19 packaged E2E scenarios, verified sandbox-safe preload, schema-v3 reopen,
-ASAR and arm64 native inventory, and produced verified no-Team-ID App, DMG, and ZIP artifacts.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-2026-08-13-3).
 ## Checkpoint 41B: Reusable Publication Presets
 
 ### User outcome
@@ -1297,15 +1188,7 @@ version-unknown preset data fails closed; preset CRUD is covered by app-database
 
 ### Completion evidence (2026-08-13)
 
-Complete. Forward app migration v7 seeds Academic A4, Report Letter, and Minimal A4 as immutable
-application presets. One bounded app-global repository supports at most 20 user presets, strict
-versioned options, unique case-insensitive names, one default, protected built-ins/defaults, and
-fail-closed malformed rows. The global shadcn Settings Command exposes the catalog and editing
-controls. Preflight and all three publication exports resolve the same default; focused tests prove
-the same preset produces one publication source hash across DOCX, LaTeX, and PDF. Repository,
-migration, IPC, export, fast, and Electron gates passed with 168 files / 871 tests plus the
-production build. No project table or manuscript revision changes when presets change.
-
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#completion-evidence-2026-08-13-4).
 ## Checkpoint 36: Safe Manuscript Import Staging And Preview
 
 ### User outcome
@@ -1461,11 +1344,7 @@ data, unresolved citations, tables, figures, multilingual bibliographies, hostil
 (including bombs), and deterministic repeated imports. Imported assets must satisfy the normal
 asset validation and proposal rules.
 
-Local evidence: focused hostile archive, parser, staging, mapping, and asset tests; `check:fast`;
-172 passing Electron-hosted files / 888 tests; production build; 34/34 silent Real-Electron
-scenarios; all 25 recovery fixtures; clean scoped Impeccable and diff checks; and a passing macOS
-arm64 package gate with all 12 packaged smoke scenarios, 22/22 packaged E2E scenarios, and
-structurally verified App, DMG, and ZIP artifacts.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-gate-17).
 
 ## Checkpoint 44: Annotations And Actionable TODOs
 
@@ -1503,9 +1382,7 @@ Cover revision changes that preserve block IDs, block replacement/deletion, sect
 restore (including version-history rollback), import, export exclusion, Agent opt-in, large
 annotation counts, and stale project sessions.
 
-Local evidence: accepted ADR 035; forward-only project migration v36; focused migration, service,
-history, export, IPC, Agent-context, and Renderer tests; a passing production build and full
-Electron-hosted gate; and a passing focused Real-Electron annotation/TODO scenario.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-gate-18).
 
 ## Checkpoint 46: Clone / Save As
 
@@ -1543,9 +1420,7 @@ Cover open projects with WAL data, Unicode and long paths, symlinks/junctions, c
 `ENOSPC`, identity rewrite failure, version history absent in the clone, credential absence, and
 opening source and clone sequentially without shared authority.
 
-Local evidence: accepted ADR 036; 53 focused clone, project-manager, IPC, and recovery tests;
-verified online backup of open WAL state; exact identity-column enumeration; source/clone
-sequential-open coverage; and a passing focused Real-Electron independent-clone scenario.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-gate-19).
 
 ## Checkpoint 47A: Built-In Project Templates
 
@@ -1576,9 +1451,7 @@ Cover template schema evolution, unknown fields, malformed or tampered built-in 
 content, and deterministic new-project identity. A built-in template must never carry manuscript
 bodies, knowledge files, citations, credentials, project IDs, or private paths.
 
-Local evidence: accepted ADR 037; strict versioned shared contracts; two reviewed built-ins;
-focused schema, integrity, application, identity, and CJK coverage; and a passing focused
-Real-Electron built-in-template scenario.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-gate-20).
 
 ## Checkpoint 47B: User-Defined Project Templates
 
@@ -1613,9 +1486,7 @@ Cover duplicate names, missing optional presets, source-project deletion, malfor
 user-template files, and deterministic new-project identity. A template must never carry project
 content not shown in its inclusion preview.
 
-Local evidence: accepted ADR 037; forward-only application migration v8; bounded canonical files
-with SHA-256 verification; complete inclusion/exclusion preview; 61 focused template/clone tests;
-and a passing focused Real-Electron extraction, source-deletion, and reuse scenario.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-11.md#acceptance-gate-21).
 
 ## Cross-Checkpoint Verification Strategy
 

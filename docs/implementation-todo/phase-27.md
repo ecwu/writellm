@@ -63,23 +63,4 @@ receives no filesystem path or database authority.
 
 ## Local evidence
 
-- ADR 070, the architecture amendment, CP78-ahead-of-CP77 authorization, exact dependency pins,
-  CPAL distribution notice, and the app/project forward migrations are recorded and verified.
-- The canonical Electron runner passed 226 files / 1,228 tests with three intentional benchmark
-  skips; `pnpm check:fast` and `pnpm check:electron` passed, including a production build.
-- The fresh macOS Electron suite passed all 47 scenarios. Pure-logic connector tests cover exact
-  basename change/rename events (including unlink/recreate semantics) and reject unsettled reads;
-  no Windows/Linux watcher runtime claim is made.
-- The final `v0.2026.8.48` no-Team-ID macOS arm64 package gate passed 31 recovery fixtures from 29
-  protected sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34 packaged Electron
-  scenarios. It produced a 238,989,574-byte DMG
-  (`3cb327237e2f209129a25f8bcd9ed57946927d51b4e325cefbbe866a4c15b37a`) and a
-  237,195,396-byte ZIP
-  (`5abfc87272f80fb860f8f8b8970e0938fab58dbc8016b1c86c5dba6b41b4ebae`).
-- `pnpm install --frozen-lockfile` passed. Production and full `pnpm audit` each reported no known
-  vulnerabilities. Installed license metadata confirms `@citation-js/plugin-csl` 0.8.2 (MIT) and
-  `citeproc` 2.4.63 (CPAL-1.0 OR AGPL-1.0); `THIRD_PARTY_NOTICES.md` records the selected CPAL
-  distribution path. Scoped Impeccable detection and final diff checks passed.
-- The explicitly authorized source commit, annotated `v0.2026.8.48` tag, and atomic push of `main`
-  plus that tag were completed after this local evidence was recorded. Signing, notarization,
-  GitHub Release creation, promotion, and publication were not performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-27.md#local-evidence).

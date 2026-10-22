@@ -231,42 +231,11 @@ search becomes available.
 | Secrets                 | Electron `safeStorage` with an application credential-store adapter           |
 | Tests                   | Vitest and Playwright Electron E2E                                            |
 
-Do not force interactive agent generation, embeddings, and reranking through one artificial model interface. They have different lifecycle and capability requirements:
-
-```ts
-export interface AgentModelRuntime {
-  run(
-    config: ProviderConfig,
-    credential: string,
-    input: AgentRunInput,
-    signal: AbortSignal,
-    onEvent: (event: AgentStreamEvent) => void,
-    projectSessionId?: string
-  ): Promise<AgentRunResult>
-}
-
-export interface AgentSessionRuntime {
-  beginSessionRun(
-    config: ProviderConfig,
-    credential: string,
-    input: AgentSessionRunInput,
-    signal: AbortSignal,
-    onEvent: (event: AgentRuntimeEvent) => void | Promise<void>,
-    onToolRequest?: (
-      request: AgentToolRequest,
-      signal: AbortSignal
-    ) => Promise<AgentToolResponse>
-  ): AgentSessionRunHandle
-}
-
-export interface EmbeddingGateway {
-  embedBatch(input: EmbeddingBatchInput): Promise<EmbeddingBatchResult>
-}
-
-export interface RerankGateway {
-  rerank(input: RerankInput): Promise<RerankResult>
-}
-```
+Do not force interactive agent generation, embeddings, and reranking through one artificial model
+interface. They have different lifecycle and capability requirements, so they stay behind separate
+interfaces: `AgentSessionRuntime` (sessionful tool-using runs), `AgentModelRuntime` (single-shot
+title and summary calls), `EmbeddingGateway`, and `RerankGateway`. The type definitions live in
+the shared contracts and Worker gateways.
 
 Pi owns the interactive agent loop and tool-call event model. AI SDK Core can implement embedding and reranking adapters. Provider configuration and trace metadata are normalized above both libraries.
 
@@ -486,22 +455,7 @@ Additionally:
 - Resolve and realpath all existing targets and verify containment under the active project root.
 - Reject traversal, symlink escape, stale project sessions, unknown roots, and manifest/database ID mismatch.
 
-The intended contract layout is:
-
-```text
-src/shared/contracts/
-  app.ts
-  projects.ts
-  manuscript.ts
-  knowledge.ts
-  jobs.ts
-  search.ts
-  agent.ts
-  providers.ts
-  diagnostics.ts
-  errors.ts
-```
-
+Shared contracts live under `src/shared/contracts/`, one module per domain.
 Do not introduce a broad RPC framework solely to reduce IPC boilerplate.
 
 [ADR 088](adrs/088-typed-ipc-endpoints.md) defines lightweight endpoint tables with shared schemas and explicit session requirements.
@@ -750,101 +704,50 @@ Editor and Agent services retain their transactions, approval checks, comment ma
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
 Markdown import/export is explicitly lossy. Diagram uses a `mermaid` fence, block Math uses
-`$$...$$`, inline math uses `$...$`, and images use registered `../assets/<sha256>.<ext>` references. Import never fetches a
-remote URL, opens an absolute path, or accepts a data URL. Exported Markdown is written under
-`manuscript/exports/` and never silently replaces native BlockNote JSON. The completed Checkpoint
-24 whole-manuscript packages reuse this conversion boundary and add verified asset portability,
-deterministic manifests, explicit loss reporting, and atomic publication. Section and whole-
-manuscript Markdown conversion are both Main/shared-owned and derive the same current manuscript
-reference index. Canonical citations are emitted only as manuscript-wide `[n]` markers, without a
-References appendix or reversible mapping; single-section exports retain global numbers and can
-therefore contain gaps. Importing those markers does not recover citation identity.
+`$$...$$`, inline math uses `$...$`, and images use registered `../assets/<sha256>.<ext>` references.
+Import never fetches a remote URL, opens an absolute path, or accepts a data URL. Exported Markdown
+is written under `manuscript/exports/` and never silently replaces native BlockNote JSON.
+Canonical citations export only as manuscript-wide `[n]` markers without a reversible mapping, so
+importing those markers does not recover citation identity.
 
-Interactive manuscript import is Main-owned under ADR 032. Main captures one bounded selected
-source into project-temporary storage, records its SHA-256, resolves only contained regular local
-resources, and returns a typed project-session plan rather than paths or bytes. The 30-minute plan
-is the preview/apply capability; restart, switch, cancellation, and completion revoke it and remove
-staging. Immutable assets can be registered before approval, but no manuscript revision changes
-until apply and multi-section creation is one short atomic transaction. Format adapters receive
-bytes plus a constrained resolver and have no filesystem, network, process, model, or mutation
-authority.
+Import stays Main-owned and inert:
 
-Single-file LaTeX import follows ADR 033. Main sends bounded UTF-8 source text and its hash to a
-disposable utility process with a fixed timeout; that child receives no paths, project state,
-credentials, network authority, or mutation authority. Exact-pinned unified-latex performs syntax
-parsing without macro expansion, and only an application-owned bounded projection crosses back.
-Unsupported constructs are serialized as visible inert source with exact findings. No TeX
-compiler, bibliography executable, package hook, include resolver, shell escape, external
-converter, or model runs during this core profile.
+- Interactive import (ADR 032) returns a typed, revocable project-session plan rather than paths
+  or bytes. No manuscript revision changes until apply, and multi-section creation is one short
+  atomic transaction. Format adapters receive bytes plus a constrained resolver and no filesystem,
+  network, process, model, or mutation authority.
+- LaTeX import (ADRs 033 and 034) parses in a disposable, timeout-bounded utility process that
+  receives no paths, project state, credentials, or network. There is no TeX execution, macro
+  expansion, package loading, shell escape, or network bibliography lookup. Unsupported constructs
+  stay visible as inert source with exact findings.
 
-Full-profile LaTeX import follows ADR 034. Main captures only a bounded selected directory,
-archive, or dependency closure rooted at a selected `.tex` entry, revalidates a deterministic
-manifest at apply, and registers images through the ordinary immutable asset authority.
-Normalized includes cannot escape staging and are depth/file/byte bounded. Exact-pinned
-citation-js is bundled into the same disposable worker with structural no-network aliases; only
-canonical readable bibliography fields and the application-owned neutral projection return.
-There is no TeX execution, package loading, shell escape, path authority, or network bibliography
-lookup.
+Publication formats derive from one ephemeral, typed, format-neutral assembly over the captured
+manuscript, reference index, figure metadata, and verified asset inventory. It is never a second
+manuscript or table authority. Preflight errors fail closed, and every permitted loss is recorded.
+Exports reuse the Main-owned snapshot barrier, create-only staging, hash inventory, and atomic
+publication.
 
-Publication formats derive from one ephemeral, typed assembly over the exact captured manuscript,
-reference index, stable figure metadata, and verified asset inventory. It is a format-neutral
-projection, never a second manuscript authority. Preflight errors fail closed and all permitted
-losses are recorded. DOCX conversion is isolated behind that contract and reuses the existing
-Main-owned snapshot barrier, asset capture, create-only staging, hash inventory, validation, and
-atomic publication. Binary variance from library-generated relationship/drawing identifiers,
-metadata dates, and ZIP metadata is removed by a deterministic canonicalization post-pass before
-the content hash is recorded.
-
-Publication assembly schema v2 retains table header rows and columns, cell alignment, widths, and
-spans. GFM Markdown records all non-portable table losses; semantic Chromium HTML provides paged
-headers and normalized widths for PDF; inert LaTeX `longtable` repeats headers, retains colspan,
-and records rowspan fallback. These are projections of native BlockNote section schema v5, never a
-second table authority.
-
-LaTeX publication uses the same assembly and export boundary with the single XeLaTeX/ctexart
-profile fixed by ADR 030. The application owns the complete preamble and context-specific escaping;
-manuscript content cannot supply templates, commands, file paths, or compiler options. Formula
-source is emitted only after bounded validation. The product never discovers, invokes, downloads,
-or bundles a TeX compiler, and it never fabricates bibliography fields that are absent from the
-authoritative reference data.
-
-PDF publication uses the same assembly through the Main-owned hidden Chromium boundary fixed by
-ADR 031. Each export creates one sandboxed, context-isolated, JavaScript-disabled BrowserWindow
-with a unique in-memory session; captured verified images are available only through an ephemeral
-asset protocol, never paths or a local server. Tagged PDF, document outlines, CSS page geometry,
-and footer page numbers come from `printToPDF`. TOC page numbers use at most three captures with
-`pdfjs-dist` destination inspection. Cancellation destroys the browser and the existing export
-barrier removes partial staging. Publication hashing remains Main-injected so shared IPC schemas
-cannot pull Node authority into the sandboxed preload.
-
-Reusable publication presets are non-sensitive application-global state in one bounded
-`app.sqlite` catalog. Application-owned rows are immutable; user rows are capped; exactly one
-default resolves before the shared CP38 assembly is built. Stored options are strictly versioned
-and fail closed. Preset mutation never opens or changes a project database and therefore cannot
-create manuscript revisions.
+- DOCX output is canonicalized before hashing so repeated exports are byte-identical.
+- LaTeX output (ADR 030) uses one application-owned XeLaTeX/ctexart preamble with context-specific
+  escaping. The product never discovers, invokes, downloads, or bundles a TeX compiler, and never
+  fabricates bibliography fields.
+- PDF output (ADR 031) uses one sandboxed, JavaScript-disabled hidden BrowserWindow per export with
+  an in-memory session, and serves images only through an ephemeral asset protocol.
+- Table semantics follow ADR 066.
+- Publication presets are bounded, strictly versioned `app.sqlite` state. Preset mutation never
+  opens or changes a project database.
 
 ### Manual editing
 
 ### Autocomplete
 
-[ADR 082](adrs/082-deepseek-autocomplete.md) defines session-enabled, ephemeral editor
-autocomplete. A separate application default selects a completion model while reusing
-the enabled built-in DeepSeek credential. A dedicated FIM/Chat Prefix adapter runs in
-background-worker with short cancellable requests, no Agent run or durable job. Ghost
-text becomes manuscript content only when accepted through ordinary editor insertion.
-Its settings store application default enablement (initially off) and an independent
-word/sentence/paragraph style (default word). The toolbar changes only application-process
-owned temporary overrides, retained across project switches and cleared at app exit.
-Uncovered fields follow saved defaults; Restore defaults clears both overrides.
-Project capabilities continue to govern requests and revocation. Main resolves effective style. The adapter enforces
-32/128/384-token budgets and locale-aware, grapheme-safe display limits. Style changes
-revoke requests without clearing provider suspension or cooldown; menus block suggestions.
-Tab acceptance schedules another request after 200ms; ordinary edits use 600ms. Verified
-matching text insertion retains the remaining ghost suggestion. Composition hides and
-holds the original suggestion until final document settlement; preedit spelling is never
-matched. Esc and history operations suppress completion at the current document/caret,
-including across focus and menu restoration. Typed configuration reasons distinguish
-model/provider resets from style/UI changes, preserving provider backoff.
+[ADR 082](adrs/082-deepseek-autocomplete.md) and its amendments define ephemeral editor
+autocomplete. It reuses the enabled built-in DeepSeek credential through a separate application
+default model. A dedicated FIM/Chat Prefix adapter runs in background-worker with short
+cancellable requests and no Agent run or durable job. Ghost text becomes manuscript content only
+through ordinary editor insertion. Saved defaults live in `app.sqlite`. Toolbar changes are
+application-lifetime overrides. Project capabilities govern requests and revocation. Timing,
+budgets, and composition behavior are fixed in the ADR.
 
 ### Save coordination
 
@@ -1278,25 +1181,16 @@ Persist normalized project-local records for:
 Pi runtime events stream to the renderer for responsive UI, but durable records are created before the corresponding external operation or mutation can become authoritative.
 
 Core execution persistence is limited to `agent_sessions`, `agent_runs`, `agent_events`,
-`mutation_proposals`, and `model_requests`. Bounded collaboration fixtures separately use the
-one-current-row-per-conversation `agent_writing_tasks` table. `mutation_proposals` owns decision status, decision time, rejection
-reason, kind-specific applied result (`applied_revision_id`, `applied_brief_version`, or
-`applied_outline_version`), the optional section `undo_revision_id`, and immutable optional writing
-task/step correlation. `agent_runs` snapshots the current task/step at run creation; presentation
-derives ready, in-progress, review, stopped, failed, verified, report-only, and disagreement states
-from run plus proposal state rather than assistant narration. Do not add separate `mutation_applications`, `accepted_source_links`, a
-compaction table, task event table, scheduler, or long-term-memory table before real usage proves
-they are necessary. A task-wide change set is a derived read model over immutable task/step
-proposal correlation. It can group persisted exact previews, current outcomes, and ADR 003
-refresh chains, but it cannot own decision status or apply work; project reopen reconstructs it
-from project SQLite without a change-set cache, proposal copy, report row, or model analysis.
-Accepted ADR 026 permits only `agent_change_set_commands`: a bounded durable command receipt and
-recovery cursor that sequences existing individual proposal decisions. Brief, outline, body, then
-image order is deterministic; refresh, conflict, or failure stops with explicit partial results;
-and authoritative proposal state reconciles the crash window without replaying committed effects.
-It is not manuscript or proposal authority and cannot become a generic transaction coordinator.
-Compaction lifecycle records and conversation checkpoints are ordinary
-`agent_events` rows; raw events and current project business rows remain authoritative.
+`mutation_proposals`, and `model_requests`, plus the one-row-per-conversation `agent_writing_tasks`
+table. `mutation_proposals` owns decision status and the kind-specific applied result. Run and
+task presentation derives from run plus proposal state, never assistant narration. Compaction
+records and checkpoints are ordinary `agent_events` rows.
+
+A task-wide change set is a derived read model and cannot own decision status. ADR 026's
+`agent_change_set_commands` is only a bounded command receipt and recovery cursor over existing
+individual proposal decisions. It is not a generic transaction coordinator. Do not add
+`mutation_applications`, `accepted_source_links`, a compaction table, a task event table, a
+scheduler, or a long-term-memory table before real usage proves they are necessary.
 
 Notebook calls still create the required `model_requests` row, but use metadata-only retention.
 The row can retain an internal request ID, provider/model identity, state, timings, attempts, and
@@ -1355,37 +1249,18 @@ The current Agent protocol includes one bounded `ask_user` clarification tool un
   run after a validated answer. Clarification is not approval or permission, and restart retains
   interrupted-run recovery rather than reconstructing a live waiter.
 
-The default idle composer uses progressive disclosure: Add, approval policy, combined model plus
-Thinking effort, and Send are its four top-level action groups. Context scope is available through
-the Add catalog and leading-slash catalog. The slash catalog also exposes immediate manual
-`/compact` through the existing Main-owned compaction path. It creates no user message or ordinary
-Agent run. Writing Skills are not composer or session state and
-have no persistent selector, chip, badge, or attachment. At the start of a new-run message, `$`
-can autocomplete canonical Skill names into ordinary editable prompt text. Main reparses
-that text and injects a recognized explicit package before the first provider request, while the
-Agent still discovers automatic guidance only through visible tool calls. Active-run Steer and
-Follow-up input does not reopen Skill discovery. See ADRs 055 and 073.
-The collapsed model trigger uses the recognizable model display name
-plus the exact lower-case provider-neutral Thinking token and omits redundant provider branding.
-Provider identity remains visible inside model browsing and diagnostics where duplicate names need
-disambiguation.
+The idle composer has four top-level action groups: Add, approval policy (`Manual`, `Section`,
+`YOLO`), combined model plus Thinking effort, and Send. Context scope comes from the Add and
+leading-slash catalogs. The slash catalog also exposes `/compact`, which uses the Main-owned
+compaction path and creates no user message or ordinary run. Writing Skills are never composer or
+session state. A leading `$skill-name` is ordinary editable text that Main reparses before the
+first provider request. Controls must not overlap at configured desktop widths. The context-usage
+indicator appears only for usage that matches the current model selection.
 
-When the latest valid assistant context usage belongs to a run matching the conversation's current
-model selection, a neutral read-only circular indicator appears immediately before the model trigger.
-It uses that same run's immutable context window, exposes used/left percentages and compact token
-counts on hover or keyboard focus, and stays hidden for unknown or mismatched usage rather than
-claiming zero. The indicator has no click action and remains inside the elastic
-model/Thinking group, so the four top-level composer actions and configured desktop-panel
-truncation rules do not change. Agent Details uses the same matched snapshot. See ADR 050.
-
-Approval uses the compact `Manual`, `Section`, and `YOLO` labels without a status icon; its menu
-describes the existing WriteLLM proposal policy and must never imply generic computer, shell,
-filesystem, or unrestricted network access. Add and approval stay compact, Send stays visible,
-and the elastic model/effort trigger truncates before controls can overlap. Idle Send is the
-icon-only circular primary action with an upward arrow and an explicit accessible name; Queue,
-Steer, retry, and Stop retain their distinct running-state forms. The interaction layer cannot
-broaden Main-owned automatic-application eligibility, mandatory-review rules, model capability
-clamping, immutable run snapshots, or the registered Agent tool set. See ADRs 038–040.
+The interaction layer cannot broaden Main-owned automatic-application eligibility, mandatory
+review, model capability clamping, immutable run snapshots, or the registered tool set, and its
+labels must never imply generic computer, shell, filesystem, or network access. Layout and
+labeling details are in ADRs 038–040, 050, 055, and 073.
 
 ### Agent prompt architecture
 
@@ -1459,47 +1334,23 @@ submit_section_change
 generate_image
 ```
 
-`get_writing_context` is a lightweight snapshot manifest and never returns active section text.
-`read_outline`, `read_section`, and `search_manuscript` are bound to the source
-`modelRequestId` snapshot. `read_section` supports paginated block summaries with canonical hashes,
-a complete canonical block view, and bounded canonical JSON fragments. `inspect_change` reads only
-proposals from the current Agent session.
-The UI injects selection capture time and revision; stale block selections are not combined with a
-newer body.
-
-`read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
-active run. Multiple entrypoint, dependency, and reference reads can share a batch with other
-independent read-only tools. Each returns ordinary tool content. No complete dependency closure,
-entrypoint-per-response limit, or cumulative root/reference count gates the loop. Installed
-manifest authorization, pinned commit/hash, normalized paths, and generic file/payload bounds
-remain mandatory. Skill guidance remains below global policy and never grants mutation authority.
-Durable events store provenance rather than Skill bodies; private diagnostic bodies belong only
-in trace storage. See ADR 074.
-
-Read-only tools can execute in parallel when their results are independent.
-
-`get_writing_task`, `create_writing_task`, and `update_writing_task` read or mutate only the current
-conversation's bounded durable plan. Main allocates task and step UUIDs, requires an exact monotonic
-plan version, enforces the step state machine and one-active-step invariant, and snapshots the
-current task/step correlation when a run or proposal is created. Idle user revisions use the same
-optimistic service, while Resume sends one Main-authored prompt through the same ordinary Agent
-conversation and first rereads the current task. The tools do not schedule work, start a
-model request, apply manuscript changes, or infer success from assistant prose. See ADR 025.
+- `get_writing_context` is a lightweight snapshot manifest and never returns active section text.
+- `read_outline`, `read_section`, and `search_manuscript` are bound to the source `modelRequestId`
+  snapshot. Stale UI block selections are never combined with a newer body.
+- `inspect_change` reads only proposals from the current Agent session.
+- `read_writing_skill` reads only a virtual `writellm://skills/...` capability authorized for the
+  active run, under installed-manifest, pinned-hash, normalized-path, and payload bounds (ADR 074).
+  Skill guidance stays below global policy and never grants mutation authority. Durable events store
+  provenance, not Skill bodies.
+- The Writing Task tools read or mutate only the current conversation's bounded plan with
+  Main-allocated IDs and exact monotonic versions. They never schedule work, start a model request,
+  apply manuscript changes, or infer success from assistant prose (ADR 025).
+- Read-only tools can execute in parallel when their results are independent.
 
 ### Submit tools
 
-The current Agent protocol includes hash-bound paged table inspection and typed rectangular table
-  insert/edit proposals under ADR 066. Zero-based occupancy coordinates never outlive the complete
-  table-block hash. Main alone normalizes cells, creates IDs, simulates changes, and commits the
-  accepted proposal through the existing single section-revision authority. Existing spans are
-  preserved, covered cells and span geometry changes fail closed, and no cell identifier exists.
-
-```text
-submit_brief_change
-submit_writing_rules_change
-submit_outline_change
-submit_section_change
-```
+Table reads and edits are hash-bound, and Main alone normalizes cells and commits through the single
+section-revision authority (ADR 066).
 
 Model arguments do not contain schema, manuscript, version, revision, or generated domain IDs.
 Main binds those values from the source snapshot. Outline operations use `SectionRef`, `clientRef`,
@@ -1517,22 +1368,11 @@ remain deferred.
 
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
 the active image provider, source revision, block ID, and asset ID. The background worker performs
-one typed request through the fixed catalog in ADRs 051 and 052. Google Gemini retains exact-pinned
-`@google/genai`; Google Vertex AI uses that SDK's fixed `global` Vertex client with local
-Application Default Credentials and the three fixed Nano Banana model IDs; OpenAI
-`gpt-image-2` and xAI `grok-imagine-image-2.0` use the exact-pinned OpenAI SDK, with xAI's client
-fixed to `https://api.x.ai/v1`. SDKs and provider transports are confined to that worker
-gateway and are not exposed through Main, preload, renderer, or Agent tool code. The tool produces
-one project asset and one typed insertion proposal, never a reusable network or filesystem
-capability. No image source accepts a configurable endpoint, SDK retries are disabled, and xAI
-must return base64 rather than a temporary URL. The worker accepts bounded PNG/JPEG output and
-reports its actual MIME. Only Main validates image magic, dimensions, hash, and bytes and atomically
-publishes the project asset before a `writellm-asset:<assetId>` block reference can be committed.
-The three encrypted API-key credentials can coexist with Vertex's ambient ADC configuration, but
-zero or one source is explicitly active;
-removal clears an active selection and never triggers fallback. OpenAI `aspectRatio = auto` can
-return a nullable effective size intent while project asset lineage still records the requested
-size and Main-validated actual dimensions.
+one typed request through the fixed catalog in ADRs 051 and 052; provider SDKs stay confined to
+that worker gateway. No image source accepts a configurable endpoint, SDK retries are disabled, and
+providers must return bytes rather than temporary URLs. Only Main validates image magic,
+dimensions, hash, and bytes and atomically publishes the asset before a `writellm-asset:<assetId>`
+reference can be committed. The tool never yields a reusable network or filesystem capability.
 
 Asset deletion is a Main-owned two-phase operation. Protection is rechecked in the same immediate
 transaction that changes an unprotected row from `active` to `deleting`. New revision/proposal
@@ -1558,32 +1398,17 @@ to a reviewed pin and file allowlist shipped in a later application catalog. Cus
 user-confirmed immutable GitHub commit under TOFU semantics. Only UTF-8 `.md` and `.txt` files are
 accepted, and no skill content is executable.
 
-Writing Skills are dynamic per-run Agent actions, never session or composer state. Every new run
-receives a bounded automatic metadata catalog. A leading `$skill-name` prompt prefix can additionally
-identify ordered, Main-resolved requested entrypoints, including explicit-only Skills. The text is
-not a Renderer authorization object. Main injects only recognized requested roots before the first
-provider request; dependency and reference URIs are read progressively. Ordinary-language requests and
-Agent-initiated choices remain valid and use visible `read_writing_skill` calls. Versioned run
-snapshots persist immutable actually injected or loaded provenance, resources, routing status, and
-safe errors, but never Skill bodies. Every new run consults the current registry; prior snapshots
-remain immutable audit evidence rather than replay authority. Historical session selection fields,
-single-primary snapshots, `skill_route` model requests, and `skill_request_unfulfilled` errors remain
-readable compatibility data but do not control new runs. See ADRs 054, 055, and 073.
-`listRuns` projects only their bounded token/cost/retry usage, not an additional provider or
-credential surface, so historical conversation totals remain complete.
+Writing Skills are dynamic per-run Agent actions, never session or composer state (ADRs 054, 055,
+and 073):
 
-WriteLLM owns Skill types, YAML loading, and prompt formatting after the Pi 1.0 upgrade. WriteLLM's
-stricter metadata, path, UTF-8, size, symlink, and hash rules remain authoritative, and any
-WriteLLM diagnostic makes the Skill unavailable. Auto prompt composition uses
-`formatSkillsForSystemPrompt` for a stable name/ID-sorted catalog that fits the actual system
-prompt token/byte space after requested roots. Omitted catalog entries generate no attention
-warning, and explicit names resolve from the complete installed registry. Successful progressive
-reads return their immutable content only as ordinary tool results, not accumulated system text.
-Explicit top-level precedence follows user-text
-order; automatic top-level precedence follows successful load order; stable dependencies remain
-below every top-level Skill. Prompt order remains global policy,
-companion/catalog and loaded guidance, trusted requirements, then manuscript data.
-Model-visible locations use `writellm://skills/...`, never private filesystem paths.
+- Every new run receives a bounded metadata catalog and consults the current registry.
+- A leading `$skill-name` names requested entrypoints. Main injects only recognized roots before the
+  first provider request. Other guidance enters only through visible `read_writing_skill` calls.
+- Run snapshots persist immutable provenance and safe errors, never Skill bodies. They are audit
+  evidence, not replay authority. Historical selection fields remain readable but control nothing.
+- WriteLLM owns Skill types, YAML loading, and prompt formatting. Its metadata, path, UTF-8, size,
+  symlink, and hash rules are authoritative, and any diagnostic makes the Skill unavailable.
+- Model-visible locations use `writellm://skills/...`, never private filesystem paths.
 
 Custom-skill update availability is an ephemeral result of the user's explicit GitHub check. Main
 persists only the confirmed immutable commit pin. It does not persist or automatically trust a
@@ -1601,20 +1426,12 @@ from canonical operations, never a Worker declaration. See ADR 005.
 
 ### Agent tool bridge
 
-The current Agent protocol keeps those outer profiles and a writing-only `ask`, `plan`, or
-  `write` interaction-mode ceiling. New and migrated writing conversations default to Write; each
-  run snapshots its mode. One application policy derives the exact Worker-visible and Main-enforced
-  tool set from profile, mode, and active groups. Ask is manuscript-aware read-only, Plan can also
-  mutate Writing Task collaboration metadata, and only Write can activate proposal groups. See ADR
-  068.
-
-The current Agent protocol keeps writing and Notebook as outer authority profiles, starts writing
-  runs with nine core tools, and lets the model explicitly activate bounded run-local review,
-  task, proposal, or image groups. Worker advertises only the active set, Main rejects inactive
-  calls, and exact active schemas drive initial, continuation, compaction, and overflow budgets.
-  Shared behavior lives once in application policy; short tool descriptions and object-root JSON
-  schemas remain provider-neutral under ADR 067. Root object unions project their complete field
-  vocabulary and common required fields at the root while retaining exact branches under `allOf`.
+Writing and Notebook are the outer authority profiles. Writing runs carry a snapshotted `ask`,
+`plan`, or `write` ceiling (default Write), start with nine core tools, and explicitly activate
+bounded run-local groups. One application policy derives the exact Worker-visible and Main-enforced
+tool set from profile, mode, and active groups. Ask is read-only, Plan can also change Writing Task
+metadata, and only Write can activate proposal groups. Worker advertises only the active set, and
+Main rejects inactive calls. See ADRs 067 and 068.
 
 `agent-worker` sends a validated envelope to Main:
 
@@ -1649,15 +1466,11 @@ Main:
 
 Tool errors are thrown and preserved as structured errors. They are not returned as successful text content.
 
-Under ADRs 042 and 067, model-visible tool schemas are compact Pi preflight shapes rather than replicas of
-every Main domain invariant. Every standard call accepted by Main must pass preflight. Main remains
-authoritative and can reject a broader preflight-valid call with a self-contained safe error and
-a recovery suggestion under ADR 074. Shared sequencing and recovery stay in application policy and structured
-results; tool descriptions contain only local purpose and unique boundaries. Writing begins with a
-20 KiB nine-tool core envelope and explicitly accumulates run-local capability groups, while the
-complete 22-tool envelope remains limited to 48 KiB with no tool over 8 KiB. Every parameter root
-is an object; root unions remain under `allOf`. Contract v12 and event schema v3 preserve historical
-replay because persisted arguments and results are opaque records, not reparsed through current
+Model-visible tool schemas are compact Pi preflight shapes, not replicas of every Main invariant
+(ADRs 042 and 067). Every call Main accepts must pass preflight, and Main can still reject a
+preflight-valid call with a safe error and recovery suggestion (ADR 074). Every parameter root is an
+object. Envelope budgets are 20 KiB for the core set and 48 KiB for all tools, with no tool over
+8 KiB. Persisted arguments and results are opaque records and are never reparsed through current
 per-tool schemas.
 
 The tool bridge carries tool requests and results only. Provider-call authorization remains on the capability-bound Agent run protocol: initial, steering, and follow-up calls use pre-authorized `model_requests` IDs, while a post-tool continuation must request a new ID from Main and wait until Main has durably created the linked row. The worker never invents a model-request ID and never starts an unrecorded provider call.

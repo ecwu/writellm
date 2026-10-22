@@ -1,42 +1,23 @@
 # Implementation History
 
-Completed checkpoint details remain in the Phase files under
-`docs/implementation-todo/`. This chronology records cross-phase transitions and documentation
-maintenance without turning the active tracker back into a historical log.
+This chronology records cross-phase work and maintenance that has no numbered Phase file.
+Completed checkpoint details remain in the Phase files under `docs/implementation-todo/`.
+
+Long entries recorded before 2026-10-22 are summarized here. Each summary links to its complete
+original text at commit `493f02a`, which retains every command, count, digest, and
+failure record. Decisions live in the ADRs, not in this log. New entries follow the format in
+[ADR 092](../adrs/092-documentation-evidence-archive.md).
 
 ## 2026-07-16
 
-- Started Checkpoint 19.5 to converge Checkpoint 11–19 implementation with
-  the accepted architecture amendment and complexity-reduction audit.
-- Completed Checkpoint 19.5 convergence. The implementation now has ephemeral
-  MinerU capabilities, seven durable job types, frozen Agent boundaries,
-  classified revision retention, three worker roles, one atomic file writer,
-  and 1536D 10k/50k/100k sqlite-vec benchmark evidence.
-- Completed Checkpoint 19.5 audit remediation. Production artifact cleanup is
-  durable and restart-recoverable; paused jobs migrate into the strict schema;
-  direct Agent-parent revisions are retained; worker roles remain persistent;
-  MinerU snapshot tests cover schema and values; and the real 1536D benchmark
-  proves ten-file generation-build debounce with one persisted rebuild request.
-  Electron-hosted Vitest passes 65 files/292 tests, the complete Electron E2E
-  suite passes 9/9, the production build passes, Biome has only the existing
-  shadcn sidebar cookie warning, and `git diff --check` passes. Checkpoint 20
-  remains not started pending user approval.
-- Completed a source-level implementation audit of Checkpoints 1–19 against the
-  amended architecture. The functional bodies match their records. Gaps and
-  rule violations are fixed into Checkpoints 19.6 (recovery exits, snapshot
-  entry point, ALS correlation, worker log aggregation) and 19.7 (error
-  swallowing, revision-source clamping, export logging, URL/CSP hardening,
-  depth cap, worker session envelopes, abort propagation, retention, test
-  backfill) in `docs/implementation-todo.md`; documentation overclaims were
-  corrected in place, recent-project pointers are physically pruned to five,
-  and the three superseded one-shot worker entry files were removed. Neither
-  checkpoint has started; both require the user's approval, and Checkpoint 20
-  remains deferred behind them.
-- Completed the early "Stable Default Window State" maintenance: each new application window is
-  maximized once before first display while later project-lifecycle operations preserve
-  user-managed window state. Evidence passed Electron-hosted Vitest 28 files / 141 tests and the
-  4-scenario Playwright Electron E2E suite. Archived here from the removed standalone
-  `maintenance.md`.
+- Completed Checkpoint 19.5 convergence and its audit remediation: ephemeral MinerU capabilities,
+  seven durable job types, frozen Agent boundaries, three persistent worker roles, one atomic file
+  writer, and 1536D sqlite-vec benchmark evidence.
+- A source-level audit of Checkpoints 1–19 opened Checkpoints 19.6 and 19.7 for the remaining
+  gaps. It also pruned recent-project pointers to five and removed superseded one-shot worker entry files.
+- Archived the "Stable Default Window State" maintenance here from the removed `maintenance.md`.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-07-16).
 
 ## 2026-07-17
 
@@ -84,271 +65,27 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-12
 
-- Locally completed Checkpoint 29 manuscript-wide literal Find and exact navigation under accepted
-  ADR 021. The implementation shares a locale-independent NFC matcher with the unchanged Agent
-  tool, maps projection ranges back to original UTF-16 semantic spans, revalidates current
-  authority before navigation, and adds the shadcn workspace Find surface with bounded pagination
-  and non-mutating editor decorations.
-- Final evidence: the 1,000-section/10,419,993-byte benchmark passed at p95 34.66 ms and maximum
-  synchronous Main slice 12.02 ms; `check:fast`; 146 Electron-hosted files and 798 tests; a
-  successful production build; 26/26 full Real-Electron scenarios; 25 recovery fixtures; clean
-  scoped Impeccable detection plus fresh finish review/remediation; and `git diff --check`.
-  Package/release, hosted CI, commit, tag, push, and publication were not run.
-- Advanced the active release metadata from `0.2026.8.13` to `0.2026.8.14`. The accepted mapping
-  keeps the package/application version at `0.2026.8` and advances macOS `CFBundleVersion` to
-  `2026.8.14`. No commit, tag, package, push, hosted CI, signing, or publication was performed.
-- Completed the Checkpoint 30 decision pass and recorded proposed ADR 022. The plan fixes the
-  writable prose/structured-skip matrix, exhaustive ephemeral capability, default-empty bounded
-  selection, one-transaction canonical application, post-commit materialization repair,
-  per-section Undo, optional ready-only project checkpoint, mounted-editor reconciliation,
-  performance gate, implementation slices, and acceptance matrix. Implementation remains
-  unauthorized pending separate approval.
-- Locally completed the subsequently authorized Checkpoint 30 implementation under accepted ADR
-  022. Find now progressively exposes literal Replace with exhaustive preview, fixed structured
-  skip reasons, default-empty bounded selection, exact revalidation, one-transaction canonical
-  application, repairable post-commit materialization, narrow per-section Undo, optional ready-
-  only project checkpoints, and mounted-editor reconciliation.
-- CP30 evidence passed 148 Electron-hosted test files and 807 tests, the production build, 27/27
-  full Real-Electron scenarios, 25 recovery fixtures, the 100-section/500-selection transaction
-  benchmark at p95 16.44 ms, clean scoped Impeccable detection, and `git diff --check`. Release
-  metadata advanced to `0.2026.8.15`; the no-identity macOS arm64 package gate passed 12 packaged
-  runtime smoke and 17 packaged E2E scenarios and produced a verified no-Team-ID App, DMG, and ZIP.
-  No commit, tag, hosted CI, Apple signing/notarization, push, publication, or promotion ran.
-- Locally completed the authorized Checkpoint 31 implementation under accepted ADR 023. Exact text
-  selections now expose bounded rewrite, shorten, expand, tone, evidence, manuscript-alignment,
-  and custom actions through the visible ordinary Agent conversation. Renderer freezes and
-  displays the selection; Main revalidates the current revision, ordered blocks, and selected text
-  before building the task; all model work and writes retain the normal Agent proposal/review path.
-- CP31 evidence passed the focused 55-test suite, `check:fast`, 150 Electron-hosted test files and
-  816 tests, the production build, focused and full Real-Electron suites with 28/28 full scenarios,
-  25 recovery fixtures, clean scoped Impeccable detection, and `git diff --check`. Release metadata
-  and packaged artifacts remain `0.2026.8.15`; package/release, hosted CI, commit, tag, push,
-  publication, and promotion did not run.
-- Advanced release metadata to `0.2026.8.16` at the user's request and started the no-identity
-  macOS arm64 package gate for a local CP31 hands-on testing App. The package SemVer remains
-  `0.2026.8` and the mapped macOS build version is `2026.8.16`. The gate passed 12 packaged runtime
-  smoke scenarios, 17 packaged E2E scenarios, and all 25 recovery fixtures; verified arm64 native
-  resources and a no-Team-ID ad-hoc/linker signature; and produced the App, DMG, and ZIP. Commit,
-  tag, hosted CI, Apple signing/notarization, push, publication, and promotion remain outside scope.
+- Completed Checkpoint 29 (manuscript-wide literal Find, ADR 021), Checkpoint 30 (safe
+  manuscript-wide Replace, ADR 022), and Checkpoint 31 (bounded selection actions through the
+  ordinary Agent conversation, ADR 023).
+- Release metadata advanced through `0.2026.8.14`–`0.2026.8.16`. Each step produced a local no-Team-ID
+  macOS arm64 App. No commit, tag, hosted CI, or publication ran.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-12).
 
 ## 2026-08-13
 
-- Locally completed the authorized Checkpoints 32, 45, and 33 implementation under accepted ADR
-  024. The ordinary Agent loop now owns deterministic and semantic review through pure snapshot
-  checks and bounded Review Issue tools; versioned Brief-owned Writing Rules enter trusted Agent
-  context; existing proposals can resolve claimed issues; and passive Issues/Writing Rules
-  Workbench surfaces provide no second model execution path.
-- Final evidence passed `check:fast`; 154 Electron-hosted test files and 829 tests; the production
-  build; focused Agent-native and passive-Workbench Real-Electron scenarios; 30/30 fresh full
-  Real-Electron scenarios; all 25 recovery fixtures from 23 sources; clean scoped Impeccable
-  detection; and `git diff --check`. The full scenario proves the ordinary
-  `check_draft → list_review_issues → record_review_issues` flow and durable correction history.
-- Started Checkpoint 34A under the user's explicit authorization to complete the remaining Phase
-  11 sequence and build a local App for hands-on testing. Implementation will keep plans as
-  bounded collaboration state around the existing Agent loop, not a scheduler or new mutation
-  authority.
-- Completed Checkpoint 34A under accepted ADR 025. The project now persists one bounded task per
-  Agent conversation with stable UUID task/step identities, monotonic optimistic plan versions,
-  ordinary Agent task tools, exact proposal correlation, and a passive plan projection. Final
-  evidence passed 157 Electron-hosted test files and 835 tests, a production build, 31/31 full
-  Real-Electron scenarios, all 25 recovery fixtures, scoped Impeccable detection, and diff checks.
-- Started Checkpoint 34B to derive truthful plan progress from exact Agent-run and proposal
-  outcomes and add idle revise/resume controls inside the existing conversation canvas.
-- Completed Checkpoint 34B. Ordinary Agent runs now snapshot exact task/step identity; bounded
-  progress is derived from run and proposal truth; disagreement is explicit; and idle plan revision
-  plus Resume stay inside the same conversation. Final evidence passed 158 Electron-hosted test
-  files and 839 tests, a production build, 31/31 full Real-Electron scenarios, all 25 recovery
-  fixtures, scoped Impeccable detection, and diff checks.
-- Started Checkpoint 35A to group task-correlated proposals into a read-only cross-section change
-  set while retaining the existing exact proposal review surface as the only decision surface.
-- Completed Checkpoint 35A. The conversation now derives a task-wide proposal summary and grouped
-  exact diffs from immutable task/step correlation, surfaces refresh-required state, and navigates
-  back to the existing proposal review surface. Focused projection and Real-Electron restart
-  coverage, `check:fast`, and `check:electron` passed with 158 files and 840 tests.
-- Started Checkpoint 35B to add a Main-owned, idempotent, crash-recoverable sequence over existing
-  individual proposal decisions, with explicit dependency order and partial results.
-- Completed Checkpoint 35B under accepted ADR 026. Selected task proposals now flow through the
-  existing individual authorization and mutation services in deterministic dependency order, with
-  a bounded durable command receipt/cursor, explicit stop-on-adverse partial results, optional
-  ready-only history checkpoints, and deterministic replay/undo reconciliation. Final evidence
-  passed 160 Electron-hosted test files and 844 tests, a production build, 31/31 full
-  Real-Electron scenarios, all 25 recovery fixtures, scoped Impeccable detection, and diff checks.
-- Started Checkpoint 43A to establish stable figure identity, caption, alt text, derived numbering,
-  deterministic review targets, and the publication-node figure contract without adding provider
-  work or a second content authority.
-- Completed Checkpoint 43A under accepted ADR 027. Section content schema v3 adds stable figure
-  IDs and explicit caption/alt metadata while preserving all historical revision bodies; figure
-  numbering is derived and the ordinary review tool reports exact missing-metadata targets. Final
-  evidence passed 162 Electron-hosted test files and 848 tests, a production build, 31/31 full
-  Real-Electron scenarios, all 25 recovery fixtures, scoped Impeccable detection, and diff checks.
-- Started Checkpoint 42 to expose the existing immutable manuscript-asset catalog through bounded
-  metadata, current/history/proposal usage, protected deletion, and session-bound navigation.
-- Completed Checkpoint 42 under accepted ADR 028. The Images workspace now projects validated
-  dimensions, integrity, source lineage, current/history/proposal usage, bounded filters and exact
-  navigation from the existing immutable asset catalog. Two-phase protected deletion is recovered
-  on open and through the existing cleanup lifecycle. Final evidence passed 163 Electron-hosted
-  test files and 851 tests, a production build, 31/31 full Real-Electron scenarios, all 25
-  recovery fixtures, scoped Impeccable detection, and diff checks.
-- Started Checkpoint 43B to iterate existing figures through the ordinary Agent image tool,
-  immutable candidate lineage, and the existing exact proposal review/application authority.
-- Completed Checkpoint 43B image iteration under ADR 029. Exact generated-figure targets use the
-  ordinary Agent image tool and existing provider gateway; immutable candidates retain explicit
-  parent/model/Agent/tool lineage and become normal section proposals, preserving figure metadata
-  and revision undo. Focused coverage plus `check:electron` passed 164 files / 853 tests and the
-  production build.
-- Completed Checkpoints 38 and 39. A deterministic non-authoritative publication assembly drives
-  exact preflight navigation and fail-closed format conversion. The global export surface produces
-  editable canonicalized DOCX packages through the existing snapshot/asset/atomic boundary, with
-  independent OOXML and semantic reopen validation. `check:electron` passed 165 files / 857 tests
-  plus the production build.
-- Completed Checkpoint 40 under ADR 030. The shared publication assembly emits a deterministic,
-  injection-bounded XeLaTeX/ctexart project with contained assets, readable non-fabricated
-  references, source hash, and explicit losses. Independent unified-latex parsing, 166 files /
-  860 tests, and the production build passed.
-- Completed Checkpoint 41A PDF publication under accepted ADR 031. One Main-owned hidden,
-  sandboxed Chromium renderer now produces tagged PDFs with mixed CJK/Latin text, figures,
-  formulas, References, bookmarks, links, headers/footers, and bounded stabilized TOC page numbers
-  from the shared CP38 assembly. Print-layout preflight and cancellable progress remain passive
-  fixtures around the existing export boundary.
-- CP41A verification passed 167 Electron-hosted files and 868 tests, the production build, a real
-  Electron/pdfjs target-runtime spike, all 12 packaged smoke scenarios, and 19/19 packaged E2E
-  scenarios. The no-identity arm64 package gate verified ASAR/native inventory and produced the
-  App, DMG, and ZIP; it also caught and permanently covered a sandboxed-preload Node dependency
-  leak and the schema-v3 packaged-reopen assertion.
-- Started Checkpoint 41B to add one bounded app.sqlite publication-preset catalog whose stable
-  cross-format options feed the existing CP38 assembly without mutating manuscript revisions.
-- Completed Checkpoint 41B. App migration v7 seeds three immutable presets; one bounded repository
-  adds user CRUD, strict fail-closed versioned options, and a unique default. The global Settings
-  Command edits user presets, while preflight, DOCX, LaTeX, and PDF all resolve the same options
-  before building the shared publication assembly. Final evidence passed 168 Electron-hosted files
-  and 871 tests plus a production build.
-- Started Checkpoint 36 to replace the Renderer-driven Markdown section import with a Main-owned,
-  immutable staged import plan, preview, explicit apply mode, and exact revision revalidation.
-- Completed Checkpoint 36 under ADR 032. Main now owns bounded source capture, hashing, contained
-  resource registration, exact-pinned remark mapping, session cleanup, typed side-by-side review,
-  atomic imported-section creation, and active-section optimistic replacement. The legacy
-  Renderer file/parser path is removed. Verification passed 170 Electron-hosted files / 878 tests,
-  the production build, and all 32 silent Real-Electron scenarios. Checkpoint 37A started next.
-- Completed Checkpoint 37A under ADR 033. One staged `.tex` file now parses in a disposable,
-  timeout-bounded utility process through exact-pinned unified-latex and an application-owned
-  neutral projection. Structure and display formulas map to editable BlockNote content; inline
-  math, footnotes, citations, comments, malformed syntax, custom macros, and unknown constructs
-  remain visible and inert with exact findings. Verification passed 26 focused tests,
-  `check:fast`, 172 Electron-hosted files / 884 tests, the production build, 33/33 silent
-  Real-Electron scenarios, and all 25 recovery fixtures. Checkpoint 37B started next.
-- Completed Checkpoint 37B under ADR 034. Bounded directories, ZIP archives, and direct-entry
-  dependency closures now resolve contained includes, bibliography data, tables, figures, labels,
-  and registered images through the same staged review plan and disposable no-network parser.
-  Verification passed 172 Electron-hosted files / 888 tests, 34/34 full Real-Electron scenarios,
-  all 25 recovery fixtures, UI/diff gates, and the macOS arm64 package gate with 12 smoke
-  scenarios and 22/22 packaged E2E scenarios. Verified App, DMG, and ZIP artifacts were produced.
-- Started Checkpoint 44 to add one small project-local annotation/TODO authority outside
-  manuscript content, with explicit orphaning, Agent-request opt-in, and history rollback.
-- Completed Checkpoint 44 under ADR 035. Project-local notes and TODOs now use stable exact
-  section/block anchors, explicit orphaning, history rollback, export/context exclusion, a passive
-  Review Center, and opt-in routing into the ordinary Agent conversation.
-- Completed Checkpoint 46 under ADR 036. Clone / Save As now captures open WAL state through the
-  existing snapshot barrier, rewrites enumerated project identity, omits derived/private/transient
-  state, validates the staged inventory, and opens the independent result normally.
-- Completed Checkpoints 47A and 47B under ADR 037. Two reviewed built-ins and a bounded,
-  hash-verified user catalog reuse normal project authorities and carry only previewed Brief,
-  outline, Writing Rules, and optional publication-preset references with fresh identities.
-- Started final Phase 11 cumulative Real-Electron, recovery, UI/diff, and macOS arm64 package
-  verification.
-- Completed final Phase 11 verification. `check:fast`, the complete Electron-hosted gate and
-  production build, 25 recovery fixtures, UI/diff checks, and 38/38 fresh Real-Electron scenarios
-  passed. The macOS arm64 package gate passed 12 smoke and 26/26 packaged E2E scenarios, verified
-  the ASAR/native inventory, and produced structurally verified 0.2026.8.16 App, DMG, and ZIP
-  artifacts.
-- Replaced the dark textured application icon with a light mist-blue tile, warm-white folded-paper
-  `W`, and cobalt pen-nib accent. Regenerated the 1024px packaging PNG, 512px Linux runtime PNG,
-  seven-frame Windows ICO, and multi-size macOS ICNS from the same master. `pnpm check` passed;
-  the macOS arm64 `check:package` gate passed all 12 packaged smoke scenarios and 26/26 packaged
-  E2E scenarios, and the packaged `icon.icns` SHA-256 exactly matched `build/icon.icns`
-  (`7e605de1942ef9f3e7a4cc39a48d1ead2448c215948ccc6377775fa3d0f954b2`). The no-identity gate
-  produced `WriteLLM-0.2026.8.16-arm64.dmg` (258,126,721 bytes; SHA-256
-  `d08d75cf1e3914b56f34ae3f585bf8bc7862bf1d653e0e56f80af6232e4c192b`) and the companion ZIP
-  (256,044,716 bytes; SHA-256
-  `ebcda1b9986b2562e65cac8f1442038c4fc4370c597e065545ff07acf8c15fbd`). Signing, notarization,
-  hosted CI, push, release, and promotion were not performed.
-- Refined the generated icon after Dock-size inspection showed insufficient separation between the
-  pale tile and warm-white W. Kept the folded-paper and cobalt pen-nib geometry while deepening the
-  tile to a calm medium slate/cornflower blue, then regenerated the packaging PNG, Linux runtime
-  PNG, Windows ICO, and macOS ICNS from the revised master. The macOS arm64 unpacked package gate
-  passed all 12 packaged smoke scenarios and 26/26 packaged E2E scenarios; the App's packaged ICNS
-  exactly matched `build/icon.icns` at SHA-256
-  `b026eb458df23f7f6bb2cf5333583e5f387cca2c50523deeb806d339c86d0012`. The App remains ad-hoc,
-  no-Team-ID, and unnotarized; no DMG or ZIP was produced in this refinement.
-- Started Phase 12 as an evidence-driven Use And Fix phase and accepted ADR 038 for Checkpoint 48.
-  The decision replaces ADR 016's five separately visible composer controls with Add, truthful
-  approval policy, combined model plus effort, and Send; context and Writing Skill remain available
-  through one shared Add/leading-slash catalog. No Agent authority, persistence, provider, prompt,
-  worker, migration, package/release, hosted CI, commit, push, or publication boundary changed.
-- Implemented the Checkpoint 48 Agent composer refinement. Add and a leading slash now share one
-  context/Writing Skill catalog; approval choices explain the bounded proposal policy; and one
-  progressive model/effort popover displays concise labels such as `GPT 5.6 Sol xhigh` without
-  redundant provider branding. Focused Renderer tests, 179 Electron files / 915 tests plus the
-  production build, three focused Real-Electron scenarios, bounded screenshot review, scoped and
-  full-code Biome checks, Impeccable, and diff checks passed. Formal closure remains pending only
-  because the ordinary all-file formatter reports the preserved user-owned concurrent
-  `.vscode/settings.json` edit; no unrelated file was rewritten to manufacture a green gate.
-- Built the explicitly authorized Phase 12 hands-on macOS arm64 App with the no-identity unpacked
-  package gate. Electron 43.1.0 / ABI 148, the arm64 native inventory, 45,783 ASAR entries, all 12
-  packaged smoke scenarios, and all 26 packaged E2E scenarios passed with no flaky, skipped, or
-  failed result. The gate produced only `dist/macos-arm64/mac-arm64/WriteLLM.app` at version
-  `0.2026.8` / build `2026.8.16` and verified that it has no Apple Team ID. No DMG, ZIP, signing
-  identity discovery, notarization, hosted CI, commit, push, release, or promotion was performed.
-- Accepted ADR 039 after hands-on use exposed a composer collision, then restored the icon-free
-  `Manual`, `Section`, and `YOLO` approval shorthand and made the model trigger yield width before
-  Send. Scoped static checks, 11 focused Renderer tests, the 179-file / 915-test Electron gate and
-  production build, one focused Real-Electron workflow with explicit control-bound assertions,
-  screenshot review, Impeccable, and diff checks passed. No second App package or release action
-  was performed.
-- Accepted ADR 040 and replaced the idle paper-plane-plus-text Send control with an accessible
-  primary circular Lucide upward-arrow button while preserving Queue, Steer, retry, and Stop.
-  Scoped checks, 11 focused Renderer tests, the final clean 179-file / 915-test Electron gate and
-  production build, two focused Real-Electron passes, enabled/disabled screenshot review,
-  Impeccable, and diff checks passed. One unrelated export-test timeout passed alone in 428 ms
-  before the clean full rerun. No second App package or release action was performed.
-- Rebuilt the final Checkpoint 48 macOS arm64 App after the ADR 039/040 hands-on refinements. The
-  no-identity unpacked package gate verified Electron 43.1.0 / ABI 148, the arm64 native and
-  45,783-entry ASAR inventory, all 12 packaged smoke scenarios, and all 26 packaged E2E scenarios
-  with no flaky, skipped, or failed result. It produced only the no-Team-ID
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing, notarization, hosted CI, push,
-  release, or promotion was performed.
-- Created the explicitly authorized local Phase 12 commit containing the Agent composer,
-  ADR/Phase documentation, affected tests, and the already recorded application-icon assets. The
-  unrelated concurrent `.vscode/settings.json` and `section-editor.tsx` edits were left
-  uncommitted. No push, tag, hosted CI, signing, notarization, release, or promotion was performed.
-- Accepted ADR 041 and started Checkpoint 49. The authorized change makes pending Follow-ups a
-  bounded, Main-authoritative active-run queue with per-item Steer/Delete, one Pi queue head, and a
-  persist-before-provider consumption barrier; the running composer becomes a Stop-or-Send action
-  plus a contextual waiting list. No migration, dependency, worker role, durable job, package,
-  release, hosted CI, commit, push, or publication action was authorized.
-- Completed Checkpoint 49 under ADR 041. Main now owns a bounded addressable pending Follow-up
-  queue, the agent worker loads only its head into Pi and waits for durable consumption approval,
-  and the live Composer exposes an internally scrolling Steer/Delete list with one circular
-  Stop-or-Queue action. Static checks, 179 Electron test files / 922 tests, production build, the
-  focused provider-order Real-Electron scenario, screenshot inspection, Impeccable, and diff checks
-  passed. The full E2E suite retained one separately reproduced pre-existing Writing Skill popover
-  failure; the Checkpoint 49 scenario passed on every run. No package, commit, push, release, or
-  hosted action ran.
-- Independently committed the completed Checkpoint 49 work as `45cb477`, excluding the unrelated
-  local `.vscode/settings.json`, `section-editor.tsx`, and Checkpoint 50 design changes. Then
-  accepted ADR 042 and started authorized Checkpoint 50 to harden all 20 Agent tools using compact
-  Pi-style preflight schemas, Main-authoritative invariants, contract v8, tool-aware recovery, and
-  safe failure presentation.
-- Completed Checkpoint 50 under accepted ADR 042. All 20 model-visible tools now use compact
-  Pi-style descriptions and one-way-compatible model schemas with Main-authoritative business
-  invariants; contract v8 preserves v1-v7 replay, canonical section payloads are opaque to the
-  model, outline provisional ordering and image modes are repaired, errors carry safe actionable
-  recovery, and approval continuation remains within the original request scope. Focused suites,
-  `check:fast`, 179 Electron-hosted files / 931 tests with three skips and production build, all 39
-  unpacked E2E scenarios, the zero-preflight Brief/outline regression, the native/package smoke,
-  and all 27 packaged E2E scenarios passed. At the user's direction, CP50 did not send a live
-  Gemini request; deterministic provider-neutral evidence is the closure gate. No hosted CI,
-  signing, notarization, push, publication, or release was performed, and CP50 remains uncommitted
-  pending separate authorization.
+- Completed the remaining Phase 11 sequence: Agent-native review (ADR 024), Agent tasks and
+  progress (ADRs 025–026), figure identity and asset catalog (ADRs 027–029), DOCX/LaTeX/PDF
+  publication and presets (ADRs 030–031), Main-owned Markdown and LaTeX import (ADRs 032–034),
+  annotations (ADR 035), project clone (ADR 036), and project templates (ADR 037).
+- Final Phase 11 verification passed on macOS arm64 at `0.2026.8.16`. The application icon was
+  replaced and then refined.
+- Started Phase 12 (Use And Fix): Checkpoint 48 composer refinement (ADRs 038–040), Checkpoint 49
+  Main-owned Follow-up queue (ADR 041, commit `45cb477`), and Checkpoint 50 Agent tool contract
+  hardening (ADR 042, contract v8).
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-13).
 
 ## 2026-08-14
 
@@ -378,345 +115,73 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-18
 
-- Completed the authorized local `0.2026.8.17` candidate maintenance: advanced release metadata,
-  refreshed three stale recovery source hashes plus one renamed fail-closed Agent case, and passed
-  `check:fast`, all 25 recovery fixtures from 23 sources, the no-identity macOS arm64 production
-  package, native/ASAR/resource and signature-policy checks, 12/12 packaged smoke scenarios, and
-  28/28 packaged Real-Electron scenarios. The clean release commit receives the annotated
-  `v0.2026.8.17` tag and the final App is rebuilt from that tag. No push, hosted CI, Apple Developer
-  ID signing, notarization, GitHub Release creation, or promotion ran.
+- Local candidate `v0.2026.8.17` was tagged and built (no push or hosted CI).
+- Completed Checkpoints 52–57:
+  - Checks workspace with Knowledge citation coverage (ADR 047).
+  - Cross-section image copy and move (ADR 048).
+  - Writing-specific v3 compaction handoff (ADR 049).
+  - Context-usage indicator (ADR 050).
+  - Step capsule plan popover.
+  - Fixed image-generation provider catalog with Gemini, OpenAI, and xAI (ADR 051, app.sqlite v9).
 
-- Accepted ADR 047 and completed Checkpoint 52. The application now has a read-only Checks
-  workspace whose Main-owned, snapshot-bound service derives article-level Knowledge citation
-  coverage from current manuscript revisions and only the active current text-index generation.
-  Duplicate titles remain ambiguous, unmatched citations remain explicit, and no private path or
-  persisted coverage authority crosses IPC. Focused tests, `check:fast`, 181 Electron-hosted test
-  files / 965 tests plus production build, all 41 fresh Real-Electron scenarios, screenshot
-  inspection, Impeccable, and diff checks passed. No migration, package, commit, push, hosted CI,
-  signing, release, or publication action ran.
-- Accepted ADR 048 and completed Checkpoint 53. Main can now copy one exact current-run,
-  active-asset-backed root image into another section through the existing section proposal path,
-  preserving figure metadata while minting a destination block ID. Agent policy requires an
-  applied destination insertion before exact source removal; pending or failed insertion cannot
-  delete the source, and a changed source hash leaves a safe duplicate without a deletion retry.
-  Cross-section `moveBlocks` now returns actionable argument repair. Focused tests, `check:fast`,
-  182 Electron-hosted test files / 980 tests plus production build, and all 41 fresh Real-Electron
-  scenarios passed. No migration, provider call, package, commit, push, hosted CI, signing,
-  release, or publication action ran.
-- Accepted ADR 049 and completed Checkpoint 54. Conversation compaction now combines freshly
-  rebuilt authoritative writing context, a bounded writing-specific v3 handoff, and an adaptive
-  recent suffix of verbatim complete turns. Long user and terminal assistant messages are no
-  longer reduced to 1,024-character head/tail projections; legacy/v2 checkpoints remain
-  authority-free, while v3 can continue user goals and constraints without granting manuscript,
-  evidence, proposal, or mutation authority. Unsafe recovery now stops before omitting an
-  uncheckpointed requirement. Focused tests, `check:fast`, 182 Electron-hosted test files / 984
-  tests plus production build, and all 41 fresh Real-Electron scenarios passed. No migration,
-  provider call, package, commit, push, hosted CI, signing, release, or publication action ran.
-- Accepted ADR 050 and completed Checkpoint 55. The Renderer now shows latest trustworthy
-  run-matched context usage as a neutral accessible circular indicator beside the Agent
-  model/Thinking trigger, with keyboard/hover detail and no stale-model or unknown zero state.
-  Focused tests, `check:fast`, 183 Electron-hosted files / 990 tests plus production build, one
-  focused Real-Electron scenario, screenshot inspection, scoped Impeccable, independent finish
-  review, and diff checks passed. No new action, IPC, persistence, provider, worker, migration,
-  dependency, package/release, hosted CI, commit, push, signing, notarization, or publication work
-  ran.
-- Completed Checkpoint 56. The Agent writing-task plan now occupies one centered Step capsule above
-  the composer and opens a bounded, accessible shadcn Popover containing the semantic step list,
-  plan controls, and unchanged change-set workflow; terminal plans remain available as
-  `Plan complete`. Focused tests, `check:fast`, 183 Electron-hosted files / 991 tests plus
-  production build, one fresh focused Real-Electron scenario, scoped Impeccable, independent finish
-  review, and diff checks passed. No IPC,
-  persistence, provider, worker, migration, dependency, package/release, hosted CI, commit, push,
-  signing, notarization, or publication work ran.
-- Accepted ADR 051 and completed Checkpoint 57. Image generation now uses one fixed Google Gemini,
-  OpenAI `gpt-image-2`, and xAI `grok-imagine-image-2.0` catalog with independently encrypted
-  credentials, one explicit active source, fixed official endpoints, no automatic fallback, and
-  exact-pinned `openai@7.5.0` confined to the background worker. The app.sqlite v9 migration
-  preserves legacy Gemini configuration/ciphertext; strict IPC, safe SDK error/base64 projection,
-  nullable OpenAI auto sizing, request-scoped provider/model lineage, and the existing asset and
-  proposal authority remain enforced. Focused tests, `check:fast`, 184 Electron-hosted files / 1009
-  tests plus production build, 41/41 full Real-Electron scenarios, 25 recovery fixtures, the
-  no-identity macOS arm64 package gate, 12/12 packaged smoke scenarios, 28/28 packaged E2E
-  scenarios, and diff checks passed. No billable live image request, commit, push, hosted CI,
-  signing identity, notarization, release, promotion, or publication ran.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-18).
 
 ## 2026-08-19
 
-- Completed the separately authorized local `0.2026.8.20` App candidate for Checkpoint 61.
-  Release metadata advanced after `check:fast`, 187 Electron-hosted files / 1043 tests plus
-  production build, 41/41 fresh Real-Electron scenarios, 25 recovery fixtures from 23 sources,
-  and diff checks passed. The clean local release commit received the annotated
-  `v0.2026.8.20` tag, and the no-identity macOS arm64 unpacked package gate verified Electron
-  43.1.0 / ABI 148, arm64 native modules, ASAR/resources, 12/12 packaged smoke scenarios, and
-  28/28 packaged E2E scenarios. No DMG, ZIP, push, hosted CI, Apple Developer ID signing,
-  notarization, GitHub Release, promotion, or publication ran.
-- Accepted ADR 055 and completed Checkpoint 61. Idle new-run prompts now autocomplete up to four
-  leading `$skill-name` references as ordinary editable text. Main reparses and pins exact current
-  versions, requires ordered visible `read_writing_skill` calls, admits explicit-only Skills only
-  through user mentions, fails closed before downstream work or final output, and records v3
-  Requested/Discovered provenance without session state or a database migration. Focused coverage,
-  `check:fast`, 187 Electron-hosted files / 1043 tests with three benchmark skips plus production
-  build, 25 recovery fixtures from 23 sources, and the fresh 41/41 Real-Electron suite passed.
-  Desktop, Details, Impeccable, and diff checks passed. No tag, package/release, hosted CI,
-  commit, push, signing, notarization, promotion, or publication ran.
-- Completed the separately authorized local `0.2026.8.19` App candidate for Checkpoint 60.
-  Release metadata advanced after `check:fast`, the 186-file / 1031-test Electron gate and build,
-  41/41 fresh Real-Electron scenarios, and diff checks passed. The clean local release commit
-  received the annotated `v0.2026.8.19` tag, and the no-identity macOS arm64 unpacked package gate
-  rebuilt and verified the App from that tag through recovery, inventory, smoke, and packaged E2E
-  checks. No DMG, ZIP, push, hosted CI, Apple Developer ID signing, notarization, GitHub Release,
-  promotion, or publication ran.
-- Accepted ADR 054 and completed Checkpoint 60. Writing Skills are now per-run, visible Agent tool
-  actions rather than composer or session state: every run receives metadata only, and both a
-  user-named Skill and an Agent-discovered Skill enter context solely through
-  `read_writing_skill`. The bounded preparation phase supports four ordered top-level Skills,
-  eight dependencies, twelve whole reference files / 32 KiB, exact allowlists, immutable replay
-  provenance, safe activity projection, and read-only Agent Details history without scripts or
-  broader authority. Focused coverage passed; `check:fast`, 186 Electron-hosted files / 1031 tests
-  with three benchmark skips plus production build, and the fresh 41/41 Real-Electron suite passed.
-  Desktop and Details screenshots plus diff checks passed. No migration, package/release
-  gate, hosted CI, commit, push, signing, notarization, promotion, or publication ran.
-- Completed Checkpoint 58. Whole-manuscript Markdown preview moved from the Outline Dialog into an
-  independent Preview rail workspace, using the existing export projection and a project-owned
-  shadcn Typeset preset. Session-bound assets, sanitized Mermaid, bounded KaTeX, safe HTTPS links,
-  loss reporting, desktop layout, and return-to-section context remain enforced. Focused tests,
-  `check:fast`, 185 Electron-hosted files / 1012 tests plus production build, the fresh 41/41
-  Real-Electron suite, light/dark desktop visual inspection, scoped Impeccable, and diff
-  checks passed. No IPC, shared contract, migration, dependency, package/release action, hosted CI,
-  commit, push, signing, notarization, or publication ran.
-- Built the separately authorized Checkpoint 58 hands-on App with the no-identity macOS arm64
-  unpacked package gate. Electron 43.1.0 / ABI 148 native and ASAR/resource inventory, all 12
-  packaged smoke scenarios, and 28/28 packaged E2E scenarios passed with no flaky, skipped, or
-  failed result. The gate produced `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, signing
-  identity discovery, notarization, hosted CI, commit, push, release, promotion, or publication
-  was performed.
-- Accepted ADR 052 and completed Checkpoint 59. Google Vertex AI is now a fourth independent image
-  source beside Google Gemini, OpenAI, and xAI, with a validated Project ID, fixed `global`
-  location, the three Nano Banana model IDs, and local Application Default Credentials discovered
-  only inside the background worker. WriteLLM accepts and stores no Vertex key or ADC token; one
-  source remains explicitly active with no fallback. Focused suites passed 9 files / 83 tests,
-  `check:fast` passed, the complete Electron-hosted gate passed 185 files / 1026 tests plus three
-  intentional benchmark skips and production build, the fresh Real-Electron suite passed 41/41,
-  all 25 recovery fixtures passed, and the no-Team-ID macOS arm64 package gate passed 12/12 smoke
-  and 28/28 packaged E2E scenarios. No live ADC probe, billable image request, hosted CI, commit,
-  push, signing identity, notarization, release, promotion, or publication ran.
-- Completed the Checkpoint 59 hands-on large-image repair. The first live Vertex request proved
-  local ADC and remote generation were working, but the returned inline image overflowed the
-  worker's recursive Base64 regular expression before Main could publish it. A bounded linear
-  validator and 8,000,000-character regression replaced that failure path. Focused tests,
-  `check:fast`, 185 Electron-hosted files / 1027 tests plus three benchmark skips and production
-  build, 41/41 fresh Real-Electron scenarios, 25 recovery fixtures, 12/12 packaged smoke, and
-  28/28 packaged E2E scenarios passed. A replacement no-Team-ID macOS arm64 App, DMG, and ZIP were
-  built from the current dirty worktree. No second billable image request, commit, push, hosted CI,
-  Apple identity signing, notarization, release, promotion, or publication ran.
-- Completed the separately authorized local `0.2026.8.18` candidate for Checkpoint 58/59 and the
-  large-inline-image repair. Release metadata advanced, `check:fast`, `git diff --check`, all 25
-  recovery cases from 23 sources, the no-identity macOS arm64 package gate, 12/12 packaged smoke
-  scenarios, and 28/28 packaged Real-Electron scenarios passed before the clean local release
-  commit received the annotated `v0.2026.8.18` tag. The App, DMG, and ZIP were rebuilt from that
-  tagged revision. No push, hosted CI, Apple Developer ID signing, notarization, GitHub Release,
-  promotion, or publication ran.
-- Reconciled the documentation after Checkpoints 48–61. The active plan and tracker now contain
-  only current state and compact routing; the former CP27–28 tracker evidence moved intact to
-  `implementation-todo/phase-agent-writing.md`; Phase 11 and Phase 12 completion markers, the
-  architecture amendment status through ADR 055, and the CP48 intermediate closure note now match
-  the implemented baseline. The chronology was restored to date order and Phase 12 gained a
-  complete checkpoint index. No architecture decision, product code, package, release, hosted CI,
-  commit, push, signing, notarization, promotion, or publication boundary changed.
+- Completed Checkpoints 58–61:
+  - Preview workspace for the whole manuscript.
+  - Google Vertex AI image source using local ADC (ADR 052), plus a large inline image repair.
+  - Writing Skills as visible per-run tool reads (ADR 054).
+  - `$skill-name` mentions (ADR 055).
+- Local candidates `v0.2026.8.18`–`v0.2026.8.20` were tagged and built.
+- Reconciled the plan, tracker, and Phase records after Checkpoints 48–61. The former CP27–28
+  tracker evidence moved to `implementation-todo/phase-agent-writing.md`.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-19).
 
 ## 2026-08-20
 
-- Built the separately authorized Checkpoint 62 hands-on macOS arm64 App from the current dirty
-  worktree. The no-identity package gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
-  ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios, then produced
-  the unpacked App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag, push, hosted
-  CI, Apple Developer ID signature, notarization, release, promotion, or publication ran.
-- Completed Checkpoint 62. The global Settings Command remains one flat ordered peer list; General
-  now reads as Appearance, Writing, and Agent defaults, while Keyboard Shortcuts and About &
-  Diagnostics expose the actual fixed commands, application version, explicit credential-backend
-  security state and warning, logs directory action, and sanitized diagnostic export. Existing
-  Renderer-safe APIs and persistence paths were reused unchanged. Five focused Renderer tests,
-  `check:fast`, 188 Electron-hosted files / 1048 tests with three benchmark skips plus production
-  build, and the fresh 41/41 Real-Electron suite passed. Desktop screenshots,
-  preference persistence, focus return, axe, scoped Impeccable,
-  and diff checks passed. No ADR, shared contract, IPC, persistence, migration, dependency,
-  package/release action, hosted CI, commit, push, signing, notarization, promotion, or publication
-  ran.
-- Completed Checkpoint 63. The Agent sidebar now uses exact-pinned, reduced-motion-aware thinking
-  orbs for typed work states and a short one-shot border beam when review becomes actionable.
-  Brief fields, ordered Outline operations, Writing Rule actions, section text, and generated
-  images now render through one reusable semantic Proposal dispatcher in both the timeline and
-  Writing Task change set; legacy proposals retain their diff fallback, and presentation data
-  remains optional derived review data with no apply authority. Focused coverage passed 61 tests;
-  `check:fast`, 189 Electron-hosted files / 1054 tests with three benchmark skips plus production
-  build, and the fresh 41/41 Real-Electron suite passed. Full-width screenshots,
-  dependency/reduced-motion review, frozen install, scoped Impeccable, and diff checks passed. No
-  package/release, hosted CI, commit,
-  push, signing, notarization, promotion, or publication action ran.
-- Built the separately authorized Checkpoint 63 hands-on macOS arm64 artifacts from the current
-  dirty worktree. The no-identity package gate verified Electron 43.1.0 / ABI 148, arm64 native
-  modules, ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios, then
-  produced the no-Team-ID App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag,
-  push, hosted CI, Apple Developer ID signing, notarization, release, promotion, or publication
-  ran.
+- Completed Checkpoint 62, which reorganized Settings into General, Keyboard Shortcuts, and About
+  & Diagnostics.
+- Completed Checkpoint 63:
+  - Agent thinking orbs and a review border beam.
+  - One semantic Proposal dispatcher for the timeline and the Writing Task change set.
+- Built local hands-on macOS arm64 Apps for both checkpoints.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-20).
 
 ## 2026-08-23
 
-- Accepted ADR 056 and completed Checkpoint 64. The bounded dependency refresh upgraded Electron
-  43, BlockNote, PDF.js, Mermaid, Kysely, provider, Renderer, data, formatting, and test packages
-  without crossing the deferred toolchain, native-database, or Agent-runtime major boundaries.
-  Frozen installation passed; both production and complete audits report zero advisories; focused
-  coverage passed 5 files / 58 tests; `check:fast`, 192 Electron-hosted files / 1062 tests with
-  three benchmark skips plus production build, 25 recovery fixtures, and the fresh 42/42
-  Real-Electron suite passed. The no-identity macOS arm64 package gate verified Electron 43.4.1 /
-  ABI 148, arm64 native modules, 53,145 ASAR entries, 12/12 runtime smoke and 29/29 packaged E2E
-  scenarios, and DMG/ZIP structure. No candidate, release gate, hosted CI, commit, tag, push, Apple
-  Developer ID signing, notarization, promotion, or publication ran.
-- Built the separately authorized Checkpoint 64 hands-on macOS arm64 App for local trial from the
-  current dirty worktree. The unpacked-only no-identity package gate verified Electron 43.4.1 /
-  ABI 148, arm64 native modules, 53,145 ASAR entries, 12/12 packaged smoke scenarios, and 29/29
-  packaged E2E scenarios, then produced `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP,
-  candidate, release gate, hosted CI, commit, tag, push, Apple Developer ID signing, notarization,
-  promotion, or publication ran.
-- Accepted ADR 058 and completed Checkpoint 66. Knowledge remains the independent source-management
-  and exact-search workspace; the adjacent Notebook workspace now provides transient,
-  project-session-scoped, selected-source multi-turn chat with bounded hybrid retrieval, streamed
-  source-only answers, per-message validated citations, in-place citation preview, and metadata-only
-  model-request accounting. Focused coverage, `check:fast`, 198 Electron-hosted files / 1097 tests
-  with three benchmark skips plus production build, and the fresh 44/44 Real-Electron suite passed
-  with no flaky or skipped scenario. Database and diagnostic assertions found no question, answer,
-  evidence body, external response ID, or content-derived fingerprint. Checkpoint 65 returns as the
-  current incomplete checkpoint; no migration, dependency, package/release action, hosted CI,
-  commit, push, signing, notarization, promotion, or publication ran.
-- Completed the separately authorized `0.2026.8.21` candidate snapshot. Release metadata advanced;
-  the recovery fixture manifest was refreshed for the intentionally extended Knowledge/Notebook
-  scenario; and the packaged reopen smoke was aligned with the accepted schema-v4 migration. The
-  no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native
-  modules, 53,287 ASAR entries, all 26 recovery fixtures from 24 sources, 12/12 packaged smoke
-  scenarios, and 31/31 packaged E2E scenarios before producing
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`. The clean candidate commit receives the annotated
-  `v0.2026.8.21` tag, and both `main` and the tag are pushed under explicit user authorization.
-  Checkpoint 65 remains incomplete. No DMG, ZIP, hosted CI run, Apple Developer ID signing,
-  notarization, GitHub Release, promotion, or publication ran.
-- Completed Checkpoint 65 under ADR 057. WriteLLM now uses BlockNote native Inline Math as a
-  bounded atomic inline node while retaining application-owned display Math and Mermaid through a
-  Renderer-only `displayMath` alias. Schema v4 and migration 0037 preserve revision history and
-  relations while advancing active heads; prose counts, search, replacement, readable citations,
-  and quick actions do not expose or cross formulas; Agent reads use `$source$` and typed section
-  mutations may preserve or create the strict node. Markdown/LaTeX import and
-  Markdown/DOCX/PDF/LaTeX output now carry inline formulas with safe readable loss fallbacks and
-  untrusted bounded KaTeX. Frozen install, both zero-advisory audits, 112 focused tests, all 26
-  recovery fixtures, `check`, `check:fast`, 198 Electron-hosted files / 1097 tests with three
-  benchmark skips plus production build, and the fresh-build 44/44 serial Real-Electron manifest
-  passed. No package/release action, hosted CI, commit, tag, push, signing, notarization,
-  promotion, or publication ran.
-- Accepted ADR 059 and completed Checkpoint 67. True first launches now enter a
-  fully optional Welcome → Agent → Embedding → Reranking → MinerU → Create Project flow beneath
-  the global Menubar. Versioned Main-owned application state resumes an interrupted step and
-  suppresses completed or upgraded installs; existing provider workspaces and the native
-  project-creation authority remain unchanged. Seventeen focused tests, `check:fast`, 199
-  Electron-hosted files / 1102 tests with three intentional benchmark skips plus production build,
-  and the fresh 45/45 Real-Electron manifest passed. Desktop visual inspection,
-  scoped Impeccable, and diff checks also passed. No migration, dependency, package/release action,
-  hosted CI, commit, tag, push, signing, notarization, promotion, or publication ran.
-- Accepted ADR 060 and completed Checkpoint 68. BlockNote native `mathBlock` now joins the native
-  Inline Math model, while the application-owned Mermaid implementation moves to a schema-v5
-  plain-content `diagram` using `SourceBlockWithPreview` and shared caption/alt-text metadata.
-  Migration 0038 preserves historical revisions and relationships while advancing active heads;
-  prose operations isolate source, Agent contract v9 creates and preserves both rich blocks, and
-  Markdown/LaTeX import plus Markdown/DOCX/PDF/LaTeX output use the converged projection with safe
-  fallbacks. Frozen install, zero-advisory production/full audits, focused coverage, `check`,
-  `check:fast`, 200 Electron-hosted files / 1107 tests with three intentional benchmark skips plus
-  production build, all 27 recovery fixtures from 25 sources, and the fresh 45/45 Real-Electron
-  manifest passed. Theme, metadata, malicious source, sanitized SVG, no-caption, reopen,
-  and export behavior were verified. No package/release action, hosted CI, commit, tag, push,
-  signing, notarization, promotion, or publication ran.
-- Built and prepared the separately authorized local `0.2026.8.22` candidate for the completed
-  Checkpoints 67–68 baseline. Release metadata advanced, and the packaged smoke was aligned with
-  the accepted first-run onboarding and schema-v5 reopen contracts. The no-identity macOS arm64
-  package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all
-  27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 32/32 packaged E2E
-  scenarios. It produced the unpacked App, a structurally verified 239,631,663-byte DMG with
-  SHA-256 `3b1065b49ac8ba8441a6806af2913f8cac6afe09d33623cbf0e51b30925db5f6`, and a
-  237,780,129-byte ZIP with SHA-256
-  `e2540db54181abeef67c3effddebb5b86a39a54ed62e323fcafb2c60b9173101` from the clean annotated
-  `v0.2026.8.22` source commit. No push, hosted CI, Apple Developer ID signing, notarization,
-  GitHub Release, promotion, or publication ran.
+- Completed these checkpoints:
+  - Checkpoint 64: bounded dependency refresh to Electron 43 (ADR 056).
+  - Checkpoint 65: native Inline Math with schema v4 and migration 0037 (ADR 057).
+  - Checkpoint 66: transient Notebook workspace (ADR 058).
+  - Checkpoint 67: optional first-run onboarding (ADR 059).
+  - Checkpoint 68: native Block Math and the schema-v5 plain-content Diagram, with migration 0038 and Agent contract v9 (ADR 060).
+- Candidate `v0.2026.8.21` was tagged and pushed. Local candidate `v0.2026.8.22` was tagged and
+  built with a DMG and ZIP.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-23).
 
 ## 2026-08-25
 
-- Accepted ADR 064 and completed Checkpoint 72. Compaction now treats re-readable writing-tool
-  bodies as disposable observations, retains exhaustive typed continuation facts, deduplicates
-  Knowledge revisions and used citations, and validates the final escaped prompt character and
-  token budgets before provider work. Superseded compaction failures no longer remain active in
-  the Renderer. The 415-event / 1.5 MB field-scale fixture, 104 focused tests, `check:fast`, the
-  1,137-test full Electron suite, production build, and fresh 46/46 Real-Electron E2E manifest
-  passed. Raw events and payload-v3 compatibility remain unchanged; no package, release, commit,
-  tag, push, signing, or publication action ran.
-- Built and prepared the separately authorized local `0.2026.8.25` candidate for the completed
-  Checkpoint 71 baseline. Release metadata advanced, and the protected Agent recovery source digest
-  was refreshed after its compaction and continuation fixture changed. The no-identity macOS arm64
-  unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR
-  entries, all 27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios, and 33/33
-  packaged E2E scenarios with no flaky, skipped, or failed scenario. It produced
-  `dist/macos-arm64/mac-arm64/WriteLLM.app` from clean annotated source commit `456e837`. No DMG,
-  ZIP, hosted CI, Apple Developer ID signing, notarization, GitHub Release, promotion, or
-  publication ran.
-- Accepted ADR 063 and started Checkpoint 71 to replace the fixed 240-event compaction ceiling with
-  bounded complete-run scanning, finalize pathological writing tool loops, and recover exact
-  authorized continuations after early Pi settlement. No migration, release, or hosted action is
-  authorized by this checkpoint.
-- Completed Checkpoint 71 under ADR 063. Compaction now pages safe projections through complete run
-  boundaries with model-budget and 2,000-event fail-closed limits; the 415-event field regression
-  produces continuous v3 material without changing raw history. Runs finalize once without tools
-  after 180 durable events, and Pi continuation loss is recovered once or recorded explicitly.
-  Focused tests, `check:fast`, the 1,131-test full Electron suite, production build, 46/46 fresh
-  E2E, all 27 recovery fixtures, 12/12 packaged smoke, and 33/33 packaged E2E passed. The unsigned
-  local package gate produced structurally verified DMG and ZIP artifacts; no release action ran.
+- Completed Checkpoint 71 (ADR 063): bounded complete-run compaction scanning, finalization of
+  pathological tool loops, and recovery of Pi continuations.
+- Completed Checkpoint 72 (ADR 064): disposable re-readable tool bodies, exhaustive continuation
+  facts, and validation of the final escaped compaction prompt budget.
+- Local candidate `v0.2026.8.25` was tagged at `456e837` and built.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-25).
 
 ## 2026-08-24
 
-- Built and prepared the separately authorized local `0.2026.8.24` candidate for the completed
-  Checkpoint 70 baseline. Release metadata advanced, and the protected MinerU/Notebook recovery
-  source digest was refreshed after its real Agent tool-loop fixture changed. The no-identity
-  macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native modules,
-  53,287 ASAR entries, all 27 recovery fixtures from 25 sources, all 12 packaged smoke scenarios,
-  and 33/33 packaged E2E scenarios with no flaky, skipped, or failed scenario. It produced
-  `dist/macos-arm64/mac-arm64/WriteLLM.app` from clean annotated source commit `bc6227a`. No DMG,
-  ZIP, hosted CI, Apple Developer ID signing, notarization, GitHub Release, promotion, or
-  publication ran.
-- Accepted ADR 062 and completed Checkpoint 70. Notebook now uses the shared Pi Agent session
-  runtime as a transient selected-source read-only Agent with exact `search_knowledge` and
-  `read_citations` authority, Worker/Main profile enforcement, autonomous multi-continuation tool
-  use, bounded registered citations, source-epoch in-memory history, and metadata-only model
-  requests. The Renderer reuses the writing Agent's two-level model/effort picker and capability
-  clamping while keeping Notebook choices project-session-local. Forty-four focused tests,
-  `check:fast`, 200 Electron-hosted files / 1123 tests with three benchmark skips plus production
-  build, and the fresh 46/46 Real-Electron manifest passed with no flaky, skipped, or failed
-  scenario. The real Notebook fixture proved `search_knowledge` → `read_citations` → cited answer,
-  exact tool exposure, no `temperature`, citation preview, and project-reopen cleanup. No migration,
-  dependency, package/release action, hosted CI, commit, tag, push, signing, notarization, promotion,
-  or publication ran.
-- Accepted ADR 061 and completed Checkpoint 69. Agent Harness Protocol v10 adds the isolated
-  `ask_user` tool, Main-owned indefinite waiting within the original Pi run, exact capability and
-  answer validation, cancellation, trusted user-decision delivery, bounded compaction, and
-  `awaiting_input` activity without a new table or event type. The Agent composer now uses the
-  official shadcn Questionnaire source for accessible multi-step option or freeform answers,
-  conversation attention, Stop, and read-only ask/answer history. Exact frozen installation,
-  168 focused tests plus the two-test prompt-budget baseline, scoped Impeccable, `check:fast`, 200
-  Electron-hosted files / 1118 tests with three benchmark skips plus production build, and the
-  fresh 46/46 Real-Electron manifest passed with no flaky, skipped, or failed scenario, including
-  Stop and restart-only historical recovery. No package/release action, hosted CI, commit, tag,
-  push, signing, notarization, promotion, or publication ran.
-- Built and prepared the separately authorized local `0.2026.8.23` candidate for the completed
-  Checkpoint 69 baseline. The first package attempt correctly stopped before packaging because the
-  changed Agent recovery source needed a refreshed protected-fixture digest; all 27 fixtures from
-  25 sources then passed before the annotated tag was moved to the clean fix commit `ecfca0b`.
-  The no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64
-  native modules, 53,287 ASAR entries, all 12 packaged smoke scenarios, and 33/33 packaged E2E
-  scenarios with no flaky, skipped, or failed scenario. It produced
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`. No DMG, ZIP, push, hosted CI, Apple Developer ID
-  signing, notarization, GitHub Release, promotion, or publication ran.
+- Completed Checkpoint 69 (ADR 061): Agent Harness Protocol v10 `ask_user`, Main-owned in-run
+  waiting, and the shadcn Questionnaire.
+- Completed Checkpoint 70 (ADR 062): Notebook on the shared Pi session runtime as a read-only
+  selected-source Agent.
+- Local candidates `v0.2026.8.23` (`ecfca0b`) and `v0.2026.8.24` (`bc6227a`) were tagged and built.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-24).
 
 ## 2026-08-26
 
@@ -740,413 +205,74 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-28
 
-- Completed the authorized Checkpoint 75 LM Studio union-schema compatibility maintenance after a
-  real run exposed 370 empty `read_section` calls from the earlier empty object-root wrapper. Root
-  unions now project their complete property vocabulary, common required fields, and merged literal
-  discriminators at the model-visible object root while retaining exact branches under `allOf`.
-  The change passed 44 focused tests, `check:fast`, 201 Electron-hosted files / 1,160 tests with
-  three intentional benchmark skips, the fresh 47/47 E2E manifest, and the complete no-identity
-  package gate with 27 recovery cases from 25 sources, 53,287 ASAR entries, 12 packaged smoke
-  scenarios, and 34/34 packaged E2E scenarios. The gate produced a trial App, DMG, and ZIP under
-  `dist/macos-arm64`; no commit, tag, push, hosted CI, signing, notarization, release, promotion, or
-  publication ran.
-- Built the current dirty macOS arm64 maintenance source through the complete no-identity package
-  gate after expanding Provider HTTP endpoint support. Electron 43.4.1 / ABI 148, arm64 native
-  modules, 53,287 ASAR entries, all 27 recovery cases from 25 sources, all 12 packaged smoke
-  scenarios, and 34/34 packaged E2E scenarios passed with no flaky, skipped, or failed scenario.
-  The gate produced the App, DMG, and ZIP under `dist/macos-arm64`; no commit, tag, push, hosted CI,
-  Apple Developer ID signing, notarization, promotion, release, or publication ran.
-- Expanded the shared Provider Base URL contract so localhost and numeric IPv4 endpoints beginning
-  with `10`, `100`, `127`, or `192` may use HTTP. Other remote hosts still require HTTPS, embedded
-  URL credentials remain rejected, and the Settings guidance now states the accepted prefixes.
-  Focused Provider contract tests cover each accepted prefix and rejection of other HTTP hosts.
-- Built the separately authorized local Checkpoint 75 macOS arm64 App from the current dirty
-  worktree. The first gate correctly stopped because CP75 had intentionally changed a protected
-  Agent recovery source; its manifest digest was refreshed and all 27 cases from 25 sources then
-  verified. The no-identity package gate verified Electron 43.4.1 / ABI 148, arm64 native modules,
-  53,287 ASAR entries, 12/12 packaged smoke scenarios, and 34/34 packaged E2E scenarios, and
-  produced the App, DMG, and ZIP under `dist/macos-arm64`. No candidate, commit, tag, push, hosted
-  CI, Apple Developer ID signing, notarization, release, promotion, or publication ran.
-- Accepted ADR 067 and completed Checkpoint 75. Agent Harness Protocol v12 centralizes shared
-  operating rules, shortens model-visible descriptions, starts writing runs with nine core tools,
-  and adds seven run-local capability groups activated through the isolated
-  `activate_tool_groups` contract. Main and Worker enforce the same active set, exact tool-envelope
-  budgets follow every continuation and recovery path, and all OpenAI-compatible parameter schemas
-  now expose object roots while retaining union constraints. The strict loopback Harness covered
-  LM Studio-style schema validation. 153 focused tests plus the prompt-budget baseline,
-  `check:fast`, 201 Electron-hosted files / 1,158 tests with three intentional benchmark skips and
-  production build, and the fresh 47/47 E2E manifest passed. No dependency, migration, UI mode,
-  package/release action, commit, tag, push, hosted CI, signing, notarization, promotion, or
-  publication ran.
-- Accepted ADR 066 and completed Checkpoint 74. Agent Harness Protocol v11 now exposes paged,
-  complete-hash-bound table reads plus typed table insertion and ordered edits through a pure
-  occupancy transformer and the existing section-proposal revision path. Proposal review derives
-  bounded table diffs, and native BlockNote headers remain available without merge/split or color
-  controls. Publication assembly v2 preserves header-column, alignment, width, and span semantics;
-  Markdown reports GFM losses, PDF emits semantic paged tables, and inert LaTeX emits aligned
-  `longtable` output with explicit rowspan fallback. A dedicated Agent scenario also caught and
-  fixed unit-span default drift across the BlockNote mutation barrier. Focused tests, `pnpm check`,
-  1,152 full Electron tests with three intentional benchmark skips plus production build, fresh
-  47/47 E2E, all 27 recovery fixtures, 12/12 packaged smoke scenarios, and 34/34 packaged E2E
-  passed. The no-identity macOS arm64 package gate structurally verified local DMG and ZIP
-  artifacts. No
-  dependency, migration, new authority, release gate, commit, tag, push, hosted CI, Apple signing,
-  notarization, promotion, or publication ran.
-- Advanced the separately authorized source candidate to `0.2026.8.26` for the completed
-  Checkpoints 73–74 snapshot. The user separately authorized committing the pending source,
-  creating the matching annotated tag, and pushing `main` plus that tag. Hosted CI, Apple
-  Developer ID signing, notarization, GitHub Release creation, promotion, and publication remain
-  outside this action.
+- Completed Checkpoint 74 (ADR 066, Protocol v11): hash-bound table reads, typed table edits, and
+  table projection to portable Markdown, PDF, and LaTeX.
+- Completed Checkpoint 75 (ADR 067, Protocol v12): layered tool descriptions, run-local
+  capability groups, exact envelope budgets, and object-root schemas. Follow-up maintenance projected root-union
+  properties for LM Studio compatibility.
+- Provider Base URLs may use HTTP for localhost and numeric `10.*`, `100.*`, `127.*`, and `192.*`
+  IPv4 hosts. Other hosts still require HTTPS.
+- Built local trial Apps. Source candidate `0.2026.8.26` was committed, tagged, and pushed for Checkpoints 73–74.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-28).
 
 ## 2026-08-30
 
-- Published `WriteLLM 0.2026.8` from immutable tag `v0.2026.8.45` as the public Latest GitHub
-  Release after explicit user authorization to distribute unsigned artifacts. Revalidated all
-  seven platform packages against their build evidence, attached four renamed evidence files,
-  `SHA256SUMS`, and a public unsigned release manifest, then verified 13/13 remote assets in
-  uploaded state totaling 1,573,263,711 bytes. Release notes state that Windows and macOS may show
-  security warnings because the artifacts are unsigned and not notarized.
-- Replaced `pnpm/action-setup` v4 with SHA-pinned v6.0.10 in the tag-only CI and disabled
-  release-candidate workflow. GitHub run `33299058552` identified it as the only Action still
-  targeting deprecated Node 20; v6.0.10 declares the Node 24 Action runtime, while project commands
-  remain pinned to Node 24.15.0.
-- Completed Checkpoint 26.9 with immutable `v0.2026.8.45` run `33299058552`. The shared static and
-  recovery-fixture gate passed, followed by terminal success for four independent build-only jobs:
-  macOS arm64, Windows x64, Linux x64, and macOS x64. Each platform completed native packaging,
-  inventory verification, and its own unsigned artifact upload. Four non-expired artifacts totaling
-  approximately 1.57 GB are retained through 2026-09-29. Hosted database/E2E tests, signing,
-  notarization, promotion, and publication did not run under the accepted narrowed scope.
-- Completed a Thermo-Nuclear P0/P1 implementation audit with no P0 finding and three remediated P1
-  findings. Writing Skill installation now registers each staging directory before writes and
-  compensates prior-generation movement and publication in reverse order with diagnostic errors;
-  model-visible Agent schemas reject unsupported roots instead of silently emitting empty
-  `properties`; and tag-only CI reuses the canonical release-source verifier before installation
-  or platform builds. Evidence passed 23 focused tests, recovery fixtures, Biome, Node and Renderer
-  typechecks, 202 Electron-hosted files with 1,163 tests and three intentional benchmark skips, a
-  production build, and the macOS arm64 tag-CI build-only package path with verified native
-  inventory plus DMG/ZIP artifacts. The local pnpm 11.17.0 wrapper could not satisfy the repository
-  `pnpm@12.0.0` pin, so the documented direct canonical runners were used; no package metadata,
-  dependency, candidate, commit, tag, push, hosted run, signing, notarization, or publication was
-  performed.
-- Completed the follow-up Thermo-Nuclear structural remediation. Consolidated duplicated worker
-  message/error projection, knowledge-search filters, BlockNote inline-text traversal, and Agent
-  model selection; reduced the AgentPanel, WritingWorkspace, provider-settings, and preload entry
-  modules to typed facades; separated mutation outline/presentation/storage logic, Agent session
-  event/error/history/projection logic, and project history-restore recovery; and split the 3,877-
-  and 2,570-line Agent tests into behavior suites with shared fixtures. Updated the recovery-fixture
-  manifest to retain source-integrity coverage after the test split. Evidence passed Biome, both
-  typechecks, 211 Electron-hosted test files with 1,167 passing tests and three intentional benchmark
-  skips, the production build, 47/47 unpackaged Electron E2E scenarios, and the full macOS arm64
-  package gate including native inventory, packaged runtime/security smoke, 34/34 packaged E2E
-  scenarios, and inspected DMG/ZIP artifacts. The local pnpm 11.17.0 wrapper did not match the
-  repository `pnpm@12.0.0` pin, so documented npm/direct canonical runners were used; the package
-  gate's incidental lockfile metadata change was removed.
+- Published `WriteLLM 0.2026.8` from immutable `v0.2026.8.45` as the first public, explicitly
+  unsigned four-platform GitHub Release, with checksums and an unsigned release manifest.
+- Completed Checkpoint 26.9 with run `33299058552`, which passed the shared static and fixture gate and four
+  independent native build-only jobs. Hosted CI was narrowed to build-only packaging under revised
+  authorization.
+- Candidates `v0.2026.8.37`–`v0.2026.8.44` were retained as failed hosted evidence. Each exposed
+  platform-specific E2E races, such as Floating UI reference loops, settlement waits, and timeouts,
+  and each one's fix advanced the next candidate.
+- Moved `pnpm/action-setup` to the Node 24-based v6.0.10.
+- The Thermo-Nuclear P0/P1 audit found no P0 issues and remediated three P1 issues: atomic Writing Skill rollback,
+  fail-closed schema roots, and the tag-CI source verifier. A structural remediation then removed
+  duplicated logic and split oversized modules and tests.
 
-- Retained immutable `v0.2026.8.44` as failed evidence after run `33298003843` exposed a
-  five-second macOS x64 timeout in a 600-event rolling-compaction database test. Assigned that
-  intentionally heavy test the adjacent case's 60-second budget and passed it independently three
-  times. Under the user's revised authorization, narrowed hosted CI to the shared static/fixture
-  gate followed by four fail-fast-disabled native build and artifact-upload jobs. Added a
-  build-only package mode that retains native preparation, production compilation, signature
-  policy, packaged inventory, installer/archive inspection, and evidence while excluding Electron
-  database tests, E2E, packaged smoke, and Linux Secret Service setup. Advanced release metadata to
-  `0.2026.8.45`. Locally passed `check:fast`, the 27 recovery fixtures, 1,160 Electron tests, fresh
-  47/47 full E2E, the full 12-category smoke plus 34/34 packaged E2E package gate, and the separate
-  build-only macOS arm64 artifact/inventory path. Hosted confirmation remains required.
-
-- Retained immutable `v0.2026.8.43` as failed evidence after run `33294758154` completed the shared
-  gate and both macOS platform pipelines through artifact upload. Windows passed Electron and full
-  E2E before hidden-window packaged smoke could not expose Knowledge navigation. Linux passed its
-  Electron gate and retried grounded Agent after Enter cleared `/section` without selecting its
-  scope; the no-flake policy rejected the platform. Made packaged viewport size deterministic and
-  changed section-scope selection to a directly confirmed menu action. Three independent focused
-  runs, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, all 12 packaged-smoke categories,
-  34/34 packaged E2E, and structural DMG/ZIP checks passed; advanced release metadata to
-  `0.2026.8.44` pending hosted verification.
-
-- Retained immutable `v0.2026.8.42` as failed evidence after run `33291808264` passed the shared
-  gate and every platform's 1,160-test Electron/build gate. Both macOS rows and Linux completed all
-  47 E2E scenarios without retries, native packaging, and artifact upload. Windows alone retried
-  the section-title wrapping scenario after the test wrote before initial title hydration replaced
-  its input with `Untitled Section`; the retry passed, and the no-flake policy correctly failed the
-  platform. Added an explicit initial-title wait, passed the focused scenario independently three
-  times without retries, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged-smoke
-  categories, 34/34 packaged E2E, and structural local DMG/ZIP checks; advanced release metadata
-  to `0.2026.8.43`.
-
-- Retained immutable `v0.2026.8.41` as failed evidence after run `33289904719` passed the shared
-  gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, packaging,
-  and artifact upload; macOS x64 exposed clarification-keyboard and context-menu remount races,
-  Windows exposed slow packaged-shell navigation after 47/47 E2E, and Linux exposed slash-menu
-  opening after its retry passed. Routed keyboard actions through their locator, retried only until
-  the intended Agent menu state became visible, and polled packaged Knowledge readiness. Passed
-  both focused scenarios, `check:fast`, 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged
-  smoke categories, 34/34 packaged E2E, and structural local DMG/ZIP checks; advanced release
-  metadata to `0.2026.8.42`.
-
-- Retained immutable `v0.2026.8.40` as failed evidence after run `33287098513` passed the shared
-  gate and every platform's 1,160-test Electron/build gate. macOS arm64 and Linux completed all 47
-  scenarios, native packaging, and artifact upload. The strict evidence policy rejected one
-  macOS x64 model-picker opening retry and one Windows assertion against a transient KaTeX internal
-  node despite visibly rendered formulas. Added a bounded popover-open retry and asserted the
-  user-visible formula preview, then passed both focused scenarios, `check:fast`, 1,160 Electron
-  tests, fresh 47/47 full E2E, 12 packaged-smoke categories, 34/34 packaged E2E, and structural
-  local DMG/ZIP checks; advanced release metadata to `0.2026.8.41`.
-
-- Retained immutable `v0.2026.8.39` as failed evidence after run `33283260551` passed the shared
-  gate and every platform's 1,160-test Electron/build gate. macOS arm64 completed E2E, native
-  packaging, and artifact upload; Windows and Linux passed their full 47-scenario suites before
-  separate packaged-smoke and packaged-E2E races, while macOS x64 exposed a transient duplicate
-  during streaming-to-persisted Agent response settlement. Added exact settlement waits at all
-  three boundaries, passed 1,160 Electron tests, fresh 47/47 full E2E, 12 packaged-smoke
-  categories, 34/34 packaged E2E, recovery/static gates, and structural local DMG/ZIP checks, and
-  advanced release metadata to `0.2026.8.40`.
-
-- Retained immutable `v0.2026.8.38` as failed evidence after run `33281622771` passed static and
-  every platform's complete Electron/build gate, then reproduced Floating UI's virtual
-  position-reference loop on Windows, Linux, and both macOS targets. The independent jobs also
-  exposed bounded setup, materialization, dropdown-close, layout-settle, and menu-remount races.
-  Kept the virtual reference stable while delegating to live geometry callbacks, added explicit
-  state waits at those hosted boundaries, passed 1,160 Electron tests, a production build, all 47
-  E2E scenarios without retries, static/type and recovery-fixture gates, and advanced release
-  metadata to `0.2026.8.39`.
-
-- Retained immutable `v0.2026.8.37` as failed evidence after run `33279820297` proved complete
-  independent native packaging and artifact upload on both macOS targets. Windows and Linux
-  reproduced the same repeated BlockNote/Floating UI DOM-reference loop; Windows also exposed a
-  duplicate final-response locator, while Linux traces proved two full scenarios reached their
-  final action at about 88 seconds before the 90-second test budget expired. Deduplicated DOM
-  reference application, selected the final response explicitly, assigned 180-second budgets only
-  to those two long scenarios, refreshed recovery evidence, and advanced release metadata to
-  `0.2026.8.38`.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-30).
 
 ## 2026-08-29
 
-- Retained immutable `v0.2026.8.36` as failed evidence after run `33278248512` confirmed the
-  Windows patch-EOL and Linux real-process credential fixes, passed macOS x64, and exposed one
-  Windows Floating UI setter loop plus one macOS arm64 conflict-test race. Stored current setters
-  in stable React refs, made the conflict stimulus deterministic, and passed the affected E2E
-  scenarios repeatedly after a fresh frozen install and build. The final gate passed 1,160 Electron
-  tests, the production build, and all 47 E2E scenarios without retries. Replaced the globally
-  coupled validation/package matrices with four independent per-platform pipelines after one
-  shared static gate, so a platform failure no longer suppresses package work on the others;
-  advanced release metadata to `0.2026.8.37`.
+- Resumed Checkpoint 26.9 after the repository became public. Unsigned cross-platform CI was
+  restored and limited to pushed tags.
+- Candidates `v0.2026.8.27`–`v0.2026.8.36` were retained as failed hosted evidence:
+  - pnpm 12 lock metadata.
+  - Multibyte filenames and SQLite handles.
+  - Windows CRLF and test budgets.
+  - Linux credential backend lifetimes.
+  - BlockNote and Floating UI loops.
+  The validation matrix became four independent per-platform pipelines.
+- Accepted ADR 068 and completed Checkpoint 76:
+  - Sticky Ask, Plan, and Write ceilings.
+  - Migration 0039 and Protocol v13.
+  Checkpoint 77 stays paused.
+- Aligned the pnpm pin to the approved 11.17.0.
+- Maintenance:
+  - Agent model-selection recovery after Provider changes.
+  - Generated-image proposal terminalization and orphan recovery.
+  - Gemini/Vertex blockless `read_section` compatibility.
+  - Read-section title presentation.
+  - Compaction status markers.
+- Built local trial Apps.
 
-- Retained immutable `v0.2026.8.35` as failed evidence after run `33277302371` passed static,
-  credential preflight, both macOS rows, and the Linux Electron/build gate but exposed Windows
-  patch CRLF conversion and Playwright 1.62.1 overriding Linux E2E with
-  `--password-store=basic`. Forced LF checkout for dependency patches and pinned Playwright's
-  default off only for the explicit hosted `gnome-libsecret` session. A fresh frozen install
-  applied both patches; static/type, fixture, loader syntax, and affected E2E checks passed; advanced
-  release metadata to `0.2026.8.36`.
-
-- Retained immutable `v0.2026.8.34` as failed evidence after run `33274815298` passed static,
-  credential preflight, macOS arm64, and all 1,160 Windows Electron tests but exposed two Windows
-  Renderer/selection E2E failures, one macOS x64 five-second stress-test timeout, and Linux
-  real-process credential rejection followed by teardown exhaustion. Added the focused test budget,
-  explicit cross-platform selection, a pinned BlockNote stable-ref patch, hosted GNOME desktop
-  discovery, and immediate bounded Linux probe diagnostics. Passed 1,160 Electron tests, the
-  production build, static/type checks, and both affected E2E scenarios; advanced release metadata
-  to `0.2026.8.35`.
-
-- Retained immutable `v0.2026.8.33` as failed evidence after run `33264429276` passed static,
-  credential preflight, and both macOS rows but left three Windows stress-test budgets and 17 Linux
-  credential-backed scenarios. Raised only those three Windows budgets to 60 seconds. Separated the
-  isolated Linux Electron preflight from delegated E2E/package commands and made every real
-  Playwright process validate its own switch, backend, availability, and encrypted round trip.
-  Passed 39 focused Electron tests, two focused E2E scenarios, static/type checks, and recovery
-  fixtures; advanced release metadata to `0.2026.8.34`.
-- Retained immutable `v0.2026.8.32` as failed evidence after run `33262923466` passed static, Linux
-  credential preflight, and macOS x64 but exposed systemic hosted Windows Vitest budgets and one
-  collapsed BlockNote quick-action selection on macOS arm64. Added a Windows-CI-only 30-second test
-  budget, matched the retention-heavy mutation test, made the quick-action keyboard range explicit,
-  and replaced a remounting editor `blur()` with stable title-input focus in the prior Windows
-  citation failure. Passed 159 focused Electron tests, both focused E2E scenarios, static checks,
-  and recovery fixtures; advanced release metadata to `0.2026.8.33`.
-- Started immutable `v0.2026.8.31` run `33261730182`; static, Linux credential preflight, and both
-  macOS Electron/E2E rows passed. Correlated the complete `.30` Linux diagnostics with the wrapper:
-  its standalone safeStorage probe destroyed one temporary X server before E2E opened another,
-  causing the application to fall back from `gnome_libsecret` to `basic_text`. Moved probe and
-  delegated commands into one DBus/Xvfb/keyring lifetime, removed nested workflow Xvfb calls, gave
-  only the proven long workspace-reopen scenario a 180-second budget, passed 1,160 Electron tests,
-  production build, focused E2E, static checks, and recovery fixtures, and advanced release metadata
-  to `0.2026.8.32`.
-- Retained immutable `v0.2026.8.30` as failed evidence after run `33259908430` passed static and
-  credential preflight gates but exposed two macOS test budgets, one macOS E2E retry, and Windows
-  CRLF, floating-control, native layout, rendering-delay, and editor-focus boundaries. Normalized
-  Writing Skill CRLF bodies before Pi comparison, hardened only the affected tests/interactions,
-  passed 79 focused Electron tests, a fresh build, and seven focused E2E scenarios without flakes,
-  advanced release metadata to `0.2026.8.31`, and prepared the next immutable candidate.
-- Retained immutable `v0.2026.8.29` as failed evidence after run `33259789028` rejected the changed
-  manuscript-export test's stale recovery-manifest digest before starting the platform matrix.
-  Local verification also identified the changed Agent session test digest. Updated both manifest
-  entries to their normalized source SHA-256 values, advanced release metadata to
-  `0.2026.8.30`, and prepared a corrected immutable candidate; no failed tag was moved or rerun.
-- Advanced release metadata to `0.2026.8.29` after the user authorized committing and pushing the
-  locally verified `.28` portability remediation and publishing a fresh immutable tag. The tag may
-  run only the unsigned four-platform build; signing, promotion, and GitHub Release publication
-  remain excluded.
-- Diagnosed immutable `v0.2026.8.28` run `33247497461`: static verification passed, then Linux
-  exposed an overlong multibyte filename, Windows exposed retained SQLite test handles and two
-  five-second test-budget overruns, and hosted macOS exposed two 45-second complete-scenario
-  overruns before packaging. Remediated only those portability boundaries. All 71 focused
-  Electron tests, both affected Real-Electron scenarios under `CI=true`, a fresh production build,
-  `check:fast`, and diff checks passed locally. No replacement commit, tag, push, signing,
-  promotion, or publication was performed.
-- Retained immutable `v0.2026.8.27` as failed hosted evidence after run `33247388140` stopped at
-  the static frozen install: pnpm 12 correctly required its new package-manager dependency lock
-  metadata. Regenerated the lockfile with pnpm 12, advanced release metadata to `0.2026.8.28`, and
-  prepared a new immutable tag rather than moving `.27`.
-- Advanced release metadata to `0.2026.8.27` for the completed Checkpoint 75 and tag-only
-  cross-platform CI restoration snapshot. The user authorized committing the pending source,
-  creating the annotated `v0.2026.8.27` tag, and pushing `main` plus that tag. The tag may start
-  the unsigned four-platform build; signing, release promotion, and publication remain excluded.
-- Resumed Checkpoint 26.9 under explicit user authorization after the repository became public.
-  Restored the unsigned cross-platform CI definition with Windows x64, macOS arm64, macOS x64, and
-  Linux x64 native test, E2E, and package rows, and constrained the entire workflow to pushed tags.
-  Pull requests, branch pushes, schedules, and manual dispatches do not trigger it. The protected
-  release-candidate workflow remains disabled; no hosted run, signing, promotion, or publication
-  result is claimed by the local configuration change.
-- Accepted ADR 068 and started Phase 25 Checkpoint 76 under explicit user authorization. The
-  checkpoint keeps `writing` and `notebook_knowledge` as the outer profiles, adds sticky Ask, Plan,
-  and Write ceilings with immutable run snapshots, advances the Agent Harness to Protocol v13, and
-  places the mode selector beside Send. Checkpoint 77 Writing Task v2 remains paused pending
-  separate authorization.
-- Completed Phase 25 Checkpoint 76 without entering Checkpoint 77. Migration 0039 persists sticky
-  Ask, Plan, and Write selection with Write defaults; Protocol v13 carries an immutable run mode;
-  shared ModePolicy enforcement bounds Worker advertisement and Main execution; and the shadcn
-  composer selector keeps Approval orthogonal. Direct Biome and
-  Node/Renderer typechecks, all 1,179 Electron-hosted tests, the production build, all 47 Electron
-  Playwright scenarios, and `git diff --check` passed. No package, signing, notarization, release,
-  commit, tag, or push action was performed.
-- Aligned the repository package-manager declaration from pnpm 12.0.0 to the installed and
-  user-approved pnpm 11.17.0 in both `packageManager` and `engines.pnpm`. Removed pnpm 12's
-  package-manager bootstrap document from `pnpm-lock.yaml`; pnpm 11.17.0 then accepted the
-  remaining dependency lock under `--frozen-lockfile`. The refreshed CP76 verification totals
-  1,180 Electron-hosted tests with three benchmark skips, and `check:fast` passes when only the
-  host Node 26 versus repository Node 24 engine mismatch is bypassed.
-- Built a separately authorized local trial package for the completed Checkpoint 76 work. Refreshed
-  the recovery fixture hashes for the three intentionally changed Agent test sources, then passed
-  the no-identity macOS arm64 package gate with 31 recovery fixtures, 12 packaged smoke scenarios,
-  and 34/34 packaged Electron scenarios. Produced structurally verified unsigned DMG and ZIP
-  artifacts for `0.2026.8.45`; no signing, notarization, release, commit, tag, or push followed.
-- Completed Agent model-selection recovery maintenance. Provider settings publish a Renderer-local
-  invalidation that makes an open Agent panel re-read Main's bounded catalog snapshot, New
-  conversation performs the same refresh defensively, and a stale project-local model reference
-  now exposes an explicit available-model picker without silently rewriting conversation history.
-  Three focused Renderer tests, `check:fast`, the production build, and the focused
-  `agent.grounded-proposal-workflow` and `agent.table-authoring-publication` Electron scenarios
-  passed; no persistence, preload, IPC, Agent protocol, package, release, commit, tag, or push
-  action was performed.
-- Completed generated-image lifecycle maintenance. Main now terminalizes a `generating` proposal
-  when the generated asset cannot pass the later editor barrier, insertion metadata validation,
-  manuscript application, or image-iteration publication, publishes the failed state, and records
-  a safe failure reason. Because ADR 006 makes image work request-scoped rather than a durable job,
-  project-session startup also converts generations left active by a prior app lifetime to failed;
-  this repairs existing orphan rows instead of merely hiding them in the Renderer. Main also keeps
-  the complete 2,000-character alternative text while bounding only the derived BlockNote image
-  name to 500 characters, so the reported 501-character metadata case applies successfully. The
-  focused image suite passed 11/11 tests, including long metadata, post-generation publication
-  failure, and service-recreation recovery. `check:fast`, all 1,186 Electron tests with three
-  benchmark skips, the production build, and `git diff --check` passed; no migration, preload,
-  IPC, Agent protocol, package, release, commit, tag, or push action was performed.
-- Built the user-requested post-fix macOS arm64 test application from dirty source revision
-  `bc2f0bf926397f632bac577d039d4205f5b0183a`. The complete no-identity package gate verified 31
-  recovery fixtures from 29 sources, 53,288 ASAR entries, arm64 Electron ABI 148 native modules,
-  a no-Team-ID ad-hoc/linker signature, all 12 packaged smoke scenarios, and all 34 packaged
-  Electron scenarios with no flaky, skipped, or failed scenario. It produced the unpacked App,
-  238,734,583-byte DMG (`efd9e480b4c63c20da468640adbfa5c30a27969e794584fc93bc7422c58eeb66`),
-  and 236,882,652-byte ZIP (`54f64cf2acd5ede85b1e80cc4364999038efd9fe53792698729f49329ac9865a`).
-  No Developer ID signing, notarization, release, commit, tag, push, promotion, or publication was
-  performed.
-- Completed Gemini/Vertex `read_section` compatibility maintenance from the reported real-app
-  failure. Safe durable event evidence showed ten failures across three runs, all generated as
-  blockless canonical reads; hash comparison confirmed `view: "canonical"` without reading or
-  persisting raw private arguments. The affected run recovered by issuing four summary reads, but
-  consumed one avoidable continuation with 18,275 input and 374 output tokens. Clarified that
-  summary is the whole-section text/page mode and added the single ADR 042-compatible Worker shim
-  that maps only a blockless canonical request to summary before Pi validation. Canonical reads
-  with an exact `blockId`, every other malformed call, and Main validation remain unchanged. The
-  two focused suites passed 37 tests; `check:fast` passed; and `check:electron` passed 215 files / 3
-  skipped benchmark files, 1,187 tests / 3 skipped benchmark tests, plus the production build. No
-  live billable Vertex request, dependency, migration, package, release, commit, tag, or push action
-  was performed.
-- Completed read-section activity presentation maintenance. Finished groups remain summary-first
-  and collapsed by default; expanding a group now displays `Read · <section title>` for each
-  successful read, with the title parsed from Main's validated `read_section` result rather than
-  model arguments or narration. No section ID or block ID is shown, while running, failed,
-  stopped, and legacy malformed results keep the safe generic label. The focused Renderer suite
-  passed 32 tests, `check:fast` passed, `check:electron` passed 215 files / 3 skipped benchmark
-  files and 1,189 tests / 3 skipped benchmark tests plus the production build, and the Impeccable
-  detector reported no findings. No IPC, persistence, protocol, package, release, commit, tag, or
-  push action was performed.
-- Built the user-requested Gemini/Vertex read-section trial application from dirty source revision
-  `bc2f0bf926397f632bac577d039d4205f5b0183a`. The complete no-identity macOS arm64 package gate
-  verified 31 recovery fixtures from 29 sources, 53,288 ASAR entries, Electron 43.4.1 / ABI 148
-  arm64 native resources, all 12 packaged smoke scenarios, and all 34 packaged Electron scenarios
-  with no flaky, skipped, or failed scenario. It produced the unpacked App, a 238,736,237-byte DMG
-  (`02f11feb8c382d5587d2550c488d51d8402d53df7ddd1279615840296219275a`), and a
-  236,885,312-byte ZIP
-  (`33c6ddc043600710a09469ebb156967829149b9ea0b157484274d156f336ea91`). No Developer ID
-  signing, notarization, release, commit, tag, push, promotion, or publication was performed.
-- Completed Agent context-compaction status presentation maintenance. Timeline projection now
-  removes a matching historical start marker after a final successful checkpoint or failure, while
-  retaining the live marker across non-final rolling checkpoints. This prevents the completed
-  outcome and a stale `Summarizing earlier conversation…` spinner from appearing together. The
-  focused Agent Renderer suites passed 49 tests; Renderer typechecking, Biome, and `git diff
-  --check` passed. The combined `check:fast` gate reached and passed Biome, then remained blocked by
-  the unrelated dirty `session-service.tools.test.ts` fixture missing its required `blockType`.
-  No persistence, IPC, protocol, package, release, commit, tag, or push action was performed.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-29).
 
 ## 2026-08-31
 
-- Completed Phase 27 Checkpoint 78 under ADR 070. Added project-authoritative stable Reference
-  metadata, one bounded user-selected Zotero/Better BibTeX connector, explicit attachment review,
-  bilingual citekey clusters and legacy conversion, evidence-bound Agent citations, background CSL
-  formatting, metadata-first Knowledge management, and deterministic CSL-JSON/BibTeX/Pandoc and
-  bibliography-aware publication paths without changing the rebuildable RAG index. The final
-  canonical suite passed 1,228 tests with three benchmark skips; all 47 fresh Electron E2E
-  scenarios passed; and the no-Team-ID macOS arm64 package gate passed 31 recovery fixtures,
-  53,318 ASAR entries, 12 packaged smoke scenarios, and 34 packaged E2E scenarios. Frozen install,
-  production/full zero-advisory audits, license/notices review, scoped Impeccable detection, and
-  diff checks passed. Windows/Linux watcher runtime behavior remains unclaimed. No signing,
-  notarization, release, commit, tag, push, hosted CI, promotion, or publication was performed.
+- Completed Phase 27 Checkpoint 78 (ADR 070):
+  - Project-authoritative stable References.
+  - One user-selected Zotero/Better BibTeX connector.
+  - Bilingual citekeys.
+  - Evidence-bound Agent citations.
+  - CSL formatting and bibliography-aware export.
+- Completed Phase 26 Checkpoint 76.1 (ADR 069): permanent content-addressed Agent request traces,
+  with persistence acknowledged before provider dispatch.
+- Candidates `v0.2026.8.46` (`1f53c5c`, pnpm 11.17.0 tag CI) and `v0.2026.8.47` (`7bb8552`) were
+  built, tagged, and pushed. No release was published.
 
-- Built, verified, committed, tagged, and pushed candidate `v0.2026.8.47` for completed Checkpoint
-  76.1. The complete no-Team-ID macOS arm64 package gate verified 31 recovery fixtures from 29
-  sources, Electron 43.4.1 / ABI 148 native resources, 53,288 ASAR entries, all 12 packaged smoke
-  scenarios, and all 34 packaged E2E scenarios without flakes, skips, or failures. It produced a
-  238,730,171-byte DMG (`1bec8665de8a6dba930da675de950a4fdbfe389fb289813cb1a1c68d507be1e9`)
-  and a 236,896,362-byte ZIP
-  (`d6bc755e29934735b9a51f642dc49a7390f5d8fa6f0edd171b9d928aeede2081`). Clean commit
-  `7bb8552741c461b01e08047f0b710b1a595ea03d` passed exact release-source verification; annotated
-  tag `v0.2026.8.47` and `main` were atomically pushed to GitHub, starting tag-only run
-  `33345029753`. No Developer ID signing, notarization, GitHub Release creation, promotion, or
-  publication was performed.
-- Completed Phase 26 Checkpoint 76.1 under ADR 069. Project SQLite now permanently retains
-  content-addressed model-visible harness context, exact Pi provider bodies, structured provider
-  responses, raw invalid tool attempts, injected Skill sources, compaction evidence, titles, and
-  Agent image metadata. Every traced provider attempt waits for Main's transactional persistence
-  ACK before network dispatch; retries and correlation identifiers remain explicit across process
-  boundaries, while ordinary logs retain only safe metadata. SQL views reconstruct request JSON
-  and merge traces with authoritative Agent events; legacy requests remain explicitly unavailable.
-  A 7,936,308-byte repeated-history sample stored 330,580 payload bytes after deduplication
-  (95.83% reduction) and reconstructed 12 requests in about 1.73 seconds. `check:fast`, 1,204
-  canonical tests with three benchmark skips, the Electron/build gate, all 47 fresh E2E scenarios,
-  and the complete no-Team-ID package gate with 12 smoke and 34 packaged E2E scenarios passed. No
-  release signing, notarization, commit, tag, push, promotion, or publication was performed.
-- Built the separately authorized local `v0.2026.8.46` candidate after aligning tag CI with the
-  accepted pnpm 11.17.0 runtime. `check:fast`, 31 recovery fixtures from 29 sources, 1,194
-  Electron-hosted tests with three benchmark skips plus the production build, and all 47 fresh
-  Electron E2E scenarios passed. The complete no-identity macOS arm64 package gate verified
-  Electron 43.4.1 / ABI 148, 53,288 ASAR entries, all 12 packaged smoke scenarios, and all 34
-  packaged Electron scenarios without flakes, skips, or failures. It produced a 238,735,121-byte
-  DMG (`45e37ea91cb07e945014695d89cbc51cd966570216a925567b664f6cf01b20cc`) and a
-  236,883,926-byte ZIP (`3120c4ac9a63c2763f918129de0ee86c9f5a0bf8a74c68828e53c77330d13fd3`).
-  Source commit `1f53c5c` and annotated tag `v0.2026.8.46` passed the exact release-source verifier
-  and were atomically pushed to GitHub; tag-only four-platform run `33341907788` started
-  successfully. Developer ID signing, notarization, GitHub Release creation, promotion, and
-  publication remain outside the authorization.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-31).
 
 ## 2026-08-31 — Checkpoint 78 candidate v0.2026.8.48
 
@@ -1176,48 +302,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-08-31 — Checkpoint 79 unified Reference import
 
-- Completed Phase 28 Checkpoint 79 under ADR 070. Zotero/Better BibTeX import now uses one bounded,
-  Reference-first prepare/confirm flow with explicit PDF-query consent, citation-only import,
-  primary and supplementary attachment selection, user-selected completion of incomplete
-  References, and explicit `relink_required` recovery. Bibliography PDFs continue through the
-  existing Knowledge copy/hash/parse pipeline without leaving orphan `doc-*` References, while
-  cross-Reference PDF ownership fails closed. No database migration, RAG, embedding, or
-  `index.sqlite` change was introduced.
-- `pnpm check:fast` passed. The canonical Electron suite passed 1,232 tests with three benchmark
-  skips and the production build succeeded. All 48 fresh Electron E2E scenarios passed, including
-  the unified `.bib` plus relative-PDF import fixture; the scoped Impeccable detector and
-  `git diff --check` passed. No package, release, commit, tag, push, signing, notarization,
-  promotion, or publication action was performed.
-- Completed Agent Reference citation projection maintenance. The production Agent read-tool
-  composition now injects the project Reference authority, making `search_knowledge` and
-  `read_citations` expose the linked project citekey, title, authors, venue, and year. Earlier
-  `doc-*` tokens caused by the missing injection can resolve source provenance through the exact
-  Knowledge UUID encoded in the token when that Knowledge item is linked to a Reference; the
-  resolver still performs no fuzzy metadata matching or manuscript rewrite. Focused coverage
-  passed 19 tests; `check:fast` passed; and the Electron gate passed 1,234 tests with three
-  benchmark skips plus the production build. No migration, RAG/index change, package, release,
-  commit, tag, or push action was performed.
-- Built the user-requested Agent Reference citation-fix trial App from dirty source revision
-  `f46c37164faffdae08332920e27ab144917145e2`. The complete no-Team-ID macOS arm64 package gate
-  verified 31 recovery fixtures from 29 sources, 53,318 ASAR entries, all 12 packaged runtime smoke
-  scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
-  produced a 239,024,594-byte DMG
-  (`f7aaa1cacc0c7d3df45b0acf18bc69c4eab5c30c2d3939f8c62a5034fb3028b0`) and a
-  237,205,233-byte ZIP
-  (`f1e17f0a700ba6928bacc8fb0cdf9568ee277cbbd8c459abb0711cfc63b8f604`). No Developer ID
-  signing, notarization, release, commit, tag, push, promotion, or publication was performed.
-- Completed the Reference citekey migration audit and maintenance. Citation Coverage now matches
-  canonical English and Chinese citation clusters by exact project citekey, exposes Reference
-  identity in its contract, search, and UI, and invalidates paging snapshots when relevant
-  Reference metadata or links change. Draft availability and unused-resource checks now map
-  canonical keys through the immutable Reference projection; Agent Knowledge reads no longer
-  manufacture an unregistered `doc-*` key when Reference linkage is unavailable. Citation-click
-  resolution prefers exact citekey, followed by a unique legacy Reference title, then the narrow
-  historical filename or encoded-Knowledge-UUID compatibility paths. Publication legacy
-  availability uses the same evidence-backed Reference-title boundary. Focused suites passed 62
-  tests, `check:fast` passed, the complete Electron suite and production build passed, the scoped
-  Impeccable detector returned no findings, and `git diff --check` passed. No schema, RAG/index,
-  dependency, package, release, commit, tag, or push action was performed.
+- Completed Phase 28 Checkpoint 79 (ADR 070): one Reference-first prepare/confirm flow for Zotero
+  metadata and PDF attachments, with no orphan `doc-*` References.
+- Maintenance:
+  - The Agent Knowledge reads now inject project Reference authority, and exact encoded `doc-*` tokens resolve.
+  - Citation Coverage, availability checks, and citation clicks now use exact project citekeys.
+- Built a local trial App.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-08-31--checkpoint-79-unified-reference-import).
 
 ## 2026-09-01 — Candidate v0.2026.8.49 Reference citekey maintenance
 
@@ -1239,37 +331,13 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-01 — Checkpoint 80 live Agent request retry
 
-- Completed Phase 29 Checkpoint 80 under ADR 071. Agent `Try again` no longer resubmits prompt text:
-  transient failures before content expose `Retry request`, interrupted streams expose `Continue`,
-  and both restore the exact live Pi request boundary through a one-use Main-authorized capability.
-  Each click creates a new immutable `model_request` and durable schema-v4 `model_retry` lineage;
-  the original user message and failed request remain singular and unchanged.
-- The Worker retains only the latest in-memory retry anchor, validates its canonical context
-  fingerprint before network I/O, preserves the five-attempt provider budget per logical request,
-  holds queued Follow-ups behind a retry barrier, blocks Steer injection, and never reconstructs
-  retry authority from diagnostic traces or after restart. Partial output remains a separate
-  interrupted assistant event and completed tools are not replayed.
-- `pnpm check:fast` passed. The canonical Electron gate passed 228 files and 1,240 tests with three
-  benchmark skips, followed by a successful production build. The focused real-Electron retry
-  scenario proved exact request-body reuse and one durable user message for both before-content
-  and interrupted-stream failures; all 49 fresh Electron E2E scenarios passed without flakes,
-  skips, or failures. `git diff --check` passed. No package, release, commit, tag, push, signing,
-  notarization, promotion, or publication action was performed.
-- Built and fully verified the user-requested no-Team-ID macOS arm64 App from the completed CP80
-  dirty source state. The package gate verified 31 recovery fixtures from 29 sources, 53,318 ASAR
-  entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged runtime smoke
-  scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures. It
-  produced `WriteLLM-0.2026.8.49-arm64.dmg` (239,009,276 bytes,
-  `438ca43b6d2416321f5544084e13120d34d37f0405ec31e254b88666b717e6c6`) and
-  `WriteLLM-0.2026.8.49-arm64.zip` (237,206,436 bytes,
-  `ae0e28f2ecc249739f8d1369ad4b940e82638f402f46057f6bc96d4bd92cda77`) under
-  `dist/macos-arm64`. No Developer ID signing, notarization, release, commit, tag, push, promotion,
-  or publication action was performed.
-- Completed the Renderer-only non-blocking tool-failure presentation maintenance. Pre-dispatch
-  failures now occupy one quiet expandable timeline row instead of a full destructive alert; the
-  expanded view retains the bounded tool name, error code, message, validation paths, and duration.
-  Focused Agent Renderer coverage and `check:fast` passed. No protocol, persistence, or authority
-  boundary changed.
+- Completed Phase 29 Checkpoint 80 (ADR 071). `Retry request` and `Continue` restore the exact live Pi
+  request through a one-use Main-authorized capability, with a schema-v4 `model_retry` lineage
+  event. They never duplicate user messages or replay tools.
+- Non-blocking tool preflight failures render as compact expandable rows.
+- Built a local `0.2026.8.49` trial App.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-01--checkpoint-80-live-agent-request-retry).
 
 ## 2026-09-01 — Checkpoint 81 token-pressure Agent context compaction
 
@@ -1353,7 +421,6 @@ maintenance without turning the active tracker back into a historical log.
 - No real provider, dependency/setting addition, migration, release, commit, tag, push, Developer
   ID signing, notarization, promotion, or publication action was performed.
 
-
 ## 2026-09-02 — Recent-project removal and explicit close/quit actions
 
 - User-authorized maintenance adds an accessible remove button to each recent project. Main
@@ -1376,7 +443,6 @@ maintenance without turning the active tracker back into a historical log.
   shutdown. The final run passed without renderer errors, retries, skips, or flakes. Chooser and
   menu screenshots were inspected. Existing E2E close locators were updated to the explicit label.
 - No package, release, signing, commit, tag, or push action was performed.
-
 
 ## 2026-09-02 — Desktop-only test and documentation boundary
 
@@ -1404,193 +470,41 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-02 — Layered verification and single-assembly packaging
 
-- Implemented the approved build/verification maintenance without changing dependencies, the lock
-  file, four native CI platforms, installer formats, tag-only triggers, or release-signing policy.
-  Plain builds prepare native modules and compile without typechecking or testing. Composite gates
-  own static checks and compile once; `check:full` and `check:package:smoke` provide explicit broader
-  and narrower coverage. Ordinary changes default to focused tests, with the selection rules in
-  `AGENTS.md` and the verify skill. Existing full/critical/packaged scenario inventories remain.
-- Native preparation probes Electron loading and validates architecture, repairing only a mismatch;
-  `rebuild:native` remains forceful. The package gate assembles one application, checks and tests it,
-  then supplies that same path to `--prepackaged` for installers. Build-only aliases retain resource
-  and architecture checks without running Vitest, E2E, or recovery inventory verification.
-- Excluded dependency source maps/declarations and better-sqlite3 compiler sources/intermediates.
-  Runtime JS, package metadata, licenses, native binaries and resources remain. Removed custom
-  ASAR/native hashes and recovery test-source hashes; installer SHA256 and small manifest digests
-  remain. Recovery verification checks the declared inventory, not test execution. Release evidence
-  derives its expected 31 cases, 29 source files and 14 categories from the actual manifest.
-- Shared sequential stage reporting records scope/selection, start, duration, status, exit code and
-  signal under ignored `.cache/verification/`, with terminal boundaries and 30-second heartbeats.
-  Shared timeout policy preserves platform differences and retries without introducing performance
-  failure thresholds. E2E reports include measured attempts; Vitest retry spans are labeled estimates.
-  A real retry/skip fixture caught and fixed the reporter's callback-order handling before delivery.
-  CI uploads timing JSON even on failure and reports elapsed build wait separately from cumulative
-  job runtime; the summary job is excluded from both measurements.
-- Focused verification passed: 32 tooling tests across eight files, two timeout/reporter integration
-  tests, and all six Trace tests. A final 10-test stage/reporter run took 1.4 seconds. Review also
-  corrected report-write failures masking original exits, output overflow misclassified as a signal,
-  and interruption between stages; focused tests cover all three. The history/SQL
-  rebuild case retains deduplication and per-request reconstruction assertions at 8 histories /
-  3 requests (6 ms observed); `benchmark:trace` passes at the original 80 / 12 scale (1.65-second
-  test, 2.4-second command; five unrelated tests excluded by its filter). Error exit, missing command,
-  signal interruption, forwarding, stage deduplication, all native target argument shapes including
-  AppX, builder exclusions, recovery inventory, and release evidence are covered. No product
-  regression scenario was removed and no historical flaky scenario was rewritten.
-- One complete `pnpm check:package` run passed on macOS arm64 in **187.9 seconds**. It includes
-  `check:fast`, inventory, 12 native/runtime smoke scenarios and all 34 packaged E2E scenarios, with
-  34 attempts, zero retries, flakes, failures or skips. Runtime coverage includes SQLite/sqlite-vec,
-  workers, PDF, Mermaid, formulas, security boundaries and lifecycle logging. The builder log has
-  exactly one application-packaging invocation and explicitly skips identity signing; the
-  no-Team-ID signature policy passed. The installer phase reuses that verified App.
+- Separated build from verification:
+  - Plain builds compile without checks.
+  - Composite gates own static checks and one compile.
+  - `check:full` and `check:package:smoke` were added.
+  - Ordinary changes default to focused tests.
+- The package gate now assembles one App, tests it, and reuses it through `--prepackaged` for installers.
+- Excluded dependency source maps, declarations, and SQLite compiler sources. ASAR shrank about
+  48%, and the DMG and ZIP shrank about 19%. Removed custom ASAR, native, and recovery test-source hashes.
+- Added shared stage timing reports under `.cache/verification/`.
+- The first complete `check:package` run passed on macOS arm64 in 187.9 s.
 
-  | Stage | Local elapsed |
-  | --- | ---: |
-  | Static checks | 9.0 s |
-  | Native preparation + production compile | 11.4 s |
-  | Application assembly | 20.8 s |
-  | Packaged runtime smoke | 40.0 s |
-  | Packaged E2E | 84.6 s |
-  | DMG + ZIP from prepackaged App | 21.7 s |
-  | Installer hashes | 0.2 s |
-
-- Against the retained previous package, actual ASAR size changed from 495,667,940 to 256,257,975
-  bytes (-48.3%). Header file count, including unpacked files but excluding directories, changed
-  from 49,252 to 31,942 (-35.1%); total header file bytes changed from 533,408,812 to 277,958,907
-  (-47.9%). Source maps changed from 11,019 to zero and declarations from 6,255 to zero; excluded
-  SQLite compiler material is absent. DMG changed from 239,031,387 to 194,634,272 bytes (-18.6%);
-  ZIP changed from 237,198,426 to 192,544,907 bytes (-18.8%). The earlier local build observation
-  was 21.84 seconds including typechecks; the new build is 11.4 seconds with static checks reported
-  separately. These are local observations, with different baseline/current source revisions,
-  not an identical-source performance experiment or a promise of hosted speedup.
-- Evidence: `dist/macos-arm64/package-evidence.json`, the App/DMG/ZIP beside it, and
-  `.cache/verification/package-2026-09-02/` containing stage reports, E2E attempts and `comparison.json`.
-  Runtime: Electron 43.4.1, embedded Node 24.18.1, ABI 148; host pnpm 11.17.0. Host Node 26.8.1
-  retains the existing engine-range warning; the toolchain and pins were preserved. The frozen
-  offline install passed without dependency or lock changes. Windows/Linux/macOS Intel runtime
-  acceleration remains for the next normally authorized tag CI. No commit, tag, push, remote build,
-  Developer ID signing, notarization or publication was performed; starting worktree changes remain.
-- Final `pnpm check` and `git diff --check` passed. Only tool/reporting checks were repeated after
-  the review fixes; the accepted application and installer contents were unaffected.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-02--layered-verification-and-single-assembly-packaging).
 
 ## 2026-09-02 Agent Panel presentation maintenance
 
-- Authorization: the user explicitly approved the Agent Panel presentation implementation plan,
-  including ADR 075, six content categories, central visibility/disclosure rules, focused tests,
-  and desktop verification. ADR 075 records the pinned OpenCode/Codex/Pi source evidence and
-  Renderer boundary. No database, IPC, Worker, dependency, Pi pin, or release change was needed.
-- `projectAgentPresentation` owns message/activity/change/question/compaction/notice projection,
-  tool/result correlation, proposal truth, validated source attribution, run duration, and current
-  activity. Timeline and Details share the same result. The static exhaustive tool table replaces
-  scattered name switches and proposal-name prefix detection. Successful internal tools remain
-  in Details; failures/stops are visible. Read groups retain per-step sources and use elapsed
-  wall-clock span for parallel calls. Proposal failures/conflicts remain visible when collapsed.
-- Live and durable prose share the same message renderer and stable message keys. Live settlement
-  removes the partial and inserts the durable record in one state update; duplicate settlement
-  cannot erase the next partial and terminal runs reject late deltas. Background sessions retain
-  independent partials. Disclosure stores manual choices by item ID; untouched activities and
-  proposals follow lifecycle defaults. Compaction uses one lifecycle row; historical question
-  answers are shown once and synthetic answer/approval prompts remain filtered.
-- Focused Electron-hosted Renderer verification passed for five files: 77 tests in 1.4 seconds
-  (`1788386357077-80103-3c51efc4`). An additional proposal-truth assertion covering outdated,
-  applied, undone, conflicted, and failed states brought the view-model file to 45 passing tests
-  in 1.0 second (`1788386517302-81483-1af563a9`), for **78 distinct passing tests** overall.
-  An earlier 63-test development run had three old-shape assertion failures; those expectations
-  were corrected before the passing runs. Tests use the repository's Electron runner, not Node
-  Vitest. Electron's non-fatal macOS `task_name_for_pid` diagnostic did not affect results.
-- One `pnpm check:e2e` invocation selected agent-writing, agent-clarification, agent-concurrency,
-  agent-proposal-refresh, and agent-writing-task. Static checks passed (Biome 0.4 s, main types
-  4.6 s, Renderer types 4.9 s), native preparation took 0.6 s, and the **only production build**
-  took 11.1 s. Five of six scenarios passed; clarification stopped correctly but its assertion
-  expected the old generic message instead of the concrete abort reason. The composite took
-  66.7 s, including 44.8 s Playwright; evidence: `1788386377683-80306-82f8d733`.
-- Only clarification assertions changed after that build: concrete abort reason, one live
-  question, and one historical question/answer. `pnpm test:e2e e2e/agent-clarification.spec.ts`
-  passed against the same build in 5.5 s (5.0 s scenario), including restart/read-only history;
-  evidence: `1788386513057-81416-cccb44ce`. All **six distinct scenarios** therefore passed;
-  seven total attempts, one intentional assertion-fix rerun, zero automatic retries, flakes or
-  skips. Production source was unchanged between those E2E invocations.
-- Grounded writing also verifies keyboard expansion, preserved manual activity expansion across
-  later runs, pending-to-settled proposal defaults, real source titles/pages, native diff modes,
-  approvals, undo/reopen, and compaction. Concurrent conversations and proposal refresh retain
-  their existing authority assertions. Writing-task verification confirms internal tools are
-  absent from the timeline but present in Details, and retains keyboard/task identity checks.
-- Scoped Impeccable review: detector returned `[]` for the four changed UI files. The retained
-  shadcn primitives expose native disclosure state and keyboard controls; no parallel styles,
-  dependencies, or motion were added. Four real 1680×900 desktop screenshots cover collapsed/
-  expanded tasks, a sidebar resized to 640 px, and dark mode. Controls and scroll regions remain
-  contained and the resize handle works. Images: `.cache/verification/agent-presentation-screenshots/`.
+- Unified Agent Panel content under ADR 075:
+  - `projectAgentPresentation` owns message, activity, change, question, compaction, and notice
+    projection for both the timeline and Details.
+  - A static exhaustive tool table replaced scattered name switches.
+  - Live and durable prose share one renderer, and settlement is atomic.
+- Renderer-only change, verified by focused Renderer tests, six Electron scenarios, and desktop screenshots.
 
-  | Scoped dimension | Score | Evidence / limit |
-  | --- | ---: | --- |
-  | Accessibility | 3/4 | Keyboard and disclosure ARIA verified; no full screen-reader audit |
-  | Performance | 3/4 | Shared memoized projection, bounded details; no performance benchmark |
-  | Desktop layout | 4/4 | Geometry, scrolling, keyboard and sidebar resize assertions pass |
-  | Theming | 3/4 | Existing tokens and light/dark screenshots; no full contrast measurement |
-  | Implementation integrity | 4/4 | Central typed policy and no detector findings |
-  | Total | 17/20 | Scoped check passed; no verified P0–P3 issue introduced by this change |
-
-- Reports are under `.cache/verification/` using the IDs above. Runtime was Electron 43.4.1,
-  embedded Node 24.18.1 / ABI 148, on macOS arm64. Host Node 26.8.1 retains the pre-existing
-  engine warning; exact pnpm 11.17.0 was preserved. Other platforms and full packaging/release
-  gates were outside this Renderer maintenance scope. Final `pnpm check` and `git diff --check`
-  passed after documentation synchronization.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance).
 
 ## 2026-09-02 Agent model configuration and output completion
 
-- Authorization: the user explicitly requested correction of the ignored 65,536-token model
-  allowance, discarded manual-model reasoning capability, successful classification of `length`,
-  and delayed model configuration refresh. ADR 076 records the decision and supersedes ADR 014's
-  manual/custom reasoning exclusion. The paused Writing Task checkpoint remains unchanged.
-- The two inspected writing traces sent only 8,192 output tokens, omitted `thinkingConfig` despite
-  Thinking being `off`, and ended with `length` after roughly 7,860 reasoning tokens. Read/search
-  actions completed, but no section mutation proposal was submitted. The final announcements of
-  imminent writing were truncated responses, not successful chapter writes.
-- Main now derives runtime identity, reasoning, context limits, output limits, and run provenance
-  from one current catalog resolution. Interactive output defaults to the declared model allowance
-  within the existing 131,072-token runtime bound; explicit lower budgets remain respected. Legacy
-  configurations without metadata retain the 8,192-token fallback. Title and summary budgets retain
-  their existing purposes, while their model limits come from the same current catalog.
-- Manual/custom reasoning metadata reaches Pi unchanged. A focused test captures the real pinned
-  Google Vertex adapter's serialized request for `gemini-3.8-flash`: `maxOutputTokens: 65536` and
-  `thinkingConfig.thinkingLevel: MINIMAL` for Thinking `off`. Pi owns that provider-specific mapping;
-  this does not promise that the provider supports zero reasoning tokens.
-- `length` now produces `output_limit_reached`, marks the request/run failed, logs the original
-  error, preserves usage and interrupted visible text, and avoids automatic follow-up consumption
-  or request replay. Interrupted answers are excluded from subsequent conversation context.
-  Truncated auxiliary summaries also fail instead of becoming authoritative compaction output.
-- Settings broadcasts the returned credential-free snapshot directly to Agent and Notebook
-  selectors. Old initial catalog responses cannot overwrite a newer event; skills initialization
-  remains independent. New runs resolve changed metadata without model reselection. An active run
-  and its continuations retain their immutable original configuration.
-- Focused Electron-hosted verification covers **115 distinct passing tests across nine files**.
-  Budget and worker execution coverage (11 + 29 tests) passed in the initial 3.8-second invocation
-  (`1788388997432-448-81d99733`). That invocation's one failing Main assertion used the wrong test
-  helper shape; its focused rerun passed in 1.4 seconds (`1788389039179-1525-fa464922`). Final Main
-  runtime, message, review, compaction and auxiliary-request coverage passed 65 tests in 4.4 seconds
-  (`1788389222170-3176-5ebad272`). Catalog and event delivery passed 10 tests in 2.2 seconds
-  (`1788389337358-4120-c55ca254`). Earlier fixture-only type errors were corrected; final static
-  checks passed. Passing coverage for unchanged files was reused rather than rerun.
-- One `pnpm check:e2e` invocation performed Biome (0.4 s), Main types (4.7 s), Renderer types
-  (5.2 s), native preparation (0.6 s), and the only production compile (11.3 s), then ran four
-  scenarios. Existing Thinking memory, exhausted-request recovery, and grounded proposal/reopen
-  scenarios passed. The new configuration fixture initially lacked the API key required by Pi's
-  execution path, so it failed before reaching the local test endpoint. Evidence:
-  `1788389433330-5125-f19a06ab`, 56.3 seconds including 34.1 seconds of E2E.
-- Only the fixture credential setup changed after that build. A focused `pnpm test:e2e` rerun
-  passed the new configuration scenario and existing provider settings/persistence scenario in
-  9.8 seconds (`1788389521275-6005-37b0698b`). The new scenario edits the selected model through
-  Settings, observes its new selector label immediately, and captures the next request changing
-  from 16,384 to 65,536 output tokens. Persisted run limits change from 262,144 to 1,048,576 context
-  tokens while the earlier run stays unchanged. A subsequent truncated response displays the
-  output-limit diagnostic and persists `failed` / `output_limit_reached`, with one request only.
-  Overall: **five distinct passing Electron scenarios**, six attempts, one fixture correction,
-  zero automatic retries, flakes, or skipped scenarios.
-- Evidence is under `.cache/verification/` using the IDs above. Runtime: macOS arm64, Electron
-  43.4.1, embedded Node 24.18.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.1 retains its pre-existing
-  engine warning; no toolchain pin was changed. Tests use local provider fixtures, not a live
-  paid Gemini request. Other platforms and packaging/release gates were outside this repair.
-  Final `pnpm check` and `git diff --check` passed after documentation synchronization.
+- Under ADR 076, which supersedes ADR 014's manual and custom reasoning exclusion:
+  - Main derives runtime identity, reasoning, context, and output limits from one current catalog resolution.
+  - Interactive output defaults to the model's declared allowance.
+  - Manual reasoning metadata reaches Pi unchanged.
+- A `length` stop now fails the run as `output_limit_reached`. Interrupted text is preserved and
+  excluded from later context.
+- Settings broadcasts the credential-free catalog snapshot directly to the Agent and Notebook selectors.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-02-agent-model-configuration-and-output-completion).
 
 ## 2026-09-03 Local build 0.2026.9.1
 
@@ -1624,58 +538,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-03 Pi runtime upgrade
 
-- Authorization: the user approved upgrading `@earendil-works/pi-agent-core` and
-  `@earendil-works/pi-ai` to exact `0.84.4` pins, adapting confirmed interface changes, and removing
-  the Pi-version conversation gate. Conversation usability follows WriteLLM's event schema and
-  validated history; `pi_runtime_version` remains creation provenance only. No version allowlist,
-  version range, database migration, or rewriting of historical migration evidence is introduced.
-- The lockfile updates only the Pi dependency graph. The runtime constant and provider model
-  revision use the new pin, with manifest consistency coverage. The existing host nvm installed
-  Node 24.15.0 for task commands; pnpm remains 11.17.0. Shell PATH changes are task-local, the
-  default nvm alias remains `lts/*`, and the ordinary host shell still resolves Node 26.8.1.
-  Lockfile generation took 7.6 seconds and the explicit frozen install took 3 seconds. Native
-  preparation verified Electron 43.4.1 / Node 24.18.1 / ABI 148, better-sqlite3 12.11.1, and
-  sqlite-vec 0.1.9 on macOS arm64.
-- `shouldStopAfterTurn` handles output truncation before queued messages can be consumed;
-  `prepareNextTurnWithContext` handles only actual continuations. Pending content remains a live
-  stream state; unsupported pending/deferred terminal responses become explicit errors with
-  partial output preserved and no retry. Provider model construction disables Anthropic's new
-  automatic fallback while retaining the selected model and its original catalog snapshot.
-- The obsolete scoped model-store wrapper is removed. Catalog and credential stores accept
-  cancellation signals; cancelled refreshes fail explicitly, late results do not replace the
-  current catalog, and queued credential cancellation cannot release an active modification's
-  lock. The virtual Skill filesystem explicitly denies the newly required rename operation.
-  The existing low-level Agent, application tools, persistence contracts, and logging authority
-  remain in place; no external telemetry exporter is configured.
-- `pnpm test` ran all 1,336 tests in 22.1 seconds (Vitest 21.4 seconds): 1,330 passed, three
-  failed, and three existing benchmark tests were skipped, with zero automatic retries or
-  unhandled errors. The failures exposed a cancelled catalog refresh reported as success,
-  premature credential-tail cleanup, and an old xAI cancellation-message assertion. The first
-  two were fixed and the assertion now checks `AbortError`. The affected Provider and Provider
-  IPC rerun passed all 59 tests in nine files in 2.8 seconds (Vitest 2.4 seconds). Together with
-  unaffected full-run results, final-source coverage is **1,333 passing tests plus three benchmark
-  skips**. This includes real database reopen with an older or arbitrary recorded Pi version,
-  unchanged history/provenance, continued messages/settings, event-schema rejection, archived
-  write rejection, truncation, steering/follow-ups, tool continuations, and Skill loading.
-  Evidence: `.cache/verification/1788420554995-2069-b0351878/` and
-  `.cache/verification/1788420615923-3060-8280691d/`. The full runner's deliberately failing
-  subprocess fixtures also printed a sandbox `kill EPERM` diagnostic; those fixture tests passed
-  and the three suite failures above were assertion failures, not native-module failures.
-- One `pnpm check:package` invocation passed in **210.4 seconds**, including Biome and both
-  typechecks (10.5 seconds), one build/native preparation (12.3 seconds), App assembly
-  (32.2 seconds), inventory of 33,383 ASAR entries, all 12 packaged runtime smoke scenarios
-  (39.8 seconds), and all **34 packaged E2E scenarios** (93.2 seconds). E2E had zero failures,
-  retries, flakes, or skips. The 31 recovery fixtures and no-Team-ID macOS signature policy also
-  passed; installers were made from that same tested App in 22.0 seconds. Evidence:
-  `.cache/verification/1788420662138-3420-a9d88d2f/` and
-  `dist/macos-arm64/package-evidence.json`.
-- The upgraded working-tree artifacts replace the preceding local build under unchanged
-  `0.2026.9.1` release metadata: `dist/macos-arm64/mac-arm64/WriteLLM.app`,
-  `WriteLLM-0.2026.9.1-arm64.dmg`, and `WriteLLM-0.2026.9.1-arm64.zip`. Package evidence correctly
-  records dirty-source provenance. The existing local tag remains on its original source.
-  No commit, tag, push, release, Developer ID signing, notarization, or publication was performed.
-  Other platforms and live paid-provider experiments were outside this maintenance's acceptance
-  scope. Final documentation and diff checks passed after synchronization.
+- Upgraded Pi Agent Core and Pi AI to exact `0.84.4`. Conversation usability now follows
+  WriteLLM's event schema rather than the recorded Pi version, which remains creation provenance only.
+- Adapted to the new lifecycle hooks (`shouldStopAfterTurn`, `prepareNextTurnWithContext`) and disabled
+  Anthropic's automatic model fallback.
+- Catalog and credential stores became cancellable, and the scoped model-store wrapper was removed.
+- The complete package gate passed. The local `0.2026.9.1` artifacts were rebuilt from the dirty tree.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-pi-runtime-upgrade).
 
 ## 2026-09-03 Pi App rebuild
 
@@ -1693,33 +563,14 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-03 Dependency security and maintenance refresh
 
-- Authorization: the user approved the dependency security and maintenance plan. The approved
-  scope updated direct provider, Renderer, formatting, data, PDF, Mermaid, TypeBox, and test
-  patch/minor lines, refreshed vulnerable transitive packages only within parent-declared ranges,
-  and left the deferred Vite 8, Vitest 4, TypeScript 7, Electron 44, better-sqlite3 13, Kysely
-  0.29, KaTeX 0.18, thinking-orbs 0.3, and GitHub Action major migrations unchanged.
-- Direct updates include `@ai-sdk/cohere` 4.0.37, `@ai-sdk/openai-compatible` 3.0.43,
-  `@google/genai` 2.20.0, `@shadcn/react` 0.3.1, `@tanstack/react-query` 5.102.8,
-  `ai` 7.0.90, `fast-xml-parser` 5.11.1, `isomorphic-git` 1.41.9, `lucide-react` 1.39.0,
-  `mermaid` 11.17.2, `openai` 7.9.0, `pdfjs-dist` 6.3.289, `prosemirror-view` 1.42.3,
-  `typebox` 1.3.25, `zod` 4.5.4, Biome 2.5.11, `@types/react-dom` 19.2.5, and `mammoth`
-  1.12.2. The Biome schema URL was synchronized with the upgraded CLI.
-- The workspace security overrides now resolve the complete Tiptap family to 3.31.2,
-  `browserslist` to 4.28.8, `@xmldom/xmldom` to 0.8.15, and `fast-uri` to 3.1.7. The frozen
-  install passed and the native preparation/load check retained Electron 43.4.1 / ABI 148,
-  better-sqlite3 12.11.1, and sqlite-vec 0.1.9 on macOS arm64.
-- The Gemini request-header test now validates the SDK version format instead of pinning the
-  previous 2.18.0 string, so an approved SDK patch/minor update does not create a false failure.
-  The affected publication tests passed 6 files / 22 tests; the TypeBox-dependent Agent tests
-  passed 4 files / 56 tests.
-- `pnpm audit --json` reports zero advisories across 1,193 resolved dependencies. Final
-  `pnpm check:fast` passed all three stages. `pnpm check:electron` passed all six stages in
-  43.6 seconds, including 237 test files / 1,333 passing tests / three existing benchmark skips,
-  native preparation/load validation, and production compilation. The canonical Electron runner
-  emitted the known non-fatal macOS `task_name_for_pid` diagnostic; the host Node 26.8.1 versus
-  repository Node 24 engine warning remains an environment limitation. `git diff --check` passed.
-- No database migration, product API, release, commit, tag, push, signing, notarization,
-  promotion, or publication action was performed.
+- Applied the approved patch and minor updates for provider, Renderer, formatting, data, PDF, Mermaid,
+  TypeBox, and test packages.
+- Overrides repaired the vulnerable transitive packages Tiptap, browserslist, xmldom, and fast-uri. The audit reported zero
+  advisories.
+- Major migrations remained deferred: Vite 8, Vitest 4, TypeScript 7, Electron 44,
+  better-sqlite3 13, Kysely 0.29, and KaTeX 0.18.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh).
 
 ## 2026-09-03 Release 0.2026.9.2
 
@@ -1750,89 +601,25 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-03 `/cite` Reference search maintenance
 
-- Authorization: the user approved the caret-local `/cite` implementation plan, including a
-  44rem-bounded shadcn Popover/Command surface, at most three single-line citekey/title rows, no
-  shortcut footer, and insertion of the authoritative project citekey as `[@key]`.
-- Main now exposes one read-only, sender- and project-session-authorized Reference search through
-  shared Zod contracts and the restricted preload API. It projects only citekey, title, bounded
-  authors, and year; normalizes Unicode and case; requires every query term to match across those
-  fields; ranks the complete result set before returning three stable candidates; and logs safe
-  lifecycle counts and durations without query or bibliography content.
-- The Manuscript Slash Menu opens the picker at a captured editor position, debounces requests by
-  150ms, discards stale responses, and closes when its document, section, project session, or edit
-  authority becomes invalid. Esc restores the insertion position without restoring `/cite`, while
-  outside dismissal does not steal focus. Selection inserts the real citekey and creates an
-  explicit editor-history boundary so insertion is independently undoable and redoable.
-- Renderer command guards exclude code, math, diagram source, inline code, and existing citation
-  tokens. The picker distinguishes loading, empty-library, no-match, and retryable failure states;
-  its candidates keep citekey and title on one row with bounded truncation and full tooltip/
-  accessible metadata. Existing autosave, citation presentation, preview, and export pipelines are
-  reused without a schema migration, new dependency, or Agent/evidence-policy change.
-- Final-source focused Electron-hosted coverage passed **10 files / 52 tests** in 3.0 seconds,
-  including contracts, ranking across more than three matches, key/title/author/year and Chinese
-  queries, database projection, IPC authorization/logging, trigger guards, citation rendering,
-  bibliography export, manuscript export, and Editor IPC. The final `pnpm check:e2e` invocation
-  passed all six stages in 26.1 seconds: Biome, both typechecks, native validation, one production
-  build, and the focused unified-Reference Electron scenario. That scenario passed in 3.5 seconds
-  with zero retries, flakes, or skips and verified cancellation, cross-field search, one-line
-  layout, authoritative insertion, independent undo/redo, and saving. An earlier development run
-  intentionally added the undo assertion and exposed history coalescing; the explicit boundary
-  fixed it before the final fresh-build rerun. Evidence:
-  `.cache/verification/1788455608864-18262-4adbc0a6/` and
-  `.cache/verification/1788455509303-17910-595def2c/`.
-- The final standalone `pnpm check:fast` passed all three stages in 11.0 seconds after source and
-  documentation synchronization; `git diff --check` also passed. Evidence:
-  `.cache/verification/1788455682126-18426-5a5ba808/`.
-- The macOS arm64 Electron screenshot passed the scoped visual review for placement, width,
-  hierarchy, row density, and overflow. The host Node 26.8.1 versus repository Node 24 engine
-  warning remains an environment limitation; tests used the canonical Electron runtime.
-- At the user's subsequent request, `pnpm build:unpack` produced the macOS arm64 App containing
-  this maintenance. The build-only gate passed all four stages in 31.7 seconds: production build
-  and native validation (11.7 seconds), App assembly (19.8 seconds), no-Team-ID signature policy,
-  and inventory of 33,569 ASAR entries plus the arm64 native modules. Output:
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
-  `.cache/verification/1788460354480-19429-6a32d566/` and
-  `dist/macos-arm64/package-evidence.json`.
-- The user authorized committing and pushing this completed source after the App passed. The build
-  did not run functional tests; the final-source tests and fresh-build E2E above remain applicable.
-  No full package gate, installer, other-platform run, release, tag, signing identity,
-  notarization, or publication was performed.
+- Added caret-local `/cite`: one read-only, session-authorized Reference search IPC returning at
+  most three ranked candidates (citekey, title, authors, year). Selection inserts the
+  authoritative `[@key]` as an independently undoable edit.
+- A macOS arm64 App was built, and the user authorized committing and pushing the source.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
 
 ## 2026-09-03 Review fixture and annotation removal
 
-- Authorization: the user approved complete removal without a compatibility surface: Review
-  Center, manuscript Annotations, deterministic draft checking, the three Review Issue tools,
-  Issue lifecycle/persistence, and proposal reconciliation are deleted. Writing Rules and the
-  existing proposal review workflow remain.
-- ADR 077 supersedes the affected ADR 024/035 decisions. Agent Harness Protocol v15 removes the
-  four model-visible tools from schemas, descriptors, dispatch, recovery, context budgeting, and
-  Worker advertisement; the application prompt no longer contains `REVIEW_POLICY`. The `review`
-  capability group remains only for `inspect_change`.
-- Renderer, preload, IPC, Main services, ProjectContext assembly, and tests no longer expose Review
-  Center or Annotation behavior. Writing Rules moved to `features/writing-rules` and the restricted
-  `desktop.writingRules.update` namespace with the existing sender, project-session, Zod, and Brief
-  version checks intact. Proposal approval, rejection, request-changes feedback, undo, and
-  awaiting-review presentation remain unchanged.
-- Forward-only project migration 0043 runs behind the existing verified migration backup. It
-  removes every lifecycle event for the four deleted tools, strips legacy issue-resolution fields
-  from retained proposal calls and proposal provenance, strips Annotation presentation from normal
-  user messages, then drops `review_issue_events`, `review_issues`, and
-  `manuscript_annotations` in foreign-key order. It finishes with foreign-key and integrity checks;
-  runtime code contains no legacy parser or compatibility branch.
-- Final-source focused verification passed 6 files / 36 tests in 1.1 seconds. The migration fixture
-  covers v42 issue/event/annotation state, every removed tool event family, issue-linked proposal
-  JSON, and Annotation presentation while proving ordinary user content and strict proposal parsing
-  survive. `pnpm check:fixtures` passed 31 recovery cases from 29 sources.
-- `pnpm check:full` passed all seven stages in 161.8 seconds: Biome, both typechecks, 236 Vitest
-  files / 1339 tests with 3 benchmark skips, native validation, one production build, and all 48
-  Electron E2E scenarios in 116.4 seconds with zero retries, flakes, failures, or skips. The new
-  `writing-rules.independent-workspace` scenario verifies the removed rail and Section action are
-  absent, Writing Rules remain editable and durable, and the existing proposal scenarios retain
-  approval, rejection, request-changes, and undo coverage. Evidence:
-  `.cache/verification/1788468711502-30035-497af23f/`.
-- No package/release gate ran because this maintenance changes no native dependency, package
-  resource, installer, signing, or release boundary. The host Node 26.8.1 versus repository Node 24
-  engine warning remains an environment limitation; all tests used the canonical Electron runtime.
+- Under ADR 077, which supersedes parts of ADRs 024 and 035, removed:
+  - Review Center and manuscript Annotations.
+  - Deterministic draft checking and the Review Issue tools and state.
+  - Proposal reconciliation.
+  Protocol v15 drops the four tools.
+- Writing Rules moved to `features/writing-rules`. Proposal review is unchanged.
+- Forward-only migration 0043 strips the deleted state behind the verified backup and then runs integrity checks.
+- `check:full` passed.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal).
 
 ## 2026-09-03 Candidate 0.2026.9.3 build and tag
 
@@ -1887,224 +674,54 @@ maintenance without turning the active tracker back into a historical log.
 
 ## 2026-09-03 Silent count-limit removal
 
-- Authorization: the user approved removing three user-visible silent count limits while retaining
-  byte/capacity, authorization, expiry, and bounded internal concurrency/page controls. No database,
-  project-format, Reference-identity, Knowledge-storage, Agent-protocol, dependency, or ADR change
-  was required.
-- Knowledge file selection and its shared IPC contract no longer truncate or reject the 51st path.
-  Dropped paths are bounded by a 4 MiB serialized payload; Main sequentially preflights the 250 MiB
-  per-file and 1 GiB whole-batch capacity before creating any records. Every accepted file receives
-  a normal cancellable record, while a FIFO four-slot importer ensures queued and running work is
-  cancelled when the project closes.
-- BibTeX parsing no longer drops attachments after 100, and Reference preparation no longer imposes
-  per-item or global attachment counts. The initial preview exposes up to 20 valid PDFs per
-  Reference and an opaque continuation cursor. The new session-authorized IPC returns 20-item,
-  256 KiB pages; private cursors bind project session, preview, candidate, and raw offset, coalesce
-  concurrent repeat reads, and fail closed when expired, consumed, tampered with, or used across a
-  project/session. Better BibTeX responses are bounded to 4 MiB. Renderer pagination deduplicates
-  appended IDs without changing primary/supplement selections. Confirmation revalidates ownership
-  and file identity before writes and rejects selected PDFs above 1 GiB atomically; downstream
-  supplement, outcome, and Reference-link projections no longer have fixed attachment counts.
-- Readable-citation preview no longer inspects only the first 20 occurrences. It resolves manuscript
-  order in groups of four, chooses the earliest available result in each group, prevents replaced
-  requests from starting later groups, and reports unavailable reasons in index, history-limit,
-  source-missing, then unlinked priority.
-- Final-source focused verification passed **7 files / 39 tests** in 2.7 seconds. Coverage includes
-  51-file intake, 4 MiB path payloads, whole-batch capacity rollback, four-slot cancellation, 125
-  BibTeX attachments, 505 paged attachments, repeat/tampered/expired/cross-project/cross-session
-  cursors, oversized Better BibTeX responses, more than 49 supplements, 1 GiB confirmation
-  rollback, and occurrence 21+ ordering/concurrency/replacement behavior. `pnpm check:fast` passed
-  all three stages in 10.3 seconds. Evidence:
-  `.cache/verification/1788473575175-38914-3d33e96b/` and
-  `.cache/verification/1788473564619-38878-c73b9b40/`.
-- The fresh-build focused Electron gate passed all six stages in 25.8 seconds. Both scenarios passed
-  once in 4.3 seconds with no retries, flakes, failures, or skips: one imported all 51 selected
-  Knowledge files, and one loaded the 21st Reference attachment and imported it as a supplement.
-  Evidence: `.cache/verification/1788473590563-38985-83c47ffa/`.
-- `pnpm build:unpack` then replaced the macOS arm64 App. Its build-only gate passed all four stages
-  in 30.2 seconds: production build/native validation, App assembly, no-Team-ID signature policy,
-  and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3` and `sqlite-vec`. Output:
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
-  `.cache/verification/1788473633200-39237-da407605/` and
-  `dist/macos-arm64/package-evidence.json`. No installer, full package/release gate, commit, tag,
-  push, signing identity, notarization, promotion, or publication action was performed. The host
-  Node 26.8.1 versus repository Node 24 engine warning remains an environment limitation; tests
-  used the canonical Electron runtime.
+- Removed three silent user-visible count limits:
+  - Knowledge batch selection (51+ files).
+  - Reference attachment counts, replaced by 20-item session-bound continuation pages.
+  - The 20-occurrence readable-citation preview.
+- Byte and capacity limits remain, as do authorization, expiry, and bounded concurrency and page controls.
+- Built a macOS arm64 App.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-silent-count-limit-removal).
 
 ## 2026-09-04 Reference import review distillation
 
-- Reworked the Reference/PDF confirmation step into two continuous, non-Card sections. Items with
-  multiple or not-yet-fully-loaded PDF choices appear first under `Needs attention`; single-PDF,
-  unavailable-PDF, and metadata-only defaults appear under `Ready to import` with the exact
-  Reference action and selected filename summarized inline.
-- Replaced always-visible Reference and single-PDF selectors with per-item progressive disclosure.
-  Ambiguous PDF controls, supplementary selection, attachment paging, explicit existing-Reference
-  completion/relinking, citation-only fallback, and the complete confirmation payload remain
-  available without changing Main, Preload, IPC, database, or shared contracts.
-- Expanded the dialog to `min(94vw, 72rem)`, retained a viewport-bounded scrolling body and fixed
-  footer, and used an auto-fitting summary grid with truncation and accessible control labels so
-  long metadata and filenames cannot introduce horizontal scrolling.
-- Focused Renderer grouping coverage passed 1 file / 3 tests in 1.5 seconds. `pnpm check:fast`
-  passed formatting/lint and both typechecks in 10.1 seconds. Final-source `pnpm check:e2e` passed
-  all six stages in 23.1 seconds, including static checks, one fresh production build, and one
-  focused Electron scenario in one attempt without retries. The scenario covers the compact
-  unique-PDF row, progressive settings, ambiguous attachment paging, clearing supplements when
-  switching to citation-only, restoring a primary PDF, importing a supplement, and both resulting
-  References.
-- Final 1024×800 and 1728×1000 Electron screenshots confirmed adaptive width, continuous section
-  hierarchy, isolated vertical scrolling, fixed footer actions, and no Card presentation. The
-  scoped Impeccable detector returned no findings, targeted Biome checks and `git diff --check`
-  passed, and no package, migration, dependency, commit, tag, push, signing, notarization, or
-  publication action was performed. The host Node 26.8.1 versus repository Node 24 engine warning
-  remains an environment limitation; tests used the canonical Electron runtime.
-- At the user's follow-up request, `pnpm build:unpack` produced a replacement macOS arm64 App from
-  the current dirty worktree. All four build-only stages passed in 32.5 seconds: Electron ABI and
-  native architecture preparation, production compilation, unpacked App assembly with the
-  no-Team-ID signature policy, and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3`
-  and `sqlite-vec`. Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
-  `.cache/verification/1788526886064-79233-08ba06f5/` and
-  `dist/macos-arm64/package-evidence.json`. No installer, functional package gate, commit, tag,
-  push, signing identity, notarization, promotion, or publication action was performed.
+- Reworked Reference and PDF import confirmation into exception-first `Needs attention` and compact
+  `Ready to import` sections, with per-item progressive disclosure and a wider adaptive dialog.
+  Renderer only. Built a replacement App.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-reference-import-review-distillation).
 
 ## 2026-09-04 Project sidebar resizing
 
-- Added one shared shadcn Sidebar resize boundary to the expanded desktop project shell. Writing,
-  Preview, Knowledge, Notebook, Checks, and Images retain their established default widths while
-  using the same 240–480 px limits; the 3 rem workspace icon rail remains fixed and the existing
-  collapse trigger and shortcut are unchanged.
-- The boundary supports pointer capture, 16 px keyboard steps, Home/End minimum and maximum
-  movement, and double-click reset. It exposes vertical separator semantics plus current, minimum,
-  and maximum values to assistive technology, and disappears with the contextual column when the
-  Sidebar is collapsed.
-- Focused shared-component coverage passed 1 file / 5 tests. `pnpm check:fast` passed formatting,
-  lint, and both typechecks. A final production build passed native validation and compilation in
-  10.4 seconds, followed by the focused real-Electron resize scenario in one 3.5-second attempt
-  without retries, flakes, failures, or skips. Two earlier development runs exposed and then
-  localized the zero-height semantic separator before the final-source pass; neither is counted as
-  final evidence. Evidence: `.cache/verification/1788542318417-39954-8ef4fd7b/`,
-  `.cache/verification/1788542547501-42068-d85f4960/`,
-  `.cache/verification/1788542473516-41397-a1416a55/`, and
-  `.cache/verification/1788542491663-41673-d383490c/`.
-- The scoped Impeccable detector and `git diff --check` passed. No IPC, persistence, migration,
-  dependency, packaging-source, or release change was made. The host Node 26.8.1 versus repository
-  Node 24 engine warning remains an environment limitation; tests used the canonical Electron
-  runtime.
-- At the user's follow-up request, `pnpm build:unpack` produced a replacement macOS arm64 App from
-  the current dirty worktree. All four build-only stages passed in 31.8 seconds: Electron ABI and
-  native architecture preparation, production compilation, unpacked App assembly with the
-  no-Team-ID signature policy, and inventory of 33,569 ASAR entries plus arm64 `better-sqlite3`
-  and `sqlite-vec`. Output: `dist/macos-arm64/mac-arm64/WriteLLM.app`; evidence:
-  `.cache/verification/1788547078098-47013-06b853dc/` and
-  `dist/macos-arm64/package-evidence.json`. No installer, functional package gate, commit, tag,
-  push, signing identity, notarization, promotion, or publication action was performed.
+- Added one shared, pointer- and keyboard-resizable shadcn Sidebar boundary (240–480 px) to the
+  expanded desktop project shell. The icon rail and collapse behavior are unchanged.
+- Built a replacement App.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-project-sidebar-resizing).
 
 ## 2026-09-04 Redundant-defense cleanup
 
-The user authorized simplifying all five areas identified in the preceding code review while
-preserving behavior. No architecture decision, dependency, migration, IPC contract, release, or
-packaging change was required.
+Removed redundant validation while preserving behavior:
+- Editor save disposition now comes from the revision ID.
+- Worker runs use schema defaults.
+- Agent section flattening keeps validated types.
+- Run records no longer parse Skill snapshots twice.
+- Theme resolution uses Electron's matchMedia directly.
 
-Design and implementation:
+No contract, migration, or dependency changed.
 
-- Editor saves compare the current revision ID immediately before the synchronous append with
-  the returned revision ID to report saved versus unchanged. They no longer separately parse,
-  normalize, hash, and count the candidate or decode the prior revision to determine disposition.
-  The append input schema validates the document; `prepareValidatedSectionContent` then performs
-  normalization, canonicalization, hashing, and counting once. Unknown callers and materialized
-  files still enter through `prepareSectionContent`, which validates input first. Normalization
-  output validation, transactional hash no-op/CAS, source/lineage authorization, asset references,
-  materialization, repair, and retention remain intact. The read and append have no intervening
-  await; lost-response retries continue to report unchanged even with an old base revision.
-- Worker runs use the object credential and defaults already produced by `agentRunStartSchema`.
-  Optional runtime-model and runtime-budget fallbacks remain. The Worker fixture now passes
-  through the same schema before calling the runtime.
-- Agent section flattening preserves the validated document/block types instead of erasing them
-  to unknown and silently skipping malformed objects. Parent/child IDs, order, hashes, text,
-  rich-content flags, and canonical blocks retain their semantics. Table type, grid, pagination,
-  snapshot, and result-size checks remain.
-- Agent run records parse stored Skill snapshot JSON through the enclosing run-record schema,
-  removing the nested duplicate parse while preserving historical snapshot schemas.
-- Theme resolution directly uses Electron's matchMedia. Subscription cleanup, system preference
-  updates, persisted settings, and asynchronous unmount guards remain.
-
-Verification and limits:
-
-- Host pnpm is the declared 11.17.0. Host Node is v26.8.1, outside the manifest's Node 24 range;
-  the existing toolchain was preserved. Canonical tests use Electron 43.4.1 / ABI 148, and the
-  build's native-load check passed for better-sqlite3 12.11.1 and sqlite-vec 0.1.9.
-- Focused tests covered six files / 102 tests: editor persistence, manuscript service, content,
-  Agent read tools, Agent session service, and Worker session runtime. The first run took 5.8s
-  and passed 100 tests; two newly added assertions used the wrong result field/database accessor.
-  After correcting those test-only mistakes, the two affected files passed 26/26 tests in 5.1s.
-  The other four passing files still cover final source. New cases verify nested rich/canonical
-  block reads and rejection of malformed documents without publishing a revision/materialization.
-- Final-source `pnpm check:fast` passed all three stages in 10.4s. `pnpm build` passed in 11.5s.
-- Against that single build, silent `pnpm test:e2e` selected native inline mathematics and Agent
-  table authoring/publication. Both passed in 8.8s (9.1s wrapper), with two attempts, zero retries,
-  flakes, failures, or skips. Coverage includes saving/reopening, theme changes, Agent table
-  reads/mutations, export, and conflict rejection. Execution was outside the sandbox for Electron
-  child-process and loopback access.
-- Runtime verification is macOS arm64 only; native packaging and other platforms were outside
-  this behavior-preserving cleanup. Seven production files have a net reduction of 29 lines.
-  Existing unrelated working-tree changes were preserved.
-
-Reports: `.cache/verification/1788554823512-99323-bff4d0fb` (initial focused tests),
-`.cache/verification/1788554848028-99577-0119007b` (affected test rerun),
-`.cache/verification/1788554860534-99709-e010e88c` (static checks),
-`.cache/verification/1788554873773-99808-7ee9ca79` (build), and
-`.cache/verification/1788554894468-238-69cc5cc0` (Electron scenarios).
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-redundant-defense-cleanup).
 
 ## 2026-09-04 pnpm command consolidation
 
-The user authorized cleaning up overlapping pnpm commands and clarified that conventional,
-well-defined responsibilities take priority over imposing layers on every category. Testing
-must support selecting the affected scope without routinely repeating complete acceptance.
+- Reduced package scripts from 51 to 30:
+  - Removed `check:electron`.
+  - Replaced platform and `build:*` aliases with `package` and `package:unpack --target=<target>`.
+  - Replaced mode aliases with flags such as `--visible`, `--suite=critical`, `--force`, and `--write`.
+- Synchronized the README command catalog and migration table, plus the agent rules. Historical
+  ADR examples keep their original names.
 
-- Reduced package scripts from 51 to 30. Kept conventional development, formatting, lint,
-  typecheck, and test entry points. Removed the composite `check:electron` mode that implicitly
-  built after Vitest; local verification now composes `check:fast` once with focused `test` calls.
-  `test` remains standard: no filters runs all Vitest, while files, directories, and `-t` select
-  a smaller scope. The canonical Electron runner and runtime ABI are unchanged.
-- Replaced platform, CI, and `build:*` packaging aliases with `package --target=<target>` and
-  `package:unpack --target=<target>`. Both default to the native host. Preserved the existing
-  package inventory, signing policy, no-publish behavior, and installer reuse. CI's target matrix
-  now invokes the same parameterized command; the disabled release workflow remains disabled.
-- Replaced optional-mode aliases with `--visible`, `--suite=critical`, `--force`, `--unsafe`, and
-  `--write`. Named the index benchmarks explicitly. The internal packaged smoke runner remains
-  available, while public acceptance uses `check:package:smoke`.
-- Synchronized README command catalog, migration table, agent rules, verification skill, and
-  bootstrap examples. Completed historical/ADR examples retain their original command names.
-  No dependency versions, lockfile, product code, architecture, or native packaging implementation
-  changed; no automatic affected-test inference or result cache was added.
-
-Verification and limits:
-
-- Used the existing host Node 24.15.0 at `.nvm/versions/node/v24.15.0/bin/node` with the pinned
-  pnpm 11.17.0, avoiding the default shell's Node 26.8.1. Frozen installation reported already up
-  to date and exited successfully; an optional pnpm update-metadata fetch warned about network
-  access. Electron-hosted tests used Electron 43.4.1 / ABI 148.
-- `pnpm test scripts/verification-commands.test.ts scripts/tag-ci-workflow.test.ts
-  scripts/verification-run.test.ts scripts/test-reporting.test.ts` passed 4 files / 26 tests in
-  2.1s wrapper time (1.30s Vitest). There were no outer-suite retries or skips. Reporting fixtures
-  deliberately exercise one retry and one skip; failure-propagation fixtures deliberately emit
-  process/error diagnostics. The first static attempt found one test-file formatting issue;
-  formatting it required no behavioral change or test rerun.
-- `pnpm check:fast` then passed Biome and both typechecks in 10.4s. `git diff --check` and shell
-  syntax validation of `scripts/bootstrap-dev.sh` passed. Final documentation-only edits receive
-  a separate Biome check without repeating typechecks or tests.
-- Invoked both public package entry points through pnpm with `--plan` for all five native targets:
-  10/10 plans passed in 3.63s. Assertions cover target forwarding, build-only mode, one compilation,
-  absence of functional/static test stages, and unpacked versus installer output formats.
-  Plans perform no build and do not assert cross-platform runtime compatibility.
-- Verification is local macOS arm64 command/planning coverage. Full product suites, actual
-  application builds, installers, hosted Actions, and Windows PowerShell execution were not
-  needed for command alias and documentation changes. No commit, push, or release action occurred.
-
-Reports: `.cache/verification/1788555751530-7487-6d3a7039` (focused tests) and
-`.cache/verification/1788555764894-7726-341970c8` (static checks).
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-pnpm-command-consolidation).
 
 ## 2026-09-04 Manual feature trial App
 
@@ -2131,43 +748,11 @@ tracker change. Release metadata remains `0.2026.9.3`.
 
 ## 2026-09-04 Pi 0.85.0 dependency update
 
-The user requested a Pi AI dependency update. npm registry metadata identified 0.85.0 as the
-latest stable release. Both exact Pi pins advance from 0.84.4 to 0.85.0 because Agent Core's
-previous `^0.84.4` dependency does not include AI 0.85.0. Runtime metadata and its existing contract
-test follow the new version; event schema v4 and historical runtime metadata remain unchanged.
+- Updated Pi AI and Agent Core from 0.84.4 to exact 0.85.0. `loadSourcedSkills` now receives Pi's
+  `BACKGROUND_CONTEXT`, adding no new authority. Event schema v4 is unchanged.
+- `check:package:smoke --unpacked-only` passed.
 
-- Reviewed Context7 documentation and the tagged upstream
-  [AI changelog](https://github.com/earendil-works/pi/blob/v0.85.0/packages/ai/CHANGELOG.md) and
-  [Agent changelog](https://github.com/earendil-works/pi/blob/v0.85.0/packages/agent/CHANGELOG.md).
-  The listed Workers AI binding rename is outside the application's imports. Typechecking
-  additionally identified `loadSourcedSkills`' new required fourth `Context` argument. The existing
-  manifest-only, in-memory virtual environment now receives Pi's exported `BACKGROUND_CONTEXT`;
-  no filesystem, network, execution, or cancellation authority is added.
-- Updated the lockfile and completed a frozen install with existing Node 24.15.0 and pnpm 11.17.0.
-  Transitive changes comprise Pi Telemetry, Chord, Anthropic SDK, and its webhook dependencies.
-  pnpm recorded four exact 0.85.0 release-age exceptions for the newly published Pi-family packages;
-  no global supply-chain policy was disabled. Electron 43.4.1 / ABI 148 native loading passed.
-- Focused Electron-hosted coverage passed 19 files / 170 tests in 4.6s (4.08s Vitest), covering
-  providers, credentials, IPC, streams, tools, Skills, runtime contracts, context budgets, and
-  sessions. After the context-argument adaptation, all five Skill files / 26 tests passed again
-  in 1.3s (0.786s Vitest). One additional session-message file / 19 tests passed in 4.1s
-  (3.45s Vitest), including reopening and continuing conversations with historical runtime metadata.
-  Final coverage totals 20 files / 189 distinct tests; no test failures, retries, or skips.
-- The first package gate stopped at the missing Skill context type error after 5.7s, before any
-  build. After adapting the call, `pnpm check:package:smoke --unpacked-only` passed all six stages
-  in 81.9s: static checks (10.3s), one production build (11.8s), App assembly (21.0s), signature
-  policy, 33,981-entry inventory, and 12 runtime smoke scenarios (38.7s). The packaged Agent made
-  one successful loopback provider request and all three Worker roles loaded. No smoke retries.
-- App: `dist/macos-arm64/mac-arm64/WriteLLM.app`; release metadata remains `0.2026.9.3`.
-  Verification is local macOS arm64 with fixture providers. Other platforms, live provider
-  credentials, complete E2E, installers, signed release, and publication were outside this scope.
-  Final documentation-only changes receive `pnpm check` and `git diff --check`.
-
-Reports: `.cache/verification/1788556519338-14994-9d1bc38c` (170 tests),
-`.cache/verification/1788556592869-15634-f158df09` (26-test rerun),
-`.cache/verification/1788556637022-16261-261e367f` (19 message tests),
-`.cache/verification/1788556545868-15244-f7d73e38` (initial type error), and
-`.cache/verification/1788556603250-15770-5a09fb98` (successful package gate).
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-pi-0850-dependency-update).
 
 ## 2026-09-04 Pi 0.85.0 App build
 
@@ -2187,126 +772,36 @@ Evidence: `dist/macos-arm64/package-evidence.json` and
 
 ## 2026-09-04 Manuscript comments and Agent resolution
 
-Checkpoint 84 implements ADR 078 as a project-local review system. Authors can attach comment
-threads to prose selections from the toolbar, context menu, or keyboard, navigate between thread
-and text, reply, edit, delete, resolve, reopen, relink orphaned anchors, filter/search, and delegate
-one or a fixed batch of comments to the Agent. Comments remain outside manuscript exports.
-
-Migration 0044 adds the authoritative thread, message, event, and Agent-read tables. A section
-revision trigger makes every manual, import, replacement, undo, and Agent write invalidate ranges
-inside the same database transaction; the service reattaches only exact ranges or a unique match
-in the same stable block, otherwise preserving the thread as orphaned. Proposal undo reopens linked
-resolutions. Shared Zod contracts, authorized Main IPC, and the preload bridge expose the author
-lifecycle without renderer database access.
-
-Agent tool contract v16 adds bounded comment list/read/reply/resolve operations. Ask and Plan can
-read; Write with the review group can reply or resolve. Main requires the same run to read the
-current thread and then the complete current section revision. Optional proposal linkage must name
-an actually applied revision, and operation identifiers deduplicate resumed replies and resolves.
-
-Final verification passed `check:fast` in 8.9 seconds, seven focused files / 53 tests in 1.5
-seconds, the final atomic-resolution subset with 14 tests in 1.2 seconds, the real-Electron comment
-scenario in 2.9 seconds without retries, and the six-stage macOS arm64 package smoke in 77.3
-seconds with a fresh production build and all 12 packaged runtime scenarios.
-The first package attempt failed at sandbox DNS and was rerun outside the sandbox. Early E2E runs
-found test-selection timing/assertion problems; the deterministic final run passed without retry.
-Coverage is local macOS arm64 with fixture providers; other platforms and live provider credentials
-were not exercised.
-
-Evidence: `.cache/verification/1788561277977-56814-fa05b353`,
-`.cache/verification/1788560744278-51847-965c485f`,
-`.cache/verification/1788561221750-56344-be5dafc2`, and
-`.cache/verification/1788561368063-57752-4df380ed`.
-
+Checkpoint 84 implemented ADR 078 project-local manuscript comment threads:
+- Migration 0044, with range invalidation triggered by section revisions.
+- Exact or unique-block reattachment, otherwise orphaning.
+- Agent tool contract v16 with comment list, read, reply, and resolve.
+- Comments are excluded from exports.
 
 ### 2026-09-04 Comment acceptance correction
 
-Independent acceptance review invalidated the earlier CP84 completion claim. Three existing comment
-cases passed, while four added acceptance probes failed: replacement anchors, duplicate occurrence
-identity, orphaned Agent resolution, and zero-block section reads accepted as verification.
-The canonical Electron run took 1.55 seconds (1.9 seconds including the wrapper), without automatic
-retries. UI/delegation integration gaps were also found by code inspection. Current state and the
-tracker were corrected; detailed evidence is in Phase 33. Product code was not modified.
-
+Independent acceptance review invalidated the first completion claim. Four acceptance probes
+failed: replacement anchors, duplicate occurrences, orphaned resolution, and zero-block reads.
+Phase 33 records the details.
 
 ### 2026-09-05 Comment acceptance remediation
 
-Under the author's explicit fix request, corrected replacement and duplicate-text anchors with
-transactional canonical mapping, added forward migration 0045, enforced fixed session delegation
-and complete fresh model-request verification, and checked applied proposal/deletion evidence.
-Undo now reopens only the currently dependent resolution. Comment UI pagination, ordering,
-refresh, overlap selection, processing history, and cross-session proposal evidence were repaired.
-
-Verification passed 72 focused Electron-hosted tests in 4.60 seconds (5.0 seconds with wrapper),
-three affected Electron scenarios across targeted runs, and all six packaged-smoke stages in
-77.3 seconds with 12 runtime scenarios. The final comment E2E passed in 2.35 seconds with no
-automatic retries after correcting synthetic selection/closing-toolbar fixture behavior.
-The macOS arm64 App and final source build have matching renderer content. Progress and tracker
-are synchronized; detailed reports, diagnostic iterations, and platform limits are recorded in
-Phase 33. Live-provider UI approval continuation and other platforms were not exercised.
-
+Fixed anchors with transactional canonical mapping and forward migration 0045. Also enforced fixed session
+delegation and complete fresh-read verification, made undo reopen only the dependent resolution,
+and repaired the comment UI. Phase 33 records the evidence.
 
 ### 2026-09-05 Gemini stream truncation
 
-The user reported an immediate Agent failure after switching models. Read-only local log and
-project trace inspection identified run `50f73e29-14bb-4183-b565-66c623d1cbfa` at
-2026-09-05 07:55:19–20 UTC: selection and request both used `gemini-3.1-pro-preview`, the
-logical request failed after 470 ms, and its Google adapter response contained no content,
-zero usage, and `Incomplete JSON segment at the end`, with retryCount zero. The installed
-Google GenAI parser emits this when the response ends with a nonempty unterminated SSE buffer.
-No raw HTTP body/status was retained in this trace, so transient transport truncation versus
-persistent custom-gateway response-format incompatibility cannot be distinguished from this evidence.
-
-Added that exact diagnostic to the existing pre-content retry classification as `stream_ended`.
-The existing five-attempt limit, backoff, cancellation, permanent-error precedence, partial-content
-checks, and structured retry logging remain authoritative. No provider parser, history rewriting,
-migration, dependency, or request-replay mechanism was added. Other JSON errors remain terminal.
-
-Verification: `pnpm test src/workers/agent-provider-stream.test.ts
-src/workers/agent-session-run.test.ts src/workers/agent-provider-runtime.test.ts` passed 3 files /
-50 tests in 3.64 seconds (4.4 seconds with wrapper), without test retries. The new real Google SDK
-fixture switches from prior OpenAI-compatible history, receives a truncated SSE frame, then succeeds
-with an identical second request and retryCount one. Boundary tests cover five-attempt exhaustion,
-text/thinking/tool content, cancellation, permanent HTTP errors, and unrelated JSON errors.
-`pnpm check:fast` passed all three stages in 11.3 seconds. Electron 43.4.1 / ABI 148 hosted tests;
-host Node 26.8.1 triggered the existing Node >=24.15 <25 engine warning, while installed pnpm
-11.17.0 matched the manifest. No replacement runtime was installed. Live custom-provider calls and
-other platforms were not exercised. Existing unrelated comment-acceptance work was preserved.
-
-`pnpm package:unpack` initially failed at application assembly with sandbox DNS
-`ENOTFOUND github.com` after 55.2 seconds. Retrying the same command outside the sandbox passed
-all four build-only stages in 32.9 seconds, including signature policy and 33,981-entry resource
-inventory. The resulting App is `dist/macos-arm64/mac-arm64/WriteLLM.app`; no packaged functional
-or live-provider test is claimed by this build-only gate. Final `pnpm check` and `git diff --check`
-also passed. Reports: `.cache/verification/1788595127677-35254-14107c2b` (tests),
-`.cache/verification/1788595140228-35515-7d352bf8` (static), and
-`.cache/verification/1788595214426-36287-489ffea9` (successful package).
+A Gemini run failed after 470 ms with the Google SDK diagnostic `Incomplete JSON segment at the
+end`. That exact diagnostic now joins the existing pre-content retry classification as
+`stream_ended`. The five-attempt limit and other JSON errors are unchanged.
 
 ### 2026-09-05 Ponytail UTF8 cleanup
 
-The user requested repository code cleanup with Ponytail. Inspection of Agent text truncation
-found three implementations duplicating the existing `session-history.ts` complete-code-point
-UTF-8 prefix helper. Title context and image iteration now reuse it while retaining title
-whitespace trimming, the original byte limits, and the image ellipsis. Proposal previews use
-the same helper instead of decoding a byte slice that may split a Chinese character or emoji;
-the preview's truncation flag remains explicit. Production code is reduced by 19 lines.
-No dependency, architecture, persistence, IPC, or renderer interaction changes were introduced.
-Existing uncommitted comment-acceptance and provider-retry work was preserved.
+Agent title context, image iteration, and proposal previews now reuse the single complete-code-point
+UTF-8 prefix helper in `session-history.ts`.
 
-Verification scope was static checks plus focused Electron-hosted title, preview, image, and
-outline proposal coverage, because the changed boundary is Main-side text projection.
-`pnpm check:fast` passed all three stages in 10.9 seconds; `pnpm test
-src/main/agent/utf8-truncation.test.ts src/main/agent/session-title.test.ts
-src/main/agent/mutation-service.test.ts src/main/agent/mutation-service.images.test.ts
-src/main/agent/mutation-service.outline.test.ts` passed 5 files / 35 tests in 3.92 seconds
-(4.6 seconds with wrapper), without retries. Four new tests cover every byte boundary of
-ASCII, Chinese, emoji and unpaired-surrogate samples, image ellipses, preview flags, and title
-whitespace trimming. Tests used the canonical Electron runtime (43.4.1 / ABI 148).
-Installed pnpm 11.17.0 matches the repository pin; host Node 26.8.1 emitted the pre-existing
-Node >=24.15 <25 engine warning. No replacement runtime was installed. E2E, packaging,
-live providers, and other platforms were not exercised for this text-projection cleanup.
-Reports: `.cache/verification/1788597027054-51484-3dc59d4e` (static) and
-`.cache/verification/1788597028862-51522-24c7374d` (tests).
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-04-manuscript-comments-and-agent-resolution).
 
 ## 2026-09-05 Notebook repeated citations
 
@@ -2326,60 +821,17 @@ Reports: `.cache/verification/1788597027054-51484-3dc59d4e` (static) and
   UI and packaged App verification were not run for this marker-conversion/logging correction;
   the existing packaged App was not rebuilt. No other platform runtime was verified.
 
-
 ## 2026-09-05 Reference Knowledge sidebar redesign
 
-- Implemented the user-approved sidebar image and implementation plan. Reference rows own
-  expandable attachments, title/author/year hierarchy, searchable/readable/processing status,
-  All/Needs attention filters and title/recent sorting. Association uses the full Reference
-  collection before filtering; file selection resolves the owning Reference explicitly, survives
-  search, and falls back within that Reference after deletion. Knowledge remounts per project
-  session. The existing detail surfaces and import workflows are retained.
-- Removed the permanent drop zone. External file drags into the sidebar show an overlay without
-  moving the list; nested drag transitions, Escape, window blur, drop completion and session
-  changes clear it. Text drags are ignored, busy imports reject additional drops, and the Import
-  button remains the keyboard alternative. Drops import into the project, never the hovered row.
-- Job DTOs project only file IDs or project/maintenance/unknown scope through the existing strict
-  contracts. Main resolves parse/normalization ownership and guards subscription cleanup by the
-  subscribed project session. Activity groups current work and unresolved failures by object,
-  overrides residual progress with terminal outcomes, and hides completed/cancelled records in
-  a separate 50-row cursor-paginated history dialog. Initial activity reads traverse job pages;
-  subsequent events update cached records without rereading history on every heartbeat.
-  Existing import, parsing, index and queue lifecycle logs remain the operational evidence.
-- Added tests for filtered association, multi-attachment state, capability readiness, incomplete
-  metadata, failed updates, terminal progress, recovery, pagination, safe task subjects and stale
-  subscription cleanup. Extended the existing unified-import Electron scenario with search
-  preserving selection, keyboard attachment expansion, real native-file drop, drag cancellation,
-  resize geometry, history access, and deletion fallback to another attachment or citation details.
-- Final focused verification: `pnpm test src/main/ipc/job-ipc.test.ts
-  src/shared/contracts/jobs.test.ts
-  src/renderer/src/features/knowledge/knowledge-sidebar-model.test.ts
-  src/renderer/src/features/knowledge/knowledge-manager.test.ts` passed 4 files / 17 tests in
-  0.85 seconds (1.5 seconds with wrapper), without retries. Report:
-  `.cache/verification/1788628004579-52355-b5c0838d`.
-- Final `pnpm check:e2e e2e/writing-workspace.spec.ts e2e/parsed-knowledge.spec.ts --grep
-  'separates ambiguous|parses, normalizes'` passed static checks, one matching production build
-  and both Electron scenarios in 30.8 seconds; E2E took 9.0 seconds with zero retries. Report:
-  `.cache/verification/1788628206199-53733-667c1255`. The independent existing sidebar pointer/
-  keyboard resize scenario passed earlier in 4.2 seconds and remains applicable; report:
-  `.cache/verification/1788627865647-51155-9174809e`.
-- Earlier E2E runs exposed two product issues: asynchronous direct imports did not refresh the
-  Reference collection after storage, and closing a selected file retained its Reference selection.
-  Both were corrected and rerun successfully. The initial E2E name filter omitted the parsing
-  scenario; that scenario was then run explicitly. There were no automatic test retries. An
-  initial static run caught formatting, and an intermediate typecheck caught a removed icon import;
-  both were corrected before final acceptance. Rebuilds followed changed production inputs.
-- The scoped Impeccable detector reported no findings. Desktop screenshot review and automated
-  settled-width/no-overflow assertions cover the existing 340px sidebar and its 480px resized
-  state. Final captures are `.cache/verification/reference-sidebar-2026-09-05/default.png` and
-  `.cache/verification/reference-sidebar-2026-09-05/wide.png`.
-- Runtime: macOS arm64, Electron 43.4.1 / ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9;
-  pnpm 11.17.0 matches the pin. Host Node 26.8.1 emits the existing >=24.15 <25 engine warning;
-  no replacement toolchain was installed. No dependency, migration, packaged App, installer or
-  release change was made. Live providers and Windows/Linux runtime behavior remain unverified.
-- Documentation was checked with `git diff --check` and local link consistency. Biome does not
-  process these Markdown paths; its explicit documentation-only invocation reported zero files.
+- Redesigned the Reference Knowledge sidebar:
+  - Reference rows own expandable attachments and status.
+  - Filters and sorting were added.
+  - Explicit selection ownership survives search and deletion.
+  - An overlay import replaced the permanent drop zone.
+- Job DTOs project only safe subjects. Activity groups current work, and history moved into a
+  paginated dialog.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-05-reference-knowledge-sidebar-redesign).
 
 ## 2026-09-05 Sidebar App build
 
@@ -2425,43 +877,11 @@ Reports: `.cache/verification/1788710229462-62028-b9373a90` (focused tests) and
 
 ## 2026-09-06 Curated Writing Skill refresh
 
-- The user requested an update of the project's pinned Skills. Reviewed the seven existing
-  application catalog entries against upstream default-branch commits resolved on September 6:
-  [Nature 28150f3](https://github.com/Yuan1z0825/nature-skills/commit/28150f30f8b4017991fca8c7b2839f02c6586d2f)
-  replaces `1ea82ffff20f40077bf84b74182f55eeaf3d111d`; and
-  [CCFA 217f687](https://github.com/mikubaka88/CCFA-Skills/commit/217f68774a6703ba8b8fad602fdb47641ff77c6d)
-  replaces `6bab955140bbe21e0a0543c6788f6502842ab685`. Apache-2.0/MIT license files are unchanged.
-- Updated commit pins and changed-file byte sizes/Git blob hashes in `src/main/skills/catalog.ts`.
-  Reviewed changed entrypoints and allowlisted reference additions: CCFA emphasizes scoped
-  scientific prose, evidence-preserving humanization, manuscript review and version comparison,
-  and destination-specific visual composition; Nature adds main-text discipline and NMI guidance.
-  Added seven in-directory text references: Nature's NMI journal fragment; CCFA's adaptive style,
-  editable PPTX, icon system, paper/presentation diagrams, reference layout, and version comparison.
-  The seven entries now allowlist 61 files. No third-party bodies are bundled.
-- ADR 013's immutable pins, text-only allowlists, authority and explicit-update rules remain.
-  Cross-directory `nature-shared`/`ccf-common` resources and other non-allowlisted upstream
-  references remain unavailable; the existing companion handles them as capability/evidence gaps.
-  Scripts, images, external retrieval, PPTX generation and upstream backend preferences do not
-  grant new tools or supported output formats. NMI guidance remains third-party writing guidance,
-  not independently verified current journal policy. No new dependency or migration was needed.
-- Verification: `pnpm check:fast` passed all three stages in 11.3s. The five existing
-  `src/main/skills` test files passed 26 tests in the initial 2.7s focused invocation. A temporary
-  local probe uses Git tree metadata and exact upstream blob bytes as the downloader responses,
-  then exercises real `SkillService` installation, parsing, publication, loading, revalidation,
-  and reference reads for all seven entries / 61 files. Its first run incorrectly passed
-  `SKILL.md` to the reference-only reader and was rejected as designed. Corrected only that probe;
-  its focused rerun passed in 2.1s (1.74s Vitest). No application test failed or automatic retry ran.
-- Upstream retrieval initially hit sandbox DNS blocking; the same read-only remote lookup and
-  subsequent clones succeeded with elevated network access. Runtime verification used the canonical
-  Electron runner on macOS arm64; pnpm 11.17.0 matches the project pin. Host Node 26.8.1 emitted
-  the existing engine-range warning. No new UI interaction, native or packaging boundary changed,
-  so no E2E, build or package gate was run. Live GitHub HTTP installation and other platforms
-  remain unverified. Existing installed Skills and the packaged App were not modified.
-- Reports: `.cache/verification/1788721575304-6360-cf929293` (26 passing tests plus initial probe
-  error), `.cache/verification/1788721601439-7626-7303eb4f` (corrected upstream probe), and
-  `.cache/verification/1788721578845-7468-51d36a4a` (static checks). The local probe lives under
-  `.cache/verification/skill-refresh/` and is not committed. Documentation received diff/link
-  consistency review. Existing Pi update changes were preserved; no commit or push was performed.
+- Advanced two curated catalog pins: Nature to `28150f3` and CCFA to `217f687`.
+- Updated blob hashes and allowlisted seven additional in-directory text references, bringing the total to 61 files.
+- The ADR 013 rules are unchanged: immutable pins, text-only allowlists, and no bundled third-party bodies.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-06-curated-writing-skill-refresh).
 
 ## 2026-09-06 Writing Skill App build
 
@@ -2484,232 +904,52 @@ Reports: `.cache/verification/1788710229462-62028-b9373a90` (focused tests) and
 - Reports: `.cache/verification/1788722387777-13543-38d33f48` (sandbox failure) and
   `.cache/verification/1788722460223-14250-cde85d1a` (successful App build).
 
-
 ## 2026-09-08 — Agent message copy and edit/restart (ADR 080)
 
-- Implemented copying original user/assistant Markdown, including streamed partial text, success
-  feedback and retryable failure. Copy/edit controls are hidden until the corresponding message is
-  hovered or contains keyboard focus. Inline editing preserves drafts on failure, supports Escape
-  and Cmd/Ctrl+Enter, and keeps editor actions visible.
-- Main owns eligibility, project capability checks, slot reservation and commit-time history/write
-  revalidation. Migration 0046 atomically records replacements, new prompts and pending-proposal
-  invalidation. Raw events, request traces and usage remain; timeline, titles and model compaction
-  read effective history. Agent application/undo, comments and task writes persist sequence receipts.
-  Replaced tool counterparts and stale summaries cannot re-enter compaction context. ADR 080 and
-  architecture record the accepted boundaries, including pending work before the edited message.
-- Verification reused focused Electron results across 35 files: 227 current tests passed (one
-  renamed test is counted only once). Coverage includes Main/IPC, migrations and backup/recovery,
-  proposal/comment receipts, context, queue/steer boundaries, concurrency, reopen and components.
-  Earlier fixture/schema failures were fixed and affected tests rerun; all runners used zero
-  automatic retries. Final context/compaction/edit/component batch: 42 tests, 3.9s runner wall time
-  (`1788821966882-64540-8e225571`); added split-tool boundary test: 17 edit tests, 3.8s
-  (`1788822067748-66163-1b31a47b`). Earlier broad boundary batch: 134 tests, 5.6s runner wall time
-  (`1788821293752-53910-4ba52d6e`), with its legacy migration fixture subsequently passing in 2.0s
-  (`1788821631955-59172-7f9e95fa`). Other retained results are under `.cache/verification/`.
-- `check:e2e e2e/agent-message-edit.spec.ts` passed static checks and one build for the final
-  application source (format 0.6s, Main types 5.5s, Renderer types 5.9s, native preparation 0.9s,
-  compile 11.3s). The scenario initially failed on the resize locator: the existing panel library
-  overwrites `data-testid`. The fixture now uses a 1680×900 desktop window and its real separator
-  marker. Reusing that build, `test:e2e` passed one scenario in 5.3s (5.9s runner wall time), zero
-  retries, under `1788822120592-66963-fa9adde8`. Failed locator attempts are retained under
-  `1788821729611-61197-468ea2fd`, `1788821984274-64832-75baef7b`, and
-  `1788822078544-66341-3d085068`; an earlier pre-hover composite passed in 30.5s under
-  `1788821513312-56827-30f55d8b`. No application assertion was bypassed.
-- E2E verified bidirectional multiline Markdown copying, failure/retry, streaming copy, hover and
-  keyboard reveal, empty/cancel/keyboard submission, stop/edit/restart, server-observed history
-  exclusion, unapplied proposal invalidation, actual-write prohibition, desktop overflow and
-  resize. Editor/action screenshots were visually inspected in
-  `test-results/agent-message-edit-copies--fe328-d-blocks-edits-after-writes/`.
-- Host: macOS arm64, pnpm 11.17.0, Node 26.8.1 (existing declared-range warning), Electron 43.4.1
-  / ABI 148, better-sqlite3 12.11.1. Electron's macOS task-name diagnostic was non-fatal. E2E ran
-  with approved process/loopback access. Other platforms are unverified. No dependency added,
-  packaging, release, commit or push; existing workspace changes were preserved.
+- Implemented ADR 080:
+  - Copy the original Markdown of user and assistant messages.
+  - Edit and restart a user message inline.
+- Main owns eligibility and commit-time revalidation. Migration 0046 records replacements and
+  pending-proposal invalidation. Raw events, traces, and usage remain, while the timeline, titles,
+  and compaction read the effective history.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-08--agent-message-copy-and-editrestart-adr-080).
 
 ## 2026-09-08 Conversation fork
 
-Implemented the explicitly approved fork plan under ADR 081. Complete settled assistant replies
-can create independent conversations without model work. Migration 0047 adds source/request
-provenance and flattened immutable event references, preserving effective prefixes across parent
-edits, archive and reopening without copying payloads, runs, proposals or usage. A dedicated read
-view supplies timeline/model/title/compaction history; local effective-event authority still owns
-editing and proposal authorization. Child events follow the inherited sequence boundary. Parent
-summaries are excluded and child compaction rebuilds from the frozen prefix on demand. New sends
-read current project context and receive an explicit historical-memory instruction.
-
-Shared validated IPC/preload methods create idempotent forks and retrieve a source conversation
-outside the bounded switcher list. Renderer adds hover/keyboard fork, empty focused child drafts,
-boundary/source markers, branch icons, and complete-replay source navigation. Inherited tool
-records appear only as historical Details, never live pending controls; inherited usage is excluded.
-The source link opens archived conversations without restoring them and explains replaced targets.
-The existing worktree's message-edit, dependency and Writing Skill maintenance was retained.
-
-Verification and development evidence:
-
-- Final applicable focused coverage totals **141 passing tests across 12 files**, reusing unaffected
-  results. The first 137-test integration selection passed 136 and exposed one old synthetic
-  pagination fixture still shadowing the former read view; the fixture now targets the combined
-  history view. The affected 101-test selection passed in a 4.3s runner gate. Final added isolation,
-  archived/truncated-target and Renderer usage tests passed in a 70-test / 3-file selection in
-  2.3s. Initial fork fixtures omitted model-request settlement and were corrected to finish the
-  fake provider request before declaring the run complete. No product eligibility was weakened.
-- Coverage includes flattened nested forks, exact cutoff/pagination, edits, compaction future-data
-  exclusion, idempotency conflicts, injected transaction rollback, reopening, settings inheritance,
-  pending proposal isolation, archived sources, incomplete outputs, IPC sender/capability checks,
-  and legacy project migration backup/integrity/recovery. Recovery inventory passed: 32 cases,
-  14 categories, 30 sources; the new migration case is registered in the existing manifest.
-- The final `pnpm check:e2e e2e/conversation-fork.spec.ts e2e/agent-message-edit.spec.ts` passed all
-  six stages in **29.2s**, including static checks, one matching build and **2/2 Electron scenarios**
-  (6.4s E2E, zero retries/skips). Fork coverage exercises no model work on creation, inherited
-  provider input, original draft retention, keyboard/focus, nested branching, source navigation,
-  restart, replacement and archived-source non-restoration; message editing also verifies resize.
-  Report: `.cache/verification/1788823380785-84472-1f1cebdc`.
-- An earlier 32.1s composite also passed both E2E scenarios; subsequent source-navigation replay
-  settlement and switcher fixes justified the final build above. One earlier composite stopped at
-  formatting due to an unstable chained-call fixture layout, corrected before building. The
-  final commands ran without retries. Electron E2E used the required approved host execution.
-- Scoped Impeccable detection returned no findings; the desktop fork screenshot was inspected.
-  `git diff --check` passed. Host pnpm 11.17.0 matches the manifest. Host Node 26.8.1 exceeds the
-  declared Node 24 range; it was preserved, while canonical native tests ran in Electron 43.4.1,
-  ABI 148, with better-sqlite3 12.11.1. macOS arm64 only; live external providers, other platforms,
-  package/installer creation and release remain unverified and outside this task.
+- Implemented conversation fork under ADR 081:
+  - Migration 0047 adds provenance and flattened immutable event references without copying payloads.
+  - Creation is idempotent and does no model work.
+  - Inherited tool records appear only as historical Details.
 
 ### 2026-09-08 — Release 0.2026.9.4 preparation
 
-- The user authorized complete tests, a local App build, a new September version tag,
-  and publication after the four-platform GitHub Actions build succeeds. The candidate
-  is `0.2026.9.4`; existing tags remain immutable.
-- Included the current conversation fork, message copy/edit, Pi 0.85.1 and curated
-  Writing Skill changes. Added fork and message-edit scenarios to packaged acceptance.
-- Full-suite discovery now excludes ignored `.cache` probes. The reporter's generated
-  retry fixture uses an explicit isolated configuration. Refreshed stale comment-tool
-  expectations, the pre-v45 recovery fixture, and the preview's browser theme fixture.
-  Initial runs exposed these fixture/discovery failures; they were corrected without
-  weakening product assertions. Focused fixture verification passed 28/28 in 3.1s.
-- Final complete Electron tests: **1,440 passed, 3 intentional benchmark skips**,
-  249 passing files, 27.4s, no test retries. Report:
-  `.cache/verification/1788823990211-92741-b9c27e46`.
-- Frozen dependency install succeeded; pnpm 11.17.0 matches the pin. Host Node 26.8.1
-  remains outside the declared Node 24 range; native tests use Electron 43.4.1 ABI 148.
-  App/package and hosted build results will be recorded after execution.
-- The initial package gate passed static/build/inventory and all 12 runtime smoke
-  checks, but failed E2E selection consistency and two stale assertions (31/33
-  executed scenarios passed). Added the two new scenarios' matching `@packaged`
-  tags and updated contract-version and Reference-sidebar assertions, including
-  retention of citation metadata after deleting its attachment. Focused verification
-  reused the same App and passed 2/2 in 7.9s with no retries; report
-  `.cache/verification/1788824332408-98545-1febb27d`. A first focused attempt exposed
-  the old empty-library assumption before this successful correction.
-- The second full package run executed all 35 scenarios: 33 passed; fork's strict
-  locator observed the transient stream/persisted-message handoff, and a Knowledge
-  summary-count assertion raced a background-job refresh. Fork now waits for its
-  completed reply and stream settlement while asserting one final message. Knowledge
-  continues to assert zero detail loads before selection while allowing summary
-  refreshes from job notifications. Both focused packaged checks passed (6.2s and
-  8.7s, no retries); reports `.cache/verification/1788824619328-2929-c4552c6a` and
-  `.cache/verification/1788824673104-3433-d72e7726`.
+- The user authorized complete tests, a local build, and publication of `0.2026.9.4` after the hosted
+  build. Fork and message-edit scenarios joined packaged acceptance. Stale fixtures and races found by
+  the package gate were corrected without weakening product assertions.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-08-conversation-fork).
 
 ## 2026-09-08 Release 0.2026.9.4 publication
 
-- Completed the authorized test → App build → tag → successful Actions → Release sequence.
-  Immutable tag `v0.2026.9.4` identifies `7bc4ff69bbd7d115241173bcccd9c2a4db984642`.
-  Source and tag were atomically pushed; no prior tag was changed.
-- Final local `pnpm check:package` passed all 10 stages in **212.2s**, including static
-  checks, 32 recovery cases across 14 categories/30 sources, native inventory, **12 runtime
-  smoke checks and 35/35 packaged E2E scenarios** (94.7s, zero retries/flakes/skips), and
-  DMG/ZIP creation from the same tested macOS arm64 App. Report:
-  `.cache/verification/1788824710848-3832-fb0380dc`. Full Electron tests remain valid:
-  **1,440 passed, 3 benchmark skips**, 27.4s; subsequent changes only affected E2E fixtures
-  and delivery records. Earlier failed attempts and focused corrections are recorded above.
-- Local App: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Its package evidence records the
-  clean tagged revision. Local DMG SHA-256:
-  `425a9aa6d06f26b17afad281f06df2b80dd3c6ef78694462c26f48db3f206468`; ZIP:
-  `749804f71874b3ec176001bddff8536c0ab5dca660f505642aa38496d5dea15e`.
-- [Actions run 34171296372](https://github.com/ecwu/writellm/actions/runs/34171296372)
-  succeeded: static/fixtures 58s, macOS arm64 3m46s, Windows x64 5m38s, Linux x64 5m09s,
-  macOS x64 7m37s, and timing summary. CI used Node 24.15.0 and pnpm 11.17.0; hosted
-  platform jobs build and inspect artifacts without functional runtime tests.
-- Downloaded all four CI artifacts and checked source revision, release/package version,
-  native architecture, completed build stages, expected formats, file sizes and SHA-256.
-  Windows and Intel Mac evidence records `dirty`; the native preparation script creates
-  their untracked `resources/native/sqlite-vec/win32-x64` and `darwin-x64` directories,
-  unlike the tracked arm64/Linux resources. This explains the platform-dependent marker;
-  original evidence is preserved, not rewritten or represented as a clean-worktree attestation.
-- [WriteLLM 0.2026.9.4](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4)
-  was published at **2026-09-08T00:06:38Z**, verified as latest, non-draft and non-prerelease.
-  It contains seven Actions-built installers (1,344,343,299 bytes total) and four renamed
-  original platform evidence JSON files. GitHub's uploaded asset sizes and SHA-256 digests
-  matched all 11 local files. The release explicitly identifies unsigned, unnotarized builds
-  and the local macOS arm64 runtime-acceptance limit.
-- Local audit material: `.cache/releases/0.2026.9.4/` (CI result, artifact validation,
-  release metadata, logs and notes). This post-publication documentation synchronization
-  does not alter the immutable tag or rebuild the accepted App.
+- Published [WriteLLM 0.2026.9.4](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4) from
+  immutable tag `v0.2026.9.4` (`7bc4ff6`).
+- The local package gate passed, along with Actions run `34171296372` on four platforms. Eleven assets were verified.
+- Windows and Intel Mac evidence records `dirty` because native preparation creates untracked sqlite-vec
+  resource directories there. The original evidence was preserved, not rewritten.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-08-release-0202694-publication).
 
 ## 2026-09-09 Editor save continuity and composition
 
-- Implemented the user-approved editor lifecycle/IME repair plan. The workspace key now scopes
-  the editor to project session and section. A stable outer editor distinguishes acknowledged
-  local revisions from external revisions and owns the inner editor generation. Autosave and
-  explicit checkpoints update the persistence base without remounting, focusing, replacing
-  content, or resetting local history. Revision notifications also carry the live draft for
-  citation presentation when the persisted snapshot trails ongoing input.
-- External content loads only into a clean, idle, non-composing editor. Agent/replacement flush
-  barriers and canonical reload remain in use; accepted external content starts fresh local
-  history without automatic focus. Dirty/pending/composing external updates preserve the draft
-  as a conflict, and a late local save reply cannot clear it or replace the newer query result.
-  Generation and unmount checks reject obsolete callbacks. Section/project changes still start
-  a new history; cross-section history remains out of scope.
-- Saves remain single-flight even with concurrent explicit flush requests. Pending input is
-  retained, saved status reflects unsaved work, and composition prevents new autosaves. After
-  compositionend settles, the existing 1.5-second debounce resumes. Explicit flush rejects an
-  unfinished composition before read-only/acknowledgement; final flush also rechecks composition
-  and dirty state after persistence. Failed final flush restores editability. Save/reload failures
-  report through the existing Renderer diagnostics channel and Main logger; no IPC/schema,
-  dependency, shortcut, migration, package, or release changes were made.
-- Verified an additional BlockNote 0.54.0 behavior from installed source: changing isEditable
-  calls Tiptap setEditable with emitUpdate, even when the document did not change. Filtering
-  empty getChanges results prevents false dirty/conflict transitions on mutation barriers.
-  Context7 documentation for the pinned release confirmed the change-detail API. Platform-native
-  undo/redo bindings remain unchanged (Command on macOS, Control on Windows/Linux).
-- Regression evidence: the new continuity scenario failed against the existing pre-fix build in
-  5.1s (5.8s wrapper), proving that the editor DOM node was disconnected after autosave. Report:
-  `.cache/verification/1788992159673-23214-5f2cf471`.
-- Focused Electron-hosted tests passed **5 files / 20 tests**, 0.793s Vitest / 1.4s wrapper,
-  zero retries: BlockNote characterization, inline-math guard, readable-citation extension,
-  search-highlight extension, and citation command. These untouched boundaries remain covered
-  by the same results. Report: `.cache/verification/1788992468687-25310-996fe2cc`.
-- The first composite gate passed static checks/build and 4/9 E2E scenarios in 66.9s overall;
-  failures exposed the editable-state update issue and test caret positioning assumptions.
-  The second passed 8/9 in 45.1s overall; the remaining assertion incorrectly treated adjacent
-  typing as separate history events. Tests now place a DOM caret explicitly and let the initial
-  autosave idle period separate typing history. Reports:
-  `.cache/verification/1788992498482-25551-182112ac` and
-  `.cache/verification/1788992706210-27132-cc0d8432`. No automatic retries were used.
-- Final-source `pnpm check:e2e e2e/writing-workspace.spec.ts
-  e2e/agent-proposal-refresh.spec.ts --grep 'preserves editor selection|retains input and
-  serializes|defers autosave|surfaces a stale section|replacement|Markdown|refreshes a
-  non-conflicting|edits a brief and nested outline'` passed **all six stages in 40.3s**:
-  formatting/lint, both typechecks, native compatibility preparation, one production build,
-  and **9/9 Electron scenarios in 20.0s**, zero retries/flakes/skips. Report:
-  `.cache/verification/1788992840446-28281-65eb6bb7`.
-- New scenarios prove third-paragraph caret, selection and scroll retention, undo after auto/manual
-  save, redo after an intervening save, pending-reply typing and concurrent save serialization,
-  external revision conflict during a held local reply, canonical history reset, and composition
-  deferral across the debounce. Main-only test instrumentation holds real save replies and
-  counts final-flush saves/acks: all four composing flush purposes (close/snapshot/export/mutation)
-  reject with zero writes/acks. Existing scenarios prove Agent proposal refresh/application,
-  safe replacement/undo, Markdown import, conflict reload, section switching/reopening, and rich
-  media/export compatibility. Test instrumentation adds no production or preload capability.
-- Host/runtime: macOS arm64, host Node 26.8.1 (outside the declared Node 24 range), matching pnpm
-  11.17.0, Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9. The native host
-  toolchain was preserved. The non-fatal macOS task_name_for_pid diagnostic did not prevent tests.
-  Electron E2E used approved execution outside the sandbox for process/loopback access.
-- Limits: synthetic composition events do **not** validate actual macOS system Pinyin/ABC switching,
-  candidate-window selection or physical input-method shortcuts. Those manual trials and other
-  platforms remain unverified. The source build is updated; the packaged App and published
-  release were intentionally not rebuilt or changed.
+- Repaired editor lifecycle and IME composition:
+  - A stable editor is scoped to project session and section.
+  - Saves update the persistence base without remounting or resetting undo history.
+  - External content loads only into a clean, idle, non-composing editor; otherwise it becomes a conflict.
+  - Composition defers autosave and rejects explicit flushes.
+- Real macOS input-method switching remained manually unverified.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-09-editor-save-continuity-and-composition).
 
 ## 2026-09-09 Release 0.2026.9.5 preparation
 
@@ -2725,214 +965,38 @@ Verification and development evidence:
   **249 files / 1,440 tests**, with three benchmark files/tests intentionally skipped, in
   **25.23s** Vitest time. Evidence: `.cache/releases/0.2026.9.5/full-tests.log`.
 
-
 ## 2026-09-09 Release 0.2026.9.5 publication
 
-- Completed the requested App rebuild and next September release. Immutable annotated tag
-  `v0.2026.9.5` identifies `65a663f0013ee3efb5e1934139bf442241aa014b`. The source commit contains
-  the editor continuity repair, its three packaged regression scenarios, and release metadata.
-  `verify-release-source.mjs` confirmed matching tag/revision, SemVer base, build number and
-  clean source. Main and the new tag were pushed atomically; previous tags were unchanged.
-- Full Electron tests passed **1,440 tests across 249 files**, with three benchmark files/tests
-  intentionally skipped, in **25.23s** Vitest / **25.9s** runner time. Report:
-  `.cache/verification/1788993225584-31359-fd0a488e`; log:
-  `.cache/releases/0.2026.9.5/full-tests.log`.
-- Clean-source local `pnpm check:package` passed **all ten stages in 209.3s** without retries:
-  static checks, recovery inventory, native preparation/production build, App assembly,
-  no-Team-ID signature policy, ASAR/resource/native inventory, **12 runtime smoke checks**,
-  **38/38 packaged E2E scenarios** (100.8s wrapper, zero retries/flakes/skips), and DMG/ZIP
-  generation/checksums from that same tested App. Report:
-  `.cache/verification/1788993287445-32358-9df8cb28`; original evidence is preserved in
-  `.cache/releases/0.2026.9.5/local-package-evidence.json`.
-- Local App: `dist/macos-arm64/mac-arm64/WriteLLM.app`. Info.plist reports SemVer
-  `0.2026.9` and native build `2026.9.5`, matching four-component release `0.2026.9.5`.
-  Local DMG SHA-256: `c30c1e21c754b7dabc6557dea703af146dc84fd251051f896d9f8084c8a39d70`;
-  ZIP: `38a1362860251d11f0db926607aa520777647aec2c1b9180dbd34065f3f4b062`.
-- [Actions run 34413270209](https://github.com/ecwu/writellm/actions/runs/34413270209)
-  passed all jobs: static/fixtures 61s, macOS arm64 3m44s, macOS x64 7m48s, Windows x64
-  5m49s, Linux x64 5m14s, plus timing summary. Hosted jobs use Node 24.15.0 and pnpm
-  11.17.0, and build/inspect packages without runtime tests. Local tests use Electron
-  43.4.1 ABI 148 on macOS arm64; host Node 26.8.1 remains outside the declared Node 24 range.
-- Downloaded the four Actions package artifacts and verified exact source commit, release/base
-  versions, native target/architecture, successful build stages, formats, file sizes and SHA-256
-  for all seven installers (1,344,319,514 bytes). Windows and Intel Mac evidence preserve their
-  generated-native-resource dirty-worktree markers, as in the preceding release; they were not
-  rewritten as clean-source claims. Original platform evidence is published under distinct names.
-- Created a draft with seven installers and four evidence files, then verified **all 11 uploaded
-  asset sizes and GitHub-provided SHA-256 digests** against the local files before publication.
-  [WriteLLM 0.2026.9.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5) was publicly
-  published at **2026-09-09T22:54:17Z**, verified as Latest, non-draft and non-prerelease.
-  Public assets were checked again after publication; no asset was overwritten.
-- Release notes explicitly identify unsigned/unnotarized builds, local macOS arm64 runtime
-  acceptance, and synthetic composition coverage. Actual macOS Pinyin/ABC switching and
-  candidate-window selection remain manually unverified. No signing or disabled promotion
-  workflow was enabled. Audit files, original CI evidence, checksums, notes and upload/public
-  responses live under `.cache/releases/0.2026.9.5/`.
-- This post-publication documentation update records the observed result without altering the
-  accepted tag or rebuilding its App.
+- Published [WriteLLM 0.2026.9.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5)
+  from immutable tag `v0.2026.9.5` (`65a663f`), with the editor continuity repair.
+- The local package gate and Actions run `34413270209` on four platforms both passed. Seven installers and four evidence
+  files were verified before publication.
+- Actual macOS IME switching remained manually unverified.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-09-release-0202695-publication).
 
 ## 2026-09-10 DeepSeek editor autocomplete
 
-Implemented the user's approved [ADR 082](../adrs/082-deepseek-autocomplete.md) PoC.
-Default Models exposes only the independent FIM/Autocomplete selection, initially unset.
-It reuses the enabled built-in DeepSeek credential through the existing bound credential
-store, without changing Agent model preferences or persisting another secret. Existing
-app_settings stores the purpose reference; no migration or checkpoint advancement is needed.
-Embedding, rerank and image configuration redesign remains deferred.
+- Implemented the [ADR 082](../adrs/082-deepseek-autocomplete.md) DeepSeek editor autocomplete PoC:
+  - One independent FIM/Autocomplete model selection reuses the built-in DeepSeek credential.
+  - A session-scoped toolbar toggle.
+  - Chat Prefix at block end and FIM inline.
+  - A fixed beta origin, 128-token non-streaming requests, and no retries.
+  - Decoration-only suggestions; Tab acceptance is one undoable insertion.
+- `prosemirror-history` became an exact direct dependency.
+- A live synthetic probe of `deepseek-v4-pro` and `deepseek-flash` succeeded 8/8. No private content was used.
 
-The fixed editor toolbar toggle belongs to the current project session. Switching sections
-or workspaces retains it; closing/reopening resets it. A 600ms debounce requests bounded live
-chapter context. Current-block end uses Chat Prefix with thinking disabled; an inline suffix
-uses FIM. The background-worker adapter has a fixed official beta origin, non-streaming
-128-token requests, ten-second cancellation and no retries. 401/403 pause until configuration
-changes, and 429 respects a minimum thirty-second cooldown. Invalidated request/generation
-identities cannot restore suggestions. Context, output and credentials are never written to
-logs or model-request traces.
-
-Suggestions are ProseMirror decorations. Tab acceptance is one ordinary insertion isolated
-by the public closeHistory API; suggestions themselves do not change saves, exports, revisions
-or undo history. The existing transitive prosemirror-history 1.5.0 is now an exact direct
-dependency, with no newly resolved dependency version. Menus and composition take priority;
-the debounce checks eligibility after IME settlement rather than at compositionend. Settings
-uses the existing shadcn Command workspace, Field/Select primitives and scrolling/padding.
-
-### Verification
-
-- Final-source focused coverage: **72 distinct tests in nine files**, reusing applicable
-  results. Initial 67 tests passed in 4.2s; affected service/IPC/client/context rerun passed
-  33 tests in 1.2s; the final client annotation check passed four tests in 1.1s; final
-  context/IME regression passed nine tests in 1.1s. No automatic test retries or skips.
-- Five distinct affected source Electron scenarios passed: settings accessibility,
-  autocomplete, editor save continuity, delayed-save serialization and composition/final
-  flush. The three existing editor scenarios passed in 7.8s, 2.5s and 5.8s respectively;
-  settings accessibility passed in 3.3s. Final autocomplete passed in **11.5s** including
-  routing with later blocks, ephemeral save content, Tab/undo, Esc, composition, configuration
-  revocation, late responses, workspace/section switching, slash menus and reopen reset.
-- The initial check:e2e performed one build. Two fixture-only failures were corrected
-  without rebuilding: the Settings close-button name and use of the actual UI project-close
-  command. Expanded IME coverage then exposed a real compositionend settlement race;
-  the scheduling fix has both a focused regression and passing real Electron evidence.
-- Final **check:package:smoke passed in 79.1s**, including static checks (11.1s), one build,
-  unpacked App/inventory/signature-policy validation and **all 12 runtime smoke checks**
-  (38.5s). The earlier gate stopped at a test mock type annotation before building; an
-  intermediate package passed before the final IME/layout correction. The final gate
-  contains both corrections, with no retries/skips.
-- Packaged app.sqlite remained user_version 10 with integrity OK. Packaged native SQLite,
-  sqlite-vec, all process roles, cancellation/security boundaries and structured logging
-  passed. Log checks found no credential/private-body/private-root leaks.
-- Visual inspection of final Electron screenshots confirmed the Default Models layout,
-  editor toolbar and inline muted suggestion. Screenshots are under
-  test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/.
-
-Final package report: .cache/verification/1789051163552-17620-4ef9a56c/.
-Final autocomplete E2E report: .cache/verification/1789051204439-17984-6fe2f75a/.
-Final IME test report: .cache/verification/1789051138518-17544-e17d9f3d/.
-The final App is dist/macos-arm64/mac-arm64/WriteLLM.app; source out/ matches it.
-No commit, push, release or installer publication was performed.
-
-### Live-provider evidence and limits
-
-An isolated Electron probe read the existing enabled DeepSeek record read-only, checked its
-credential security binding, decrypted only in memory and used the actual built background
-Worker. Four self-authored English/Chinese prefix/FIM samples ran for each of deepseek-v4-pro
-and deepseek-flash: **8/8 succeeded**, with 298 total input/output tokens. No private manuscript
-was used, no user default was changed and no key was printed or copied to another store.
-Durations were **808–1,902ms**, mean **1,121ms**, excluding the editor debounce. Safe synthetic
-results are retained in .cache/autocomplete-probe/live-results.json.
-
-Both candidates support both endpoints in this live sample. Flash's examples were shorter;
-one Pro Chinese FIM response contained several sentences and the Pro English FIM response
-had weaker suffix continuity. This small capability probe is not a writing-quality benchmark.
-The UI still requires an explicit model choice. The adapter's first-line/token bounds are
-retained without speculative sentence-rewriting heuristics.
-
-Runtime evidence is macOS arm64, Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec
-0.1.9. Host pnpm 11.17.0 matches the manifest; host Node 26.8.1 remains outside the declared
-Node 24 range. The offline dependency-add attempt encountered a missing cached tarball;
-the normal host-store add and frozen install succeeded. Installation restored a system-Node
-SQLite binary (ABI 147); the repository's forced Electron rebuild and native load check
-restored ABI 148 before tests. Physical input-method candidate selection, Windows and Linux
-runtime behavior remain unverified. The App is unsigned/unnotarized as in the existing local
-package policy.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-10-deepseek-editor-autocomplete).
 
 ## 2026-09-10 Autocomplete style dropdown
 
-Implemented the user-approved ADR 082 amendment: one shadcn DropdownMenu combines the
-session checkbox, word/sentence/paragraph radio choices and model settings. The closed
-trigger always shows an on/off icon and style, with a descriptive tooltip/accessible name.
-The existing English product vocabulary is retained (Words, Sentence, Paragraph). Style
-is stored as `editor.autocomplete.style.v1` in app_settings, defaults to word, and survives
-project changes; changing it never enables autocomplete or changes model selection.
+- ADR 082 amendment: one shadcn DropdownMenu combines the session toggle, the Words, Sentence, and Paragraph
+  styles (persisted as `editor.autocomplete.style.v1`), and model settings.
+  - Token budgets are style-specific, and ICU segmentation enforces display caps.
+  - A style change invalidates pending suggestions.
+- A live synthetic probe of `deepseek-flash` succeeded 12/12.
 
-Shared Zod contracts and a sender-authorized narrow style IPC carry only the enum. Main
-loads the persisted choice for each Worker request. Style changes invalidate pending and
-delivered suggestions while retaining authentication suspension and rate cooldown. Menu
-open state blocks the editor plugin; restored focus uses the existing 600ms debounce.
-The adapter uses 32/128/384 tokens, style-specific Chat Prefix instructions, unchanged FIM
-context, and ICU word/sentence/grapheme segmentation with English abbreviation tailoring.
-Display caps are four words/24 code points, one sentence/160 code points, or three sentences/
-480 code points. Newline and Unicode line separators terminate suggestions; caps preserve
-leading whitespace and avoid splitting graphemes. Logs add style and character counts,
-never generated content. No dependency, native binary, Worker entrypoint or schema change
-was required for this amendment.
-
-Verification (host pnpm 11.17.0 / Node 26.8.1; Electron 43.4.1 ABI 148):
-
-- 66 distinct tests across seven files cover settings, service, IPC, Worker gateway,
-  protocol/length handling, segmentation and editor eligibility. The initial 65-test run
-  took 1.4 seconds and found two failures: the new persistence assertion was placed before
-  its setup, and ICU assigned generated leading whitespace to the preceding completed
-  sentence. Moved the assertion and ignored whitespace-only continuation sentence segments.
-  The affected 22 tests passed in 1.3 seconds. After adding restored-focus coverage and
-  request/accept style logging, 24 affected tests passed in 1.1 seconds. The final 14 adapter
-  tests passed in 0.8 seconds; other applicable results were reused. Zero automatic retries
-  or skips. Reports: `.cache/verification/1789052301008-19121-8e5ebb51/`,
-  `1789052363797-19285-d3ed9b48/`, `1789052415601-19431-f62c34d2/`,
-  `1789052507538-19879-441840c7/` (all under `.cache/verification/`).
-- `pnpm check:e2e e2e/autocomplete.spec.ts e2e/writing-workspace.spec.ts --grep
-  'autocomplete routes|preserves editor selection|retains input and serializes|defers autosave'`
-  passed in 39.8 seconds: static checks, one 11.1-second production compile, four real
-  Electron scenarios in 16.5 seconds (13.7s autocomplete, 7.9s save continuity, 2.4s delayed
-  save, 5.8s composition; two workers). Zero retries/skips. Evidence:
-  `.cache/verification/1789052457818-19565-bf9431c3/`.
-- The autocomplete scenario verifies keyboard menu selection, checked radio state,
-  disabled default, settings guidance, no implicit enablement, menu blocking, delayed
-  stale response rejection on style change, FIM/Prefix routing, ephemeral decoration,
-  Tab/undo/Esc, IME settlement, workspace/section changes, project reopen and a second
-  project's inherited global style. Transport remains a Main-only fixture; actual adapter
-  and utility-process transport are covered separately below.
-- Visually inspected real Electron menu and ghost-text screenshots under
-  `test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/`.
-  The normal desktop menu is readable, on/off icons differ, selected style remains visible
-  while off, and no custom component styling was added.
-
-Live synthetic probe: `.cache/autocomplete-probe/style-live.cjs` reused the previous
-read-only credential-binding/safeStorage probe and actual compiled background-worker.
-No credential or user configuration was copied or changed. Twelve deepseek-flash requests
-covered three styles × English/Chinese × FIM/Chat Prefix; all succeeded in 558–1,554ms
-(mean 979ms, excluding debounce), using 513 total tokens. Synthetic-only response evidence
-is `.cache/autocomplete-probe/style-live-results.json`.
-
-| Style | English Prefix / FIM displayed characters | Chinese Prefix / FIM displayed characters |
-| --- | --- | --- |
-| Word | 23 / 21 | 8 / 7 |
-| Sentence | 39 / 21 | 10 / 15 |
-| Paragraph | 141 / 21 | 47 / 28 |
-
-The word English Prefix response originally contained 150 characters and was reduced to
-four words / 23 characters. Paragraph Prefix yielded three English and three Chinese
-sentences. Sentence Prefix sometimes ended mid-thought, and FIM could stay short even with
-a larger budget; these are bounded maximum styles, not guarantees of exact semantic length
-or factual quality. No automatic retry or punctuation synthesis was introduced. The probe
-covers flash for this amendment, not a fresh pro-model quality evaluation.
-
-The final source and `out/` match. This scoped change did not run full/release acceptance
-or rebuild the packaged App; the existing App is the prior fixed-length autocomplete PoC.
-The host Node is outside the declared Node 24 range, while canonical tests and the live
-Worker use Electron. macOS arm64 only, synthetic IME events rather than physical candidate
-selection; Windows/Linux remain unverified. No commit, push or publication was performed.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-10-autocomplete-style-dropdown).
 
 ## 2026-09-10 Autocomplete style App packaging
 
@@ -2950,85 +1014,14 @@ Node 26 / declared Node 24 limitation remains, with Electron ABI 148 for native 
 
 ## 2026-09-10 Continuous autocomplete and composition
 
-Implemented the user's approved ADR 082 amendment. Tab accepts one suggestion as an
-independent history event and schedules a new request after 200ms. A following edit
-replaces that deadline with 600ms. Matching pure insertion consumes the existing prefix
-locally, updates the candidate's document/caret snapshot and retains the remainder; full
-consumption schedules ordinary completion. Paste/drop, replacement, structure changes or
-an incomplete grapheme discard it safely. Held Tab repeats do not accept new suggestions.
+- ADR 082 amendment for continuous autocomplete:
+  - Tab accepts one suggestion and re-requests after 200 ms.
+  - Matching typing consumes the suggestion locally.
+  - Esc, undo, and empty results keep a quiet snapshot.
+  - Composition hides and retains the candidate until verified committed insertion.
+- Native candidate selection remained unverified after an attempted native IME probe.
 
-Esc, undo/redo and empty/failed results retain a quiet document/selection snapshot. Focus,
-save metadata and menu transitions do not release it; actual edits, caret changes and
-explicit completion configuration do. Menus independently opening/closing are observed
-even without document edits. One timer and one in-flight request are maintained, old
-results are generation/document/caret checked, and Main still enforces provider cooldown.
-
-Composition hides and retains the original suggestion and editor snapshot without
-cancelling its delivered receipt. In-flight requests are cancelled. Preedit spelling is
-never compared; after host/ProseMirror settlement, verified committed insertion can
-consume the candidate, and an unchanged document can restore it. Blur, configuration,
-authority changes and mismatching/structural edits discard held candidates. Settlement
-waits for a short stable transaction interval and is bounded; candidate keys remain with
-IME. A shared Zod configuration event distinguishes model/provider/style, and bounded
-trigger/cancel-reason enums extend existing safe request logs without text or pinyin.
-
-Documentation verification used Context7's ProseMirror official reference/guides and the
-installed public prosemirror-history 1.5.0 declaration for `isHistoryTransaction`. No new
-dependency, migration or provider-generation change. The existing native host versions
-remain pnpm 11.17.0, Node 26.8.1 (outside the declared Node 24 range), Electron 43.4.1 / ABI 148.
-
-Verification and iteration:
-
-- Final distinct coverage: 65 tests in five files, using the Electron-hosted runner.
-  The first 26-test run took 1.4s: one old composition timing assertion still assumed that
-  debounce started at the raw compositionend event. Replaced it with a real ProseMirror
-  transaction harness covering settlement. The first 30-test harness run took 1.4s and
-  exposed six test-fixture failures: a hardcoded caret offset was one position short,
-  and splitting the BlockNote wrapper directly was invalid. Derived the text start from
-  the document and used a valid heading transformation. All 30 tests then passed in 1.1s.
-  The final menu-close transition regression expanded that file to 31 tests, passing in
-  1.2s. The four service/IPC/gateway/adapter files passed 34 tests in 1.1s; no automatic
-  retries or skips. Reports under `.cache/verification/`:
-  `1789053816457-21580-803e84cf`, `1789053961312-21793-0c61e04c`,
-  `1789053992357-21939-4c5790b6`, `1789054086941-22083-a22e20d2`,
-  `1789054258004-22600-af37207c`.
-- `pnpm check:e2e e2e/autocomplete.spec.ts e2e/writing-workspace.spec.ts --grep
-  'autocomplete routes|preserves editor selection|retains input and serializes|defers autosave'`
-  passed in 41.3s, with static checks, one build and four scenarios (16.6s autocomplete,
-  7.9s save continuity, 2.4s delayed saves, 5.8s composition; 17.0s parallel E2E elapsed).
-  Zero retries/skips. Report: `.cache/verification/1789054149569-22215-2421fd16/`.
-- The real-editor fixture now accepts two consecutive suggestions without typing, undoes
-  each separately, types a matching English prefix without new requests, and verifies
-  that undoing the Tab suffix keeps the typed portion. Esc survives menu/focus changes.
-  It also simulates `tuijian` preedit, commits `推荐`, retains `内容`, checks independent
-  Tab undo, and cancels another composition to restore the unchanged candidate.
-- After the final menu-restoration refinement, `pnpm check:package:smoke` passed in 84.2s:
-  static checks 11.2s, one build, App packaging 21.0s, inventory/signature checks and all
-  12 runtime smoke scenarios in 40.1s. SQLite version 10 integrity passed; native modules,
-  all four process roles and credential/body/root leak checks passed. Report:
-  `.cache/verification/1789054284412-22684-e6f96398/`.
-- Reused that exact App with `WRITELLM_E2E_EXECUTABLE_PATH` and
-  `pnpm test:e2e e2e/autocomplete.spec.ts`: passed in 16.5s (16.0s scenario), zero retries/
-  skips, no rebuild. This covers final source. Earlier unaffected save scenarios were
-  reused. Report: `.cache/verification/1789054395669-23490-a66a1581/`.
-
-Native IME attempt and limits:
-
-The host has ABC, U.S. and Apple Simplified Chinese Pinyin input sources enabled. Launched
-an isolated temporary project using `.cache/autocomplete-probe/native-ime.cjs`, with fake
-provider credentials and a Main-only synthetic suggestion fixture. No real user project
-or real provider request was used. Native CUA focused its editor and tried the system
-input-switch shortcuts followed by individual `tuijian` keys. The UI showed literal ASCII
-and no candidate window, so this does not verify native candidate selection or disprove
-composition handling. The native UI tool's initial app lookup took about 478s. The probe's
-non-TTY stdin was closed, so optional instrumentation commands were unavailable; inspected
-native UI directly and closed the probe with the app Quit shortcut. The probe process
-exited cleanly. No alternate UI automation or system preference rewrite was used.
-
-Actual system candidate selection remains unverified; the automated composition and
-transaction tests above are distinct evidence. Windows/Linux are unverified. Final source,
-`out/` and `dist/macos-arm64/mac-arm64/WriteLLM.app` match. No full/release gate, installers,
-commit, push or publication; existing unsigned/unnotarized local package policy applies.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-10-continuous-autocomplete-and-composition).
 
 ## 2026-09-10 Candidate 0.2026.9.6 source tag
 
@@ -3048,54 +1041,13 @@ build or functional tests were repeated. The existing App retains the earlier bu
 number and is not a newly packaged 0.2026.9.6 artifact. Existing macOS-only runtime,
 real system-IME and Node 26 versus declared Node 24 limitations remain unchanged.
 
-
 ## 2026-09-13 Brief and Outline preview
 
-Implemented the user-approved plan as a Renderer extension of the existing Preview workspace.
-Markdown remains the default; Brief displays all ten form fields in their shared form order,
-and Outline displays every active section in sibling order with hierarchical numbering,
-objectives and status. Internal IDs, versions, extensions and body content are excluded.
-The plain-text copy projection preserves complete values and line breaks; empty values keep
-their labels but omit the display-only `Not specified` placeholder. Literal markup remains text.
-Copy success, failure/retry, loading/disabled and empty-outline states use existing components.
-Refresh/re-entry reads the existing saved manuscript assembly through its logged
-`manuscript.preview.load` lifecycle. Clipboard failures use the existing Renderer diagnostic
-channel; no content is added to logs and no IPC/database change was required.
+- The Preview workspace gained Brief and Outline destinations next to Markdown. Each has a complete plain-text copy
+  projection, and internal IDs are excluded. Renderer only.
+- `min-w-0` fixes stopped long content from widening the workspace.
 
-The desktop visual pass exposed ancestor flex minimum widths allowing long Brief content to
-expand the workspace beyond the window. Added `min-w-0` to Preview and its two App containers,
-and strengthened E2E assertions to cover viewport bounds as well as local content overflow.
-Final screenshots show intact navigation/actions and wrapping long text at 900 x 800 CSS pixels.
-
-Verification:
-
-- `pnpm test src/renderer/src/features/manuscript/metadata-preview.test.tsx
-  src/renderer/src/features/manuscript/manuscript-preview.test.tsx`: 8 tests in two files passed,
-  987ms Vitest / 1.7s wrapper, no retries/skips. Coverage includes all field labels/order, empty
-  values, multiline Unicode/markup, 32,000-character content, sorted nested numbering/status,
-  empty outline, and existing safe Markdown rendering. A later test-only template-literal cleanup
-  preserves the same fixture bytes; subsequent production edits change only layout classes.
-- `pnpm check:e2e e2e/writing-workspace.spec.ts --grep 'edits a brief and nested outline'`:
-  Biome, both typechecks, one build and the existing scenario passed in 31.8s (7.8s Playwright).
-  Added actual clipboard failure/retry, all three preview destinations, exact outline copying,
-  refresh and Markdown regression assertions.
-- Extended the same scenario with saved Brief changes after a cached preview, project reopening,
-  4,000+ characters of literal markup/continuous text, and screenshots. Reused the build:
-  `pnpm test:e2e` with the same filters passed in 7.5s, but visual inspection exposed the width
-  defect. The first width fix rebuilt in 11.0s; the stronger viewport assertion failed in 15.4s.
-  Fixing the App ancestors rebuilt in 11.2s, then the same filtered E2E passed in 8.1s
-  (one scenario, 7.5s test execution, zero automatic retries/skips).
-- Final screenshots: `.cache/verification/brief-preview.png`, `brief-preview-long.png`, and
-  `outline-preview.png`. Impeccable's mechanical scan returned no findings for the preview
-  surfaces. Final Biome and diff checks passed. No checkpoint/tracker changes are needed for
-  this maintenance entry; completed CP58 evidence remains historical.
-
-Final runtime report: `.cache/verification/1789319402568-27696-2be87100`.
-Runtime: macOS arm64, Electron 43.4.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
-the declared Node 24 range; tests used the canonical Electron runner. E2E ran outside the sandbox
-for Electron/loopback authority. No other platforms or packaged artifacts were verified;
-`out/` matches the implementation, while the existing packaged App predates this feature.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-13-brief-and-outline-preview).
 
 ## 2026-09-13 Brief and Outline preview App build
 
@@ -3115,55 +1067,12 @@ remains unchanged; pnpm 11.17.0 and Electron 43.4.1 / ABI 148 were used.
 
 ## 2026-09-14 Autocomplete application defaults and temporary overrides
 
-Implemented the user-approved ADR 082 amendment. Default Models now exposes a saved
-application auto-enable preference (initially false) and word/sentence/paragraph length.
-The existing style key is retained; editor.autocomplete.enabled.v1 adds a boolean in
-app_settings with no schema migration. Main owns independent optional enabled/style
-overrides for the application lifetime. Closing and reopening or switching projects
-preserves them; restarting clears them. Restore defaults clears both and follows the
-latest saved settings. Updating an uncovered default applies immediately. Missing model
-or credentials blocks requests without erasing preference intent.
+- ADR 082 amendment:
+  - Saved application defaults: auto-enable (`editor.autocomplete.enabled.v1`) and length.
+  - Main-owned temporary enabled and style overrides for the application lifetime, with Restore defaults.
+- No schema migration.
 
-Separate validated settings and runtime contracts expose saved defaults, effective values
-and override flags. Temporary length/reset operations remain sender- and project-capability
-validated. Effective preference changes cancel pending/delivered suggestions without
-resetting provider backoff. Lifecycle logs contain safe preference metadata. Renderer
-request sequencing rejects outdated reads/replies. The existing shadcn controls and menu
-show the defaults, temporary lifetime and reset action. No dependencies or project records
-changed; pre-existing Brief/Outline preview edits were preserved.
-
-Verification:
-
-- `pnpm test src/main/providers/autocomplete-service.test.ts
-  src/main/ipc/autocomplete-ipc.test.ts src/main/app-db/repositories/app-settings.test.ts
-  src/renderer/src/features/autocomplete/autocomplete-extension.test.ts`: 63 tests across
-  four files passed in 1.7s (Vitest 960ms), no retries/skips. Covers persistence, independent
-  overrides, restart, effective Worker style, unavailable credentials, stale request and
-  session cancellation, IPC validation/ownership, backoff and existing editor behavior.
-  Report: `.cache/verification/1789392661423-52620-7de18dfa/`.
-- An initial `check:fast` failed the Main typecheck due to duplicated schema arguments in
-  one IPC registration; corrected before runtime acceptance. No application failure.
-- `pnpm check:e2e e2e/autocomplete.spec.ts` passed all six stages in 44.6s: static checks,
-  one production compile (11.5s), and one expanded Electron scenario (18.8s; runner 19.5s),
-  zero retries/skips. Report: `.cache/verification/1789392746165-52803-721f4659/`.
-- Screenshot inspection prompted an explicit saved-switch checked-state assertion.
-  `pnpm test:e2e e2e/autocomplete.spec.ts` reused the matching build and passed in 18.2s
-  (scenario 17.6s), zero retries/skips. It verifies UI defaults, temporary style without
-  persistence, project close/reopen and switching, preserving overrides across saved-default
-  changes, reset, immediate default application and real process restart. Existing ghost
-  text, Tab, undo, composition and provider-disable flows also pass.
-  Report: `.cache/verification/1789392839494-53145-78265d98/`. Settings/menu screenshots under
-  `test-results/autocomplete-autocomplete--7a1f6-l-and-accepts-with-one-undo/` were inspected.
-- A final visual check asserts the checked switch background differs from the unchecked
-  state and disables screenshot animations. The same scenario/build passed again in 18.2s
-  (scenario 17.6s), zero retries/skips. Report:
-  `.cache/verification/1789392934082-53326-ecc06c60/`.
-
-Host pnpm 11.17.0 matches the manifest; Node 26.8.2 is outside the declared 24.x range.
-Canonical native tests use Electron 43.4.1 ABI 148. E2E ran with elevated process/loopback
-access on macOS arm64. Other platforms and physical IME remain unverified. Source out/
-contains the final implementation; the existing packaged App was not rebuilt. No commit,
-push, package or release was performed.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-14-autocomplete-application-defaults-and-temporary-overrides).
 
 ## 2026-09-14 Release 0.2026.9.7 preparation
 
@@ -3185,43 +1094,12 @@ after they complete, without altering the immutable release tag.
 
 ## 2026-09-14 Release 0.2026.9.7 publication
 
-- Completed the user-authorized App build, new tag and next September Release.
-  Immutable annotated tag `v0.2026.9.7` identifies
-  `553511063698ca2afb847af40c76f9af9943e8e9`; main and that tag were pushed atomically.
-  Clean-source verification confirmed matching versions/revision. Existing tags, including
-  the local .6 candidate, were not modified. This release includes .6 autocomplete plus
-  application defaults/temporary overrides and the existing Brief/Outline preview changes.
-- Full test evidence is recorded in the preparation entry: 1,530 distinct passing tests,
-  three intended benchmark skips, and one initial test-reporting timeout resolved by a
-  focused rerun without source changes. Host pnpm 11.17.0 matches the manifest; Node
-  26.8.2 is outside the declared 24.x range. Native tests target Electron 43.4.1 ABI 148.
-- `pnpm check:package` passed all ten stages in 224.953s: static checks, recovery inventory,
-  native preparation/build, clean-source App assembly, signature policy/resource inventory,
-  packaged runtime smoke (40.2s), 39/39 packaged E2E (115.9s wrapper, zero retries/skips),
-  and DMG/ZIP from the same tested App. Report:
-  `.cache/verification/1789393626532-54699-32e0017c/`.
-  App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.7`.
-  Local DMG SHA-256: `5c8ff11f6e32a742ca35bd0315da12aa093e3cd02648c4d60ce249a79b966785`;
-  ZIP: `0b0b43ff69a0ca0c7d3d79b7d6ef8ad3c9e78aa67cf4484a49ed00f8ee9942fe`.
-- [Actions run 34851835641](https://github.com/ecwu/writellm/actions/runs/34851835641)
-  passed all six jobs: static/fixtures 65s, macOS arm64 6m17s, Windows x64 5m32s,
-  macOS x64 9m00s, Linux x64 5m23s, and timing summary. CI uses Node 24.15.0 /
-  pnpm 11.17.0 and performs native builds/inventory rather than runtime acceptance.
-- Downloaded and verified the exact source revision, versions, native architecture,
-  successful stages, formats, sizes and SHA-256 of seven installers (1,344,483,426 bytes).
-  Preserved original platform evidence; Windows/Intel Mac retain generated-native-resource
-  dirty-source markers, as in .5. Uploaded seven installers and four distinct evidence
-  JSONs to a draft without overwriting assets, then verified all 11 GitHub asset sizes
-  and SHA-256 digests before publishing.
-- [WriteLLM 0.2026.9.7](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
-  was published at 2026-09-14T14:09:17Z and verified as Latest, non-draft and
-  non-prerelease. Public asset sizes/digests were verified again. Notes identify
-  unsigned/unnotarized distribution, local macOS arm64 runtime coverage and synthetic
-  composition testing; physical system-IME candidate selection remains unverified.
-- Evidence, original downloaded artifacts, checksums, notes, CI results and publication
-  responses live in `.cache/releases/0.2026.9.7/`. This documentation follow-up records
-  the observed outcome without modifying the tag or rebuilding the accepted App.
+- Published [WriteLLM 0.2026.9.7](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7)
+  from immutable tag `v0.2026.9.7` (`5535110`), with autocomplete defaults, overrides, and Brief/Outline
+  preview.
+- The local package gate passed, along with Actions run `34851835641` on four platforms. Eleven assets were verified.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-14-release-0202697-publication).
 
 ## 2026-09-17 Model-service HTTP endpoints
 
@@ -3251,7 +1129,6 @@ after they complete, without altering the immutable release tag.
   Host Node 26.8.2 remains outside the declared Node 24 range. Other platforms and packaged
   artifacts were not tested; the existing packaged App has not been updated.
 
-
 ## 2026-09-17 HTTP endpoint App build
 
 - User requested an App build after the endpoint change. `pnpm package:unpack` produced
@@ -3264,7 +1141,6 @@ after they complete, without altering the immutable release tag.
   `.cache/verification/1789681661580-44238-15946026/`.
 - This was a build-only invocation; prior focused source tests remain the functional evidence.
   No packaged runtime tests or installers were run, and the App remains unnotarized.
-
 
 ## 2026-09-17 Model-service HTTP request policy correction
 
@@ -3295,132 +1171,34 @@ after they complete, without altering the immutable release tag.
   Electron 43.4.1 ABI 148; host Node 26.8.2 remains outside the declared Node 24 range.
   No installers, release publication, other-platform tests, or real endpoint validation.
 
-
 ## 2026-09-19 Keyboard shortcut separation
 
-- User-authorized maintenance removes the shared SidebarProvider Mod+B binding and writing
-  workspace Mod+J binding across all consumers. Pointer controls, keyboard-accessible buttons,
-  and sidebar resizing remain available. BlockNote formatting and local Agent/completion
-  interactions keep their existing behavior.
-- A Renderer-local command definition now supplies matching and labels to application/editor
-  listeners, Settings, menus, and workspace hints. Ctrl or Meta is accepted individually;
-  unexpected Shift/Alt or simultaneous Ctrl+Meta is rejected. Matching normalizes letter case,
-  ignores consumed/composing events (including keyCode 229), and suppresses repeats except
-  previous/next section navigation. Comment matching handles macOS Option-letter symbols.
-  Editor commands require focus and a nonempty selection. The guide adds comment, formatting,
-  autocomplete, and Agent input entries with their scopes. Existing command handlers and
-  lifecycle diagnostics are reused; no IPC, persistence, dependency, or migration changes.
-- Verification: 30 focused Electron-hosted tests passed across shortcut matching, Settings,
-  and shadcn composition in 2.7s (Vitest 0.836s). Report:
-  `.cache/verification/1789800704982-13516-05856090/`.
-- One `check:e2e` invocation passed Biome, both typechecks, native preparation and production
-  compilation, then passed five of seven selected scenarios in a 43.8s total gate. The two
-  failures were test assumptions: directly selecting editor text is required for the bold
-  assertion, and an unhandled modified editor key can change selection before the subsequent
-  quick-action assertion. Report: `.cache/verification/1789800733797-13762-3393525f/`.
-- The first focused rerun (12.9s) passed quick actions and reached the next new-fixture issue:
-  an unconfigured Agent correctly has no composer. Composer shortcut checks moved to the
-  existing configured-provider scenario. The final two-scenario rerun passed in 5.2s, with
-  zero automatic retries/skips. Both reruns reused the same build; no product-source repair
-  was needed. Reports: `.cache/verification/1789800861116-14876-fcdc199e/` and
-  `.cache/verification/1789800924284-15366-8951c13b/`.
-- Combined final-source evidence covers seven distinct scenarios: Settings accessibility,
-  selection quick actions, comment threads, keyboard separation, sidebar resizing, BlockNote
-  controls, and manuscript find/navigation. It includes bold text, Ctrl/Meta B/J with Shift/Alt
-  variants in manuscript/title/Agent inputs, button Enter/Space and clicks, precise command
-  modifiers, saving, and section navigation. All invocations had zero automatic retries/skips;
-  the two explicit focused reruns above are retained as part of the evidence.
-- Runtime: macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
-  the declared Node 24 range. Physical IME and Windows/Linux runtime behavior were not tested.
-  No packaged App, installer, release, or remote changes were produced.
+- Removed the shared Mod+B sidebar and Mod+J workspace bindings.
+- One Renderer-local command definition now supplies matching and labels to listeners, Settings, menus,
+  and hints. Matching is strict on modifiers, composition- and repeat-aware, and handles macOS Option symbols.
+- No IPC or persistence change.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-keyboard-shortcut-separation).
 
 ## 2026-09-19 Tabbed docking workbench
 
-- Implemented the user-approved plan under ADR 083. Dockview React is pinned to MIT version
-  8.3.1; shadcn controls and the global Menubar remain. The activity rail opens unique content
-  tabs or dockable tools. Sections retain lazy editor instances, undo history, selection and
-  scroll state; content cannot split or mix with tool groups. Tools support left/right/bottom
-  placement, grouping, stacking, resizing and default-layout reset. Reset keeps open tabs and
-  live Notebooks. Section deletion removes its tab; closing the final tab shows an empty state.
-- Knowledge, Preview, Assets and Checks are singleton content tabs. Notebook instances have
-  independent sources, model/Thinking settings, drafts, messages, citations and background runs.
-  Main limits projects to ten instances and one turn per instance, including asynchronous start
-  races. Closing an instance cancels only its run; project revocation destroys all instances.
-  Every command, snapshot and event carries both projectSessionId and notebookId. Shared Main
-  admission restores the explicitly approved three-run Agent/Notebook limit, superseding
-  ADR 074's removal; overflow rejects immediately without queuing. Worker startup failure also
-  releases its admission slot.
-- Versioned layout settings live in app.sqlite by projectId, with strict shared schemas and
-  sender/session authorization. They contain only section IDs, functional tab kinds/order,
-  active content and tool geometry. Notebook state, paths, document bodies and runtime IDs do
-  not persist. Corrupt settings recover with diagnostics. Debounced saves and the existing
-  sender-bound final-flush capability cover project/application closure; no project migration.
-  Navigation flushes retained editors and title metadata before leaving, preserving failed
-  drafts and focus. Knowledge insertion returns to the latest section. Structured lifecycle
-  logs cover layouts, content tabs and Notebook creation/destruction without private content.
-- Verification scope: shared contracts, application settings, layout/final-flush authorization,
-  Notebook isolation/revocation and Agent admission warranted focused Electron-hosted tests;
-  retained editor and docking interactions warranted real Electron E2E. No native dependency
-  or packaging boundary changed, so no packaged gate was selected.
-- 58 distinct focused tests have passing final-source evidence. The initial nine-file set
-  passed 57 tests in 3.4s (`.cache/verification/1789804948293-45493-d32757dc/`). Subsequent affected
-  checks passed 15 Notebook/layout tests in 3.2s after the start-race/reset changes
-  (`.cache/verification/1789805684065-51941-d971f94e/`), and 15 model-client tests in 1.3s after
-  adding startup-failure admission coverage (`.cache/verification/1789806007712-54521-d1b9e776/`).
-  These are overlapping focused runs, not 87 distinct tests.
-- Final composite `check:e2e` passed Biome, Main/Renderer typechecks, native load preparation
-  and one production build. Ten of eleven scenarios passed in 27.5s; the workbench scenario
-  exposed a DOM-selection fixture race under concurrent E2E execution. Switching that fixture
-  to real keyboard selection and verifying its initial range passed the focused scenario in
-  9.3s (9.6s gate), reusing the same build. Reports:
-  `.cache/verification/1789806038775-54825-5ea9ba43/` (50.9s composite), and
-  `.cache/verification/1789806123196-55730-8caebb13/` (focused rerun).
-- Combined final-source E2E evidence covers eleven distinct scenarios: section tab uniqueness,
-  reorder, bulk close, empty state, deletion, retained editor/undo/selection/scroll, Knowledge
-  insertion, two Notebook drafts and close cancellation, tool placement/reset, project and
-  application restart restoration, transient Notebook lifecycle, Agent quick actions/proposal
-  refresh, save continuity/conflict blocking, keyboard commands, pointer/keyboard resizing,
-  find navigation, checkpoint restore and citation rendering/export. Earlier focused iterations
-  repaired final-layout authorization, Find reopening, docking sash/menu stacking and central
-  reorder guards; fixture updates account for the default-open Agent and retained editors.
-  Builds were repeated only after relevant product changes, then reused for focused reruns.
-  All invocations used zero automatic retries; explicit debugging reruns are not hidden.
-- Runtime: macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0. Host Node 26.8.2 remains outside
-  the declared Node 24 range. No Windows/Linux runtime, packaged App, installer, physical IME,
-  or live-provider validation was performed. Final desktop screenshot:
-  `.cache/verification/workbench-preview/workbench.png`. No commit, push or release was made.
+- Implemented ADR 083's tabbed docking workbench on Dockview React 8.3.1:
+  - Unique content tabs keep their editor state.
+  - Dockable tool groups.
+  - Independent Notebook instances, at most ten per project.
+  - Shared Main admission of three Agent/Notebook runs, superseding ADR 074's removal.
+- Versioned per-project layout settings live in app.sqlite under sender and session authorization.
+  Navigation flushes retained editors.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-tabbed-docking-workbench).
 
 ## 2026-09-19 Layout menu
 
-- Moved reset and visibility controls into the existing global shadcn Menubar in
-  `Project / Edit / Layout / Tools` order, removing the dedicated 32px reset toolbar.
-  Six tool checkboxes, four singleton content checkboxes, New Notebook and Reset layout
-  reuse the workbench operations. Activity rail, tab close and Agent shortcut stay available.
-- A Renderer-only, project-session-bound bridge publishes actual Dockview panel membership
-  and registered content tabs. Inactive grouped tools still count as open; no independent
-  visibility preference or IPC/schema change was added. Unmounted callbacks are revoked and
-  unavailable/project-transition controls are disabled. Content close/open keeps the existing
-  save barrier; reset preserves content/Notebook instances and restores Outline/Agent placement,
-  including when Agent was closed before reset.
-- Verification scope was static checks and three affected real Electron scenarios for menu
-  interaction, save conflicts and resizing. `check:fast` passed in 12.0s, report
-  `.cache/verification/1789811008549-66738-80cca9dd/`. One build passed in 13.5s, report
-  `.cache/verification/1789811049625-67045-a022e91f/`, and was reused for both E2E invocations.
-- The first E2E run passed workbench/menu coverage and save-conflict preservation; resizing
-  passed its pointer/keyboard assertions but failed at an overlooked old reset-button locator.
-  Report `.cache/verification/1789811076268-67387-1727b7ad/` (36.5s gate). Updating only that
-  locator to Layout > Reset layout passed the focused rerun in 2.9s, report
-  `.cache/verification/1789811128847-67780-197a8794/`. Three distinct scenarios have passing
-  evidence, with zero automatic retries/skips and one explicit fixture-only rerun.
-- Coverage includes disabled controls without a project, keyboard menu entry, Agent shortcut
-  synchronization, tool/content checkbox state, content close, Notebook creation, reset retaining
-  two Notebooks, save failure retaining a checked content tab, project/application restart,
-  tab reorder/deletion, and tool resize/reset. Desktop screenshot inspection confirms the removed
-  toolbar and unchanged usable Agent controls. Screenshot:
-  `.cache/verification/workbench-preview/workbench.png`.
-- Runtime is macOS arm64, Electron 43.4.1 ABI 148, pnpm 11.17.0; host Node 26.8.2 still emits the
-  existing declared-Node-24-range warning. No Windows/Linux or packaged validation, migration,
-  new dependencies, commits or remote changes were made.
+- Moved Reset layout and tool and content visibility checkboxes into the global Menubar, in the order
+  `Project / Edit / Layout / Tools`, and removed the reset toolbar.
+- A Renderer-only bridge publishes the actual Dockview membership.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-layout-menu).
 
 ## 2026-09-19 Workbench scrollbar theme
 
@@ -3442,39 +1220,14 @@ after they complete, without altering the immutable release tag.
 
 ## 2026-09-19 Workbench status bar
 
-- Implemented the approved fixed 28px project status bar below the activity rail and Dockview.
-  Index readiness opens Knowledge; the AI menu summarizes live Agent work and open Notebooks,
-  prioritizes requests for input, and navigates to the corresponding conversation or retained tab.
-  Agent activity remains observed when its dockable panel is closed. Subscription failures are
-  reported through existing diagnostics and shown as unavailable, with teardown guards against
-  late snapshots/events. Knowledge job observation now belongs to the shell and updates the
-  existing query cache without a second Knowledge-panel subscription.
-- Moved Autocomplete controls and compact activity/error hints from the manuscript header to
-  the status bar. The existing settings, temporary overrides, focus behavior and completion
-  semantics remain; status is tracked per section and hidden outside section tabs. Saved chapter
-  and manuscript word counts appear on editor tabs, manuscript counts elsewhere, and character
-  counts in a keyboard-accessible tooltip. Removed the duplicate Outline footer counts while
-  preserving per-section counts and completion totals. No dependency, migration or IPC change.
-- Verification: `check:fast` passed in 11.5s; subsequent focused Biome and diff checks cover the
-  test-only cleanup. Seven status/lifecycle tests passed in 1.3s after one focused failure exposed
-  a stale snapshot on activation failure; the fix clears that snapshot. Existing autocomplete
-  and Knowledge-model coverage added 38 passing tests in 1.2s: 45 distinct passing tests total.
-  Reports: `.cache/verification/1789812809656-84018-c690e0e1/`,
-  `1789812795416-83863-4058f712/`, and `1789812884889-84779-f287fcb4/`.
-- One production build passed in 11.9s (`1789812842485-84279-706957aa`). Four distinct real
-  Electron scenarios have passing final-source evidence: workbench docking/restoration,
-  autocomplete, Agent concurrency and Agent clarification. The initial 52.6s run passed the
-  first two; both Agent fixtures still assumed a closed panel and toggled the now-default-open
-  panel off. Correcting those fixtures to use the status menu passed both plus a workbench
-  screenshot confirmation in 15.9s, with zero automatic retries/skips and the same build.
-  Reports: `1789812879569-84692-bec6fc94/` and `1789812980858-85529-cbd90ba6/`.
-- Light/dark screenshots are under `.cache/verification/workbench-preview/`; the workbench
-  scenario verifies upward menus, saved word counts, bottom docking geometry, Notebook navigation,
-  and close/reopen cleanup. The mechanical UI detector reported no findings. Runtime verification
-  is macOS arm64, Electron 43.4.1 / ABI 148. Host pnpm 11.17.0 matches the manifest; host Node
-  26.8.2 produces the existing declared-Node-range warning. The host toolchain was preserved.
-  No package/release, commit or push was performed.
+- Added a fixed 28 px project status bar:
+  - Index readiness.
+  - An AI menu for live Agent work and Notebooks.
+  - Autocomplete controls.
+  - Saved word counts.
+- The shell now owns Knowledge job observation. No IPC or migration change.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-workbench-status-bar).
 
 ## 2026-09-19 Status-bar App rebuild
 
@@ -3495,220 +1248,52 @@ after they complete, without altering the immutable release tag.
 
 ## 2026-09-19 Notebook source capacity
 
-The user authorized implementing the plan to remove Notebook's fifty-source restriction rather
-than raising it to another arbitrary count. ADR 058 and the architecture now distinguish selectable
-source capacity from bounded retrieval results, citations, evidence, and model context.
+- Removed Notebook's fifty-source selection cap, amending ADR 058. Selectable capacity is now distinct
+  from bounded retrieval, citations, and context.
+- SQL source membership uses one JSON-array binding with `json_each`, shared by FTS and vector filters.
+- Index availability is shown independently of selection.
+- A 301-PDF real-chain E2E scenario was added.
 
-Removed the available-source truncation and source-count caps from Notebook selection/snapshot
-contracts and shared Knowledge search filters. SQL source membership uses one JSON-array binding
-with `json_each`, shared by FTS and vector filtering, avoiding per-source SQL variables. Notebook
-retains explicit frozen per-turn source IDs and Main authorization; the Agent's twenty-ID explicit
-tool subset bound remains separate from its ability to search the entire selected set.
-
-Sources show index availability independently of selection. Removed the fifty-source caption and
-added checking/unavailable index labels. A regression test exposed stale explicit selections after
-an unavailable index recovered without changing the effective empty scope; reconciliation now
-prunes and publishes that selection change. Existing lifecycle logging remains in use. No schema
-migration, dependency changes, reparse, embedding rebuild, or new persistence was introduced.
-
-Verification:
-
-- Forty-seven distinct focused Electron-hosted tests passed across Notebook contracts/service,
-  Notebook IPC, retrieval service, SQL filters, and the real index database. Source selection and
-  search scopes cover 51, 201, 301 and 1,000 entries; SQL parameter cardinality covers 40,000 IDs.
-  A real 301-source SQLite/sqlite-vec fixture retrieves the last source, combines source/revision/
-  extension/page/heading filters, excludes it when deselected, and expands its citation. Lifecycle
-  coverage includes all-source refresh, explicit-selection preservation and pruning, empty scope,
-  frozen active-turn scope, forbidden search/citation access, project teardown, and independent
-  Notebook instances.
-- The initial 41-test invocation took 4.0s and exposed the stale-selection bug plus a vector-fixture
-  error: identical text reused the same embedding cache entry. After fixing reconciliation and
-  making target text distinct, 38 related tests passed in 4.0s; eight already-passing contract/SQL
-  tests remained applicable. One additional frozen-scope test passed in 2.2s (19 others intentionally
-  excluded by the test-name filter). No automatic test retries ran.
-- `pnpm check:e2e e2e/notebook.spec.ts e2e/parsed-knowledge.spec.ts --grep 'Notebook|parses, normalizes'`
-  passed Biome over 832 files, both typechecks, native verification and one production build. The
-  existing transient-session and parse/search/citation scenarios passed in 3.4s and 9.4s. The new
-  large-source scenario was deliberately interrupted when its polling helper was found to inspect
-  only 100 recent jobs. It now counts published sources via the existing Knowledge list API.
-- The first focused rerun reached 301/301 and verified deselection/reselection, then failed because
-  its resize locator expected the pre-Dockview sidebar handle (75.8s). The final test uses a normal
-  1440x900 desktop window and drags the actual Dockview divider, asserting a changed content width.
-  Reusing the same build, `pnpm test:e2e e2e/parsed-knowledge.spec.ts --grep 'more than 300'` passed in
-  45.0s with zero retries/skips. It imports/parses/indexes 301 distinct local PDF fixtures through
-  a loopback MinerU service, selects the lexicographically last ID, completes scoped search →
-  citation read → answer, opens the citation, clears chat, and completes another question with
-  all 301 source IDs passed through the real retrieval chain. Loopback model responses are
-  deterministic; no external provider calls are part of this evidence.
-- Final affected-file Biome, Node typecheck and diff whitespace checks passed. The Impeccable
-  mechanical check reported no findings. SQLite JSON-array syntax was verified through Context7.
-  Host pnpm 11.17.0 matches the manifest; host Node 26.8.2 remains outside declared 24.x. Tests and
-  native checks use Electron 43.4.1 ABI 148, better-sqlite3 12.11.1 and sqlite-vec 0.1.9 on macOS
-  arm64. Other platforms and packaged runtime were not rerun; existing packaged App is unchanged.
-
-Final large-source report: `.cache/verification/1789815186865-3314-0b05c3e8`.
-No commit, push, package/release, or publication was performed.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-notebook-source-capacity).
 
 ## 2026-09-19 Release 0.2026.9.8 preparation
 
-The user authorized building the App, committing recent changes, tagging the next September
-version, and publishing a Release. Remote tags/releases confirmed 0.2026.9.8 was unused.
-The candidate includes ADR 083's Dockview shell and independent Notebooks, layout menus,
-status bar, scrollbar theme, and the Notebook source-capacity amendment, plus the earlier
-keyboard shortcut and HTTP endpoint changes already on main since 0.2026.9.7.
+- Candidate `0.2026.9.8` includes:
+  - ADR 083's Dockview shell and Notebooks.
+  - The Layout menu and status bar.
+  - Scrollbar theming.
+  - The Notebook source capacity change.
+- Three package-gate attempts exposed two product defects, which were fixed:
+  - Retained-editor flush routing.
+  - Duplicate Agent activity deliveries, now isolated by subscription ID.
+  The attempts also exposed stale pre-Dockview test assumptions. No failed candidate was pushed.
 
-- `release.version` is 0.2026.9.8; the package base remains 0.2026.9.
-- Host pnpm 11.17.0 matches the manifest; explicit frozen install passed. Host Node 26.8.2
-  remains outside the declared 24.x range. Native verification uses Electron 43.4.1 ABI 148.
-- Complete `pnpm test` passed 261 files / 1,615 tests, with three intentional benchmark
-  skips, in 25.2s and without retries. Report: `.cache/verification/1789815391769-4916-3acc3a9d`.
-- This preparation records the source candidate only. Local packaged runtime acceptance,
-  four-platform tag builds, installer verification and public publication are recorded later
-  from their actual results. Existing tags and releases remain unchanged.
-
-The first clean-source package attempt completed static/native/build/inventory checks, then
-failed packaged smoke at comment creation: the retained editor dispatcher acknowledged its
-current section instead of Main's requested section. The dispatcher now resolves an explicit
-section ID to its retained editor; when that section was never mounted, the controller uses
-its existing revision acknowledgement path. Main still validates the token, sender and exact
-requested revision. The smoke scenario remains unchanged as regression coverage. A fresh
-clean-source package gate is required after this repair; no tag was pushed from the failed build.
-
-The second clean-source package gate passed runtime smoke (38.7s), including the unchanged
-comment scenario. Its packaged E2E reported 31/41 passing in 226.6s with zero retries, exposing
-stale single-editor/closed-Agent/default-window test assumptions after Dockview and a genuine
-activity-delivery defect. Tests now use a 1440x900 desktop fixture, the visible retained editor,
-Dockview resize handles, scoped alerts, restored active-section expectations, and wait for the
-selected section before editing. Existing explicit-size scenarios retain their dimensions.
-Two focused reruns against that same App resolved nine of the ten original scenarios; their
-reports retain the intermediate failures rather than claiming a clean first pass.
-
-The remaining streaming-copy scenario identified duplicate deltas: status bar and Agent panel
-subscribe independently, but each Main delivery was consumed by both preload listeners. Activity
-delivery now carries its subscription ID in a strict shared Zod envelope and preload routes only
-the matching lease. Project capability checks, bounded snapshot queues, cancellation and logging
-remain intact. A regression test connects the real broker to two preload subscribers, verifying
-one delivery each across delayed activation, live delivery and independent unsubscribe. All 33
-focused broker/preload/IPC/content/status tests passed in 1.4s without retries. Report:
-`.cache/verification/1789816413918-13771-742fc535`. The final source requires a fresh full package
-gate before tagging; no failed candidate was pushed.
-
-The third package gate passed clean App assembly, inventory, runtime smoke (39.9s), and 40/41
-packaged scenarios (138.2s, zero retries), including streaming copy and 301-source retrieval.
-The remaining Knowledge lifecycle fixture cancelled before its first remote batch request on
-this run, while its final assertion assumed three remote batches. It now waits for the first
-batch request before cancellation, preserving the intended remote cancellation/retry coverage.
-The test-only correction is verified against the same App before rebuilding the tagged source.
-Report: `.cache/verification/1789816462931-14175-ac28164b`.
-Focused import lifecycle rerun passed in 8.5s without retries/skips:
-`.cache/verification/1789816715525-16521-148e3aac`.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-release-0202698-preparation).
 
 ## 2026-09-19 Release 0.2026.9.8 publication
 
-- Completed the authorized recent-change commits, App build, next September tag and public
-  Release. Immutable annotated tag `v0.2026.9.8` identifies
-  `65a380b7c406ef633c7bc5e2a858ee4b1d9f49d2`; main and the tag were pushed atomically.
-  Tag/source verification confirmed matching versions, revision and clean checkout. The initial
-  verification invocation preceded tag creation and therefore could not resolve it; the check
-  passed after creation. Existing tags and releases were not altered.
-- The candidate contains Dockview content/tool groups, independent transient Notebooks,
-  unrestricted indexed-source selection, global Layout controls, status bar, themed scrollbars,
-  keyboard shortcut separation and HTTP endpoint policy changes. Release acceptance additionally
-  fixed retained-editor flush routing and isolated simultaneous Agent activity subscriptions.
-- The initial full Electron-hosted run passed 1,615 tests in 261 files, with three intentional
-  benchmark skips (25.2s). Subsequent source fixes passed 13 focused editor tests (1.7s) and
-  33 focused broker/preload/IPC/content/status tests (1.4s), including one new regression.
-  Earlier package/scenario failures and corrections are recorded in the preparation entry.
-- Final clean-source `pnpm check:package` passed all ten stages in 241.8s: static checks,
-  recovery inventory, native preparation/build, App assembly, signature/resource inventory,
-  packaged runtime smoke (38.6s), 41/41 packaged E2E (136.4s wrapper, zero retries/skips),
-  and DMG/ZIP from the same tested App. The large-source scenario passed with 301 PDFs.
-  Report: `.cache/verification/1789816749028-16799-a556b08c`.
-  App: `dist/macos-arm64/mac-arm64/WriteLLM.app`, native build `2026.9.8`.
-  Local DMG SHA-256: `e2a80f63bbb73ece53038b164d566987ae6b08272f3ef5faa05a8ad218b4d3f7`;
-  ZIP: `d4abcd454f475ec97cd44737c3b7a0ba5ae4ae8660dbaa41c0b486aabe9545f1`.
-- [Actions run 35440017115](https://github.com/ecwu/writellm/actions/runs/35440017115)
-  passed all six jobs: static/fixtures 44s, Windows x64 339s, Linux x64 322s,
-  macOS arm64 252s, macOS x64 513s, and timing summary 14s. Hosted Node 24.15.0 /
-  pnpm 11.17.0 performs native builds/inventory rather than runtime acceptance.
-- Downloaded and verified the exact source revision, versions, native architecture,
-  successful stages, formats, sizes and SHA-256 of seven installers (1,355,394,111 bytes).
-  Original platform evidence is preserved. Windows/Intel Mac retain generated-native-resource
-  dirty-source markers, as in earlier releases; their source revisions match the immutable tag.
-  Uploaded seven installers and four evidence JSONs to a draft without overwriting assets,
-  then verified all 11 GitHub asset sizes and SHA-256 digests before publication.
-- [WriteLLM 0.2026.9.8](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8)
-  was published at 2026-09-19T11:38:43Z and verified as Latest, non-draft and non-prerelease.
-  Public asset sizes and digests passed verification again. Notes identify unsigned/unnotarized
-  distribution, local macOS arm64 runtime coverage, loopback Notebook fixtures and unverified
-  physical system-IME candidate selection. Host pnpm 11.17.0 matches the manifest; local Node
-  26.8.2 remains outside declared 24.x. Native tests use Electron 43.4.1 ABI 148.
+- Published [WriteLLM 0.2026.9.8](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8)
+  from immutable tag `v0.2026.9.8` (`65a380b`).
+- The final clean-source package gate passed, along with Actions run `35440017115` on four platforms. Eleven
+  assets were verified before and after publication.
 
-Local release evidence: `.cache/releases/0.2026.9.8/` (notes, local package evidence, Actions
-result, platform artifacts, checksum validation and draft/public asset verification).
-This documentation follow-up does not move or rebuild the immutable release tag.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-release-0202698-publication).
 
 ## 2026-09-19 Empty-workbench navigation
 
-- Fixed ordinary manuscript navigation from an empty content group: absence of a recent open
-  section now opens Outline without an error or arbitrary section selection. Recent-section
-  lookup runs inside the existing navigation queue and reports activated, missing or blocked;
-  activation still respects the existing save barrier and diagnostic error path.
-- Knowledge citation insertion creates pending state only after successful section activation.
-  A missing section produces a citation-specific message; pending insertion is bound to its
-  target section and discarded on navigation away. Asset block navigation directly selects its
-  specified section instead of first attempting unrelated recent-section navigation.
-- Extended the existing real Electron workbench scenario to close all content tabs, hide and
-  reopen Outline through Manuscript, reject insertion without a section, reopen multiple
-  sections without duplicate tabs or stray citation insertion, and return to the recent section.
-  Existing layout restoration, retained editor and successful citation insertion coverage stays
-  in the same scenario. No IPC, migration, dependency or packaging changes were needed.
-- Verification scope: Renderer interaction changes selected static checks, one source build,
-  the workbench scenario and the existing editor save-continuity/save-race scenarios.
-  `pnpm check:e2e e2e/workbench.spec.ts e2e/writing-workspace.spec.ts --grep
-  'retains section editors|preserves editor selection and undo history|retains input and serializes saves'`
-  passed Biome and both typechecks, built once, and passed the two save scenarios (8.4s/2.8s).
-  The added workbench assertion initially expected original text even though the earlier test
-  intentionally replaced its retained selection with a citation. Correcting that expectation
-  and running `pnpm test:e2e e2e/workbench.spec.ts` passed in 11.1s (11.7s wrapper) against the
-  same build. Three distinct scenarios now have passing final-source evidence, with zero
-  automatic retries/skips and one explicit test-only correction rerun. Initial gate: 49.2s,
-  `.cache/verification/1789821108360-45772-3b250c14/`; focused rerun:
-  `.cache/verification/1789821186118-46466-b02af0d9/`. Final test formatting and diff checks passed.
-- Runtime evidence is macOS arm64, Electron 43.4.1 / ABI 148, pnpm 11.17.0. Host Node 26.8.2
-  remains outside the declared 24.x range. Windows/Linux and packaged runtime were not tested.
-  Current source output contains this fix; the existing published App remains unchanged.
+- Navigating to the manuscript from an empty content group now opens Outline instead of failing.
+- Citation insertion creates pending state only after successful section activation.
+- Asset navigation selects its section directly.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-empty-workbench-navigation).
 
 ## 2026-09-19 Tool sidebar layout
 
-- Unified dockable tool close controls in their tab headers using shadcn buttons with explicit
-  accessible names. Removed Find and Agent interior close buttons; existing close callbacks,
-  Find cleanup and Agent visibility synchronization remain in the docking owner.
-- Removed repeated project headers from Find, Comments, References and Writing Rules and removed
-  the ambiguous Active badge. Outline retains compact project context and Brief/Edit outline actions.
-  All shared tool completion footers are removed; the fixed global status bar now shows one saved
-  completed/total section count next to manuscript counts. No IPC, persistence or dependency change.
-- Updated E2E and packaged-smoke locators that depended on Active or interior Agent close controls.
-  The workbench scenario verifies single progress text, absent Active badges, and tab-only closing
-  for Find, Comments and Writing Rules, alongside existing docking, restore and resize coverage.
-- Verification scope: Renderer layout/close interactions warranted static checks, one matching
-  source build per source revision, and focused real Electron scenarios, with no package gate.
-  Initial static/build gate passed but both scenarios stopped at the obsolete Active fixture
-  (36.6s total). Restoring project context only in Outline and updating fixtures required a second
-  build: static checks passed, workbench and Find navigation passed, while Agent exposed a fixture
-  variable-name error (35.6s total, 12.3s E2E). The corrected Agent fixture passed using that same
-  build in 4.7s (4.1s scenario). Three distinct scenarios have passing final-source evidence;
-  zero automatic retries/skips. Final fixture/script Biome and diff checks passed.
-- Reports: `.cache/verification/1789821708698-50863-9b68f918/`,
-  `1789821781654-51577-f92006d5/`, and `1789821846372-52221-88370841/`.
-  Inspected light/dark screenshots under `.cache/verification/workbench-preview/`; controls and
-  bottom statistics remain separated. The UI detector returned no findings. Runtime evidence is
-  macOS arm64 / Electron 43.4.1 ABI 148 only. pnpm 11.17.0 matches the pin; host Node 26.8.2 retains
-  the existing declared-range warning. Current `out/` includes the change; the packaged App has
-  not been rebuilt, and the updated packaged-smoke locator has static verification only.
+- Tool close controls moved into the tab headers.
+- Removed repeated project headers, the Active badge, and tool completion footers. The status bar shows one
+  saved completed/total section count.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-19-tool-sidebar-layout).
 
 ## 2026-09-19 Sidebar layout App build
 
@@ -3723,7 +1308,6 @@ This documentation follow-up does not move or rebuild the immutable release tag.
 - Report: `.cache/verification/1789822544928-56798-fe66f983/`; failed sandbox report:
   `1789822477951-56146-a610fe6f/`. This was build-only, with no repeated application tests or
   packaged runtime smoke. Prior source runtime evidence remains recorded above.
-
 
 ## 2026-09-19 Tag-only 0.2026.9.9
 
@@ -3751,48 +1335,16 @@ This documentation follow-up does not move or rebuild the immutable release tag.
   warning. This style-only change required no interaction tests, build, or packaged gate;
   rendered runtime appearance was not inspected. Existing `out/` and the local App predate it.
 
-
 ## 2026-09-21 macOS native menu
 
-Implemented the user-approved macOS-only menu consolidation under ADR 084. Main owns fixed native
-menus, validated state/command contracts, current-window and session authorization, and window
-recreation. Renderer callbacks remain responsible for the existing project, settings, export,
-layout and flush workflows. Modal state blocks menu commands and is rechecked on receipt.
-Native shortcuts share the Main command dispatcher; before-input handling prevents a second
-accelerator dispatch and ignores composition, repeats and extra modifiers. The native title uses
-Main project display names; the activity rail retains an Agent toggle. Other platforms retain
-their in-window shadcn menu and existing shortcut handlers. No dependencies or schemas changed.
+- ADR 084 consolidated the macOS-only native menu:
+  - Main owns fixed native menus, validated state and command contracts, and current-window and session authorization.
+  - Renderer callbacks keep the existing workflows.
+  - Native shortcuts share the Main dispatcher and are not dispatched twice.
+- Other platforms keep the in-window shadcn Menubar.
+- Local App built at `0.2026.9.9`.
 
-Verification on macOS arm64 (host Node 26.8.2, pnpm 11.17.0; Electron 43.4.1 / ABI 148):
-
-- Final `check:package:smoke` passed in 83.6s, including static checks, one matching build, native
-  inventory and all 12 packaged smoke scenarios (38.8s). Report:
-  `.cache/verification/1790028994521-89262-f6734ea5/`.
-- Seven focused E2E scenarios passed against that same packaged executable in 20.8s with seven
-  attempts and zero retries: native menu, keyboard shortcuts, accessible Settings, project
-  lifecycle/restart, stale-lock recovery, durable exports and docking/layout restoration.
-  Report: `.cache/verification/1790029146071-90874-27a427b5/`.
-- Source native-menu and keyboard scenarios passed in 3.8s with zero retries. Earlier source
-  lifecycle and workbench results passed; the final packaged run supersedes their runtime evidence.
-- Focused Electron tests total 37 passing cases: 9 Main menu, 1 preload subscription, 5 window,
-  2 sender authorization and 20 keyboard cases. Final menu/preload run: 10 cases, 0.8s wrapper
-  (391ms Vitest execution); unchanged window/sender/keyboard results were reused.
-- Final Biome verification passed (841 files); Main typechecking was repeated after adding test
-  coverage. Renderer checks are covered by the successful package gate.
-- Visual inspection of the runtime workspace confirmed removal of the duplicate top row and a
-  usable Agent rail/button and docked surface. Native menu items, titles and states were inspected
-  through the actual Electron Menu and BrowserWindow objects in E2E.
-
-Initial verification found and repaired a destroyed-window cleanup error; a regression now models
-Electron's throwing webContents getter after closure. Test adaptations also fixed an obsolete DOM
-menu focus step and post-exit process lookup. Chromium CDP key events bypass native menu handling;
-macOS shortcut fixtures now use Electron sendInputEvent. These were deliberate repair reruns,
-not hidden retries. The final package and selected E2E runs contain no failures or retries.
-
-The host Node version differs from the manifest's 24.x range; the installed host toolchain was
-retained and Electron hosted all native tests. Windows/Linux and signed release acceptance were
-not run. The resulting local App is `dist/macos-arm64/mac-arm64/WriteLLM.app`, with 0.2026.9.9
-release metadata; there was no commit, tag movement, push, signing or publication.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-21-macos-native-menu).
 
 ## 2026-09-25 Anti-Defensive Writing catalog
 
@@ -3840,36 +1392,12 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
 
 ## 2026-09-26 Tool-close sizing
 
-- Reproduced the reported geometry regression in real Electron before changing product code:
-  closing Outline increased the surviving Agent sidebar by 276 CSS pixels. Dockview 8.3.1's
-  split-view removal calls `relayout()` without priority indexes and redistributes space by
-  grid sibling order. Application minimum widths alone do not express a content-first policy.
-- Added one shared tool-removal path for tab close buttons, Find cleanup, activity toggles,
-  controller requests and Layout menu commands. It snapshots the current widths of surviving
-  groups horizontally beside the content, temporarily caps those groups during synchronous
-  removal, and restores their prior maximum constraints in `finally`. Bottom groups spanning
-  the content remain free to expand. No persistent width lock, dependency, IPC or schema change.
-  The existing retained outer content panel already provides the final-tab empty surface.
-- Added the `workbench.close-sizing` packaged-eligible E2E scenario and manifest entry. It
-  checks default and reordered groups, tab/menu/activity close routes, user-dragged widths,
-  keyboard growth after temporary constraint release, bottom-group expansion and final-tab
-  closure. Existing workbench restoration and pointer/keyboard resize scenarios also pass.
-- Verification on macOS arm64: baseline build passed in 12.7s; the pre-fix scenario failed in
-  12.9s with the expected 276px mismatch, zero retries
-  (`.cache/verification/1790409561130-40149-bacb7863/`). Final-source `pnpm check:e2e
-  e2e/workbench-sizing.spec.ts e2e/workbench.spec.ts` passed all six stages in 38.6s,
-  including Biome, Main/Renderer typechecks, build and two scenarios in 12.9s
-  (`.cache/verification/1790409639380-40313-e5465f74/`). The expanded sizing scenario and
-  existing sidebar-resize scenario then passed against the same build in 3.5s (3.8s gate)
-  with zero retries/skips (`.cache/verification/1790409706159-40471-64f3ecd4/`).
-  This is three distinct passing scenarios, not four. Light/dark desktop screenshots were
-  inspected in `.cache/verification/workbench-preview/`; the design hook reported no findings.
-- Work was performed in an isolated worktree moved from an obsolete baseline to current
-  `main` (`a5a20ab`), without changing the main checkout. Verification reused the host's
-  installed dependencies via a temporary link, removed afterwards. pnpm 11.17.0 matches the
-  manifest; host Node 26.10.0 remains outside the declared Node 24 range. Electron 43.4.1
-  ABI 148 native load checks passed. No Windows/Linux, packaged App or installer verification
-  was performed. No commit, push or release was made.
+- Closing a tool no longer enlarges the surviving side tools. This fixed a 276 px regression from
+  Dockview's sibling-order relayout. One shared removal path temporarily caps the surviving groups'
+  widths beside the content, then restores them.
+- Added the `workbench.close-sizing` scenario.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-26-tool-close-sizing).
 
 ## 2026-09-26 Tool-close sizing build and local integration
 
@@ -3884,50 +1412,15 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   scoped `codex/preserve-sidebar-widths` branch. No packaged App, installer or remote push is
   part of this source-build and local-integration request. Host/runtime limits remain as above.
 
-
 ## 2026-09-26 Release 0.2026.9.10 local acceptance
 
-- The user authorized normal public release preparation. `release.version` advances from
-  0.2026.9.9 to 0.2026.9.10; package base remains 0.2026.9. The active distribution policy now
-  explicitly records the already-established unsigned four-platform tag-only build and manual
-  publication path. The dormant signed workflow and signing gates remain unchanged.
-- Full Electron-hosted tests passed 1,627 tests across 264 files with three intentional benchmark
-  skips (29.8s, 30.6s wrapper; `.cache/verification/1790411731312-45343-90d1dc61`).
-  Frozen pnpm installation passed without lockfile changes.
-- The first full package gate passed static checks, native/build/package inventory and all 12
-  smoke cases, then failed five of 43 packaged E2E scenarios (38 passed, zero retries; 272.8s;
-  `.cache/verification/1790411779602-46061-bddd5371`). Failure screenshots/traces are preserved
-  in `.cache/releases/0.2026.9.10/first-package-test-results/`.
-- One failure exposed a native-menu product defect: Electron toggles checkbox state before the
-  callback, but a Renderer save barrier can reject closing a page without changing its projection.
-  Native Layout items now retain the last confirmed state until the Renderer supplies a successful
-  change. The existing save-conflict E2E still requires retained draft content and a checked
-  Knowledge item. Added a regression test for both tool/page checkboxes and subsequent updates.
-- Three failures were fixture omissions from the macOS native-menu migration: autocomplete's
-  contextual checkbox incorrectly used the native helper, while version-history visibility and
-  checkpoint commands still used DOM-only locators. The message-edit test now explicitly moves
-  focus away before focusing the unavailable action, exercising its keyboard tooltip even when
-  an earlier editor restored focus there. No assertion was removed or weakened. All four focused
-  scenarios passed on the same pre-fix App in 19.4s with zero retries
-  (`.cache/verification/1790412226864-47701-aecf6c48`).
-- The final affected Electron-hosted menu suite passed all 10 tests (1.2s wrapper;
-  `.cache/verification/1790412313598-48073-c99363fe`). Two intervening package attempts stopped
-  during static checks on the new mock's TypeScript casts; the mock typing was corrected before
-  rebuilding. The final `pnpm check:package` passed all 10 stages in 258.2s
-  (`.cache/verification/1790412299363-47972-640c93e2`): static/recovery inventory, native build,
-  unpacked App/signature/resource inventory, 12 smoke cases (39.9s), all 43 packaged E2E scenarios
-  (146.6s, zero retries/skips), and DMG/ZIP generation, inspection and SHA-256 checks.
-- Local artifacts in `dist/macos-arm64/` carry 0.2026.9.10 / build 2026.9.10. Their original
-  evidence correctly records base revision `83766e0` plus dirty source, since validation preceded
-  the release-preparation commit. They establish local runtime acceptance; public assets must be
-  independently built from the exact immutable release tag and verified against hosted evidence.
-  Release notes and artifact/upload verification helpers are staged locally under
-  `.cache/releases/0.2026.9.10/`. No tag or publication is claimed here.
-- Runtime validation is macOS arm64 only, Electron 43.4.1 / ABI 148. pnpm 11.17.0 matches the pin;
-  host Node 26.10.0 remains outside the declared Node 24 range. Windows/Linux/macOS x64 runtime
-  and physical system-IME candidate selection were not validated. Distribution is unsigned and
-  macOS is not notarized; hosted rows verify native builds/inventory, not runtime acceptance.
+- Release `0.2026.9.10` local acceptance. The release policy now records the unsigned tag-only
+  four-platform build with manual publication.
+- The first package gate exposed one native-menu defect: Layout checkboxes now keep the
+  last confirmed state until the Renderer succeeds. It also exposed three stale fixtures. The final
+  `check:package` passed.
 
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-26-release-02026910-local-acceptance).
 
 ## 2026-09-26 Server-side four-package publication
 
@@ -3949,7 +1442,6 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   checks and read-only source-run validation; no application tests or platform builds are rerun.
   Deployment and remote publication are recorded separately after they occur.
 
-
 ## 2026-09-26 Publisher source-check correction
 
 - Source CI [36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256) completed
@@ -3961,7 +1453,6 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   read-only `--plan` now verifies the actual successful run, tag SHA/version/default-branch
   ancestry, platform jobs and artifact identities. Server-side continuation reuses that same
   successful run and immutable tag; no application test or platform build is repeated.
-
 
 ## 2026-09-26 Publisher AppImage filename correction
 
@@ -4001,56 +1492,17 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
   confirmed those four uploaded assets, non-draft/non-prerelease state, and Latest status.
   Distribution remains unsigned and macOS packages are not notarized.
 
-
 ## 2026-10-02 Pi 1.0.0 upgrade
 
-- [Issue 1](https://github.com/ecwu/writellm/issues/1) authorizes the Pi 1.0 upgrade within the existing Agent architecture.
-  Both direct Pi dependencies, the lockfile, and `AGENT_RUNTIME_VERSION` now use exactly `1.0.0`.
-  An explicit frozen install passed after the dependency update.
-  The package-age exceptions include the reviewed Pi 1.0 packages.
-- WriteLLM owns the former Skill shape and compatible catalog and invocation text.
-  The existing YAML parser reads verified documents after UTF-8, size, manifest, SHA-256, and Git blob checks.
-  The removed virtual `ExecutionEnv` loader no longer adds a second parser or filesystem abstraction.
-  Virtual URIs, provenance, progressive reads, disabled invocation, and historical snapshot compatibility remain covered.
-- Worker `prepareRequest` applies selected steering and follow-up instructions before each provider call.
-  Main retains request authorization and persistence. Tool continuations consume one authorization, and physical retries retain their logical request ID.
-  System messages carry instructions and tool declarations. Context pruning counts the reserved prompt and tool overhead once.
-  Diagnostic traces include these system messages for Agent and auxiliary calls.
-- `finishTurn` ends output-limit responses with the existing failure result.
-  Approval pauses, cancellation, error propagation, and recovery retain their existing behavior.
-  Catalog adapters accept chat models, including older cached models without a type.
-  Mixed caches exclude image, classifier, and unknown model types without discarding valid chat entries.
-- Architecture and ADRs 008, 013, 053, 074, and 076 record the amended ownership and lifecycle decisions.
-  Reusing the verified YAML parser avoids new loading capabilities and preserves existing normalization.
-  The alternative durable runtime remains outside scope. No database migration, login redesign, image-generation migration, or checkpoint advancement occurs.
-  CP77 remains paused, and release metadata remains `0.2026.9.10`.
-- The first full gate stopped because a publisher test used `node:test` in the Vitest suite.
-  That test now uses Vitest with the same three assertions.
-  The next full gate passed 1,637 tests but exposed seven outdated E2E fixtures.
-  Their corrections cover scoped provider controls, the Pi legacy provider label, settled replies, actual selections, save barriers, retained filters, and Dockview controls.
-  Quick-action execution uses its visible menu control. Sidebar resizing remains covered by its dedicated real Electron scenarios.
+- [Issue 1](https://github.com/ecwu/writellm/issues/1) upgraded Pi to exact `1.0.0`:
+  - WriteLLM now owns the Skill shape and its parsing through the existing verified YAML parser.
+  - Worker `prepareRequest` applies steering and follow-ups.
+  - `finishTurn` ends output-limit responses.
+  - Catalog adapters accept chat models only.
+- Architecture and ADRs 008, 013, 053, 074, and 076 were amended.
+- `check:full` and `check:package` passed.
 
-  Initial failures and focused manual reruns remain in `.cache/verification/`.
-  They are not reported as successful full gates.
-- Final `pnpm check:full` passed in 233.6s with one production build.
-  Electron-hosted Vitest passed 1,637 tests in 28.1s, with three opt-in benchmark skips and zero retries or unhandled errors.
-  All 62 source E2E scenarios passed in 181.9s with zero retries or skips.
-  Evidence: [full gate](../../.cache/verification/1790937143801-18018-2843817b/stages-1790937143801-18018-2843817b.json),
-  [Vitest](../../.cache/verification/1790937143801-18018-2843817b/vitest-1790937156083-18171-159a778c.json),
-  and [source E2E](../../.cache/verification/1790937143801-18018-2843817b/e2e-1790937195489-19336-05e1e8d3.json).
-- Final `pnpm check:package` passed all 10 stages in 262.1s on macOS arm64.
-  The gate used one App build, 32 recovery fixtures, 12 runtime smoke scenarios, and all 43 packaged E2E scenarios.
-  Packaged E2E took 140.9s with zero retries or skips. DMG and ZIP structural inspection and checksums passed.
-  The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
-  The gate permits the existing no-Team-ID ad-hoc/linker signature and does not perform notarization or publication.
-  Evidence: [package gate](../../.cache/verification/1790937391542-22572-1b7e2224/stages-1790937391542-22572-1b7e2224.json)
-  and [packaged E2E](../../.cache/verification/1790937391542-22572-1b7e2224/e2e-1790937486323-25203-d0f7be66.json).
-- The host uses pnpm `11.17.0` and Node `26.10.0` from its existing installation.
-  Node exceeds the declared `>=24.15.0 <25` range, so the gates record an engine warning.
-  Native tests and packaged execution use Electron `43.4.1`, ABI `148`, with `better-sqlite3 12.11.1` and `sqlite-vec 0.1.9`.
-  Windows, Linux, macOS x64, live-provider requests, signing, and notarization remain unverified for this change.
-  No commit, push, tag movement, or remote release write occurs.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-pi-100-upgrade).
 
 ## 2026-10-02 Pi 1.0 integration authorization
 
@@ -4062,286 +1514,39 @@ release metadata; there was no commit, tag movement, push, signing or publicatio
 
 ## 2026-10-02 dependency security and maintenance refresh
 
-The user authorized security fixes and routine maintenance after the dependency audit.
-The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-maintenance-amendment) records the accepted scope.
-This change updates 30 direct dependencies, compatible transitive packages, and the existing Tiptap and browserslist overrides.
-Pi remains at exactly 1.0.0, and BlockNote remains at 0.54.0.
-The deferred editor, compiler, bundler, database, and CI Action migrations remain separate.
-Release metadata remains `0.2026.9.10`, and CP77 remains paused.
+- ADR 056 amendment: updated 30 direct dependencies, including Electron 43.7.7, Playwright 1.63.0,
+  and Vitest 4.1.11. Security overrides repaired fast-uri, brace-expansion, undici, js-yaml, DOMPurify, and tar.
+- Pinned Node 24.21.0 and pnpm 11.28.3.
+- Unified ProseMirror View and Model versions after the package gate exposed duplicate Model classes.
+- Both audits went to zero advisories, and `check:package` passed.
 
-Electron advances to 43.7.7, Playwright to 1.63.0, and Vitest to the repaired 4.1.11 line.
-Provider SDKs, React, DOCX, ProseMirror, Biome, and other compatible dependencies receive maintenance updates.
-Security overrides repair fast-uri, brace-expansion, undici, js-yaml, DOMPurify, and tar within their admitted major versions.
-The BlockNote patch remains unchanged, and the Playwright credential-store patch applies to the new loader.
-
-ProseMirror View resolves to one 1.42.6 version across the editor dependency tree.
-ProseMirror Model also resolves to one compatible 1.25.12 version.
-The [version inventory](../../.cache/verification/dependency-maintenance-2026-10-02/updates.json) records all direct version changes.
-
-Node 24.21.0 and pnpm 11.28.3 pins agree across the manifest, bootstrap scripts, README, and CI configuration.
-The release-age policy retains exact exceptions for reviewed security fixes and Tiptap packages.
-Installation also adds exact exceptions for seven reviewed SDK, query, and Node-type packages.
-Those packages are `@ai-sdk/gateway`, `@google/genai`, `@tanstack/query-core`, `@tanstack/react-query`, `@types/node`, `ai`, and `openai`.
-Their exact admitted versions appear in `pnpm-workspace.yaml`.
-The final frozen installation passes with pnpm 11.28.3 and takes 0.2s.
-
-Vitest 4 emits a retry event after the final failed attempt, so the reporter uses the final diagnostic count.
-The subprocess fixture covers successful retries, exhausted retries, failures without retries, and skipped tests.
-Its explicit file selection prevents Vitest 4 from scanning unrelated files.
-Two test mocks receive explicit function types for Vitest 4.
-DOCX normalization replaces process-wide bookmark counters with document-order identifiers and preserves matching bookmark pairs.
-The existing export test covers repeated bytes, matching identifiers, and two headings.
-
-Initial reporter runs timed out because the fixture scanned unrelated files.
-The first complete suite exposed two DOCX failures from the changed bookmark counter.
-Two package attempts stopped before any App build because of mock types and duplicate ProseMirror types.
-These failures were compatibility results, and their fixes passed focused coverage and the final complete suite.
-The final Electron-hosted suite passes 1,637 tests across 265 files in 26.0s.
-Three opt-in benchmark tests remain skipped, with zero retries and zero unhandled errors.
-
-The production audit falls from 16 advisory records to zero, and the complete audit falls from 28 to zero.
-The final production graph contains 766 package entries, and the complete graph contains 1,183.
-Evidence: [production audit](../../.cache/verification/dependency-maintenance-2026-10-02/audit-production.json),
-[complete audit](../../.cache/verification/dependency-maintenance-2026-10-02/audit-all.json),
-[frozen installation](../../.cache/verification/dependency-maintenance-2026-10-02/frozen-install.log),
-and [Electron suite](../../.cache/verification/1790941302375-89983-f1092842/vitest-1790941302949-89984-464d70bd.json).
-
-The first App passed native preparation, production compilation, signature policy, and package inventory.
-Its runtime smoke stopped at a hidden-window size wait after 30 seconds.
-A separate probe showed the correct native and Renderer dimensions, and all 12 smoke scenarios passed on one focused retry.
-The two startup waits now use the shared timer interval instead of animation-frame polling.
-Their existing timeouts and assertions remain unchanged.
-The final full gate records acceptance separately from this failed attempt and focused retry.
-Evidence: [failed package attempt](../../.cache/verification/1790940882593-83591-b27375c6/stages-1790940882593-83591-b27375c6.json)
-and [focused smoke retry](../../.cache/verification/1790941068505-86176-4f3421a8/stages-1790941068505-86176-4f3421a8.json).
-The focused retry takes 38.8s and reuses the first App.
-
-The next App passes all 12 smoke scenarios but exposes duplicate ProseMirror Model classes during real typing.
-Autocomplete, Agent writing, and other editor scenarios fail with the same Fragment conversion error.
-The Model update unifies all parent-compatible ranges at 1.25.12 without product-code casts or a forced major override.
-The agent stops the failed old-App suite and retains its reports with exit 130.
-The final complete Electron suite and both audits above cover the repaired dependency tree.
-Evidence: [failed editor gate](../../.cache/verification/1790941120404-87116-76d13227/stages-1790941120404-87116-76d13227.json)
-and [typing error](../../.cache/verification/dependency-maintenance-2026-10-02/initial-editor-errors/autocomplete.md).
-
-The final `pnpm check:package` passes all 10 stages in 245.0s on macOS arm64 with one App build.
-Recovery inventory contains 32 fixtures, and all 12 runtime smoke scenarios pass in 39.0s.
-All 43 packaged E2E scenarios pass in 139.6s with zero retries or skips.
-DMG and ZIP inspection, checksums, native resources, and the no-Team-ID signature policy pass.
-The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
-The gate creates installers from that same App and performs no notarization or publication.
-
-Evidence: [package gate](../../.cache/verification/1790941343069-90907-bbaa8134/stages-1790941343069-90907-bbaa8134.json)
-and [packaged E2E](../../.cache/verification/1790941343069-90907-bbaa8134/e2e-1790941425646-92119-6639dadd.json).
-
-The host retains Node 26.10.0 and its original pnpm 11.17.0 launcher.
-The launcher selects the accepted pnpm 11.28.3 project runtime outside the sandbox.
-Node exceeds the declared 24.x range, so commands record an engine warning.
-Native execution uses Electron 43.7.7, ABI 148, with better-sqlite3 12.11.1 and sqlite-vec 0.1.9.
-Windows, Linux, macOS x64, live-provider requests, signing, and notarization remain unverified for this change.
-No commit, push, tag movement, or remote release write occurs.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-dependency-security-and-maintenance-refresh).
 
 ## 2026-10-02 Issue 2 first-stage dependency update
 
-The user authorized the first stage of [Issue 2](https://github.com/ecwu/writellm/issues/2).
-The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment) records this scope.
-Citation.js core, plugin-bibtex, and plugin-csl advance together from 0.8.2 to 0.9.0.
-Thinking-orbs advances from 0.2.0 to 0.3.2.
-The better-sqlite3 type declaration advances from ^7.6.13 to ^9.6.0, with its caret policy retained.
-The native better-sqlite3 library stays at 12.11.1.
+- First stage of [Issue 2](https://github.com/ecwu/writellm/issues/2) (ADR 056 amendment): Citation.js core and
+  plugins went to 0.9.0, thinking-orbs to 0.3.2, and `@types/better-sqlite3` to ^9.6.0.
+- Citation.js 0.9 switched to global `fetch`. A Main build plugin now replaces its fetch utility
+  with the existing network-denied module, preserving ADR 034's no-network parsing.
+- A runtime probe found the CSL plugin missing from the bundle, and it was added. The final `check:package` passed.
 
-Official package metadata confirms the stable versions, Node requirements, and plugin peer ranges.
-Citation.js requires Node 22.12 or later, and its plugins accept core 0.9.x.
-Thinking-orbs accepts React 18 or later and preserves the current state, size, theme, and canvas attributes.
-Its optional pointer interaction remains disabled.
-The dependency graph replaces sync-fetch with sync-fetch-undici and advances its MIME parser within the declared range.
-The [inventory](../../.cache/verification/issue-2-stage-1/updates.json) records versions and source links.
-
-Citation.js 0.9 also replaces its asynchronous node-fetch call with global fetch.
-The existing dependency aliases alone no longer preserve ADR 034.
-A Main build plugin replaces the Citation.js fetch utility module with the existing network-denied module.
-This keeps both synchronous and asynchronous remote parsing unavailable while preserving local bibliography parsing.
-A Vite bundle test exercises both denied APIs, makes sure that global fetch receives no call, and parses a local BibTeX control.
-The final source bundle contains the denial module and no sync-fetch-undici implementation.
-
-The final frozen installation passes in 2.6s with pnpm 11.28.3.
-Production and complete dependency audits report zero known vulnerabilities across 765 and 1,182 graph entries, respectively.
-The host Node is 26.10.0, outside the declared Node 24 range, and the host installation remains unchanged.
-The required Electron 43.7.7 runtime uses Node 24.21.0 and ABI 148.
-The native-load probe passes without a forced rebuild.
-
-The initial static gate passes all three stages in 12.0s.
-The complete Electron-hosted suite passes 1,637 tests across 265 files in 22.6s, with three benchmark skips and zero retries.
-After the bundle boundary repair, nine focused tests pass in 0.4s across three files, with zero skips or retries.
-Eight overlap the complete suite, so final-source coverage totals 1,638 distinct passing tests.
-The new test covers the only additional runtime module, and the unchanged suite results remain applicable.
-
-The initial source build passes in 13.8s.
-Three selected Electron scenarios pass in 14.7s without retries or skips.
-They cover bibliography import, citation display and export, and concurrent Agent behavior.
-The Agent scenario also tests 20px canvas geometry, animated frames, theme changes, reduced-motion static frames, and animation resumption.
-The fetch boundary repair then requires a fresh App build and complete package acceptance.
-The initial build remains historical evidence, and the final App replaces its compiled inputs.
-
-Evidence: [frozen installation](../../.cache/verification/issue-2-stage-1/frozen-install.log),
-[production audit](../../.cache/verification/issue-2-stage-1/audit-production.json),
-[complete audit](../../.cache/verification/issue-2-stage-1/audit-all.json),
-[complete Electron suite](../../.cache/verification/1790946225913-39303-3806e5cf/vitest-1790946226211-39326-0824a6e8.json),
-[boundary tests](../../.cache/verification/1790946411791-42275-24f5a3ff/stages-1790946411791-42275-24f5a3ff.json),
-and [initial source scenarios](../../.cache/verification/1790946258646-40137-7839d630/stages-1790946258646-40137-7839d630.json).
-
-The first package App passes all 12 runtime smoke scenarios and all 43 packaged scenarios without retries or skips.
-A separate runtime probe then finds that the bundled Core registry lacks the external CSL plugin.
-The agent stops that gate during installer generation, with exit 130, because its App requires another bundle repair.
-The strengthened workbench test was added after that suite began, so its results do not cover the new formatting assertion.
-The final Main bundle includes the CSL plugin alongside Core and the BibTeX plugin.
-The bundle fixture now also exercises CSL registration and bibliography formatting.
-Thirty-four focused tests pass across nine files in 1.0s, with zero skips or retries.
-Those results replace the initial boundary fixture result, and the unchanged complete-suite results remain applicable.
-Evidence: [final focused tests](../../.cache/verification/1790946700575-49177-981b779c/stages-1790946700575-49177-981b779c.json)
-and [interrupted gate](../../.cache/verification/1790946438795-42662-8107197b/stages-1790946438795-42662-8107197b.json).
-
-The final source-only citation display and export scenario passes in 3.9s with zero skips or retries.
-It reuses the output from the final package build and performs no additional build.
-Evidence: [final source scenario](../../.cache/verification/1790946762914-50371-fe7d8d28/stages-1790946762914-50371-fe7d8d28.json).
-The version inventory also records the exact acceptance commands.
-
-The final `pnpm check:package` passes all ten stages in 265.1s on macOS arm64 with one App build.
-Its static gate passes in 12.1s, and the recovery inventory contains 32 fixtures.
-All 12 packaged runtime smoke scenarios pass in 39.6s.
-All 43 packaged E2E scenarios pass in 150.6s with zero retries or skips.
-The final workbench scenario includes the new citation and bibliography formatting assertion.
-The retained 1,638 distinct Electron test results and the final package results cover the final source.
-Together with the final source-only citation scenario, runtime coverage includes 44 distinct Electron scenarios.
-
-The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
-The native modules, resource inventory, signature policy, installer inspection, and artifact checksums pass.
-The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
-Windows, Linux, and macOS Intel runtime results remain unverified for this stage.
-Other Issue 2 migrations remain deferred, and this task creates no commit, tag, push, or publication.
-
-Evidence: [final package gate](../../.cache/verification/1790946720531-49549-f5d84a43/stages-1790946720531-49549-f5d84a43.json),
-[final packaged scenarios](../../.cache/verification/1790946720531-49549-f5d84a43/e2e-1790946811836-51062-853258d8.json),
-and [package log](../../.cache/verification/issue-2-stage-1/package-final.log).
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-issue-2-first-stage-dependency-update).
 
 ## 2026-10-02 Issue 2 first-stage acceptance rerun
 
-The user requested tests, a build, and an Issue update only after acceptance passes.
-The agent runs `pnpm test` and then `pnpm check:package` against the final first-stage source.
-The source hash inventory remains unchanged throughout acceptance.
-The complete Electron suite passes 1,638 tests across 266 files in 22.2s.
-Three opt-in benchmark tests remain skipped, with zero retries and zero unhandled errors.
+- The acceptance rerun of the final first-stage source passed the complete Electron suite and `check:package`.
+- Issue 2 was updated to mark the first-stage groups complete.
 
-The complete macOS arm64 package gate passes all ten stages in 263.6s with one App build.
-All 12 runtime smoke scenarios pass in 40.2s.
-All 43 packaged scenarios pass in 153.2s with zero retries or skips.
-Static analysis, the recovery inventory, native loading, package resources, signature policy, installers, and checksums pass.
-The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
-
-The prior frozen installation and both audits remain applicable because the manifest and lockfile are unchanged.
-The audits report zero known vulnerabilities.
-The host retains Node 26.10.0 outside the declared Node 24 range, and pnpm selects the fixed 11.28.3 version.
-Tests use Electron 43.7.7 with Node 24.21.0 and ABI 148.
-Other platforms remain unverified for this stage.
-No code, dependency, commit, push, tag, or release change is part of this rerun.
-
-Evidence: [complete Electron suite](../../.cache/verification/1790947879429-65683-ce97f3a6/vitest-1790947879966-65684-d7c5e874.json),
-[package gate](../../.cache/verification/1790947903312-66308-d9867f99/stages-1790947903312-66308-d9867f99.json),
-[packaged scenarios](../../.cache/verification/1790947903312-66308-d9867f99/e2e-1790947990496-67541-35d05f7f.json),
-and [source inventory](../../.cache/verification/issue-2-stage-1/reverification-source.json).
-
-[Issue 2](https://github.com/ecwu/writellm/issues/2) now marks the three first-stage dependency groups complete and records the passing evidence.
-Its later-stage items remain unchecked, and the Issue stays open.
-The fetched Issue body matches the prepared body, including the local uncommitted-source and platform limits.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-issue-2-first-stage-acceptance-rerun).
 
 ## 2026-10-02 Issue 2 second-stage dependency migration
 
-The user approved the migration after the compatibility report.
-Kysely moves from 0.28.17 to 0.29.6.
-BlockNote core, React, shadcn, and math-block move together from 0.54.0 to 0.55.0.
-Vitest moves from 4.1.11 to 5.0.3 and retains its caret declaration.
-Other direct dependency declarations remain unchanged.
+- Second stage of Issue 2: Kysely 0.29.6, BlockNote 0.55.0 (with its popup patch kept), and Vitest 5.0.3.
+- BlockNote's floating UI move exposed an unreleased comment-creation mutation barrier. The comments
+  panel now releases it in `finally`.
+- Package acceptance passed. The first-stage commit is `de3f758`. Issue 2 was updated.
 
-Kysely uses its ESM distribution with the accepted Electron Node 24 runtime.
-The application retains its own migrations and does not use removed Kysely interfaces.
-The database schema and persisted content formats remain unchanged.
-The BlockNote popup patch retains both source and compiled distribution changes.
-The patch preserves the new portal and visibility behavior outside the repaired reference update effect.
-Tiptap remains unified at 3.31.4.
-ProseMirror Model, State, Transform, and View resolve to 1.25.12, 1.4.4, 1.12.2, and 1.42.6 respectively.
-Native inline-math input rules retain explicit extension registration.
-The editor characterization records the new dependency version.
-
-The exact Vitest 5.0.3 distribution still dispatches the legacy task-update event for the existing reporter.
-The final diagnostic remains authoritative for retry counts.
-The retry fixture uses genuine failed tests and expects the child runner to exit with code 1.
-It records one recovered test, two failed tests, and one skipped test.
-Its six attempts and three retries establish actual retry exhaustion and reporting behavior.
-The complete suite accepts the new default mock-history clearing without an override.
-
-Frozen installation passes with pnpm 11.28.3.
-The production dependency audit covers 765 packages, and the complete audit covers 1,176 packages.
-Both report zero known vulnerabilities.
-The focused Electron suite passes all 61 tests across 12 files in 3.5s.
-The complete Electron suite passes 1,638 tests across 266 files in 24.8s.
-Three opt-in benchmarks remain skipped, with zero retries and zero unhandled errors.
-The host retains Node 26.10.0 outside the declared Node 24 range.
-Tests use Electron 43.7.7 with Node 24.21.0 and ABI 148.
-
-Evidence: [complete Electron suite](../../.cache/verification/1790948836308-82443-0f413cb9/vitest-1790948836516-82466-27da2fea.json),
-[focused suite](../../.cache/verification/1790948809005-81950-4838c795),
-and [installation and audit records](../../.cache/verification/issue-2-stage-2).
-
-The initial package gate reaches packaged E2E and stops after 41 scenarios pass and two fail.
-BlockNote 0.55 moves floating UI into the editor container.
-The image assertions now count only manuscript content inside `.bn-editor`.
-Focused investigation also identifies an unreleased comment-creation mutation barrier.
-The editor remains read-only after the creation request finishes.
-The comments panel now releases this barrier in `finally` after the creation IPC settles.
-The existing error path and draft retention remain in place.
-The comment scenario now asserts editability, collapsed selection, actual inserted text, and a new rebase event.
-A temporary React-state diagnostic is removed after establishing the cause.
-
-The final source changes require a new matching App build.
-The complete Electron suite is rerun against those changes.
-It passes 1,638 tests in 20.9s, with three benchmark skips, zero retries, and zero unhandled errors.
-Evidence: [final complete suite](../../.cache/verification/1790949668926-97623-f8861ee7/vitest-1790949669395-97624-50e374e8.json)
-and [initial failure evidence](../../.cache/verification/issue-2-stage-2).
-
-The rebuilt App passes static analysis, the recovery inventory, native preparation, compilation, signature policy, resource inventory, and all 12 runtime smoke scenarios.
-Production compilation and native preparation together take 12.2s.
-Runtime smoke takes 40.1s.
-Its initial complete packaged run passes 42 scenarios and fails the comment scenario's synthetic focus assertion.
-The editor is now editable, but DOM focus alone does not restore the selection for keyboard input under the new floating UI.
-The scenario uses a real editor click, retains the editability and collapsed-selection assertions, and passes in a focused packaged run.
-
-Final acceptance reuses the seven passing stages because compiled inputs remain identical.
-It reruns all 43 packaged scenarios against that same App.
-All pass in 141.1s with zero retries or skips.
-The additional citation display, reference renumbering, and export scenario also passes against the packaged App in 3.6s.
-The continuation creates the DMG and ZIP from the tested App and runs the existing structural and checksum inspectors.
-The continuation passes in 169.0s without another build.
-Together, the retained stages and continuation satisfy all ten required package stages plus the extra citation scenario.
-The App ASAR hash remains identical through installer creation.
-The final non-document source inventory records the tested inputs.
-
-The App, DMG, and ZIP retain release metadata `0.2026.9.10`.
-Windows, Linux, and macOS Intel runtime results remain unverified for this stage.
-The first-stage commit is `de3f758`.
-Second-stage changes remain uncommitted and unpushed, with no tag or publication.
-
-Evidence: [retained package stages](../../.cache/verification/1790949691209-98233-1ba61ccf/stages-1790949691209-98233-1ba61ccf.json),
-[passing continuation](../../.cache/verification/1790950039121-5844-03258874/stages-1790950039121-5844-03258874.json),
-[complete packaged suite](../../.cache/verification/1790950039121-5844-03258874/e2e-1790950039520-5847-bbeef8eb.json),
-[citation scenario](../../.cache/verification/1790950039121-5844-03258874/e2e-1790950181115-7977-403b89da.json),
-and [combined package acceptance](../../.cache/verification/issue-2-stage-2/package-acceptance.json).
-
-[Issue 2](https://github.com/ecwu/writellm/issues/2) now marks all three second-stage groups complete and records the acceptance evidence.
-The read-back body matches the prepared update.
-The Issue remains open for its independent and deferred migrations.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-issue-2-second-stage-dependency-migration).
 
 ## 2026-10-02 Issue 2 independent TypeScript migration
 
@@ -4399,195 +1604,49 @@ The reviewed Mermaid parser and release are explicit minimum-age exceptions adde
 
 ## 2026-10-02 Issue 2 independent migrations final acceptance
 
-The final macOS arm64 package gate passes all ten stages in 267.7s with one App build.
-Report: `.cache/verification/1790951028615-20387-a2c2d33b/stages-1790951028615-20387-a2c2d33b.json`.
-Static analysis passes in 2.5s, recovery inventory in 0.1s, and production build in 15.6s.
-All 12 packaged runtime scenarios pass in 49.5s.
-All 43 packaged E2E scenarios pass in 152.5s, with zero retries, flaky results, failures, or skips.
-The packaged E2E wrapper takes 152.8s.
-Installers use the same tested App and complete in 25.8s. Artifact inspection passes in 0.2s.
-The DMG and ZIP retain release metadata 0.2026.9.10.
-The App has LSMinimumSystemVersion 13.0 and a no-Team-ID ad-hoc/linker signature.
+- Final acceptance of the independent Issue 2 migrations passed `check:package` on macOS arm64:
+  - TypeScript 7.
+  - Mermaid 12.
+  - better-sqlite3 13 on Node-API.
+  - Electron 44 with macOS 13 as the minimum.
+- The developer guide now describes Node-API loading. Issue 2 stayed open pending the other platforms.
 
-TypeScript acceptance: the native compiler passes Main/Renderer checks and the final matching production build.
-Mermaid acceptance: the packaged rich-media scenario proves diagrams, both themes, sanitized SVG, source/preview interaction, reopen, and Markdown export.
-Native database acceptance: the packaged inventory identifies the arm64 Node-API prebuild, and smoke checks prove sqlite-vec and app database integrity.
-The full suite and packaged snapshot scenario prove backup and recovery under the migrated library.
-Electron acceptance: the final App proves isolated Renderer, Main and worker execution, credentials, menus, clipboard, PDF, editor, and packaging on macOS arm64.
-The existing broad GTK default is unchanged by version 44. ANGLE now links into Electron rather than external libraries.
-
-The developer guide describes Node-API loading and removes obsolete Electron 43 ABI recovery guidance.
-The final non-document source inventory is `.cache/verification/issue-2-independent-source-inventory.json`.
-Source hashes remain matched to the tested App. Diff whitespace checks pass.
-Markdown is excluded from Biome; document review checks guidance and link consistency.
-Windows, Linux, and macOS x64 builds and runtime acceptance remain pending.
-No source-build fallback compilation or live-provider requests ran in this acceptance.
-Changes remain local and uncommitted, including the previous second-stage migration.
-No push, hosted build, tag, publication, signing identity, or notarization ran.
-
-Issue 2 now marks all four local migrations complete and records their acceptance evidence.
-It remains open with Windows, Linux, and macOS x64 acceptance explicitly pending.
-The updated issue body was read back and matched exactly.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-issue-2-independent-migrations-final-acceptance).
 
 ## 2026-10-02 Release 0.2026.10.1 preparation
 
-The user authorized a tag and public release after dependency maintenance.
-The package base changes to 0.2026.10, and release metadata changes to 0.2026.10.1.
-The existing tag-only build and successful-workflow publisher are active.
-The remote publisher matches the reviewed local workflow.
-The publisher checks all four native jobs, exact source/tag identity, package inventory, sizes, and SHA-256 before publication.
-It publishes Windows EXE, both macOS DMGs, and Linux AppImage as a normal Latest release.
-The existing unsigned distribution policy remains in effect.
-The signed release-candidate workflow remains disabled.
-Application source tests and audits remain applicable; the release-version package gate will run once.
+- Package base `0.2026.10`, release `0.2026.10.1`. The tag-only build and the successful-workflow server-side
+  publisher are active and publish four assets: Windows EXE, two macOS DMGs, and Linux AppImage.
+- Tag `v0.2026.10.1` points to `1eb808e`. Build `37022616070` passed.
+- The publisher failed once because an immediate list read missed the new draft. Correction `8b273fa`
+  consumes the creation response. Attempt 2 then published
+  [WriteLLM 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1).
 
-The release-version macOS arm64 package gate passes all ten stages in 253.8s with one App build.
-Static checks pass in 2.8s; the production build passes in 16.5s.
-All 12 packaged runtime scenarios pass in 39.2s.
-All 43 packaged E2E scenarios pass in 147.3s, with zero retries, flaky results, skips, or failures.
-The E2E wrapper takes 147.5s. DMG/ZIP creation and structure/checksum inspection pass.
-Report: `.cache/verification/1790952278094-39484-57f29c4a`.
-The complete 1,644-test application result remains applicable because only release metadata changed afterward.
-Nine tag/source tests and three publisher-state tests pass through the canonical Electron runner.
-An initial Node test-runner invocation of the Vitest fixture failed outside its required harness; the corrected canonical invocation passes.
-Frozen installation passes with pnpm 11.28.3.
-The final source inventory is `.cache/verification/release-02026101-source-inventory.json`.
-The local artifacts contain the pre-commit dirty state and are runtime evidence; CI will create the public artifacts from the immutable tag.
-The user-authorized release source will include the outstanding dependency migrations, version metadata, and release notes.
-
-Tag v0.2026.10.1 points to 1eb808e1c241cd101ca1701ae8b933fabc60a0f8 and is pushed with main.
-Clean tag/source verification passes.
-[Build 37022616070](https://github.com/ecwu/writellm/actions/runs/37022616070) passes static checks, recovery inventory, and all four native package jobs.
-[Publisher 37023943063](https://github.com/ecwu/writellm/actions/runs/37023943063) starts automatically through workflow_run.
-It verifies source and packages, creates an empty draft, then fails because an immediate release-list read does not return that draft.
-The publisher now consumes the structured creation response directly.
-It still checks the draft identity and notes, and it reuses matching existing drafts on retries.
-The application tag and original four-platform artifacts remain unchanged.
-
-Publisher remediation verification passes the three-stage static gate in 2.6s and seven focused Electron-hosted tests in 0.14s.
-Reports: `.cache/verification/1790953524910-59152-99bb6978` and `.cache/verification/1790953493071-58693-157bbaef`.
-The read-only publisher plan verifies the unchanged tag, exact revision, successful build, and four artifact identities.
-The default-branch publisher correction is authorized by the current release request.
-The existing workflow_run publication task will be retried against its original source build.
-
-Publisher correction 8b273fa is pushed to main.
-The original workflow_run task succeeds on attempt 2 in 77s, after one publication retry.
-The four-platform source build succeeds on attempt 1 in 11m 6s.
-[WriteLLM 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is public, non-prerelease, and Latest.
-All four expected assets are uploaded and expose SHA-256 digests.
-The server-side publisher checks those digests against the original build evidence before publication.
-No artifact is downloaded locally or rebuilt for the publication retry.
-The tag remains 1eb808e1c241cd101ca1701ae8b933fabc60a0f8.
-The public artifacts use that tag, while the trusted default branch supplies the corrected publisher.
-Evidence: `.cache/verification/release-02026101-ci.json`, `release-02026101-ci-run.json`, `release-02026101-publisher.json`, `release-02026101-publisher-run.json`, and `release-02026101-github.json`.
-Final readback confirms public status, Latest, and exactly four complete assets.
-Current delivery records are synchronized. Other-platform runtime tests remain outside this hosted build.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-02-release-02026101-preparation).
 
 ## 2026-10-03 Issue 3 Agent image input
 
-Implemented [Issue 3](https://github.com/ecwu/writellm/issues/3) under [ADR 085](../adrs/085-agent-image-input.md).
-Persistent Agent conversations accept image-only messages and mixed text with four PNG, JPEG, or static WebP attachments.
-The existing shadcn Attachment component supplies thumbnails, processing and error states, removal, and dialog previews.
-The Add menu, panel drop target, browser paste, and native clipboard fallback use bounded input interfaces.
-Imports remain bound to their initiating conversation when the user switches conversations.
-A failed import preserves text and successful attachments, and processing blocks send.
+- Implemented [Issue 3](https://github.com/ecwu/writellm/issues/3) under [ADR 085](../adrs/085-agent-image-input.md),
+  covering persistent Agent image input:
+  - Up to four PNG, JPEG, or static WebP attachments per message.
+  - Photon 0.3.4 decoding in the background worker.
+  - Originals and sending copies under `.writellm/agent-attachments/`, with migration 0048.
+  - A separate 32 MiB history image budget.
+  - Hash-only trace projection.
+- `pnpm test` and `check:package` passed.
 
-The existing background worker uses Photon 0.3.4 for actual decoding, EXIF orientation, resizing, and transparency preservation.
-Original limits remain 20 MiB, an 8192-pixel edge, and 40 million pixels.
-Sending copies remain below 4.5 MiB of Base64 and within 2000 pixels without enlargement.
-
-Main saves originals and sending copies under `.writellm/agent-attachments/` with relative paths and SHA-256 metadata.
-Migration 0048 uses the existing backup, integrity, and rollback protections.
-Publication writes recovery metadata before files, and canceled publication remains eligible for the 24-hour cleanup grace period.
-
-Project close drains canceled imports before database closure, and snapshot creation waits for active file publishers.
-
-Shared contracts bound image references and payloads across preload, Main, and workers.
-Main checks conversation ownership and model image capability before recording unsupported input.
-History rehydrates images after reopen, project moves, edits, and frozen forks.
-Steer and Follow-up preserve image parts through Pi serialization and retain queue references until consumption or removal.
-Raw events, including replaced history, protect referenced attachments from cleanup.
-
-History, pending input, and current requests use a separate 32 MiB image budget alongside the 2 MiB text and metadata budget.
-Pi image estimates determine token estimates, while actual provider usage remains authoritative.
-
-Compaction preserves the recent raw tail and sends selected older images to the summary model.
-Harness and provider traces replace image bytes with hashes, MIME types, dimensions, and byte counts.
-
-Verification selected focused Electron tests first because the feature crosses IPC, persistence, history, and worker boundaries.
-The complete suite then covered shared-contract and schema changes.
-Final `pnpm test` passes 1,672 tests across 271 files in 22.5s, with three opt-in benchmark tests skipped and no retries.
-Report: `.cache/verification/1791028619330-39212-152766ca`.
-
-The initial complete run passes 1,667 tests and exposes five historical downgrade-fixture failures.
-Those fixtures retained the new table or expected a version-47 backup name.
-Focused reruns pass after the fixtures remove the version-48 table and use the new backup name.
-The final complete suite confirms the corrected fixtures.
-
-Final `pnpm check:package` passes all ten stages in 250.8s with one production build.
-It includes static checks, 33 recovery cases, ASAR and WASM inventory, 12 packaged runtime checks, and all 44 packaged E2E scenarios.
-The E2E stage takes 143.5s, with zero retries, flaky scenarios, or skips.
-
-The image scenario processes real JPEG selection and PNG drop and paste, including the native clipboard fallback, inside the packaged application.
-It checks preview, removal, four-image limits, image-only send, edit resend, historical resend, compaction images, and text-only model rejection.
-It also checks asynchronous conversation changes, failed-import preservation, and normal desktop layout.
-
-DMG and ZIP artifacts use the same verified App.
-Report: `.cache/verification/1791028642785-39808-4001cf78`.
-
-
-The first package invocation passes its static, inventory, and runtime stages plus the 43 existing scenarios.
-Its new scenario fails because PopoverAnchor replaces the InputGroup slot attribute used by the locator.
-The corrected locator passes against the same App without another build.
-
-A later delayed-import fixture tries to replace a frozen preload function and cannot install its delay.
-The fixture now pauses the native dialog in Main, and the focused scenario passes.
-The final package invocation includes the finished lifecycle changes and corrected fixture.
-Final UI captures live under `test-results/agent-images-imports-selec-7a3e8--rejects-unsupported-models/`.
-
-The host uses pnpm 11.28.3 and Node 26.10.0.
-Node differs from the declared 24.x range, and the existing host toolchain remains unchanged.
-
-Tests use Electron 44.5.1, module ABI 149, and Node-API 10 for better-sqlite3 13.0.3.
-Native preparation selects `prebuilds/darwin-arm64.node` and the packaged sqlite-vec 0.1.9 resource.
-Runtime and installer acceptance covers macOS arm64 only.
-Windows, Linux, and macOS x64 remain unverified for this change.
-The implementation does not create a new release, tag, or published artifact.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-03-issue-3-agent-image-input).
 
 ## 2026-10-03 Agent image presentation refinement
 
-The user requested image presentation that follows three supplied Codex desktop screenshots.
-The existing shadcn Attachment, Tooltip, and Dialog components provide the refined presentation under ADR 085.
-Composer attachments use 80-pixel image-only thumbnails, with removal on hover or keyboard focus.
-History images preserve proportions within 160 pixels and appear above the separate text bubble.
-Image-only messages no longer render an empty text bubble.
-Queued images use 64-pixel thumbnails.
-Names, dimensions, and import errors remain available on hover or keyboard focus.
-Processing and error icons remain visible. Dialog previews show the name and dimensions above the full image.
-Thumbnail borders explicitly use the shared theme token.
+- Refined image presentation under ADR 085:
+  - 80 px composer thumbnails.
+  - Proportional history images up to 160 px, shown above the text bubble.
+  - 64 px queued thumbnails.
+  - Metadata in tooltips.
+- Renderer only. The unpacked App was rebuilt.
 
-Verification selected static checks and affected real Electron scenarios because this change affects only Renderer presentation.
-Final `pnpm check:fast` passes all three stages in 2.8s.
-Report: `.cache/verification/1791032267071-85962-2a62c442`.
-Final `pnpm package:unpack` passes four build and inventory stages in 39.5s.
-Report: `.cache/verification/1791032270954-86036-9131c5e5`.
-The preceding unpacked build takes 39.2s. Visual inspection then identifies the explicit border-token correction.
-The final build includes that correction.
-
-The final App passes image input, message copy/edit, and workbench sizing scenarios in 12.0s.
-All three pass with zero retries, failures, or skips.
-Coverage includes keyboard preview and restored focus, thumbnail bounds, image-only and mixed-text rendering, import routes, removal, history, and sidebar resizing.
-Report: `.cache/verification/1791032348543-87242-506389ba`.
-The earlier focused run also passes all three scenarios in 12.4s.
-A temporary visual probe uses a supplied screenshot in the same App and passes in 6.4s.
-Light and dark composer/history captures are inspected. The probe source is removed afterward.
-
-The tested App is `dist/macos-arm64/mac-arm64/WriteLLM.app`.
-The existing DMG and ZIP remain from the original image-input acceptance and precede this presentation refinement.
-The host uses pnpm 11.28.3 and Node 26.10.0. The declared Node range remains 24.x.
-Packaged coverage uses Electron 44.5.1 on macOS arm64. Other platforms are not tested for this refinement.
-The prior persistence and worker acceptance remains applicable because those sources do not change.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-03-agent-image-presentation-refinement).
 
 ## 2026-10-05 Conversation search timestamps
 
@@ -4608,40 +1667,11 @@ Runtime behavior on other platforms remains untested for this maintenance.
 
 ## 2026-10-05 Default tool tabs
 
-Outline, Find, References, Writing Rules, and Comments open as tabs in the closest existing left tool group.
-The shared opening path excludes content, right groups, bottom groups, and groups that contain Agent.
-If no eligible group exists, the tool opens in a new left group with its existing default width.
-Agent retains its separate right group by default.
-Opening an existing tool activates its current tab without moving it.
-Adding a tab preserves the group width and the available content width.
+- Left tools now open as tabs in the closest existing eligible left group. Agent keeps its right group.
+  Saved layouts and manual splits are preserved.
+- ADR 083 records the rule. No schema or IPC change.
 
-Saved layouts retain their tool groups, tab order, and active tool tab.
-Outline visibility synchronization no longer activates an existing Outline tab during restoration.
-Manual splits, movement, resizing, tab closure, and the default layout reset remain available.
-The layout schema, IPC, dependencies, and database migrations do not change.
-ADR 083 records the new placement rule. The current plan records delivery results.
-
-Verification selects the two workbench E2E files because the change affects tool opening and layout interactions.
-`pnpm check:e2e e2e/workbench.spec.ts e2e/workbench-sizing.spec.ts` passes six stages in 39.7s.
-Static checks cover 864 Biome files and both TypeScript targets in 2.8s.
-One production build takes 17.0s. Three real Electron scenarios pass in 18.6s with zero retries or skips.
-Report: `.cache/verification/1791196964294-99979-cda8df1d`.
-
-The added scenario covers grouped opening, resized widths, repeated activation, background closure, and grouped layout restoration.
-It also covers the closest split group, bottom and right exclusions, existing tool placement, reset, and final-tab space release.
-The sizing scenario reads the visible References width while Outline is inactive.
-The final test adds restoration of manually split groups without consolidation.
-`pnpm test:e2e e2e/workbench.spec.ts --grep 'opens left tools as tabs'` passes in 9.8s against the same build.
-That scenario takes 9.0s with zero retries or skips.
-Report: `.cache/verification/1791197043182-1160-a49a820a`.
-
-The host uses pnpm 11.28.3 and Node 26.10.0, outside the declared Node 24.x range.
-The sandbox pnpm wrapper stays silent during version selection. The commands use approved host access.
-Native preparation passes on Electron 44.5.1, ABI 149, and Node-API 10 on macOS arm64.
-It loads better-sqlite3 13.0.3 from `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 from the arm64 resource.
-Other platforms remain untested for this maintenance.
-The existing conversation timestamp edits remain intact. No package, release, commit, or push runs.
-Final `pnpm check` passes across 864 files in 351ms. The diff and updated guidance links also pass inspection.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-05-default-tool-tabs).
 
 ## 2026-10-05 Tool tabs App rebuild
 
@@ -4664,1867 +1694,206 @@ No version increment, installer, tag, hosted build, or release publication runs.
 
 ## 2026-10-14 Issue 16 legacy citation conversion
 
-[Issue 16](https://github.com/ecwu/writellm/issues/16) precedes the simplification batches in [Issue 4](https://github.com/ecwu/writellm/issues/4).
-The user authorizes implementation in that order and requires a pause before each issue closes for Claude review.
-The work keeps ADR 070 and the existing editor persistence rules.
-It adds no migration, dependency, Worker entrypoint, event channel, or packaging resource.
+- Implemented [Issue 16](https://github.com/ecwu/writellm/issues/16), legacy citation conversion, under ADR 070:
+  - Main commits revisions synchronously, then materializes each through `EditorPersistenceService`.
+  - Partial failures report the committed count and pending mirrors (`reference.legacy_conversion.materialization_pending`).
+  - Session authorization is rechecked during publication.
+  - Retention cleanup is shared through `pruneRevisionBodies`.
+- Renderer messages distinguish partial conversion from expiry.
+- Claude review accepted the change. It was committed and pushed, and Issue 16 was closed.
 
-Main owns conversion authorization and committed revisions in `project.sqlite`.
-The handler commits sections synchronously and collects changed revisions before the first asynchronous file publication.
-Each changed revision then uses `EditorPersistenceService.materialize`.
-A later append failure keeps the committed prefix and still schedules its publication.
-The result reports `failed` with the committed section count instead of implying a complete rollback.
-
-Publication failures retain database revisions and report pending section IDs.
-The `reference.legacy_conversion.materialization_pending` event records the original `err`, session, section, and revision IDs.
-`repairAll`, ordinary saves, and explicit publication remain recovery paths.
-Per-section publication queues and current-revision comparisons prevent an obsolete conversion from replacing a newer mirror.
-Conversion also passes a session authorization callback into publication.
-The callback runs at queued publication entry, before rename, and after the atomic write before database registration.
-The handler repeats authorization before retention cleanup.
-
-`EditorPersistenceService.pruneRevisionBodies` exposes the existing cleanup and failure log through one shared method.
-Ordinary saves and conversion use that method.
-Its retention SQL stays unchanged, including the current manual checkpoint and protected parent bodies.
-`ManuscriptService.appendRevision` remains the logger for its own failures.
-The handler records its own failures, including invalid plans, without repeating the service error.
-Renderer receives bounded outcome fields through the shared Zod schema and the typed desktop API.
-
-The plan still uses session identity, outline version, a ten-minute lifetime, and a sixteen-plan limit.
-Conversion still creates `manual_checkpoint` revisions and counts only changed sections.
-The conversion algorithm and its English and Chinese locator outputs stay unchanged.
-The handler consumes each plan once.
-This change removes the deferred-mirror gap and the Renderer branch that labels every failure as a manuscript change.
-
-Knowledge invalidates the existing workspace, section, reference, manuscript preview, and publication queries after committed changes.
-The existing editor accepts an external revision when clean.
-With an unsaved draft, it retains the local document, blocks stale saves, and presents the existing canonical reload action.
-Partial conversion and pending mirror repair share one message when both occur.
-Plan expiry and other failures use separate messages.
-
-Verification selects focused Electron tests and source E2E because this change affects IPC, persistence, and editor interactions.
-`pnpm test src/main/ipc/knowledge-ipc.legacy-conversion.test.ts src/main/ipc/knowledge-ipc.test.ts src/main/manuscript/editor-persistence-service.test.ts src/main/references/legacy-citation-conversion.test.ts src/shared/contracts/references.test.ts` passes.
-The canonical runner reports 43 tests across five files in 5.03s, with 5.5s for the command.
-There are no retries or skips.
-Report: `.cache/verification/1792009689021-92834-7ed271ae`.
-
-The eleven new integration cases use real project databases, revision writes, and materialization files.
-They cover publication, plan expiry, consumed plans, outline changes, session rejection, handler errors, and repair.
-They also cover synchronous commit ordering, partial commits with and without pending mirrors, session revocation, newer revisions, and retention.
-A SQLite trigger produces the partial append failure through the real service and its original-error logger.
-The initial regression reproduces the database/file mismatch after correction of a malformed paragraph fixture.
-An earlier focused run passes 35 tests in 5.3s.
-Static preflight failures expose fixture logger typing and formatting, both corrected before acceptance.
-
-`pnpm check:e2e e2e/legacy-citation-conversion.spec.ts` supplies the final static stages and one matching source build.
-Biome examines 866 files. Both TypeScript targets pass.
-The three static stages take 2.5s, and production compilation takes 14.7s.
-The final-source clean-editor and draft-conflict scenarios pass in 5.5s and 6.9s, respectively.
-The error-message scenario initially fails because its fixture uses dynamic import inside a Playwright callback.
-This is a fixture failure after successful Electron launch, rather than a sandbox or product failure.
-The callback then uses the documented Node builtin loader within Main.
-Sources: [Playwright Electron evaluation](https://github.com/microsoft/playwright/blob/v1.63.0/docs/src/electron-api/class-electronapplication.md)
-and [Node builtin loading](https://nodejs.org/api/process.html#processgetbuiltinmoduleid).
-Report: `.cache/verification/1792009763949-93813-fb176fe9`.
-
-`pnpm test:e2e e2e/legacy-citation-conversion.spec.ts --grep 'distinguishes an expired conversion review'` reuses that build.
-The corrected scenario passes in 5.6s, with 6.3s for the command.
-It uses real stale-plan rejection and a real SQLite append failure to exercise both UI messages.
-Report: `.cache/verification/1792009860886-95305-b684a625`.
-All three distinct scenarios pass across retained results with zero automatic retries or skips.
-The draft scenario crosses the autosave interval and proves that an old base cannot replace the conversion.
-It also proves that explicit canonical reload replaces the preserved draft only after the user action.
-Two source builds run during this task, one per combined invocation.
-The second build includes the final combined error message. The fixture-only rerun adds no build.
-
-The host uses Node 26.11.1 and project-pinned pnpm 11.28.3.
-The declared Node range remains `>=24.21.0 <25`, so the host emits an engine warning.
-The installed pnpm entry reports 11.17.0 before selecting the project version through approved host access.
-Native preparation passes with Electron 44.5.1, ABI 149, and Node-API 10 on macOS arm64.
-It selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 at the arm64 resource.
-Windows and Linux runtime behavior remains untested for this maintenance.
-The changed boundaries do not require a package gate under the repository rules.
-The changes remain in the local working tree for review, without a commit, push, or issue closure.
-The pre-existing untracked dependency audit remains untouched.
-
-Claude reviews the Issue 16 working tree on 2026-10-14 and accepts it without source changes.
-Rerunning `pnpm check:fast` passes in 2.6s. The same five focused Electron test files pass 43 tests in 5.6s.
-`pnpm test:e2e e2e/legacy-citation-conversion.spec.ts` reuses the matching build and passes all three scenarios in 13.1s with zero retries.
-The change is committed and pushed, and Issue 16 is closed. The untracked dependency audit stays outside this commit.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 
 ## 2026-10-14 Issue 5 Agent tool definition cleanup
 
-The user reports that Claude accepts Issue 16 and pushes commit `e477e9a` to `main`.
-GitHub closes Issue 16 through its commit message.
-[Issue 5](https://github.com/ecwu/writellm/issues/5) is the next implementation in the [Issue 4](https://github.com/ecwu/writellm/issues/4) sequence.
-The user requires a pause before each issue closes for Claude review.
-The implementation keeps ADR 067, its union projection amendment, and the subsequent Agent authority rules.
+- Issue 16 was pushed as `e477e9a`.
+- [Issue 5](https://github.com/ecwu/writellm/issues/5) removed 15 unused Worker TypeBox parameter exports,
+  the commented registry, and the `AgentReadToolBridge` alias. `agent-tools.ts` went from 1,066 to 215 lines,
+  and the active bridge is byte-for-byte unchanged.
+- Tests now inspect the authoritative shared Zod schemas, including minimum argument fixtures for all 22 tools.
+- Claude review accepted the change. It was committed and pushed, and Issue 5 was closed.
 
-The Worker removes 15 unused TypeBox parameter exports and their supporting definitions.
-It also removes the commented tool registry and the test-only `AgentReadToolBridge` alias.
-Imports for `Type`, mutation limits, result limits, section pagination, and supported Knowledge extensions become unnecessary and are removed.
-Production `agent-tools.ts` decreases from 1,066 to 215 lines, a reduction of 851 lines.
-A comparison against the prior commit proves that the active bridge class and its runtime helpers remain byte-for-byte unchanged.
-A source-wide reference scan finds no remaining use of the removed exports or alias.
-The `typebox` dependency remains necessary for `typebox/value` in session execution and the shared schema type.
-
-Shared Zod contracts retain authoritative argument validation in Main.
-`agentModelVisibleToolSpecs` remains the model parameter projection used by `AgentToolBridge.tools()`.
-The bridge retains capability binding, request correlation, cancellation, closed-port rejection, and trusted or untrusted result envelopes.
-Main retains authorization, version guards, approval authority, and mutation serialization.
-No dependency, migration, shared production contract, Worker entrypoint, or packaging resource changes.
-
-Tests now inspect the actual shared schemas instead of the unused Worker copies.
-Field and limit assertions compare the generated model parameters with the authoritative Zod projection.
-The read-section assertions include the table branch and its row limit.
-The outline test reads the actual `oneOf` branches and proves that the created section reference has no UUID requirement.
-Recursive capability assertions cover all 22 tools and their nested parameters.
-They exclude project, conversation, run, and model-request capabilities, plus filesystem, SQL, and command fields.
-The bridge test compares every execution mode with the shared descriptors and permits parallel execution only for read effects.
-Minimum argument fixtures now cover all 22 tools, including the four comment tools.
-Each fixture passes Pi validation, Main request parsing, and Pi validation after Main defaults.
-Existing Ask, Plan, Write, Notebook, response-correlation, result-envelope, and cancellation tests remain active.
-
-Verification selects `pnpm check:fast` and focused Electron tests, as required by the Issue 5 implementation review.
-The runtime bridge remains unchanged, so this cleanup does not require a build, E2E, or package gate.
-`pnpm test src/workers/agent-tools.test.ts src/shared/agent-tool-specs.test.ts src/shared/contracts/agent-tools.test.ts` passes.
-The canonical runner reports 27 tests across three files in 320ms, with 0.5s for the command.
-There are zero retries or skips.
-Report: `.cache/verification/1792011141960-14908-2bab1984`.
-The same selected baseline passes 27 tests in 1.1s before implementation.
-An intermediate assertion assumes the old `anyOf` structure and fails against the actual generated `oneOf` schema.
-Only the test assertion changes before the successful focused rerun. There is one corrective rerun and no automatic retry.
-
-`pnpm check:fast` passes all three static stages in 2.5s.
-Biome examines 866 files, and both TypeScript targets pass.
-Report: `.cache/verification/1792011144751-15013-aac26768`.
-Biome formatting and the final diff inspection pass.
-The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
-Node remains outside the declared `>=24.21.0 <25` range and emits the existing engine warning.
-Focused tests use the canonical Electron runner on macOS arm64.
-Windows and Linux runtime coverage remains outstanding for this cleanup.
-Changes remain in the working tree for Claude review, without a commit, push, or issue closure.
-The pre-existing untracked dependency audit remains untouched.
-
-Claude reviews the Issue 5 working tree on 2026-10-14 and accepts it without source changes.
-The production diff against `e565309` contains only deletions, and no source reference to the removed exports or alias remains.
-Rerunning `pnpm check:fast` passes in 2.6s. The same three focused Electron test files pass 27 tests in 0.8s with zero retries.
-The change is committed and pushed, and Issue 5 is closed. The untracked dependency audit stays outside this commit.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
 
 ## 2026-10-14 First-batch simplification
 
-The user reports that Claude accepts Issue 5 and pushes commit `1fe7e7a` to `main`.
-The user then groups Issues 8, 10, and 11 into one implementation and review batch.
-This request replaces the earlier requirement to pause after each individual issue for this batch.
-The batch includes both parts of Issue 11, including its ProjectRuntime cancellation entrypoint.
-That entrypoint does not depend on the Agent fixture changes planned for Issue 7.
-The user retains Claude review before commit and issue closure.
+Issue 5 was pushed as `1fe7e7a`. Issues 8, 10, and 11 were implemented and reviewed as one batch:
 
-### Issue 8: Catalog snapshot ownership
+- [Issue 8](https://github.com/ecwu/writellm/issues/8): the ten catalog write methods return `void`, and
+  ProviderService builds one snapshot per settings response.
+- [Issue 10](https://github.com/ecwu/writellm/issues/10) shares only behaviorally identical algorithms,
+  with pre-extraction hash snapshots and probes proving equality:
+  - Worker provider errors (`agent-provider-errors.ts`).
+  - Trace JSON.
+  - Four fingerprint serializers (`shared/canonical-json.ts`).
+  - Manuscript search scope.
+  - PDF and LaTeX table layout.
+- [Issue 11](https://github.com/ecwu/writellm/issues/11):
+  - Removed the unused finish and lease-expiry close policies, so every job aborts and requeues.
+  - Added `ProjectRuntime.cancel()` as the IPC entrypoint.
+  - JobStore is unchanged.
 
-[Issue 8](https://github.com/ecwu/writellm/issues/8) removes the directory snapshot discarded by each ProviderService write wrapper.
-The ten AgentProviderCatalogService write methods now return `Promise<void>`.
-ProviderService remains the production caller and constructs the final settings response with one catalog snapshot.
-Fifteen catalog test assertions now read snapshots explicitly after writes.
-A regression test uses the real catalog, settings service, and application database.
-It counts one snapshot for each preset save, manual-model save, and model-availability update.
+`check:package:smoke` and six packaged E2E scenarios passed. Claude review accepted the batch. Each
+issue was committed separately, pushed, and closed.
 
-The catalog retains credential binding, encrypted storage, defaults, manual overlays, refresh failure recovery, and frozen model resolution.
-The existing legacy migration remains in its snapshot path.
-This batch does not add caching or move migration into a separate initialization lifecycle.
-ADR 008 remains authoritative for catalog state, credentials, and run snapshots.
-
-### Issue 10: Shared algorithms
-
-[Issue 10](https://github.com/ecwu/writellm/issues/10) shares only implementations with matching behavior.
-The six provider error functions move to `workers/agent-provider-errors.ts`.
-The moved block matches both original Worker implementations byte-for-byte after removal of the export modifiers.
-It retains the original cause object, status precedence, code conversion, and assistant error message.
-The diagnostic module retains its separate defensive property reader because it accepts functions and handles throwing getters.
-Reusing that reader would change the Worker behavior.
-Both request paths now share `traceJsonValue` in the existing trace image redaction module.
-The JSON round trip, image redaction, and nonserializable-root error remain unchanged.
-
-Four matching fingerprint serializers move to `shared/canonical-json.ts`.
-Before the callers change, a probe compares all four old implementations against five fixed inputs.
-The fixtures record literal outputs and SHA-256 hashes, including undefined object members, sparse arrays, and nonfinite numbers.
-A sixth test retains the old undefined-root result.
-The new helper uses the existing implementation without changing its historical output.
-Manuscript content, export, model-request, and trace serializers retain their different validation and omission rules.
-Publication assembly, reference import, bibliography comparison, and citation formatting use the shared compatible helper.
-
-Search and replacement share selection, section projection, and heading paths through `manuscript-search-scope.ts`.
-The shared scope input contains only the existing scope and status fields.
-Traversal, order, revision references, and filtering remain unchanged.
-The Agent snapshot heading helper remains separate because it has a different input boundary.
-No ancestry cache or performance rewrite is added.
-
-PDF and LaTeX share cell placement, column counting, and width normalization through `publication-table-layout.ts`.
-The width function accepts the two existing output units, fractions and percentages.
-Its partial-width branches retain each format's arithmetic order rather than converting one rounded representation into the other.
-Before extraction, 14 snapshots record hashes of the complete LaTeX and PDF HTML outputs across seven width cases.
-The final tests compare those same hashes without updating the snapshots.
-An additional probe compares both old width functions with the shared function over 1,006 inputs.
-All 2,012 comparisons pass with exact numeric equality, including nonfinite aggregate edge cases.
-Header, span, alignment, and format loss behavior remain governed by ADRs 030, 031, and 066.
-
-### Issue 11: Job close and cancellation
-
-[Issue 11](https://github.com/ecwu/writellm/issues/11) removes the unused finish and lease-expiry close choices.
-All seven registered job types already use abort-and-requeue behavior.
-The registry removes the policy type, policy field, and default table.
-Six production registrations stop repeating the same value.
-The scheduler always aborts running handlers when parking and uses one close requeue branch.
-Its unreachable alternate close branch is removed.
-
-JobStore retains the transaction that decides cancellation versus close requeue.
-The entire JobStore source remains unchanged.
-Lease ownership, heartbeat, worker termination, attempt accounting, and recovery semantics remain intact.
-ProjectRuntime retains construction and the five existing lifecycle methods.
-Its new `cancel()` method forwards cancellation to the scheduler.
-Job and Knowledge IPC use this lifecycle entrypoint rather than reaching into the scheduler.
-An integration test cancels real active work through ProjectRuntime and observes the durable cancelled state.
-The ProjectManager runtime replacement seam remains available and covered by its existing tests.
-
-### Verification and review handoff
-
-The batch selects focused Electron tests because it changes catalog writes, shared algorithms, and project lifecycle boundaries.
-Moving Worker runtime code also selects package smoke and affected E2E against the same App.
-There is one App build, with no repeated build between the E2E selections.
-The architecture decisions and application authority boundaries remain unchanged.
-Production TypeScript decreases by 262 lines after inclusion of the new helper modules.
-The removed duplicate definitions and branches provide the structural evidence, rather than the line count alone.
-
-The focused command is:
-
-```sh
-pnpm test \
-  src/main/providers/provider-service.test.ts \
-  src/main/providers/agent-provider-catalog.test.ts \
-  src/main/ipc/provider-ipc.test.ts \
-  src/main/ipc/job-ipc.test.ts \
-  src/main/ipc/knowledge-ipc.test.ts \
-  src/main/jobs/scheduler/job-scheduler.test.ts \
-  src/main/jobs/scheduler/worker-supervisor.test.ts \
-  src/main/jobs/job-store.test.ts \
-  src/main/project/project-manager.test.ts \
-  src/main/search/index-service.test.ts \
-  src/main/manuscript/manuscript-search-service.test.ts \
-  src/main/manuscript/manuscript-replacement-service.test.ts \
-  src/main/manuscript/latex-publication.test.ts \
-  src/main/manuscript/pdf-publication.test.ts \
-  src/main/manuscript/docx-publication.test.ts \
-  src/main/references/reference-import-parser.test.ts \
-  src/main/references/reference-bibliography-export.test.ts \
-  src/shared/canonical-json.test.ts \
-  src/shared/contracts/publication.test.ts \
-  src/workers/agent-model-request.test.ts \
-  src/workers/agent-session-run.test.ts \
-  src/workers/citation-formatter.test.ts
-```
-
-All 208 tests pass across 22 files in 6.12s, with 6.6s for the command.
-There are zero retries or skips.
-Report: `.cache/verification/1792012072034-30617-289004e2`.
-The earlier hash baseline passes 32 tests and records 14 snapshots in 1.0s before extraction.
-Report: `.cache/verification/1792011783100-26919-9f382355`.
-Formatting initially rejects the intentional sparse array literal. A sparse array constructor preserves the fixture while satisfying Biome.
-
-`pnpm check:package:smoke` passes six stages in 78.1s on macOS arm64.
-Its fast static stages cover 871 Biome files and both TypeScript targets in 2.6s.
-Native preparation takes 0.7s, and production compilation takes 15.0s.
-App packaging takes 20.5s. Signature policy and package inventory pass.
-All 12 packaged runtime scenarios pass in 38.7s.
-They cover worker inventory, provider failure fallback, databases, stale sessions, and centralized error logging without private data leaks.
-Report: `.cache/verification/1792012107514-31150-ddb8945d`.
-
-The selected packaged E2E commands use this executable from the repository root:
-
-```sh
-WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
-  pnpm test:e2e e2e/project-lifecycle.spec.ts e2e/parsed-knowledge.spec.ts e2e/agent-table.spec.ts \
-  --grep 'configures provider metadata|creates, removes recent pointers|imports with visible progress|creates, edits, reopens, exports'
-
-WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
-  pnpm test:e2e e2e/writing-workspace.spec.ts \
-  --grep 'finds current manuscript text|previews, selects, and atomically applies'
-```
-
-The first command passes four scenarios in 20.6s, with 21.0s for the command.
-It covers provider settings, project restart, Knowledge cancellation, and Agent table authoring, conflicts, and exports.
-Report: `.cache/verification/1792012249886-33211-1b724bc8`.
-The second command passes search navigation and safe replacement in 3.5s, with 3.9s for the command.
-Report: `.cache/verification/1792012323902-34220-6c0f7ecb`.
-All six scenarios use the same App and record zero retries or skips.
-`node scripts/verify-recovery-fixtures.mjs` passes the inventory for 33 cases across 31 source files.
-This inventory examines source names and test declarations. It does not run another test suite.
-
-The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
-The existing Node engine warning remains because the project declares `>=24.21.0 <25`.
-Native preparation uses Electron 44.5.1, ABI 149, and Node-API 10.
-It selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9 from the arm64 resource.
-The App inventory contains 34,434 ASAR entries and arm64 native binaries.
-The App retains the permitted no-Team-ID ad-hoc/linker signature and release metadata `0.2026.10.1`.
-Windows and Linux runtime coverage remains outstanding.
-No dependency, migration, installer, release, commit, push, or issue closure runs for this batch.
-All three issues remain open for the combined Claude review, and the goal pauses at that handoff.
-The pre-existing untracked dependency audit remains untouched.
-
-Claude reviews Issues 8, 10, and 11 on 2026-10-14 and accepts them without source changes.
-ProviderService is the only production caller of the ten catalog write methods.
-The moved Worker provider error block matches both originals byte-for-byte apart from export modifiers.
-Search scope and table layout extractions keep the original logic, and the width function matches both old units on every branch.
-With the previous LaTeX and PDF renderers temporarily restored, all 14 new export hash snapshots pass, which confirms that the snapshots record pre-extraction output.
-The scheduler close branch now precedes cancellation, so the removed close-only return was unreachable. JobStore still decides cancellation versus close requeue.
-No production code accesses `runtime.scheduler` directly.
-Rerunning `pnpm check:fast` passes in 2.6s across 871 Biome files. The same 22 focused Electron test files pass 208 tests in 6.4s with zero retries.
-The package smoke and six packaged E2E scenarios above still cover the unchanged final source.
-Each issue is committed separately and pushed to `main`, and all three issues are closed. The untracked dependency audit stays outside these commits.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-first-batch-simplification).
 
 ## 2026-10-14 Second-Batch Simplification
 
-The user authorizes Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) together under the Issue 4 sequence.
-Claude accepts and closes the first batch before this work starts.
-Both second-batch issues await combined Claude review before commit or closure.
+Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9)
+were implemented and reviewed as one batch.
 
-### Issue 6: Save validation and normalization
+- **Issue 6, save normalization**:
+  - Validated callers use the typed `ManuscriptService.appendValidatedRevision()`, while `appendRevision()` keeps validating direct callers.
+  - One recursive traversal normalizes Math, Diagram, and figure metadata.
+  - Fresh revisions reuse the prepared document.
+  - A no-comment save drops from eleven whole-document parses to five.
+  - Five pre-change snapshots of JSON, hash, and counts pass unchanged.
+- **Issue 9, ordinary reads**:
+  - `OpenedDatabase.read(callback)` runs synchronous related reads on the Main-owned connection with no write
+    reservation. This relies on Main being the sole writer of `project.sqlite`.
+  - The manuscript repository, assembly, workspace, and Agent session projections use it. Advisory guards stay advisory.
 
-Editor IPC validates each incoming document with `saveSectionDocumentInputSchema`.
-Final flush IPC uses `finalFlushSaveInputSchema` and retains sender, session, and token authorization.
-Main import plans pass their contracts, and active-section flattening passes `blockNoteDocumentSchema` before persistence.
-These callers enter `EditorPersistenceService.save()` with a validated document.
-Persistence now uses the typed `ManuscriptService.appendValidatedRevision()` entrypoint.
-That method still parses revision metadata, restricts source classes and lineage, and validates the final normalized document before writing.
+Claude review accepted the batch. Each issue was committed separately, pushed, and closed.
 
-`appendRevision()` remains the validating entrypoint for direct callers, including legacy citation conversion.
-Agent mutation storage retains its existing document boundary and `prepareSectionContent()` entrypoint.
-Creation, import batches, replacement, undo, and migrations retain their existing preparation calls.
-`prepareSectionContent(unknown, sectionId?)` keeps its signature and behavior.
-No historical hashes, schema versions, or migration sources change.
-
-One recursive traversal now normalizes plain Math and Diagram source plus figure metadata.
-Each plain source block still passes its strict local contract before adjacent text merges.
-One final document contract replaces the two consecutive whole-document parses in figure normalization.
-The canonical serializer, hash function, citation filtering, and counting rules remain unchanged.
-
-Freshly inserted revisions reuse the prepared document after commit.
-No-op retries and historical reads still decode the authoritative stored row.
-Metadata, counts, source, lineage, and revision identity still come from that row.
-The regression test compares the fresh result with a separately decoded stored revision.
-It also proves that retries return the same revision and decode the stored body.
-
-For a new editor save, the main chain drops from eight whole-document contract parses to three.
-Those three belong to inbound IPC, final normalization, and outbound IPC.
-This count excludes serialization, text extraction, contract refinements, and comment-anchor reconciliation.
-Comment anchors still decode the current head inside the write transaction, even when the section contains no comments.
-That decode now uses two whole-document parses instead of three because it shares the combined normalizer.
-The observed no-comment save therefore drops from eleven whole-document parses to five.
-The test observes one decode inside the transaction and none for the returned fresh revision after commit.
-No benchmark or wall-clock performance claim follows from these counts.
-
-Before production edits, five fixed snapshots record JSON, SHA-256, word count, and character count from the old implementation.
-They cover an empty document, nested Unicode prose with citations and inline Math, split Math and Diagram source, and two figure metadata cases.
-The figures cover deterministic missing metadata plus preserved explicit identity and empty alternative text.
-The same snapshots pass after refactoring without regeneration.
-Baseline command: `pnpm test src/main/manuscript/content.test.ts --update`.
-All 16 tests pass in 0.7s, and five snapshots are written before the implementation changes.
-Report: `.cache/verification/1792013307818-53340-ff8c87ba`.
-
-Version and hash comparisons, asset reference protection, current-pointer updates, and comment anchor changes remain inside the original immediate transaction.
-Identical-content retries retain their existing behavior before stale-base rejection.
-Materialization, retention, repair, and project-session authority retain their existing behavior.
-
-### Issue 9: Ordinary reads and write transactions
-
-`OpenedDatabase.read(callback)` invokes one synchronous callback on the existing Main-owned connection.
-It does not open a transaction or reserve a write lock.
-It retains the same closed-database rejection as `immediate()`.
-Related reads stay together in one callback with no asynchronous boundary.
-This choice relies on the supported Main sole-writer ownership of `project.sqlite`.
-It adds no snapshot API, generic query framework, performance promise, or stronger isolation claim.
-
-`ManuscriptRepository` uses `read()` by default.
-When a caller supplies an existing transaction connection, repository reads use that connection directly.
-`ManuscriptService.assemble()` and `getWorkspace()` each collect related records in one synchronous read callback.
-Agent session projections retain their related fork, replacement, edit, and writing-task queries in their existing synchronous callback.
-`#requireSessionRecord()` uses that projection. `#assertCompatibleSession()` and `#sessionModelSelection()` also use ordinary reads.
-Other Agent query paths and all Agent write transactions stay outside this narrow migration.
-
-Editor `#currentRevisionId()` and `#isCurrentMaterialization()` use ordinary reads.
-The publication guard remains advisory, and materialization registration repeats the current-revision comparison inside its write transaction.
-The Agent compatibility preflight also remains advisory across later asynchronous work.
-Its previous immediate read ended before that work and provided no reservation across it.
-These changes preserve that behavior rather than introduce a new atomicity guarantee.
-
-Real-database tests read committed values while another connection holds an immediate write reservation.
-They also prove that `read()` joins an existing write transaction on the same connection and preserves complete rollback.
-Manuscript tests prove that assembly and workspace projection each use one read callback.
-They also prove that append checks use one write transaction with no separate repository read callback.
-Agent tests prove that complete session projections use reads rather than write transactions.
-The two delivery-failure tests now inject failures through `read()`, which remains the same operational failure boundary.
-The explicit ProjectDatabase fixture in trace tests gains the new read method.
-
-### Verification
-
-The selected scope covers contracts, canonical content, migrations, database access, persistence, imports, assets, comments, IPC, Agent sessions, and project lifecycle.
-These changes affect persistence and IPC. They require focused Electron tests plus real Electron scenarios against one fresh build.
-They do not alter native modules, worker entrypoints, package resources, dependencies, or packaging configuration.
-No package gate or installer build runs for this batch.
-
-The first Electron selection runs 233 tests across 23 files in 9.7s.
-It records 229 passes and four test failures.
-The failures expose two delivery tests that inject at the old transaction entrypoint and two incorrect new assertions.
-The new assertions used the wrong public session method and omitted the transaction-owned comment-anchor decode.
-After those corrections, the focused rerun covers 74 tests across six files in 5.7s.
-It records 73 passes and one session assertion mismatch because the read result includes existing projection metadata.
-The final `pnpm test src/main/agent/session-service.test.ts` run passes all 21 tests in 3.6s.
-Final results across these selections cover 271 distinct passing tests across 27 files, with zero automatic retries or skips.
-Results from unchanged passing tests remain valid. Only affected checks repeat.
-Reports:
-
-- `.cache/verification/1792013455781-55402-4d5a6f97`
-- `.cache/verification/1792013532212-56436-4770c124`
-- `.cache/verification/1792013571855-57019-ab0a70c1`
-
-The selections include `src/main/db/`, shared manuscript contracts, content, manuscript services, persistence, imports, assets, comments, and replacement.
-They also include editor, manuscript, and Knowledge IPC, all eight Agent session test files, trace tests, and ProjectManager.
-Migration tests cover 0028 citation counts, 0033 figure metadata, and 0038 Math and Diagram content.
-The initial type check exposes a missing validated-input type and a mapper that receives an array index as its new optional argument.
-Both are corrected before the passing combined gate.
-
-The repository-root command runs static checks, one build, and selected source E2E:
-
-```sh
-pnpm check:e2e e2e/writing-workspace.spec.ts e2e/legacy-citation-conversion.spec.ts e2e/agent-model-configuration.spec.ts \
-  --grep 'preserves editor selection|retains input and serializes saves|edits a brief and nested outline|surfaces a stale section conflict|reviews and applies a Main-owned hashed Markdown import plan|renders and reopens project images|conversion|uses edited model metadata'
-```
-
-All six stages pass in 45.9s.
-Static stages cover 872 Biome files and both TypeScript targets in 2.5s.
-Native preparation takes 0.8s. The single source build takes 15.2s.
-All ten source scenarios pass in 27.0s, with 27.4s for the E2E stage and zero retries or skips.
-They cover save continuity, delayed responses, conflicts, import, outline and content reopening, and rich media.
-They also cover all three legacy conversion outcomes and Agent model configuration.
-Report: `.cache/verification/1792013574897-57101-ed799e76`.
-
-The final diff and new documentation links pass inspection.
-Biome excludes Markdown, so its file-specific invocation reports no processed files.
-The passing combined gate covers every supported source file.
-
-The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
-The existing engine warning remains because the project declares `>=24.21.0 <25`.
-Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
-It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
-Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
-Both issues remain open and uncommitted, and the goal pauses for Claude review.
-The pre-existing untracked dependency audit remains untouched.
-
-### Claude review
-
-Claude reviews both issues against the working tree and accepts them without code changes.
-Issue 6: every `EditorPersistenceService.save()` caller validates the document first.
-Editor and final-flush IPC parse `blockNoteDocumentSchema`. Import plans parse their plan contract, and multi-section flattening parses the document again.
-`appendValidatedRevision()` still parses metadata and applies the final `currentBlockNoteDocumentSchema` before the write transaction.
-Reusing `prepared.content` matches the stored decode: the canonical JSON differs only in key order, `canonicalize()` rejects `undefined`, and figure normalization is idempotent.
-Issue 9: only Main opens `project.sqlite`, and Workers open only `index.sqlite`. Synchronous `read()` callbacks therefore cannot interleave with another writer.
-Materialization registration repeats its current-revision check inside `immediate()`.
-`pnpm check:fast` passes in 2.5s across 872 Biome files. Focused Electron tests pass 248 of 248 tests across 30 files in 6.0s with zero retries.
-They cover `src/main/db`, content, manuscript service, persistence, import, Agent sessions, traces, editor IPC, legacy conversion, and shared contracts.
-The fresh-build E2E gate above still covers the final production source, so it is not rerun. Coverage remains macOS arm64 only.
-Report: `.cache/verification/1792013914881-66674-19e9e182`.
-Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-second-batch-simplification).
 
 ## 2026-10-14 Third-Batch Simplification
 
-The user authorizes the third batch, Issues [7](https://github.com/ecwu/writellm/issues/7) and [11](https://github.com/ecwu/writellm/issues/11).
-Issue 11 already includes both its first-batch policy removal and third-batch lifecycle boundary in commit `df3d1f89`.
-That issue remains closed. This batch examines its final implementation and repeats its affected tests without another source change.
-Issue 7 remains open and uncommitted for Claude review.
+- [Issue 7](https://github.com/ecwu/writellm/issues/7), production service ownership:
+  - ProjectManager requires the complete Knowledge runtime factory and all feature services.
+  - AgentSessionService requires all its dependencies.
+  - IPC dropped repeated service-presence guards.
+  - Every run, title, and compaction resolves the selected catalog model, and the singleton
+    `withConfiguredProvider('agent')` branch and `legacyModelLimits()` were removed.
+- [Issue 11](https://github.com/ecwu/writellm/issues/11)'s lifecycle boundary was already complete in
+  `df3d1f89`, and its tests were repeated.
+- Claude review found a regression, and the user approved the correction: sessions with a NULL selection adopt
+  and persist the catalog default (`agent.session.model_selection_defaulted`). ADR 008 records the rule.
+- The quick-action floating-menu E2E failure also reproduced on the baseline App and was left open.
+  It was later resolved by the 2026-10-15 test-suite audit.
+- Issue 7 was committed, pushed, and closed.
 
-### Issue 7: Production service ownership
-
-The sole production `createKnowledgeRuntime` implementation creates the complete feature graph in Main.
-ProjectManager now requires that factory, all ten feature services, the handler registry, and worker termination.
-ProjectContext no longer represents those services as missing or nullable.
-ProjectManager rejects an absent factory during construction.
-A service assembly failure still follows the existing cleanup path for the database and project write lock.
-A new test injects that failure, observes the original logged error, and opens the same project through a fresh manager.
-Lifecycle tests use one complete fake runtime factory. The deferred-index test replaces only its index service.
-
-AgentSessionService requires its runtime, catalog, context builder, Skill router, tool executor, Writing Task service, and attachment service.
-Its constructor rejects a missing dependency before any session work.
-Agent IPC also requires its catalog and returns non-null session services from the existing project authority helpers.
-Agent, mutation, Notebook, Knowledge, and search IPC remove repeated service-presence guards and optional calls.
-Index preparation and unavailable state still belong to ProjectIndexService.
-MinerU and provider configuration failures still belong to their services.
-All sender authorization, project-session revocation, mutation permission, and post-await state checks remain intact.
-The local construction closure still waits for the runtime assignment before import callbacks use it.
-
-### Catalog execution and compatibility
-
-The Agent test factory first gains a selected default catalog model, a real context builder, explicit tools, attachments, and Writing Task dependencies.
-The catalog-use test observes exactly one resolution and requires the Worker descriptor and persisted catalog limits.
-Custom capacity tests now change catalog model metadata rather than inject a legacy limits resolver.
-The edit preparation tests inject catalog resolution failures and history races at the production boundary.
-Every FakeAgentRuntime execution asserts that it receives a preset and runtime model descriptor.
-
-The fixture also supplies an empty Skill router.
-Most unit cases wait for the fake run to leave routing before using its synchronous test controls.
-Cases with an explicit router observe the production pending-on-return behavior directly.
-This readiness wait belongs only to the test helper.
-Production removes its separate no-Skill-runtime ready-on-return branch and its preparation barrier.
-Skill preparation, cancellation, title generation, compaction, and admission ownership retain the existing production order.
-
-Every writing run, title request, and compaction resolves the selected catalog model.
-The same resolved result supplies provider configuration, credentials, model limits, and the runtime descriptor.
-The singleton `withConfiguredProvider('agent')` branch and separate limits-resolver dependency are removed from AgentSessionService.
-The now-unused `legacyModelLimits()` helper is removed.
-No methods move into new service files, and no new execution coordinator or dependency container is introduced.
-
-A session with no selection remains a valid, readable conversation.
-Starting work rejects it with `agent_model_not_configured`, records no run, and releases the reserved work slot.
-A regression test also reads that NULL selection through another service instance and then starts work after an explicit choice.
-Catalog snapshot initialization still converts old singleton configuration into `custom:legacy-agent`, seeds its offline model, and preserves encrypted credential bindings.
-The existing migration tests prove that conversion and removal behavior.
-Historical project sessions, run records, provider configuration, and migrations remain unchanged.
-ADR 008 records the explicit selection requirement and the retained compatibility boundary.
-
-### Issue 11: Completed lifecycle boundary
-
-ProjectRuntime still assembles its supervisor and scheduler and exposes `start`, `stopClaims`, `resumeClaims`, `park`, and `stop`.
-It already exposes `cancel()`, and Job and Knowledge IPC use that method.
-No production caller accesses `runtime.scheduler`.
-All seven job types retain abort-and-requeue behavior.
-JobStore still decides cancellation versus close requeue inside its transaction.
-Scheduler tests cover direct runtime cancellation and the close/cancel race.
-ProjectManager tests cover closing, requeuing without spending an attempt, and completion after reopening.
-The `createRuntime` test replacement remains available.
-
-### Verification
-
-The selected scope covers Agent catalog execution, model configuration, service construction, project lifecycle, Notebook, IPC, cancellation, and recovery.
-Native modules, Worker entrypoints, package resources, dependencies, and packaging configuration remain unchanged.
-The batch uses focused Electron tests and one source build with real Electron scenarios.
-The retained older App serves only as a baseline UI comparison. It does not prove the new dependency graph.
-
-The initial fixture run covers 110 tests across eight Agent files before production fallback removal.
-It passes 108 tests and identifies two legacy-fixture assumptions about credentials and impossible model limits.
-Credentials now use the structured catalog envelope.
-The capacity fixture uses a valid 8,192-token context and an 8,191-token output allowance, leaving one history token.
-A focused capacity rerun passes before production branch removal.
-
-After the new required Skill router, old unit cases expose readiness assumptions that their helper now handles explicitly.
-A subsequent combined run passes Agent and IPC coverage but exposes one test import removed in error during fixture cleanup.
-The JobHandlerRegistry import remains necessary for the reopen recovery test and is restored.
-These are test adaptation failures. The reports retain them rather than report a clean first run.
-
-The expanded Electron command passes 246 tests across 22 files in 8.2s:
-
-```sh
-pnpm test src/main/agent/session-service*.test.ts \
-  src/main/ipc/agent-ipc.test.ts src/main/ipc/knowledge-ipc.test.ts \
-  src/main/ipc/agent-mutation-ipc.test.ts src/main/ipc/notebook-chat-ipc.test.ts \
-  src/main/ipc/search-ipc.test.ts src/main/project/project-manager.test.ts \
-  src/main/project/migrations/0046-agent-message-replacements.test.ts \
-  src/main/project/migrations/0047-conversation-fork.test.ts \
-  src/main/project/migrations/0048-agent-image-attachments.test.ts \
-  src/main/providers/agent-provider-catalog.test.ts \
-  src/main/knowledge/knowledge-chat-service.test.ts src/main/jobs/job-store.test.ts src/main/jobs/scheduler
-```
-
-Report: `.cache/verification/1792014528564-76907-d5cf9d08`.
-After adding construction and cleanup coverage, the affected rerun passes 63 tests across three files in 7.1s.
-Command: `pnpm test src/main/agent/session-service.test.ts src/main/project/project-manager.test.ts src/main/ipc/job-ipc.test.ts`.
-Report: `.cache/verification/1792014583634-77684-45de668e`.
-The final shared-fixture assertions pass 124 tests across eleven Agent and migration files in 7.4s.
-Report: `.cache/verification/1792014693786-79370-23a44c36`.
-Final results cover 258 distinct passing tests across 23 files, with zero automatic retries or skips.
-Unchanged passing results remain valid. Only affected coverage repeats.
-
-The repository-root combined command performs static checks, one native preparation, one source build, and eight expanded E2E scenarios:
-
-```sh
-pnpm check:e2e e2e/agent-writing.spec.ts e2e/agent-concurrency.spec.ts \
-  e2e/agent-quick-actions.spec.ts e2e/agent-model-configuration.spec.ts \
-  e2e/agent-thinking-level.spec.ts e2e/notebook.spec.ts e2e/project-lifecycle.spec.ts \
-  --grep 'grounded Agent proposal|exhausted Agent diagnostic|two Agent conversations|exact selection quick|edited model metadata|explicit Thinking|Notebook independent|creates, removes recent'
-```
-
-Static stages pass in 2.6s across 873 Biome files and both TypeScript targets.
-Native preparation takes 0.7s. The single source build takes 15.6s.
-Six E2E scenarios pass, and two fail. The overall gate fails in 112.7s.
-The six passes cover current model metadata, Thinking isolation, diagnostic recovery, proposal approval and reopening, Notebook reset, and project restart.
-Report: `.cache/verification/1792014638699-78425-e20f2346`.
-Initial failure traces remain under that report directory.
-
-The concurrency assertion expects visible `Working` text, but the current UI stores that status in each Command item's value.
-The corrected assertion requires two conversation options and a `Working` suffix on each value.
-That scenario then passes in 6.0s against the same source build.
-Report: `.cache/verification/1792014914911-85528-6e9c0096`.
-The remaining seven relevant E2E results pass with zero automatic retries or skips.
-
-### Baseline UI verification limit
-
-The extra quick-action scenario fails before any writing Agent request, at the floating menu opening step.
-Changing the menu locator and using the supported keyboard shortcut do not resolve it.
-Those attempted test changes are reverted. The quick-action test remains byte-for-byte equal to its starting source.
-The unchanged scenario also fails at the same step against the retained first-batch App:
-
-```sh
-WRITELLM_E2E_EXECUTABLE_PATH="$PWD/dist/macos-arm64/mac-arm64/WriteLLM.app/Contents/MacOS/WriteLLM" \
-  pnpm test:e2e e2e/agent-quick-actions.spec.ts --grep 'exact selection quick'
-```
-
-The baseline scenario fails in 13.7s, with 14.4s for the command and zero automatic retries.
-Report: `.cache/verification/1792015073206-87613-a56767e0`.
-The baseline screenshot and trace remain under that report directory.
-This isolates a pre-existing UI failure from Issue 7's service dependency change.
-The batch leaves it recorded for review rather than change the Renderer during the dependency refactor.
-It does not claim that the expanded E2E gate passes.
-
-The host uses Node 26.11.1 and project-pinned pnpm 11.28.3 through approved host access.
-The existing Node engine warning remains because the project declares `>=24.21.0 <25`.
-Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
-It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
-Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
-No dependency, migration, installer, package rebuild, commit, push, or issue closure runs for this batch.
-Issue 7 awaits Claude review, and the goal pauses at that handoff.
-The pre-existing untracked dependency audit remains untouched.
-
-### Claude review and default-model correction
-
-Claude reviews Issue 7 and finds one regression in the strict selection rule.
-Sessions with a NULL selection previously ran on the singleton Agent configuration, which remains stored.
-The Renderer displays the catalog default for those sessions and keeps Send enabled.
-The strict rule therefore rejected a send whose displayed model looked ready.
-The user approves the recommended correction: run such sessions on the catalog default.
-
-`AgentProviderCatalogService.defaultSelection()` runs the existing legacy conversion and returns the stored default without building a snapshot.
-AgentSessionService reads the stored selection first.
-For a NULL selection, it resolves the catalog default and then stores it on the session with a conditional update.
-That update applies only while the session selection remains NULL. It logs `agent.session.model_selection_defaulted`.
-A failed resolution leaves the session selection NULL and records no run.
-Later runs use the stored selection rather than the current default.
-`agent_model_not_configured` remains for sessions with no stored or default selection.
-ADR 008 records the corrected compatibility rule.
-
-New tests cover default adoption and persistence, no persistence after a failed resolution, the retained unconfigured rejection, and catalog default lookup after legacy conversion.
-`pnpm check:fast` passes in 2.5s.
-The focused Electron selection above passes 261 tests across 23 files in 8.7s with zero retries.
-Report: `.cache/verification/1792015748873-5683-302f36b9`.
-`pnpm check:e2e` builds once in 14.7s, and seven related source scenarios pass in 34.1s. The gate passes in 51.7s with zero retries or skips.
-It covers the agent-writing, agent-concurrency, agent-model-configuration, agent-thinking-level, notebook, and project-lifecycle specs.
-It excludes the quick-action scenario, which also fails on the first-batch App.
-Report: `.cache/verification/1792015764553-5967-fb79aa7a`.
-That quick-action failure remains an open baseline UI defect for later work.
-Coverage remains macOS arm64 only.
-Issue 7 is committed, pushed to `main`, and closed. The untracked dependency audit stays outside the commit.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-third-batch-simplification).
 
 ## 2026-10-14 Fourth-Batch Simplification
 
-The user authorizes Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and [14](https://github.com/ecwu/writellm/issues/14) as one implementation batch.
-The starting commit is `46290a2`. Claude review remains the next gate before commits and issue closure.
-The user cancels the proposed Ghostty review handoff and asks the implementation to stop at this gate.
-The existing untracked dependency audit remains untouched.
+Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and
+[14](https://github.com/ecwu/writellm/issues/14) were implemented and reviewed as one batch, starting from `46290a2`.
 
-### Notebook collection and conversation ownership
+- **Issue 12**: `NotebookRegistry` owns the project collection, its limit of ten, and the close promise. `KnowledgeChatService` owns one
+  transient conversation.
+- **Issue 13**: the `useManuscriptFind`, `useManuscriptImport`, and `useManuscriptReferences` hooks own their state.
+  Features receive business commands rather than QueryClient or editor references.
+- **Issue 14**: `AgentSessionQueries`, `AgentSessionTitles`, `AgentSessionCompactor`, and
+  `AgentRunCoordinator` were extracted. The full record contains the Map-entry and ActiveRun field writer tables.
 
-`NotebookRegistry` owns the project collection, its ten-instance limit, and its close promise.
-`KnowledgeChatService` owns one transient Notebook conversation and supports independent construction.
-A conversation no longer creates child conversations or stores a child registry.
-ProjectContext and both project shutdown paths use the registry through the existing `knowledgeChat` property.
-Notebook IPC retains the same capability checks, identifiers, schemas, and event routing.
-The registry revokes lookup before destruction and waits for detached cleanup when project close overlaps destruction.
-Repeated project close calls return the same cleanup promise.
-Main's existing model client retains the three shared Agent/Notebook execution slots under ADR 083.
-The registry adds no admission policy, provider dependency, database table, or migration.
+Claude review accepted the batch. Each issue was committed separately, pushed, and closed.
 
-### Workspace feature ownership
-
-The workspace controller delegates find and replacement state to `useManuscriptFind`.
-`ManuscriptFindFeature` receives that feature controller rather than the whole workspace controller.
-`useManuscriptImport` owns the import dialog and the staging commands.
-`useManuscriptReferences` owns citation drafts, numbering, preview requests, and the reference dialog.
-The workspace retains section navigation, metadata drafts, pending search targets, query refresh, and editor save coordination.
-Features receive business commands for saves, navigation, barrier release, and query refresh.
-They receive no QueryClient or mutable editor reference.
-The view uses editor commands and retains the editor reference only to attach SectionEditor.
-Replacement request and page sequences remain local to find state.
-Reference close, replacement, and capability cleanup invalidate pending previews.
-Moved error handlers report the original error through existing Renderer diagnostics before displaying safe messages.
-The existing quick-action failure occurs inside SectionEditor's floating menu, outside these feature slices.
-This batch leaves that baseline defect open and excludes its scenario from acceptance.
-
-### Agent responsibilities
-
-`AgentSessionQueries` owns bounded event and run history reads.
-It uses `ProjectDatabase.read()` and preserves event byte limits, ordering, payload selection, and schema parsing.
-`AgentSessionTitles` owns title generation, title request cleanup, bounded context reads, and conditional title writes.
-`AgentSessionCompactor` owns summary material, image loading, checkpoint fitting, and compaction event commands.
-It reuses the existing checkpoint, context budget, and summary helpers.
-`AgentRunCoordinator` owns registrations and conversation work slots.
-AgentSessionService retains run preparation, model choice, tool authorization, queues, settlement, and run-specific recovery.
-Manual compaction retains its slot and cancellation coordination in that facade.
-The compactor receives explicit callbacks for image checks and persist-before-publish events.
-The approved default-model adoption from Issue 7 remains inside `#withSessionProvider` and `#adoptDefaultModelSelection`.
-Each awaited execution path retains its authorization and state checks.
-The tool request handler remains intact. The refactor adds no general workflow layer or recovery authority.
-
-### Map entry writers
-
-The following table lists registration writes separately from object mutation.
-Readonly Map views permit lookup and iteration without exposing insertion or deletion methods.
-
-| Map | Insertion and deletion owner | Calling responsibility |
-| --- | --- | --- |
-| Starting runs | `AgentRunCoordinator.registerStarting/finishStarting` | `startRun` reserves preparation and releases it in its completion callback. |
-| Active runs | `AgentRunCoordinator.registerRun/finishRun` | `#startReservedRun` registers work. Preparation cleanup and `#settleRun` remove only their own object. |
-| Manual compactions | `AgentRunCoordinator.registerCompaction/finishCompaction` | `compactSession` registers work. Failure and completion callbacks remove their own object. |
-| Conversation slots | `AgentRunCoordinator.reserve/release` | Facade slot commands retain lifecycle logs and activity publication. |
-| Title requests | `AgentSessionTitles.track` and its completion callback | Title begin and manual generation register requests. Cleanup compares the completion promise before deletion. |
-
-`isBusy()` answers only whether a conversation holds work.
-`release()` separately compares the stored work ID before deletion.
-Registration cleanup compares object identity before removal.
-A stale completion cannot release a later owner's slot or remove a replacement registration.
-
-### Activity object writers
-
-The coordinator owns registration, not each object's fields.
-AgentSessionService's named execution callbacks retain the following mutations.
-Neither queries, titles, nor the compactor mutate ActiveRun objects.
-
-| Mutable field or collection | Writer |
-| --- | --- |
-| StartingRun `completion` | `startRun` assigns the reserved preparation promise. |
-| ActiveRun `completion` | `#startReservedRun` assigns preparation and settlement callbacks. |
-| ActiveRun `handle` | `#prepareAndRun` and `#restartAfterContextOverflow` create the runtime handle. |
-| ActiveRun `phase` | Preparation, history compaction, overflow recovery, and clarification wait/complete callbacks update execution phases. |
-| ActiveRun `currentRequest` | `#prepareAndRun` adopts the built request. `currentImages` receives its initial value during registration. |
-| ActiveRun `skillSnapshot` | Preparation, setup failure, Skill reads in `#handleToolRequest`, and settlement update the snapshot. |
-| ActiveRun `skillState` | `#prepareAndRun` adopts routed Skill state. Skill reads retain the router-owned state updates. |
-| ActiveRun `skillPrompt` | Preparation and Skill reads in `#handleToolRequest` update the prompt. |
-| ActiveRun `skillTraceToolCallId` | `#handleToolRequest` sets the trace link. `#handleRuntimeEvent` clears it after persistence. |
-| ActiveRun `systemPrompt` | Preparation, steer preparation, follow-up consumption, and tool continuation adopt refreshed context. |
-| ActiveRun `partialText` | `#handleRuntimeEvent` accumulates bounded deltas and clears text after a durable terminal message. |
-| ActiveRun `activeToolGroups` | `#handleToolRequest` adopts groups after runtime activation succeeds. |
-| ActiveRun `citationRecoveryState` | `#handleToolRequest` updates it from the tool result. |
-| ActiveRun `reviewPause` | `#handleToolRequest` records a pending proposal. |
-| ActiveRun `pendingQuestion` | `#waitForUserAnswer` creates it. `#completePendingUserQuestion` clears it. |
-| PendingUserQuestion `submitting` | `answerUserQuestion` sets it before the durable answer and restores it after a failed write. |
-| ActiveRun `overflowRetryAttempted` | `#settleRun` sets it before the one permitted recovery attempt. |
-| ActiveRun `authorizedModelRequestIds` | Preparation, queued messages, steer, follow-up, continuation, and overflow callbacks add authorized request IDs. Queue removal removes revoked IDs. |
-| ActiveRun `pendingModelRequestIds` | Those authorization callbacks add IDs. Delivery failure, terminal events, queue removal, and abort cleanup remove IDs. |
-| ActiveRun `pendingMessages` | `followUp` appends. `#removePendingMessage` removes consumed or deleted messages. Abort cleanup clears the queue. |
-| ActiveRun `snapshots` | Preparation and message/continuation authorization store snapshots. Queue removal and failed queue dispatch remove them. |
-| ActiveCompaction `phase` | `#executeManualCompaction` changes planning to summarizing. |
-| ActiveCompaction `completion` | `compactSession` attaches execution, slot release, and session publication. |
-
-Controllers remain request-owned. Stop and project close abort the existing controllers without transferring ownership.
-Clarification completion callbacks retain their existing one-shot answers and durable publication ordering.
-
-### Verification
-
-The selected scope covers Notebook isolation and cleanup, history reads, Agent execution, manuscript persistence, and the extracted Renderer interactions.
-Existing title and compaction coverage passes before extraction: 66 tests across five Electron-hosted files in 6.8s.
-That baseline includes automatic compaction, in-progress manual compaction Stop, and title cancellation during project close.
-It also covers cleanup when session delivery lookup fails. No cancellation coverage gap requires a new scenario.
-Report: `.cache/verification/1792016540854-17950-5df7685d`.
-
-After extraction, one focused run passes 183 tests across 16 files in 7.9s.
-It covers the Agent session variants, checkpoint and planner logic, Agent IPC, Notebook IPC, and citation resolution.
-Report: `.cache/verification/1792016673680-23039-4b566933`.
-A second focused run passes 67 tests across 11 files in 4.0s.
-It covers populated history without write transactions, overlapping Notebook destruction, import and replacement persistence, editor IPC, and Renderer projections.
-Report: `.cache/verification/1792016737413-23985-2cd80408`.
-Together the final selections cover 227 distinct tests across 24 files. Both runs record zero retries or skips.
-The second run replaces the first run's Notebook result after the overlapping cleanup test and registry correction.
-
-Static stages pass across 884 Biome files and both TypeScript targets in 2.5s.
-Native preparation passes in 0.9s. One fresh source compilation passes in 16.0s.
-The first composite E2E command selects scenario annotations, but Playwright matches titles and selects no tests.
-Its static and build results remain valid. Its E2E stage fails before any scenario runs.
-Report: `.cache/verification/1792016763913-24385-610373b8`.
-A corrected title selector reuses that same build.
-The corrected initial E2E run passes 18 of 20 scenarios and takes 93.4s.
-The two failures concern outline conflict setup and a hidden outline tool in the citation scenario.
-Report: `.cache/verification/1792016824016-25366-3cbd094f`.
-The retained first-batch App also fails the citation scenario at the same intercepted click.
-Its outline conflict scenario passes. That comparison takes 34.4s.
-Report: `.cache/verification/1792016969522-27381-13a41a1b`.
-The unchanged outline conflict scenario also passes alone on the new source build in 3.4s.
-Report: `.cache/verification/1792017015621-28023-af579603`.
-
-The citation test now activates the visible Manuscript tool before requesting Edit outline.
-It also waits for the reference dialog to close after Escape.
-The outline test waits for deferred confirmation focus restoration before typing its local draft.
-These fixture corrections change no product code or interaction rules.
-Both corrected scenarios pass in a focused 4.3s rerun against the same build.
-Report: `.cache/verification/1792017047361-28551-2e2a1d89`.
-Final acceptance covers 20 distinct source E2E scenarios with zero automatic retries or skips.
-It covers Notebook reset, save races, find navigation, replacement, three import paths, outline conflicts, references, and project restart.
-It also covers Agent titles, manual compaction, image compaction, Stop/edit, fork, concurrency, proposal refresh, and active tool context.
-The 18 earlier passing results remain valid. Only the two affected tests rerun after fixture corrections.
-
-The host uses Node 26.11.1 and pinned pnpm 11.28.3. The existing project engine warning remains unchanged.
-Native preparation uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node`.
-It loads sqlite-vec 0.1.9 from `native/sqlite-vec/darwin-arm64/vec0.dylib`.
-Verification covers macOS arm64 only. Windows and Linux runtime coverage remains outstanding.
-No dependency, migration, Worker entrypoint, native binary, package resource, or installer changes.
-The selected gate uses one fresh source build. It does not rebuild the packaged App.
-Issues 12, 13, and 14 pass local acceptance and await Claude review as one batch.
-No commit, push, issue closure, or Claude message runs. The goal pauses at this review handoff.
-
-### Claude review
-
-Claude reviews Issues 12, 13, and 14 against the working tree and accepts them without source changes.
-Issue 12: Notebook IPC is the only consumer of the project registry. Conversations no longer create children.
-Registry close revokes lookup first and waits for overlapping destruction.
-Issue 13: the find, replacement, import, and reference code matches the original controller logic.
-Request sequences, mutation-barrier releases, and active-section scope resolution are unchanged.
-The deliberate differences are original-error reporting before safe messages and reference preview invalidation on close, selection, and capability change.
-The two E2E edits change only fixture steps. The citation step also fails on the first-batch App.
-Issue 14: normalized diffs show that the title, compaction, and query code match the original apart from names, injected callbacks, and `read()` for history reads.
-Each history read previously used its own `immediate()` callback, so read consistency is unchanged.
-AgentRunCoordinator keeps the busy predicate separate from the release ownership check.
-Every registration removal compares object identity. Slot logs and activity publication stay in the service.
-The Issue 7 default-model adoption remains in `#withSessionProvider`.
-
-`pnpm check:fast` passes in 2.6s.
-A focused Electron run passes 296 tests across 34 files in 8.8s with zero retries.
-It covers Agent sessions, queries, the coordinator, checkpoint and planner logic, Notebook service and IPC, Agent, editor, and search IPC, ProjectManager, import and replacement services, and all Renderer manuscript tests.
-Report: `.cache/verification/1792018082843-46185-4e46da02`.
-`pnpm check:e2e` performs one fresh build in 15.2s. The same 20 source scenarios pass on the first attempt in 57.8s, with zero retries or skips.
-The combined gate passes in 75.8s.
-Report: `.cache/verification/1792018097726-46469-90b2bbcc`.
-The quick-action floating-menu failure remains open. Coverage remains macOS arm64 only.
-Each issue is committed separately, pushed to `main`, and closed. The untracked dependency audit stays outside these commits.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-fourth-batch-simplification).
 
 ## 2026-10-14 Document Consolidation
 
-Issue 15 changes documentation only. The starting source is `a04dc35ee97475185560a0472fcc3a20ae41430d`.
-Architecture sections now state current rules under their subjects. ADRs retain decision history and superseded designs.
-Current-plan records active work, acceptance gates, platform gaps, and deferred scope.
-The tracker retains short statuses and Phase links.
-AGENTS.md directs readers to accepted ADRs instead of removed amendment sections. CLAUDE.md remains its existing symlink.
-This change creates no new document hierarchy, duplicate tracker, architecture decision, or implementation authorization.
-Existing history stays byte-for-byte intact. This record appends only source traceability and retained unique result text.
-Application tests and builds belong to Issue 17's code changes, not this documentation gate.
-
-### Architecture source map
-
-The following rows identify each removed chronological block and its retained rule or decision source.
-All names refer to the starting architecture file.
-
-| Removed block | Retained source |
-| --- | --- |
-| 2026-10-03 Agent image input amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-19 Notebook source capacity amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-19 Workbench and shared admission amendment | Product Scope And Invariants under ADR 083 |
-| 2026-09-10 Editor autocomplete amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-08 Conversation fork amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-07 Agent message replacement amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-05 Writer comment verification amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-03 Review fixture and annotation removal amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-02 Agent model configuration amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-02 Agent presentation amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-09-02 Agent Occam ablation amendment | Agent persistence, context construction, Writing Skills, and observability under ADR 074 |
-| 2026-09-01 Writing Skill injection and non-blocking loading amendment (historical; superseded by ADR 074) | ADRs 073, superseded rules in ADR 074 |
-| 2026-09-01 Token-pressure Agent compaction amendment (historical; superseded by ADR 074) | ADRs 072, superseded rules in ADR 074 |
-| 2026-09-01 Live Agent request retry amendment (historical; superseded by ADR 074) | ADRs 071, 012, superseded rules in ADR 074 |
-| 2026-08-31 Stable bibliographic reference amendment | Current topic sections and the ADR named by the original paragraph |
-| 2026-08-31 Agent diagnostic trace amendment (historical; superseded by ADR 074) | ADRs 069, superseded rules in ADR 074 |
-| 2026-07-16 Architecture Amendment | Current domain sections plus ADRs 025, 033, 034, 058, 061, 066, 067, and 068 |
-| 2026-07-31 Security Boundary Amendment | Current topic sections and the ADR named by the original paragraph |
-| Tabbed Workbench Amendment | Product Scope And Invariants under ADR 083 |
-| macOS Menu Amendment | Current topic sections and the ADR named by the original paragraph |
-| Dependency version override chain | ADR 056 and the current package pins. Old version overrides are superseded decisions, not delivery evidence. |
-| Historical Transition Into This Baseline | Current domain rules, explicit non-choices, and the completed Phase index. The transition narrative is not unique evidence. |
-| Dated Pi 1.0 maintenance block | Runtime choice and ADRs 008, 013, 053, 074, and 076. Old task authorization and release-state labels are non-evidence. |
-| Live-retry paragraph in Durable Job Model | ADR 071 retains the retired design. ADR 074 defines current failure and no-replay behavior. |
-| Watcher transition wording | File Integrity And Portability and ADR 070 retain the selected-file boundary. The old transition label is non-evidence. |
-
-### Current-plan source map
-
-Line numbers refer to the starting current-plan file. Each row covers the block until the next listed state block.
-Existing source references retain counts, platform outcomes, failure boundaries, and repair evidence.
-Candidate labels alone never justify deletion.
-Phase 10 retains the `.28` through `.43` platform sequence, including failed and flaky results.
-The exact platform and failure text was compared with its completed CI evidence.
-Expired labels such as “in progress,” “Latest,” and “later batch unstarted” do not state current delivery facts.
-
-| Source line | Removed block | Existing evidence or retained excerpt |
-| --- | --- | --- |
-| 34 | - Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com/ecwu/writellm/issues/13), and [14](https://github.com/ecwu/writellm/issues/14) pass local acceptance as the fourth batch. | history/implementation-log.md#2026-10-14-fourth-batch-simplification; existing evidence or expired status summary |
-| 50 | - [Issue 7](https://github.com/ecwu/writellm/issues/7) passes local acceptance and Claude review as the third batch. | history/implementation-log.md#2026-10-14-third-batch-simplification; existing evidence or expired status summary |
-| 64 | - Issues [6](https://github.com/ecwu/writellm/issues/6) and [9](https://github.com/ecwu/writellm/issues/9) pass local acceptance as the second review batch. | history/implementation-log.md#2026-10-14-second-batch-simplification; existing evidence or expired status summary |
-| 77 | - Issues [8](https://github.com/ecwu/writellm/issues/8), [10](https://github.com/ecwu/writellm/issues/10), and [11](https://github.com/ecwu/writellm/issues/11) pass local acceptance as one review batch. | history/implementation-log.md#2026-10-14-first-batch-simplification; existing evidence or expired status summary |
-| 91 | - [Issue 5](https://github.com/ecwu/writellm/issues/5) Agent tool cleanup passes local acceptance. | history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup; unique numerical/commit evidence appended below |
-| 101 | - [Issue 16](https://github.com/ecwu/writellm/issues/16) legacy citation conversion passes local acceptance. | history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion; unique numerical/commit evidence appended below |
-| 114 | - Default left tool opening now adds an active tab to the existing left tool group under | history/implementation-log.md#2026-10-05-default-tool-tabs, history/implementation-log.md#2026-10-05-tool-tabs-app-rebuild; existing evidence or expired status summary |
-| 128 | - Issue 3 Agent image input is locally verified under [ADR 085](../adrs/085-agent-image-input.md). | history/implementation-log.md#2026-10-03-issue-3-agent-image-input, history/implementation-log.md#2026-10-03-agent-image-presentation-refinement; existing evidence or expired status summary |
-| 144 | - [Release 0.2026.10.1](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.1) is published and is Latest. | history/implementation-log.md#2026-10-02-release-02026101-preparation; obsolete status label or current ADR rule, not unique delivery evidence |
-| 159 | - Issue 2 independent migrations are implemented under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-independent-migrations-amendment). | history/implementation-log.md#2026-10-02-issue-2-independent-typescript-migration; unique numerical/commit evidence appended below |
-| 176 | - Issue 2 second-stage migrations are implemented under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-second-stage-amendment). | history/implementation-log.md#2026-10-02-issue-2-second-stage-dependency-migration; unique numerical/commit evidence appended below |
-| 192 | - Issue 2 first-stage dependencies are locally verified under the [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-02-issue-2-first-stage-amendment). | history/implementation-log.md#2026-10-02-issue-2-first-stage-dependency-update, history/implementation-log.md#2026-10-02-issue-2-first-stage-acceptance-rerun; existing evidence or expired status summary |
-| 204 | - The 2026-10-02 security and maintenance refresh updates 30 direct dependencies and compatible transitive packages under the accepted ADR 056 amendment. | history/implementation-log.md#2026-10-02-dependency-security-and-maintenance-refresh; existing evidence or expired status summary |
-| 215 | - Release 0.2026.9.10 has passed local release acceptance. The release counter advances from 0.2026.9.9; | history/implementation-log.md#2026-09-26-release-02026910-local-acceptance; unique numerical/commit evidence appended below |
-| 243 | - Tool closing now preserves surviving sidebar widths and gives released horizontal space to | history/implementation-log.md#2026-09-26-tool-close-sizing; unique numerical/commit evidence appended below |
-| 251 | - The curated Writing Skill catalog now includes the Chinese and English Anti-Defensive Writing | history/implementation-log.md#2026-09-25-anti-defensive-writing-catalog, history/implementation-log.md#2026-09-25-anti-defensive-writing-app-build; existing evidence or expired status summary |
-| 264 | - macOS now uses the native `WriteLLM / Project / Edit / Layout / Tools / Window` menu under | history/implementation-log.md#2026-09-21-macos-native-menu; existing evidence or expired status summary |
-| 276 | - Section editor titles now retain the intended 30px semibold typography at desktop widths, | history/implementation-log.md#2026-09-19-section-title-typography; existing evidence or expired status summary |
-| 282 | - Source candidate `v0.2026.9.9` records the verified sidebar layout and empty-workbench navigation | history/implementation-log.md#2026-09-19-tag-only-0202699; existing evidence or expired status summary |
-| 288 | - Docked tool chrome is unified: close buttons live in tool tabs, project context appears only | history/implementation-log.md#2026-09-19-tool-sidebar-layout; unique numerical/commit evidence appended below |
-| 297 | - Empty-workbench manuscript navigation now opens Outline without an action error when no | history/implementation-log.md#2026-09-19-empty-workbench-navigation; unique numerical/commit evidence appended below |
-| 304 | - [Release `0.2026.9.8`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.8) | history/implementation-log.md#2026-09-19-release-0202698-publication; existing evidence or expired status summary |
-| 323 | - Notebook source capacity is locally verified under the [ADR 058 source capacity amendment](../adrs/058-transient-notebook-knowledge-chat.md#2026-09-19-source-capacity-amendment). | history/implementation-log.md#2026-09-19-notebook-source-capacity; unique numerical/commit evidence appended below |
-| 333 | - The fixed workbench status bar is locally verified. It combines index readiness, live Agent | history/implementation-log.md#2026-09-19-workbench-status-bar; unique numerical/commit evidence appended below |
-| 343 | - Workbench native scrollbar colors now follow the application light/dark theme, overriding | history/implementation-log.md#2026-09-19-workbench-scrollbar-theme; existing evidence or expired status summary |
-| 348 | - Layout controls live in the global `Project / Edit / Layout / Tools` menu (native on macOS, | history/implementation-log.md#2026-09-19-layout-menu; existing evidence or expired status summary |
-| 356 | - The tabbed docking workbench is locally verified under [ADR 083](../adrs/083-tabbed-docking-workbench.md). | history/implementation-log.md#2026-09-19-tabbed-docking-workbench; existing evidence or expired status summary |
-| 366 | - Keyboard shortcut separation is locally verified. Sidebar and Agent panel toggles now use | history/implementation-log.md#2026-09-19-keyboard-shortcut-separation; unique numerical/commit evidence appended below |
-| 376 | - [Release `0.2026.9.7`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.7) | history/implementation-log.md#2026-09-14-release-0202697-publication; unique numerical/commit evidence appended below |
-| 393 | - Autocomplete application defaults and temporary overrides are locally verified under | history/implementation-log.md#2026-09-14-autocomplete-application-defaults-and-temporary-overrides; obsolete status label or current ADR rule, not unique delivery evidence |
-| 406 | - Brief and Outline previews are locally verified. The existing Preview workspace now offers | history/implementation-log.md#2026-09-13-brief-and-outline-preview; unique numerical/commit evidence appended below |
-| 420 | - Candidate `v0.2026.9.6` records the completed DeepSeek autocomplete work in a local | history/implementation-log.md; existing evidence or expired status summary |
-| 425 | - DeepSeek editor autocomplete, its style dropdown and continuous completion are locally | history/implementation-log.md#2026-09-10-deepseek-editor-autocomplete, history/implementation-log.md#2026-09-10-autocomplete-style-dropdown, history/implementation-log.md#2026-09-10-continuous-autocomplete-and-composition; obsolete status label or current ADR rule, not unique delivery evidence |
-| 447 | - [Release `0.2026.9.5`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.5) | history/implementation-log.md#2026-09-09-release-0202695-publication; existing evidence or expired status summary |
-| 461 | - Editor save continuity maintenance is implemented and locally verified. Ordinary autosave and | history/implementation-log.md#2026-09-09-editor-save-continuity-and-composition; obsolete status label or current ADR rule, not unique delivery evidence |
-| 473 | - [Release `0.2026.9.4`](https://github.com/ecwu/writellm/releases/tag/v0.2026.9.4) | history/implementation-log.md#2026-09-08-release-0202694-publication; existing evidence or expired status summary |
-| 485 | - Conversation fork is implemented and locally verified under accepted | history/implementation-log.md#2026-09-08-conversation-fork; existing evidence or expired status summary |
-| 497 | - Agent message copy and edit/restart is implemented under accepted | history/implementation-log.md; existing evidence or expired status summary |
-| 508 | - The seven previously curated Writing Skills use reviewed September 6 upstream pins: Nature | history/implementation-log.md#2026-09-06-curated-writing-skill-refresh, history/implementation-log.md#2026-09-06-writing-skill-app-build; existing evidence or expired status summary |
-| 517 | - Pi AI and Agent Core are pinned to exactly 1.0.0 under [Issue 1](https://github.com/ecwu/writellm/issues/1). | history/implementation-log.md#2026-10-02-pi-100-upgrade; existing evidence or expired status summary |
-| 528 | - The requested macOS arm64 App rebuild includes the Reference / Knowledge sidebar redesign | history/implementation-log.md#2026-09-05-sidebar-app-build; existing evidence or expired status summary |
-| 534 | - Reference / Knowledge sidebar redesign is locally verified: Reference-first rows, expandable | history/implementation-log.md#2026-09-05-reference-knowledge-sidebar-redesign; existing evidence or expired status summary |
-| 542 | - Notebook repeated-citation rendering maintenance is locally verified: every registered | history/implementation-log.md#2026-09-05-notebook-repeated-citations; existing evidence or expired status summary |
-| 548 | - Ponytail UTF-8 cleanup is locally verified: Agent title context, image prompts, and proposal | history/implementation-log.md#2026-09-05-ponytail-utf8-cleanup; existing evidence or expired status summary |
-| 554 | - Gemini stream truncation maintenance is locally verified: the exact Google SDK incomplete-frame | history/implementation-log.md#2026-09-05-gemini-stream-truncation; existing evidence or expired status summary |
-| 561 | - Checkpoint 84 acceptance remediation is implemented and locally verified under ADRs 078–079. | implementation-todo/phase-33.md; existing evidence or expired status summary |
-| 569 | - The earlier macOS arm64 App rebuild with Pi 0.85.0 is superseded by the Pi 1.0 acceptance above. | history/implementation-log.md#2026-09-04-pi-0850-app-build; obsolete status label or current ADR rule, not unique delivery evidence |
-| 575 | - The earlier Pi AI and Agent Core 0.85.0 maintenance is superseded by Pi 1.0 above. It covered | history/implementation-log.md#2026-09-04-pi-0850-dependency-update; existing evidence or expired status summary |
-| 582 | - A current macOS arm64 App is available for manual feature trials at | history/implementation-log.md#2026-09-04-manual-feature-trial-app; existing evidence or expired status summary |
-| 588 | - pnpm command consolidation is complete: 51 scripts are reduced to 30 distinct entry points, | history/implementation-log.md#2026-09-04-pnpm-command-consolidation; existing evidence or expired status summary |
-| 595 | - Redundant-defense cleanup is complete across the five user-approved areas: editor content | history/implementation-log.md#2026-09-04-redundant-defense-cleanup; existing evidence or expired status summary |
-| 603 | - Project sidebar resizing maintenance is complete. Every expanded desktop project workspace now | history/implementation-log.md#2026-09-04-project-sidebar-resizing; existing evidence or expired status summary |
-| 611 | - Reference/PDF import review distillation is complete. Ambiguous multi-page attachment choices | history/implementation-log.md#2026-09-04-reference-import-review-distillation; existing evidence or expired status summary |
-| 621 | - Silent count-limit maintenance is complete across Knowledge batches, Reference attachments, and | history/implementation-log.md#2026-09-03-silent-count-limit-removal; existing evidence or expired status summary |
-| 632 | - Candidate `0.2026.9.3` is built and pushed from release commit | history/implementation-log.md#2026-09-03-candidate-0202693-build-and-tag; existing evidence or expired status summary |
-| 640 | - Review fixture and annotation removal is complete under ADR 077. The Review Center, manuscript | history/implementation-log.md#2026-09-03-review-fixture-and-annotation-removal; existing evidence or expired status summary |
-| 651 | - User-authorized `/cite` insertion maintenance is complete: the Slash Menu opens a caret-local | history/implementation-log.md#2026-09-03-cite-reference-search-maintenance; existing evidence or expired status summary |
-| 660 | - Release `0.2026.9.2` is published from the dependency-refresh commit | history/implementation-log.md; existing evidence or expired status summary |
-| 670 | - A fresh macOS arm64 App containing the `/cite` Reference search is complete at the user's | history/implementation-log.md#2026-09-03-cite-reference-search-maintenance; existing evidence or expired status summary |
-| 677 | - The earlier Pi runtime upgrade completed under the approved 2026-09-03 plan at Agent/Core and | history/implementation-log.md#2026-09-03-pi-runtime-upgrade; obsolete status label or current ADR rule, not unique delivery evidence |
-| 688 | - Dependency security and maintenance refresh is complete under the approved 2026-09-03 plan. | history/implementation-log.md#2026-09-03-dependency-security-and-maintenance-refresh, implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 697 | - Earlier candidate `0.2026.9.1` was locally built and verified under the user's build, commit, and tag | history/implementation-log.md#2026-09-03-local-build-0202691; obsolete status label or current ADR rule, not unique delivery evidence |
-| 706 | - Agent model configuration maintenance is complete under ADR 076: new runs use current catalog | history/implementation-log.md; existing evidence or expired status summary |
-| 712 | - Agent Panel presentation maintenance is complete under ADR 075: six typed content objects, | history/implementation-log.md#2026-09-02-agent-panel-presentation-maintenance; existing evidence or expired status summary |
-| 721 | - Build and verification maintenance is complete under the approved 2026-09-02 plan. Focused | history/implementation-log.md; existing evidence or expired status summary |
-| 730 | - Desktop-only test/documentation maintenance is complete: dedicated narrow-window checks and | history/implementation-log.md; existing evidence or expired status summary |
-| 736 | - Project chooser maintenance is complete. Recent-project rows can be removed without touching | history/implementation-log.md; existing evidence or expired status summary |
-| 743 | - Checkpoint 83 is complete under ADR 074: structural Agent policy ablation, token-derived | implementation-todo/phase-32.md; existing evidence or expired status summary |
-| 755 | - Checkpoint 82 is complete historical evidence under ADR 073. Its dependency-complete explicit | implementation-todo/phase-31.md; existing evidence or expired status summary |
-| 763 | - The completed Checkpoint 82 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-31.md; existing evidence or expired status summary |
-| 769 | - The completed Checkpoint 81 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-30.md; existing evidence or expired status summary |
-| 775 | - Checkpoint 81 is complete historical evidence under ADR 072; its rolling checkpoint budgets are | implementation-todo/phase-30.md; existing evidence or expired status summary |
-| 784 | - The completed Checkpoint 80 source has passed the complete no-Team-ID macOS arm64 package gate. | implementation-todo/phase-29.md; existing evidence or expired status summary |
-| 790 | - Checkpoint 80 is complete historical evidence under ADR 071. Its live Worker retry anchors and | implementation-todo/phase-29.md; existing evidence or expired status summary |
-| 800 | - Agent non-blocking tool-failure presentation maintenance is complete. Pre-dispatch failures now | history/implementation-log.md; existing evidence or expired status summary |
-| 806 | - Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; unique numerical/commit evidence appended below |
-| 814 | - Reference citekey migration maintenance is complete. Citation Coverage now resolves canonical | history/implementation-log.md; existing evidence or expired status summary |
-| 824 | - The current dirty Agent Reference citation-fix source passed the complete no-Team-ID macOS | history/implementation-log.md; existing evidence or expired status summary |
-| 830 | - Agent Reference citation projection maintenance is complete. Production `MainAgentReadTools` | history/implementation-log.md; existing evidence or expired status summary |
-| 838 | - Checkpoint 79 is complete. It unifies the split Zotero metadata/PDF dialogs into one | implementation-todo/phase-28.md; existing evidence or expired status summary |
-| 846 | - Checkpoint 78 is complete. WriteLLM now has project-authoritative Reference metadata with stable | implementation-todo/phase-27.md; existing evidence or expired status summary |
-| 856 | - Candidate `v0.2026.8.48` is fully built, verified, committed, tagged, and pushed for the | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion, implementation-todo/phase-27.md; existing evidence or expired status summary |
-| 863 | - Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion, implementation-todo/phase-25.md; unique numerical/commit evidence appended below |
-| 867 | - Checkpoint 76.1 is complete. Project-local content-addressed Agent traces, SQL reconstruction | implementation-todo/phase-25.md; unique numerical/commit evidence appended below |
-| 876 | - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; unique numerical/commit evidence appended below |
-| 883 | - Agent staged-tool preflight and citation recovery maintenance is complete. Each model request now | history/implementation-log.md; existing evidence or expired status summary |
-| 890 | - Agent context-compaction status presentation maintenance is complete. A durable final checkpoint | history/implementation-log.md; existing evidence or expired status summary |
-| 897 | - The current Gemini/Vertex read-section maintenance source passed the complete no-identity macOS | history/implementation-log.md; existing evidence or expired status summary |
-| 903 | - Agent read-section activity presentation maintenance is complete. Completed activity groups | history/implementation-log.md; existing evidence or expired status summary |
-| 910 | - Gemini/Vertex `read_section` compatibility maintenance is complete. Durable diagnostics proved | history/implementation-log.md; existing evidence or expired status summary |
-| 919 | - The post-fix macOS arm64 test App passed the complete no-identity package gate from the current | history/implementation-log.md; existing evidence or expired status summary |
-| 924 | - Image-generation lifecycle maintenance is complete. Generated assets whose later validation, | history/implementation-log.md; existing evidence or expired status summary |
-| 930 | - Agent model-selection recovery maintenance is complete. Provider changes now refresh an open | history/implementation-log.md; existing evidence or expired status summary |
-| 934 | - GitHub Release `WriteLLM 0.2026.8` is publicly available from immutable candidate tag | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 938 | - Hosted workflow maintenance removes the final Node 20 Action runtime: both tag CI and the | history/implementation-log.md; existing evidence or expired status summary |
-| 942 | - Thermo-Nuclear P1 maintenance is complete. Writing Skill publication now tracks staging, | history/implementation-log.md; existing evidence or expired status summary |
-| 947 | - Thermo-Nuclear structural remediation is complete. Shared worker protocol/error projection, | history/implementation-log.md; existing evidence or expired status summary |
-| 952 | - Candidates `.31`–`.33` show that a standalone Linux Electron safeStorage probe is not evidence | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 958 | - Candidate `.32` passed static, Linux credential preflight, and macOS x64. Its Windows Electron | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 965 | - Candidate `.33` passed static, credential preflight, macOS x64, and macOS arm64. Windows reduced | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 971 | - Candidate `.34` passed static, Linux credential preflight, and macOS arm64. Windows passed all | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 977 | - Candidate `.35` gives the macOS stress case a 60-second budget, uses Playwright's cross-platform | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 981 | - Candidate `.35` passed static, Linux credential preflight, and both macOS rows. Windows stopped | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 988 | - Candidate `.36` passed static, Linux credential preflight, macOS x64, Windows frozen install plus | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 996 | - Candidate `.37` stores the latest Floating UI setters in stable React refs, orders the outline | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1002 | - Candidate `.37` completed successfully through native packaging and artifact upload on macOS | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1009 | - Candidate `.38` passed the shared static gate and every platform's 1,160-test Electron/build gate. | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1017 | - Candidate `.39` passed the shared static gate, all four 1,160-test Electron/build gates, and all | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1028 | - Candidate `.40` passed the shared gate and all four Electron/build gates. macOS arm64 completed | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1036 | - Candidate `.41` passed the shared gate and every platform's 1,160-test Electron/build gate. | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1046 | - Candidate `.42` passed the shared static/fixture gate and every platform's complete 1,160-test | implementation-todo/phase-10.md#checkpoint-26-cross-platform-ci-recovery-matrix-and-release-promotion; existing evidence or expired status summary |
-| 1057 | - User-authorized Checkpoint 75 compatibility maintenance is complete. Model-visible root unions | implementation-todo/phase-24.md; existing evidence or expired status summary |
-| 1061 | - The current dirty macOS arm64 maintenance build passed the complete no-identity package gate and | history/implementation-log.md; existing evidence or expired status summary |
-| 1063 | - Agent, Embedding, and Rerank Base URLs accept HTTP or HTTPS for any valid host, including | history/implementation-log.md#2026-09-17-model-service-http-endpoints, history/implementation-log.md#2026-09-17-model-service-http-request-policy-correction; existing evidence or expired status summary |
-| 1074 | - Checkpoint 75 is complete. It adds Protocol v12 short layered descriptions, explicit | implementation-todo/phase-24.md; existing evidence or expired status summary |
-| 1077 | - Checkpoint 74 is complete. It adds Protocol v11 hash-bound table inspection and typed table | implementation-todo/phase-23.md; existing evidence or expired status summary |
-| 1081 | - Checkpoint 73 is complete. It applies summary-first AI interaction patterns to the existing | implementation-todo/phase-22.md; existing evidence or expired status summary |
-| 1085 | - Checkpoint 72 is complete. It replaces generic tool-result projection with exhaustive | implementation-todo/phase-21.md; existing evidence or expired status summary |
-| 1088 | - Checkpoint 71 is complete. It replaces the fixed compaction event ceiling with bounded | implementation-todo/phase-20.md; existing evidence or expired status summary |
-| 1091 | - Checkpoint 70 is complete. It moves transient Notebook turns onto the shared Pi session runtime, | implementation-todo/phase-19.md; existing evidence or expired status summary |
-| 1094 | - Checkpoint 69 is complete. It adds a bounded Protocol v10 `ask_user` tool whose original Pi | implementation-todo/phase-18.md; existing evidence or expired status summary |
-| 1098 | - Phase 11 is complete under ADRs 021–037. Its full Checkpoint 29–47B roadmap and acceptance | implementation-todo/phase-11.md; existing evidence or expired status summary |
-| 1100 | - Phase 12 is an evidence-driven Use And Fix phase and is complete through Checkpoint 62. CP48–56 | implementation-todo/phase-12.md; existing evidence or expired status summary |
-| 1108 | - Checkpoint 62 is complete. Settings remains the existing flat application-global Command | implementation-todo/phase-12.md; existing evidence or expired status summary |
-| 1112 | - Checkpoint 63 is complete. Agent work now uses bounded state-specific thinking motion and a | implementation-todo/phase-13.md; existing evidence or expired status summary |
-| 1116 | - Checkpoint 64 is complete. It refreshes the fixed Electron 43, BlockNote, | implementation-todo/phase-13.md; existing evidence or expired status summary |
-| 1120 | - Checkpoint 65 is complete. BlockNote native inline Math now coexists with application-owned | implementation-todo/phase-14.md; existing evidence or expired status summary |
-| 1123 | - Checkpoint 66 is complete. Knowledge remains an independent management and exact-search | implementation-todo/phase-15.md; existing evidence or expired status summary |
-| 1127 | - Checkpoint 67 is complete. A true first launch now opens a fully optional Welcome → | implementation-todo/phase-16.md; existing evidence or expired status summary |
-| 1132 | - Checkpoint 68 is complete. It replaces application-owned display Math with BlockNote native | implementation-todo/phase-17.md; existing evidence or expired status summary |
-| 1136 | - Checkpoint 69 is complete. It adds exact Protocol v10 clarification contracts, Main-owned | implementation-todo/phase-18.md, implementation-todo/phase-12.md, implementation-todo/phase-13.md, implementation-todo/phase-14.md, implementation-todo/phase-15.md, implementation-todo/phase-16.md, implementation-todo/phase-17.md, implementation-todo/phase-22.md, implementation-todo/phase-24.md, implementation-todo/phase-19.md, implementation-todo/phase-20.md; unique numerical/commit evidence appended below |
-| 3–26, initial Status paragraph | Candidate chronology and checkpoint completion labels | Phase 10 CP26 and the tracker retain delivery evidence. Expired status labels are non-evidence. |
-| Current authorized work | Prior checkpoint scopes and `.27`–`.31` remediation summary | Matching Phase files and ADRs 063–074 retain past authorization and rules. Phase 10 retains candidate failures. |
-| Completed delivery gate | Checkpoint 26.9 hosted results | Phase 10 CP26 retains run 33299058552, platform results, artifacts, and the narrowed hosted scope. |
-| Completed baseline | Completion list | implementation-todo.md and its Phase links retain the completion index. |
-| Deferred, last two legacy roadmap items | Split interactive models and replace infrastructure roadmap | Both transitions are already implemented. These future labels are non-evidence, not pending work. |
-
-### Retained unique result text
-
-The excerpts below preserve result details absent from their cited record sections.
-They quote the starting current-plan snapshot. “Current” and “above” refer only to that old snapshot.
-They do not describe the present source, current App, authorization, or live Actions status.
-#### Retained source line 91
-
-> Commit `1fe7e7a` is pushed to `main`, and Issue 5 is closed.
-
-#### Retained source line 101
-
-> Commit `e477e9a` is pushed to `main`, and Issue 16 is closed.
-
-#### Retained source line 159
-
-> The final Electron suite passes 1,644 tests across 267 files in 20.9s, with three benchmark skips and zero retries.
-
-> Final macOS arm64 package acceptance passes all ten stages in 267.7s with one App build.
-
-> Static checks pass in 2.5s; the final production build passes in 15.6s.
-
-> All 12 packaged runtime scenarios pass in 49.5s, including database integrity and sqlite-vec.
-
-> All 43 packaged E2E scenarios pass in 152.5s with zero retries or skips.
-
-> Release 0.2026.10.1 verifies native builds on all four platforms; other-platform runtime acceptance remains pending.
-
-> Independent changes and the previous second-stage changes are included in the 0.2026.10.1 release source.
-
-#### Retained source line 176
-
-No unique text. The cited second-stage record already contains every count, duration, and finding from this block.
-
-
-#### Retained source line 215
-
-> The candidate includes sidebar width preservation, tool chrome
->   and empty-workbench navigation, section title typography, native macOS menus and the new
->   Anti-Defensive Writing catalog entries since the public 0.2026.9.8 release.
-
-> Tag `v0.2026.9.10` points to
->   `7bd202bcef9193180a83edf65cdcb7eb282361d0`; its hosted build is
->   [run 36231039256](https://github.com/ecwu/writellm/actions/runs/36231039256).
-
-> The fix was deployed as `634b0eb`; continuation
->   [36407814763](https://github.com/ecwu/writellm/actions/runs/36407814763) succeeded on 2026-09-28,
->   publishing four packages from the original build.
-
-#### Retained source line 243
-
-> Pointer/keyboard resizing and bottom
->   docking remain available under the [ADR 083 sizing clarification](../adrs/083-tabbed-docking-workbench.md#2026-09-26-tool-close-sizing-clarification).
-
-> The final source build passed again in 11.8s for the user-authorized local-main
->   integration; the subsequent 0.2026.9.10 package gate above also covers this change.
-
-#### Retained source line 288
-
-> The requested unpacked
->   build passed all four build-only stages in 32.5s after a sandbox DNS retry; packaged runtime
->   tests were not repeated.
-
-#### Retained source line 297
-
-> Current `out/` and the rebuilt local App include the fix; the published 0.2026.9.8 App does not.
-
-#### Retained source line 323
-
-> Current `out/` and the 0.2026.9.8 packaged App include the change; the release gate also
->   passed the 301-source scenario.
-
-#### Retained source line 333
-
-> Release 0.2026.9.8
->   repaired that routing and duplicate activity delivery, then passed complete package acceptance.
-
-#### Retained source line 366
-
-> Runtime evidence is macOS arm64, with synthetic IME guards
->   only; the 0.2026.9.8 packaged App includes the change.
-
-#### Retained source line 376
-
-> Local macOS arm64 full package acceptance passed all ten stages in 225.0s, including
->   runtime smoke and 39/39 packaged E2E scenarios with zero retries/skips.
-
-> That acceptance used native build `2026.9.7`;
->   the current local App uses 0.2026.9.9 metadata after the macOS menu rebuild above.
-
-#### Retained source line 406
-
-> The user-requested unpacked macOS arm64 build passed all four build-only stages
->   in 33.5s after one sandbox DNS failure and elevated retry.
-
-> Package runtime tests were not
->   repeated in that build-only invocation; the later 0.2026.9.7 package gate above now
->   covers the preview scenario against the packaged App.
-
-#### Retained source line 806
-
-> - Candidate `v0.2026.8.49` is fully built, locally verified, committed, tagged, and pushed for the
->   completed Reference citekey migration maintenance.
-
-> The no-Team-ID macOS arm64 gate verified 31
->   recovery fixtures from 29 sources, 53,318 ASAR entries, 12 packaged smoke scenarios, and 34/34
->   packaged Electron scenarios.
-
-> Commit `39e9a84` and annotated tag `v0.2026.8.49` were atomically pushed to
->   GitHub.
-
-#### Retained source line 863
-
-> - Candidate `v0.2026.8.47` is fully built, verified, committed, tagged, and pushed for the completed
->   Checkpoint 76.1 trace work.
-
-> Annotated tag `v0.2026.8.47` points to clean source commit `7bb8552`;
->   tag-only GitHub Actions run `33345029753` is in progress.
-
-#### Retained source line 867
-
-> - Checkpoint 76.1 is complete.
-
-> The canonical suite passed 1,204 tests with three benchmark skips; `check:fast`, the
->   Electron build gate, all 47 fresh Electron E2E scenarios, and the complete no-Team-ID package
->   gate with 34 packaged scenarios passed.
-
-> A 7,936,308-byte repeated-history sample occupied
->   330,580 payload bytes after deduplication (95.83% reduction) and reconstructed 12 requests in
->   about 1.73 seconds on the local Electron runtime.
-
-#### Retained source line 876
-
-> - Local no-Team-ID candidate `v0.2026.8.46` is fully built, verified, and pushed from source commit
->   `1f53c5c`; tag-only GitHub Actions run `33341907788` completed successfully.
-
-> The gate verified 31 recovery fixtures from 29 sources,
->   53,288 ASAR entries, Electron 43.4.1 / ABI 148 arm64 native resources, all 12 packaged smoke
->   scenarios, and all 34 packaged Electron scenarios without flakes, skips, or failures.
-
-#### Retained source line 1136
-
-> Full-width and 640 px runtime
-> screenshots, dependency and reduced-motion inspection, scoped Impeccable, frozen dependency
-> installation, and `git diff --check` also passed.
-
-> Checkpoint 67 passed 17 focused repository, IPC, and Renderer tests; `check:fast`; the complete
-> Electron-hosted gate (199 passing files / 1102 passing tests with three intentional benchmark
-> skips) and production build; and the fresh 45/45 Real-Electron manifest with no flaky, skipped, or
-> failed scenario.
-
-> Runtime visual QA covered the 640 px desktop Agent sidebar and completed the bounded
-> Impeccable review with no findings.
-
-> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` plus the local
-> `WriteLLM-0.2026.8.26-arm64.dmg` and ZIP.
-
-> The separately authorized local `0.2026.8.20` candidate advanced release metadata, created the
-> clean local release commit and annotated `v0.2026.8.20` tag, and passed the no-identity macOS arm64
-> unpacked package gate.
-
-> The gate verified Electron 43.1.0 / ABI 148, arm64 native modules,
-> ASAR/resources, 12/12 packaged smoke scenarios, and 28/28 packaged E2E scenarios.
-
-> The separately authorized `0.2026.8.21` candidate snapshots the current baseline, including the
-> completed Checkpoints 62–64 and 66 plus Checkpoint 65's explicitly incomplete current state.
-
-> The
-> no-identity macOS arm64 unpacked package gate verified Electron 43.4.1 / ABI 148, arm64 native
-> modules, 53,287 ASAR entries, all 26 recovery fixtures from 24 sources, 12/12 packaged smoke
-> scenarios, and 31/31 packaged E2E scenarios, then produced
-> `dist/macos-arm64/mac-arm64/WriteLLM.app`.
-
-> The clean candidate commit receives the annotated
-> `v0.2026.8.21` tag and is pushed with `main` under the user's explicit authorization.
-
-> The separately authorized local `0.2026.8.22` candidate snapshots the completed Checkpoints 67–68
-> on top of the existing baseline.
-
-> Its no-identity macOS arm64 package gate verified Electron 43.4.1
-> / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25 sources, all
-> 12 packaged smoke scenarios, and 32/32 packaged E2E scenarios.
-
-> It produced the unpacked App plus
-> the structurally verified `WriteLLM-0.2026.8.22-arm64.dmg` and
-> `WriteLLM-0.2026.8.22-arm64.zip` from the clean annotated `v0.2026.8.22` source commit.
-
-> The separately authorized local `0.2026.8.23` candidate snapshots the completed Checkpoint 69 on
-> top of the existing baseline.
-
-> Its no-identity macOS arm64 unpacked package gate verified Electron
-> 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25
-> sources, all 12 packaged smoke scenarios, and 33/33 packaged E2E scenarios with no flaky, skipped,
-> or failed scenario.
-
-> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
-> `v0.2026.8.23` source commit `ecfca0b`.
-
-> The separately authorized local `0.2026.8.24` candidate snapshots the completed Checkpoint 70 on
-> top of the existing baseline.
-
-> Its no-identity macOS arm64 unpacked package gate verified Electron
-> 43.4.1 / ABI 148, arm64 native modules, 53,287 ASAR entries, all 27 recovery fixtures from 25
-> sources, all 12 packaged smoke scenarios, and 33/33 packaged E2E scenarios with no flaky, skipped,
-> or failed scenario.
-
-> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
-> `v0.2026.8.24` source commit `bc6227a`.
-
-> The separately authorized local `0.2026.8.25` candidate snapshots the completed Checkpoint 71 on
-> top of the existing baseline.
-
-> It produced `dist/macos-arm64/mac-arm64/WriteLLM.app` from the clean annotated
-> `v0.2026.8.25` source commit `456e837`.
-
-
-### Additional source checks
-
-The old retrieval paragraph still described ADR 058's retired single-shot Notebook and fifty-source limit.
-ADR 062 and ADR 058's source-capacity amendment retain that decision history.
-The current paragraph now states tool-driven Pi retrieval and frozen source authorization.
-Repeated-marker behavior retains ADR 058's accepted 2026-09-05 amendment.
-The old job-close alternatives now state the accepted Issue 11 abort-and-requeue implementation.
-The retired alternatives remain in the starting architecture revision and completed job planning evidence.
-The provider retry wording now says physical attempts, as ADRs 012 and 074 require.
-The old Target Source Layout was explicitly illustrative history, not an implementation requirement or unique delivery evidence.
-Source Ownership now names the actual directories and three Worker entrypoints without introducing a target directory tree.
-
-The accepted repeated-marker rule now also appears in ADR 058 with a pointer to its existing 2026-09-05 acceptance record.
-This relocates the prior architecture amendment and clarifies that the original duplicate rejection no longer applies.
-
-The incomplete Protocol v15 catalog paragraph now lists the current 22 tools from shared contracts.
-ADRs 061, 067, 068, 078, and 079 retain coordination, activation, mode, and comment decisions.
-The former incomplete list was a historical catalog snapshot, not unique delivery evidence.
+- Issue 15 (documentation only, from `a04dc35`):
+  - Architecture sections now state current rules by subject, with no dated amendment headings. It shrank from 2,084 to 1,884 lines.
+  - Current-plan was reduced to active state, from 1,461 to 71 lines.
+  - ADRs keep decision history.
+- The full record holds:
+  - A source map for every removed architecture block and all 131 removed current-plan blocks.
+  - The retained unique result text.
+  - Additional checks, such as the 22-tool list, the Notebook retrieval wording, and job-close alternatives.
+  The existing history was left byte-for-byte intact.
+- Claude review accepted the change. It was committed, pushed, and closed together with Issue 17.
+
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-document-consolidation).
 
 ## 2026-10-14 Error Handling Ownership
 
-Issue 17 follows the accepted A=3, B=7, C=6 classification from the original `e565309` audit.
-The starting implementation source is `a04dc35`. Prior simplification already moves some functions and handles nine Renderer sites.
-This batch keeps expected rejection and diagnostic failure separate from operational failures.
+- Issue 17 classified error handling from the `e565309` audit (A=3, B=7, C=6), starting from `a04dc35`:
+  - The full record tables every Main and Worker site and its owner.
+  - Shared contract catches keep expected Zod rejection, and diagnostic catches stay defensive.
+  - `withIpcLogging` reports otherwise-unowned original errors before rethrowing.
+  - 84 Renderer operational catches now use `reportRendererOperationError`.
+  - `ProjectManager.isSessionActive` replaces exception-based capability lookups.
+- Claude review accepted it. Two non-blocking follow-ups, IPC rejection log levels and private-text
+  treatment of short strings, were later resolved on 2026-10-15.
+- Issues 15 and 17 were committed, pushed, and closed. Issue 4 was closed.
 
-### Main and Worker audit
-
-The following rows account for all 16 original sites. Line numbers refer to the issue's audit baseline.
-
-| Class | Original source | Decision and owner |
-| --- | --- | --- |
-| A | jobs/job-store.ts:401 | Keep the diagnostic-channel fallback. Failure archival remains independent of reporting success. |
-| A | workers/agent-model-request.ts:291 | Keep the trace reporter fallback. agent-model.ts supplies the production onTraceError callback. |
-| A | workers/agent-session-run.ts:1244 | Keep the trace reporter fallback. agent-model.ts passes workerLog into runAgentSession. |
-| B | manuscript/markdown-import-adapter.ts:595 | URL.canParse handles expected syntax rejection before the existing protocol allowlist. |
-| B | workers/models-dev-request.ts:102 | URL.canParse handles both values before origin/path comparison. |
-| B | main/index.ts:654 | ProjectManager.isSessionActive replaces exception-based PDF capability lookup. Sender and session authorization remain in privileged operations. |
-| B | main/index.ts:666 | The same predicate replaces the asset capability lookup. Revocation remains immediate. |
-| B | workers/auxiliary-model-request.ts:468 | Keep bounded optional machine-code extraction. A non-JSON error response is expected input. |
-| B | manuscript/manuscript-replacement-service.ts:589 | Catch only JSON syntax rejection. Validate the decoded object and offset before HMAC work. Unexpected failures propagate. |
-| B | agent/session-projections.ts:80 | Keep raw URI fragment display when percent decoding fails. This grants no file or tool capability. |
-| C | manuscript/editor-persistence-service.ts:321 | Separate read and parse recovery. ENOENT and damaged derived mirrors remain repairable. repairAll logs other I/O errors once. |
-| C | agent/session-event-utils.ts:101 | Replace the code parser with readRunError. AgentSessionQueries owns one parse and safe fallback per row. |
-| C | agent/session-event-utils.ts:112 | The same projection returns null for absent legacy diagnostics. Malformed JSON or a non-object record receives one bounded warning. |
-| C | workers/provider-probe-request.ts:57 | HTTP errors with non-JSON bodies retain status fallback. Successful malformed JSON or a non-object response receives invalidResponse. |
-| C | jobs/job-store.ts:985 | Delete unreachable schema/size fallback for closed codes, fixed messages, bounded attempts, and an already-used valid clock. |
-| C | jobs/job-store.ts:1003 | Delete replaceErrorAttempt. Lease recovery serializes the actual row attempt and current timestamp directly. |
-
-MinerU invalidResponse stays explicit through the shared Worker schema, ProviderProbeClient, and ProviderService.
-The Worker attempts the original parser error report through its existing log channel.
-Its prepared diagnostic removes parser messages that can quote private response text.
-Main returns a controlled provider_rejected result instead of Connection succeeded.
-Ordinary non-JSON HTTP rejection does not add an error log.
-No response body enters the probe result or log fields.
-
-Classification-report failure also retains JobStore archival through a guarded diagnostic call.
-The serializer keeps the actual attempt and timestamp. It never substitutes attempt 1 or an epoch timestamp.
-Existing failure classification and cancellation transactions remain authoritative.
-
-### Shared and Preload classification
-
-The original Shared set contains twelve sites.
-Six manuscript contract catches keep expected Zod rejection for serialization or URL failures.
-Five diagnostic catches keep defensive handling for hostile objects, getters, Proxy values, and privacy boundaries.
-The provider-logo URL catch becomes URL.canParse.
-None of these expected branches adds a recurring error log.
-
-Neither the original nor the starting Preload source contains an unbound catch.
-Preload continues to parse shared input and output schemas before returning data.
-Main owns operational IPC rejection before Electron sends it back.
-Local bridge or Renderer failures without a native IPC rejection prefix use the existing bounded diagnostic channel.
-The channel validates sender and schema independently. Its data never becomes Main operation or recovery authority.
-
-### IPC owner and recovery
-
-withIpcLogging retains request correlation and now catches synchronous throws and Promise rejections.
-The wrapper reports an otherwise unowned original error before rethrowing the same value.
-Only UUID-shaped project session IDs enter untrusted request correlation.
-Request-local bookkeeping tracks attempted reports, including a reported cause behind a safe wrapper error.
-The Pino serializer marks the original identity. Handler reportIpcFailure calls skip a service-owned failure.
-No global deduplication cache or business state is introduced.
-A failed reporter cannot replace the operation's original outcome.
-Hostile cause inspection cannot suppress the original report.
-Input strings prepare private-content redaction without adding request data to log fields.
-The report preserves original identity, bounded stacks, causes, codes, and existing operation context.
-“Reported” means attempted reporting. It does not guarantee delivery through a failed transport or disabled log level.
-
-Project operation errors now retain their original cause when they expose a safe public message.
-The existing legacy conversion owner flag remains intact.
-appendRevision owns its internal failure. The conversion handler owns other failures and each pending mirror repair.
-The wrapper does not mislabel every conversion failure as missing from logs.
-
-### Renderer feature batches
-
-The audit baseline contains 94 unbound Renderer catches and zero Preload catches.
-Issue 13 already handles nine sites in find, import, and references.
-This batch handles 84 remaining operational catches through reportRendererOperationError.
-The final original site is safePreviewMarkdownUrl. It retains expected logical asset rejection without an error log.
-The new reporter keeps one explicit diagnostic-channel fallback and never retries a failed reporter.
-
-| Feature batch | Origin and logging owner | UI behavior |
-| --- | --- | --- |
-| Application lifecycle, snapshots, exports, templates, and diagnostics | Main owns native IPC rejection. Renderer owns a local callback failure. | Preserve action errors, lifecycle refresh, cancellation state, and cleanup. |
-| Settings and all provider editors | Main provider/credential operations own their failures. Renderer owns local processing. | Preserve credential-safe hints and retained catalog data. |
-| Project version history | Main lifecycle/history code owns operation failures. Renderer owns local state failures. | Keep original project and explicit retry/recovery actions. |
-| Knowledge manager and parsed document viewer | Main import, parse, reference, and original-file handlers own operation failures. Renderer owns refresh failures. | Preserve per-file outcomes, queued cancellation, expired conversion plans, and partial committed conversion results. |
-| Manuscript controller, comments, and publication presets | Main owns persistence and mutation failures. Renderer owns local navigation or presentation failures. | Keep drafts, save barriers, refresh, and retry. Version rejection gets a separate fixed hint. |
-| Writing Rules | Main owns the version check and update. Renderer owns local presentation. | Separate version rejection from other update failure. |
-| Notebook | Main owns transient model/source operations. Renderer owns local snapshot or preview processing. | Preserve command state, question drafts, and unavailable citation UI. |
-| Find, import, references, and Workbench | The same reporter backs the accepted Issue 13 helper. | Preserve request sequences, dialog closure, navigation, and save coordination. |
-
-Renderer diagnostics preserve a bounded safe cause chain through an optional shared diagnostic field.
-Main reconstructs that untrusted diagnostic for logging, not authorization.
-Native Electron IPC rejection messages remain Main-owned and do not generate another Renderer report.
-Known Main brief/outline version codes expose a fixed conflict hint.
-Unknown failure text never replaces the caller's safe hint.
-Expected replacement and conversion results retain their existing expired-plan, stale-plan, conflict, and unavailable branches.
-
-### Verification and limits
-
-The selected scope covers the original error sites, logging transport, IPC handlers, persistence repair, job leases, Worker probes, and UI recovery.
-The first focused Electron run passes 381 tests across 43 files in 9.7s with no retries or skips.
-Report: `.cache/verification/1792018967468-58926-64b15505`.
-A five-file final slice passes 21 tests in 0.9s after probe transport and conflict hint additions.
-Report: `.cache/verification/1792019496394-66582-ca836c26`.
-A five-file guard slice passes 47 tests in 0.8s after hostile cause inspection coverage.
-Report: `.cache/verification/1792020064051-74235-30009aeb`.
-Together these final selections cover 384 distinct tests across 43 files.
-
-Tests cover ENOENT and damaged mirror repair, injected EACCES/EIO identity, and unchanged files after failed reads.
-They cover classifier plus reporter failure, real lease attempt/time retention, malformed successful probes, ordinary non-JSON HTTP errors, and gateway propagation.
-They separate missing historical diagnostics from malformed stored JSON without logging stored text.
-They also cover synchronous/asynchronous IPC rejection, cause identity, request-local deduplication, private input, local diagnostics, and reporter failure.
-
-The first package smoke gate passes in 78.3s.
-A final cause guard requires a second App build. The final package smoke gate passes six stages in 77.9s.
-It passes static stages in 2.5s, builds in 15.8s, and passes all twelve packaged runtime checks in 38.8s.
-Reports: `.cache/verification/1792019499648-66695-ea59edad` and `.cache/verification/1792020133182-75171-786f8f02`.
-The final gate inventories 34,434 ASAR entries and confirms the SQLite binaries, all three Worker roles, log rotation, and shutdown flush.
-Runtime logging reports no private-root, credential, or private-body leak.
-No installer or signed distribution is created.
-
-The initial packaged E2E selection passes ten of twelve scenarios in 56.6s.
-Outline conflict setup races a workspace refetch. Writing Rules restore selects a tool that hides Outline's project header.
-Report: `.cache/verification/1792019651253-68841-7223b3b2`.
-The outline fixture now commits a competing update after the real UI request captures its base version.
-Both calls still use the original authorized handler and real database version checks.
-The test no longer depends on a pending refetch's timing.
-Writing Rules restoration now uses lifecycle displayName and the visible status bar instead of a hidden header.
-A first correction used the wrong name field. That fixture error was corrected to the shared displayName contract.
-No product layout changes accompany these fixture corrections.
-
-The five-scenario follow-up passes conversion recovery and outline conflict, with Writing Rules still failing at the old header assertion.
-Report: `.cache/verification/1792019858292-71641-62372741`.
-The final packaged App passes fourteen of fifteen scenarios in 63.0s before the name-field correction.
-Report: `.cache/verification/1792020292467-78150-8b47fe59`.
-The corrected Writing Rules scenario passes in 3.8s against that same App.
-Report: `.cache/verification/1792020551006-81853-b527cad0`.
-Final acceptance covers fifteen distinct packaged E2E scenarios with zero automatic retries or skips.
-Earlier failures and manual reruns remain recorded above. They are not a claim that each composite invocation passed.
-The known quick-action floating-menu failure remains outside this batch.
-
-The host uses Node 26.11.1 and pinned pnpm 11.28.3. The existing Node engine warning remains.
-The native runtime uses Electron 44.5.1, ABI 149, Node-API 10, and better-sqlite3 13.0.3 at prebuilds/darwin-arm64.node.
-It loads sqlite-vec 0.1.9 from native/sqlite-vec/darwin-arm64/vec0.dylib.
-Runtime coverage is macOS arm64 only. Windows, Linux, and macOS x64 runtime acceptance remains outstanding.
-This batch adds no dependency or database migration.
-Issues 15 and 17 await Claude review. No commit, push, issue closure, or Claude terminal handoff runs.
-The pre-existing dependency audit remains untouched. The goal pauses at the review handoff.
-
-The Process Model illustration and tool bridge now use the current Worker role names.
-The deleted role-name transition sentence was an obsolete label, not unique delivery evidence.
-
-### Final document gate
-
-Document-only checks pass for Issue 15. The architecture decreases from 2,084 to 1,884 lines.
-Current-plan decreases from 1,461 to 71 lines.
-The source map covers 131 removed state blocks, the initial status, prior authorization, completion sections, and retired architecture blocks.
-The link scan accepts 159 local file and heading references with zero failures.
-The current 22-tool list matches shared contracts. No dated amendment heading remains in architecture.
-The history prefix matches the starting revision byte-for-byte. CLAUDE.md keeps its AGENTS.md symlink.
-Current-plan and tracker both pause Issues 15 and 17 for review.
-Diff whitespace checks pass. Markdown tables, source paths, headings, and preserved evidence receive a separate consistency review.
-No application build or test runs for the documentation-only gate.
-
-### Claude review of batch five
-
-Claude reviews Issues 15 and 17 against the working tree and accepts them without source changes.
-
-Issue 17: the Main and Worker table matches the code. The remaining unbound catches are the three A-class reporting fallbacks, the two retained B-class fallbacks, and new diagnostic-channel fallbacks.
-`isSessionActive` uses the same conditions as `assertActiveSession`.
-Mirror verification still rebuilds missing or damaged mirrors. Other read failures reach `repairAll`, which logs the original error.
-The removed job-error fallbacks were unreachable because classification already parses closed codes.
-Lease recovery keeps the real attempt and time.
-A successful MinerU probe with malformed JSON now returns `provider_rejected`. A non-JSON HTTP error keeps its status fallback.
-The diagnostic projection is held in a WeakMap and does not mutate the error rethrown to the Renderer.
-Renderer catches report the original error and keep their existing messages and recovery.
-
-Two follow-up candidates do not block acceptance:
-
-- `withIpcLogging` now logs every IPC rejection at error level. That includes expected `ProjectSessionError` rejections during project close or switch, which can add log noise.
-- `reportIpcFailure` treats every request string as private text, including IDs and one-character find queries. A short query can make a failure message or stack hard to read. It does not leak content.
-
-Issue 15: no existing history line changes. Relative links in AGENTS.md, architecture, current-plan, the tracker, and ADR 058 resolve: 152 links with zero failures.
-Core security and storage rules remain in architecture.
-Claude repairs two source-map tables split by blank lines and fills the empty retained-text slot for current-plan line 176.
-The cited second-stage record already contains every result from that block.
-
-`pnpm check:fast` passes in 2.7s.
-A focused Electron run passes 580 tests across 81 files in 9.9s with zero retries.
-It covers observability, all IPC handlers, jobs, persistence, replacement, Markdown import, Agent queries and sessions, providers, Worker probes, Renderer diagnostics, shared contracts, and ProjectManager.
-Report: `.cache/verification/1792046144742-23340-418a9db0`.
-The final package smoke gate and fifteen packaged E2E scenarios above still cover the final production source. They are not rerun.
-Coverage remains macOS arm64 only.
-Both issues are committed, pushed to `main`, and closed. Issue 4 is closed with all sub-issues complete.
-The untracked dependency audit stays outside these commits.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-error-handling-ownership).
 
 ## 2026-10-15 Test-Suite Audit
 
-The user requests a full audit of the test suite.
-The four goals are to update outdated tests, check whether each test is necessary, add missing tests, and correct unreasonable tests.
-The user also expects the audit to resolve the open quick-action follow-up.
-Claude measures the suite and diagnoses the failing scenarios.
-Codex (`gpt-6.1-sol`, high reasoning) implements the brief in a workspace-write sandbox.
-Claude reviews that work, completes the host-only E2E diagnosis, and fixes two further product defects.
-No dependency, migration, schema, Worker entrypoint, or package resource changes.
+- Test-suite audit, with Claude diagnosing and reviewing and Codex implementing. The baseline was 64 of 67 source E2E scenarios.
+- Fixed four product defects found by the suite:
+  - The quick-action menu now renders into BlockNote's toolbar portal.
+  - Outline drafts save against the version they were edited from, which fixes a lost update.
+  - A streamed answer no longer duplicates the persisted copy.
+  - Conversation status has accessible labels.
+- Test changes:
+  - Updated outdated tests.
+  - Deleted no duplicates.
+  - Added 96 missing cases, mostly IPC authorization, rejection, and cleanup.
+  - Replaced zero-delay sleeps with observable conditions.
+- The final `check:full` passed with all 67 source E2E scenarios.
 
-### Baseline
-
-`pnpm check:full` passes 1,748 Vitest tests, with 3 opt-in benchmarks skipped, across 280 files in 22.2s.
-64 of 67 source E2E scenarios pass, with zero retries.
-`agent.selection-quick-actions`, `agent.user-clarification`, and `knowledge.unified-reference-import` fail.
-Report: `.cache/verification/1792049892378-39428-48de51a8`.
-A one-off coverage run temporarily installs `@vitest/coverage-v8` 5.0.3.
-It measures 63.8% of lines and 53.0% of branches in unit tests. Process entrypoints, preload bridges, and React hooks rely on E2E coverage.
-`package.json` and `pnpm-lock.yaml` are then restored, followed by a frozen install. No coverage dependency is committed.
-
-### Product defects found by the suite
-
-- Quick actions: the toolbar menu rendered in a portal on `document.body`.
-  Focus left the editor, BlockNote hid the formatting toolbar, and the menu unmounted with it, so a mouse click could not open AI quick actions.
-  The menu now renders into BlockNote's toolbar portal element through an optional `container` on the existing shadcn dropdown.
-- Outline lost update: `updateOutlineSection` sent the workspace outline version current at send time.
-  After a conflict refetch, a later blur-triggered save could resend the draft against the refreshed version and silently overwrite a concurrent edit.
-  Drafts now save against the outline version they were edited from. Only the explicit Retry or Reload latest action adopts the latest version.
-- Streamed-answer duplicate: an edit-and-restart history reload could deliver the persisted assistant message before its live settle event.
-  For a moment the persisted and streaming copies rendered together.
-  The view model now suppresses a streaming item whose text equals the run's last persisted assistant message.
-- Conversation status: the switcher showed status only through unlabeled icons.
-  Each item now carries a screen-reader status label, and the fork icon label is `Branch` instead of `分支`.
-
-### Test changes
-
-- Outdated tests:
-  - A stale singleton-provider title is corrected.
-  - The NotebookRegistry tests move to `notebook-registry.test.ts`, with a shared `knowledge-chat-service.test-support.ts` fixture.
-  - The citation resolver tests move to `use-manuscript-references.test.ts`, and the test-only controller re-export is removed.
-  - Tests import owning modules instead of compatibility re-exports.
-- Necessity: no exact duplicate bodies are found across 312 test files, so no test is deleted.
-  Similar migration, parser, and layered concurrency tests protect distinct boundaries and remain.
-- Missing tests (96 new cases):
-  - Citation formatting service and the auxiliary model client.
-  - Skill, agent attachment, and diagnostics IPC: sender authorization, schema rejection, session revocation, and results.
-  - Manuscript IPC conflict cause preservation with single failure reporting.
-  - Notebook IPC rejection, cleanup, and failure branches.
-  - One view-model regression test for the streamed duplicate.
-- Unreasonable tests: five zero-delay or millisecond sleeps are replaced by observable conditions.
-  - Quick actions use a real click instead of `dispatchEvent`. The shortcut assertion waits until ProseMirror adopts the selection.
-  - The unified-reference scenario waits for editor focus after Escape.
-  - The outline scenario installs its interception before typing.
-  - The clarification and concurrency scenarios assert accessible names instead of the cmdk `data-value`.
-  - The eight E2E `waitForTimeout` calls remain. They prove that nothing happens across debounce or autosave windows.
-
-Codex's report and inventory remain outside the repository at `/tmp/wl-check/codex-report.md`.
-
-### Verification
-
-Repeated focused runs on one matching build:
-
-| Scenario | Before the fix | After the fix |
-| --- | --- | --- |
-| Quick actions | 2 of 5 | 10 of 10 |
-| Outline conflict | 8 of 10 | 12 of 12 |
-
-`pnpm check:full` passes on the final source in 244.8s.
-It runs static checks, 1,845 Vitest tests with 3 opt-in benchmarks skipped across 286 files in 23.2s, one build in 16.9s, and all 67 source E2E scenarios in 201.4s.
-Zero retries, flaky results, or skips occur.
-Report: `.cache/verification/1792053868905-91588-01a053f3`.
-Coverage is macOS arm64 only. Windows, Linux, and macOS x64 runtime acceptance remains outstanding.
-The untracked dependency audit stays outside the commit.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-15-test-suite-audit).
 
 ## 2026-10-15 IPC Logging Follow-Ups
 
-The user authorized the two follow-up candidates from the [error ownership review](#claude-review-of-batch-five).
-Both changes are in `src/main/observability/ipc-context.ts`. The 81 `reportIpcFailure` call sites are unchanged.
+- Resolved both follow-ups from the Issue 17 error ownership review, in `ipc-context.ts`:
+  - `withIpcLogging` accepts `isExpectedRejection`. A `ProjectSessionError`, direct or in the cause chain, now logs at warn.
+  - `reportIpcFailure` no longer redacts UUID-shaped strings or strings shorter than four characters.
+- The complete Vitest suite passed.
 
-### Expected rejections
-
-- Before: `withIpcLogging` logged every IPC rejection at error level.
-  That included `ProjectSessionError` from requests that race a project close or switch.
-- `withIpcLogging` now accepts an `isExpectedRejection` option.
-  Main passes `err instanceof ProjectSessionError`, so observability does not import project code.
-- Every report made during a request checks the error and its cause chain.
-  This covers boundary reports and handler-owned reports.
-- A match is logged at warn with the same event, fields, and original `err`. Every other failure stays at error.
-- If the check itself throws, the failure is still reported at error.
-- Logger option types for IPC registration now include `warn`.
-
-### Redaction
-
-- Before: `reportIpcFailure` treated every non-empty request string as private text.
-  A one-character find query blanked every matching character in the failure message and stack.
-- Now UUID-shaped strings are not treated as private text, because logging rules permit safe IDs.
-  Strings shorter than four characters are also skipped.
-- Longer free text is still redacted. Header, bearer token, signed URL, and private path redaction is unchanged.
-
-### Tests
-
-`ipc-context.test.ts` adds three cases:
-
-- Direct and wrapped expected rejections log at warn. An unexpected failure still logs at error.
-- A throwing classifier falls back to error level.
-- A UUID and a one-character query stay readable while a longer private string is redacted.
-
-### Verification
-
-Shared IPC infrastructure scope: `pnpm check:fast` passes in 2.6s.
-The complete Vitest suite passes: 1,848 tests with 3 opt-in benchmarks skipped, across 286 files, in 23.8s, with zero retries.
-Report: `.cache/verification/1792055493674-2692-d8e9669f`.
-E2E is not rerun, because Renderer behavior and IPC results are unchanged.
-Coverage is macOS arm64 only.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-15-ipc-logging-follow-ups).
 
 ## 2026-10-15 Release 0.2026.10.2 Preparation
 
-The user requests a local App after Issue 4 and asks to trigger the latest release workflow.
-Issue 4 is closed. Local and remote `main` both point to `8b4a653481a47e6e61bc7d73f623d4e0162c1897` before release preparation.
-The previous published release is `v0.2026.10.1`.
-`package.json#release.version` advances to `0.2026.10.2`. The SemVer base remains `0.2026.10`.
-No application source, dependency, lockfile, migration, or workflow changes.
+- Release `0.2026.10.2` was prepared from `8b4a653`. It changed only release metadata.
+- `check:package` passed with 45 packaged scenarios.
+- Release commit `d985a6a` and tag `v0.2026.10.2` were pushed, and tag build `38716401683` started.
 
-`pnpm install --frozen-lockfile` passes with pnpm 11.28.3 in 244ms without dependency changes.
-The host uses Node 26.11.1, ABI 147, and Node-API 10. The existing Node engine warning remains.
-The test and packaged runtimes use Electron 44.5.1, Node 24.21.0, ABI 149, and Node-API 10.
-Native preparation selects better-sqlite3 13.0.3 at `prebuilds/darwin-arm64.node` and sqlite-vec 0.1.9.
-
-The complete Electron suite result from the IPC logging follow-ups still covers the final application source.
-It passes 1,848 tests with three optional benchmarks skipped, across 286 files, in 23.8s, with zero retries.
-Report: `.cache/verification/1792055493674-2692-d8e9669f`.
-
-`pnpm check:package` passes all ten stages in 250.0s on macOS arm64.
-Static checks take 3.0s. Recovery inventory covers 33 cases.
-One production build takes 17.3s. App assembly takes 21.5s.
-All twelve packaged runtime scenarios pass in 40.4s.
-All 45 packaged interaction scenarios pass in 141.7s, with zero retries, failures, or skips.
-Installer production reuses the tested App. DMG and ZIP structure and checksum checks pass.
-Report: `.cache/verification/1792057740388-28479-62595e9f`.
-Package evidence: `dist/macos-arm64/package-evidence.json`.
-Local evidence records the starting revision and a dirty working tree because release metadata changes precede the release commit.
-
-Local artifacts:
-
-- `dist/macos-arm64/mac-arm64/WriteLLM.app`
-- `dist/macos-arm64/WriteLLM-0.2026.10.2-arm64.dmg`, 220,150,472 bytes, SHA-256 `1df11091ae493182e046e05323d5f1476a26519bad5cebb047db7d722a41f646`.
-- `dist/macos-arm64/WriteLLM-0.2026.10.2-arm64.zip`, 218,038,447 bytes, SHA-256 `c0bc3fa53252b1c769916a4c0a0f749559f3273cfe3e69e5b8d79c3fd0900da0`.
-
-Runtime coverage remains macOS arm64 only. Other platform runtime acceptance remains outstanding.
-Distribution follows the existing unsigned four-platform tag policy. Developer ID signing and notarization remain disabled.
-The untracked dependency audit stays outside the release commit.
-
-Release commit `d985a6a72602266088867cf826efb5aed6837b8b` and annotated tag `v0.2026.10.2` are atomically pushed to `origin`.
-The remote tag resolves to that exact commit on `main`.
-[Cross-platform tag build 38716401683](https://github.com/ecwu/writellm/actions/runs/38716401683) starts with the matching source revision.
-At handoff, the build is in progress. The existing publication workflow will publish after all four platform builds succeed.
-No workflow trigger, permission, or signing policy changes.
-
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-15-release-02026102-preparation).
 
 ## 2026-10-15 compatible dependency maintenance
 
-The user authorizes all safe updates after the [Issue 2](https://github.com/ecwu/writellm/issues/2) review.
-The starting source is `6570126e71fd65fdcb65938fd4890913500016a6`.
-The [ADR 056 amendment](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-15-compatible-maintenance-amendment) records the accepted boundaries.
-This batch updates 24 direct dependencies and repairs three transitive dependency advisories within parent ranges.
-Exact pins remain exact, and caret declarations retain their range policy.
+- Under the ADR 056 amendment, from `6570126`:
+  - Updated 24 direct dependencies, including Electron 44.7.2, Playwright 1.64.1, DOCX 9.11.0, and Dockview 8.5.1.
+  - Overrides repaired three transitive advisories: http-cache-semantics, source-map-js, and fast-copy.
+- Two advisories remain: a moderate sprintf-js advisory with no published repair, and a low KaTeX advisory because rehype-katex requires the 0.16 series.
+- Mermaid was held at 12.1 to keep one KaTeX version.
+- DOCX 9.11's generated bookmarks now receive stable names, keeping exports byte-identical.
+- `check:package` passed, and all 67 scenarios passed.
+- Release `0.2026.10.2` (`d985a6a`) was published separately.
 
-| Package | Before | After |
-| --- | --- | --- |
-| `@ai-sdk/cohere` | 4.0.54 | 4.0.61 |
-| `@ai-sdk/openai-compatible` | 3.0.62 | 3.0.69 |
-| `@google/genai` | 2.26.0 | 2.30.0 |
-| `@playwright/test` | 1.63.0 | 1.64.1 |
-| `@tanstack/react-query` | 5.104.1 | 5.104.3 |
-| `@types/node` | 24.19.1 | 24.19.2 |
-| `ai` | 7.0.127 | 7.0.141 |
-| `axe-core` | 4.13.0 | 4.14.0 |
-| `dockview-react` | 8.4.0 | 8.5.1 |
-| `docx` | 9.8.1 | 9.11.0 |
-| `electron` | 44.5.1 | 44.7.2 |
-| `isomorphic-git` | 1.42.6 | 1.44.2 |
-| `lucide-react` | 1.49.0 | 1.57.0 |
-| `openai` | 7.27.0 | 7.34.0 |
-| `pdfjs-dist` | 6.3.289 | 6.4.299 |
-| `pino` | 10.3.1 | 10.4.0 |
-| `pino-pretty` | 13.1.3 | 13.2.0 |
-| `radix-ui` | 1.6.7 | 1.8.1 |
-| `react` | 19.3.0 | 19.3.1 |
-| `react-dom` | 19.3.0 | 19.3.1 |
-| `react-resizable-panels` | 4.14.1 | 4.14.5 |
-| `typebox` | 1.3.34 | 1.3.37 |
-| `vitest` | 5.0.3 | 5.0.4 |
-| `zod` | 4.6.5 | 4.6.7 |
-
-The security overrides select http-cache-semantics 4.3.0, source-map-js 1.2.2, and fast-copy 4.2.0.
-The full audit covers 1,183 entries and reports zero high or critical advisories, one moderate advisory, and one low advisory.
-The production audit covers 747 entries and reports one low advisory.
-The moderate sprintf-js advisory has no published repair.
-The low KaTeX advisory remains because rehype-katex requires the accepted 0.16 series.
-These dependency findings do not establish exploitability in WriteLLM.
-
-Playwright's Linux credential-store patch moves to 1.64.1 after review of its published Electron loader.
-The new loader filters empty switches, so the existing conditional switch remains compatible.
-Installation adds fourteen exact release-age exceptions for reviewed SDK, query, React, and Playwright packages.
-The [metadata inventory](../../.cache/verification/dependency-maintenance-2026-10-15/reviewed-metadata.json) records publication times, integrity values, and compatibility ranges.
-
-The first installation includes Mermaid 12.2, which introduces KaTeX 0.18 through its own dependency range.
-This batch restores Mermaid 12.1 before acceptance to retain one KaTeX 0.16.47 version.
-BlockNote stays on 0.55, and Pi stays on 1.0.0.
-Vite 8, electron-vite 6, plugin-react 6, p-queue 10, and the mathematical rendering migrations remain separate.
-Tiptap stays unified at 3.31.4.
-ProseMirror Model, State, View, and Transform retain one runtime version each.
-
-DOCX 9.11 automatically fills the table of contents and adds bookmarks with process-wide generated names.
-The first complete test run exposes two failures because these names make repeated exports differ.
-It reports 1,846 passing tests and two failures in 22.7 seconds, with three optional benchmarks skipped.
-
-The existing export normalization now assigns stable names to generated bookmarks and updates their hyperlinks and page references.
-It preserves application bookmark names and manuscript text.
-The regression assertions cover matching bookmark ends, links in the table of contents, page references, literal bookmark-like text, and byte-identical repeated exports.
-Six focused tests pass in 2.3 seconds after this repair.
-
-Final acceptance uses pnpm 11.28.3 and the canonical Electron test runner.
-Frozen installation passes in 232 milliseconds without dependency changes.
-The final complete suite passes 1,848 tests across 283 files in 22.5 seconds.
-Three optional benchmark tests remain skipped, with zero retries and zero unhandled errors.
-The full macOS arm64 package gate passes all ten stages in 278.2 seconds with one App build.
-It covers 33 recovery fixtures, native resources, twelve runtime scenarios, and all 45 packaged interaction scenarios.
-
-The runtime scenarios take 46.4 seconds, and packaged interaction evidence records 164.3 seconds.
-All interaction scenarios pass without retries or skips.
-The DMG and ZIP use the same tested App and pass structure and checksum inspection.
-The remaining 22 source-only scenarios reuse the matching build and pass in 54.9 seconds, without retries or skips.
-Together, packaged and source-only interaction coverage includes all 67 current scenarios.
-
-The host retains Node 26.11.1 and its pnpm 11.17.0 launcher.
-The launcher selects the fixed project pnpm 11.28.3 outside the sandbox.
-The host Node version exceeds the declared 24.x engine range and emits an engine warning.
-Native tests use Electron 44.7.2 with Node 24.21.0, module ABI 149, and Node-API 10.
-Native preparation selects `better-sqlite3/prebuilds/darwin-arm64.node` and successfully loads sqlite-vec 0.1.9.
-Windows, Linux, macOS x64, live-provider requests, signing identities, and notarization remain outside this local acceptance.
-
-The maintenance App and installers retain version 0.2026.10.2 and contain these uncommitted changes.
-This batch creates no commit, tag, push, or release.
-The earlier immutable release completes separately: its four-platform build succeeds and publishes four assets at 10:07:02 UTC.
-[Release 0.2026.10.2](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.2) remains tied to `d985a6a`.
-
-Evidence: [acceptance summary](../../.cache/verification/dependency-maintenance-2026-10-15/acceptance.json),
-[full audit](../../.cache/verification/dependency-maintenance-2026-10-15/audit-all.json),
-[production audit](../../.cache/verification/dependency-maintenance-2026-10-15/audit-production.json),
-[final Electron suite](../../.cache/verification/1792059013747-51360-28ae6d90/vitest-1792059013936-51361-157562a2.json),
-[package gate](../../.cache/verification/1792059063330-52084-953e88d7/stages-1792059063330-52084-953e88d7.json),
-[source-only scenarios](../../.cache/verification/1792059330442-58215-94be5e0e/e2e-1792059330787-58216-0c4da98f.json), and
-[package evidence](../../dist/macos-arm64/package-evidence.json).
-
-Issue 2 records this completed local maintenance batch and its remaining migrations.
-It stays open because upstream compatibility limits and other platform runtime acceptance remain unresolved.
-Final Biome verification passes for 893 files, and the document links and diff whitespace checks pass.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-15-compatible-dependency-maintenance).
 
 ## 2026-10-21 Issue 18 engineering quality
 
-The user authorizes the [Issue 18](https://github.com/ecwu/writellm/issues/18) audit repairs and engineering improvements.
-The starting source is `6570126e71fd65fdcb65938fd4890913500016a6`.
-Earlier dependency and DOCX maintenance remains intact in the combined working tree.
-[ADR 086](../adrs/086-issue-18-engineering-quality.md) records the maintenance boundaries.
+Implemented [Issue 18](https://github.com/ecwu/writellm/issues/18), starting from `6570126`:
 
-Renderer recovery paths now report their original failures through the shared diagnostics helper.
-The source guard rejects unmarked empty catches and promise catches without an error parameter.
-Intentional exceptions name their logging owner or recovery behavior.
-The guard handles TypeScript syntax, regular expressions, and JSX closing tags without a zero-progress scanner loop.
-Shared subscription cleanup releases late registrations and prevents disposed operations from changing visible error state.
-Project operations use session generations and action tokens to reject stale completions.
-History cleanup releases its own busy action without clearing a newer action.
+- Error handling and source guard (ADR 086):
+  - Renderer recovery reports the original errors.
+  - The source guard rejects unmarked empty and parameterless catches.
+  - Session generations and action tokens reject stale project operations.
+- Persistence and IPC:
+  - Prepared SQL is the primary project database implementation, and a schema contract test covers the database through migration 0048 (ADR 087).
+  - Typed IPC endpoint tables cover 169 operations (ADR 088).
+  - Manuscript and Agent writes share one section repository (ADR 089).
+- Shared code:
+  - New shared helpers for canonical JSON, SHA-256, cancellation, durable writes, backups, and utility errors.
+  - The index worker uses the persistent utility lifecycle.
+  - Ownership-based module extraction.
+- Tests:
+  - E2E typechecking joined the static gate.
+  - Shared E2E helpers.
+- Repository and dependencies:
+  - Repository cleanup.
+  - Provider logo deduplication.
+  - The provider and archive library boundaries are recorded (ADR 090).
+- The final package gate passed, and all 67 scenarios passed. A provider-logo resolver regression found during acceptance was fixed.
 
-[ADR 087](../adrs/087-native-sql-and-schema-contract.md) describes prepared SQL as the primary project database implementation.
-Kysely remains available to existing typed repositories.
-The new schema contract test compares the migrated database with the declared table types through migration 0048.
-It covers table and column names, nullability, and basic storage types.
-It does not prove constraints, indexes, triggers, views, or JSON semantics.
-Six migrations share the bounded `hasColumn` helper without changes to migration SQL, versions, or checksums.
-
-[ADR 088](../adrs/088-typed-ipc-endpoints.md) defines shared IPC endpoint tables and Main/preload adapters.
-IPC means messages between application processes.
-The tables cover 169 operations across application, project, editor, manuscript, Knowledge/search, and Agent domains.
-Sender authorization, active-session or mutation authorization, logging, and four schema parsing boundaries remain in place.
-Recovery methods preserve their zero-argument public API while sending an empty wire payload.
-Subscriptions, capture dialogs, replay, and final editor flush retain explicit lifecycle adapters.
-Other domain handlers can migrate later when the shared adapter matches their contracts.
-
-[ADR 089](../adrs/089-section-write-authority.md) defines the shared section repository.
-Manuscript and approved Agent writes now share section creation, revision insertion, current-revision comparison, metadata updates, and tombstones.
-Callers retain transactions, approval, comment mapping, asset handling, materialization, and error ownership.
-Editor retention keeps its policy-specific revision compaction.
-
-Shared helpers now cover canonical JSON, SHA-256, cancellation errors, bounded durable writes, backup publication, and utility error reconstruction.
-Legacy model and trace fingerprints retain their numeric-key ordering and undefined-property behavior.
-Canonical JSON also preserves an own `__proto__` property without changing the object prototype.
-Streaming hashes, domain cursors, and byte-derived hashes keep their distinct contracts.
-The index worker uses the persistent utility-process lifecycle, including cancellation, crash recovery, and stale-response rejection.
-Provider probes share matching request handling.
-The LaTeX process remains disposable under ADR 033.
-
-Ownership-based extraction separates bootstrap Knowledge composition, project templates, manuscript exports, Agent conversation actions, and editor selection controls.
-Agent session preparation, tool policy, worker preflight, and finalization now have named stages.
-Project history and selected Settings data use React Query with scoped query keys.
-Commands and streaming Agent/Notebook reducers keep their existing event ownership.
-Large lifecycle modules can receive further extraction when a separate responsibility appears.
-This batch does not split `ProjectManager` or other modules solely to reduce their line count.
-
-E2E means tests that operate the real application.
-Fifteen E2E specifications share project and provider-stream helpers.
-The static gate now includes E2E typechecking, so missing fixture imports fail before a build.
-Migrations 0046–0048 share a test database harness.
-General service test setup retains domain-specific fixtures and remains a future maintenance opportunity.
-
-Repository cleanup removes thirteen tracked Playwright failure artifacts and ignores `output/`.
-Provider logo generation maps 149 providers to 125 stored SVGs and removes 24 duplicate files.
-The application removes its unused direct citeproc declaration and preserves version 2.4.63 through a documented root override.
-The frozen installation passes after the lockfile update.
-An offline attempt first fails because the pnpm store lacks package-policy metadata.
-The online frozen attempt passes without a toolchain substitution.
-
-[ADR 090](../adrs/090-document-navigation-and-dependency-boundaries.md) records the retained provider and archive library boundaries.
-Pi does not replace the existing embedding, reranking, and image provider capabilities.
-JSZip, Yauzl, and Yazl retain deterministic DOCX editing, bounded extraction, and test archive creation.
-The documentation entry point and ADR index provide navigation and partial supersession rules.
-Historical document paths remain stable.
-
-Acceptance uses pnpm 11.28.3 and the canonical Electron test runner.
-The complete suite passes 1,893 tests across 298 files in 25.8 seconds, or 26.4 seconds including the wrapper.
-Three optional benchmark tests remain skipped, with zero retries and zero unhandled errors.
-Fourteen affected verification-command tests pass again after E2E typechecking enters the static gate.
-That focused invocation takes 0.7 seconds.
-The final static gate passes all five stages in 4.5 seconds, including Biome for 941 files and all three typechecks.
-The E2E fixture correction also passes its affected formatting and typecheck commands.
-
-The recovery inventory covers 33 cases.
-The final macOS arm64 App passes resource/native inventory, signature policy, and twelve runtime scenarios.
-The final runtime scenarios take 39.2 seconds.
-All 45 packaged interaction scenarios pass in 150.4 seconds, without retries or skips.
-All 22 source-only scenarios pass in 52.4 seconds, without retries or skips.
-Together, these runs cover all 67 distinct interaction scenarios.
-The final DMG and ZIP use the same tested App and pass structure and checksum inspection.
-The provider Settings scenario also passes against that packaged App in 12.5 seconds.
-
-Acceptance retains the earlier failures rather than replacing their records.
-The first package invocation fails on four comment indentation differences before it creates an App.
-The next invocation stops after review identifies history action cleanup and E2E helper imports need repair.
-It creates one earlier App and records the interrupted interaction results.
-The next App receives one fresh build after the history cleanup repair.
-Its first complete interaction attempt passes 44 scenarios and fails one added test fixture.
-That fixture closes Main directly without a valid Renderer lifecycle transition.
-A second focused attempt confirms that a closed snapshot cannot satisfy the session event contract.
-The fixture removes this unsupported injection and retains the normal clone, history prompt, close, and reopen assertions.
-The corrected focused scenario passes in 4.0 seconds.
-Session-generation tests and source review cover stale operation guards.
-No supported UI route changes the session while the global history action is busy.
-The corrected packaged run passes all 45 scenarios in 150.4 seconds with the same intermediate App.
-Manual installer completion takes 30.1 seconds and preserves that App's complete content digest.
-This intermediate acceptance does not become the final result.
-
-The source-only run then passes 21 scenarios and exposes a provider logo regression.
-The manifest uses filenames with `.svg`, but the Renderer lookup originally removes that extension from its keys.
-The shared resolver now uses complete asset filenames and resolves provider aliases through the manifest.
-Three new regression tests cover every provider ID, shared aliases, and unknown fallback.
-The resolver and asset integrity tests pass all five cases in one second.
-This final product repair requires a new App and invalidates the intermediate installer output.
-The final full package gate passes all ten stages in 260.8 seconds with one App build.
-Earlier failed and interrupted gates account for two superseded App builds.
-The final source-only fixture adjustment requires no application rebuild.
-
-The next source-only run passes 21 scenarios but times out at the quick-action keyboard assertion.
-Source comparison finds no changed shortcut handler behavior after extraction.
-The fixture now restores editor focus and selection before each shortcut and uses the existing Chromium input helper.
-Five repeated application interactions pass, but `--repeat-each=5` violates the evidence reporter's unique scenario ID rule.
-That command fails and does not count as accepted evidence.
-The final source-only invocation uses one copy of each scenario and reuses the same build.
-No application code changes after the final package gate.
-
-The host uses Node 26.12.0 and its pnpm 11.17.0 launcher.
-The launcher selects the fixed project pnpm 11.28.3 outside the sandbox.
-The host Node version exceeds the declared 24.x engine range and emits an engine warning.
-Native tests use Electron 44.7.2 with Node 24.21.0, module ABI 149, and Node-API 10.
-Native preparation selects `better-sqlite3/prebuilds/darwin-arm64.node` and successfully loads sqlite-vec 0.1.9.
-Windows, Linux, macOS x64, live-provider requests, signing identities, and notarization remain outside this local acceptance.
-The App and installers retain version 0.2026.10.2 and contain the combined uncommitted maintenance changes.
-This task creates no commit, push, release, or GitHub issue update.
-
-Evidence: [acceptance summary](../../.cache/verification/issue18-acceptance.json),
-[complete Electron suite](../../.cache/verification/1792600020199-8102-dec2d390/vitest-1792600020700-8104-dd29737e.json),
-[logo regressions](../../.cache/verification/1792601813868-27889-a2e0838d/vitest-1792601814390-27890-b71176a9.json),
-[final package gate](../../.cache/verification/1792601830536-28114-8feec9fe/stages-1792601830536-28114-8feec9fe.json),
-[packaged provider Settings](../../.cache/verification/1792602078958-30627-5007ba12/e2e-1792602079325-30628-2c4c7f8d.json),
-[source-only scenarios](../../.cache/verification/1792602364532-33502-242abb00/e2e-1792602364868-33504-e84db144.json), and
-[package evidence](../../dist/macos-arm64/package-evidence.json).
-
-The acceptance summary retains the prior attempt reports and their dispositions.
-Final document links, guidance consistency, and diff whitespace checks pass.
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-21-issue-18-engineering-quality).
 
 ## 2026-10-21 Issue 18 delivery
 
@@ -6549,117 +1918,34 @@ Earlier history entries retain their original local-only state as past evidence.
 
 ## 2026-10-21 Issue 19 follow-up repairs
 
-The user authorizes fixing the problems recorded in [Issue 19](https://github.com/ecwu/writellm/issues/19), the audit of the Issue 18 delivery in commit `7da0fc8`.
-[ADR 091](../adrs/091-issue-19-endpoint-authority-and-compatibility.md) records the decisions.
+- Repaired [Issue 19](https://github.com/ecwu/writellm/issues/19), the audit of the Issue 18 delivery in commit `7da0fc8`, under
+  [ADR 091](../adrs/091-issue-19-endpoint-authority-and-compatibility.md):
+  - `registerIpcEndpoint` is the only Main-side IPC authority, and handlers receive the checked `ProjectContext`.
+  - `createEndpointRegistrar` accepts only endpoint definitions, which removes the unauthorized fallback.
+  - Domain lifecycle logging runs through `around`.
+  - An allowlist test covers the fifteen project-scoped `session: 'none'` endpoints.
+- Canonical JSON gained legacy compatibility profiles.
+- The error-handling guard also rejects unbound and unused catch bindings, using the shared tokenizer in
+  `scripts/lib/ts-source.mjs`. TypeScript is pinned to 7.0.2.
+- Added `cachedStatement`, frozen migration helpers, and `createAbortError`.
+- The static gate, 1,911 tests, and 67/67 source E2E passed. The pnpm wrapper could not run, so commands ran directly.
 
-IPC endpoints:
-
-- `registerIpcEndpoint` is now the only Main-side sender, input, session, and output authority.
-- Handlers receive the checked `ProjectContext`. Their duplicate parses and session assertions are removed in the agent, attachment, editor, knowledge, manuscript, project, and search modules.
-- `createEndpointRegistrar` accepts only endpoint definitions. This removes the unauthorized `ipc.handle` fallback; a raw channel string is now a compile error.
-- Every endpoint invocation is asynchronous, which removes the `constructor.name` reflection.
-- Agent, mutation, manuscript outline, editor export, workspace, reference index, and original-file operations run their lifecycle logging or safe error through `around`, so session rejections report their domain events again.
-- Agent session creation and model selection revalidate the session after their catalog awaits.
-- Eight project template and version history endpoints declare `none` because `ProjectManager` authorizes inside their failure boundaries. An allowlist test names all fifteen project-scoped `none` endpoints.
-- Project IPC no longer nests a second log context with a new `requestId` inside `withIpcLogging`.
-
-Other repairs:
-
-- Canonical JSON adds explicit compatibility options and two legacy profiles. Model-request fingerprints, traces, and manuscript exports again accept the inputs their historical serializers accepted. Expected values come from the pre-`7da0fc8` implementations.
-- The error-handling guard rejects catches without an error binding and catches whose error binding is never used.
-- `scripts/lib/ts-source.mjs` provides the shared tokenizer for the guard and the schema contract test. It fixes template continuation rescanning, which had hidden catch bodies from the guard.
-- Fourteen existing validation and diagnostic fallbacks receive owner and reason markers.
-- TypeScript is pinned to exactly 7.0.2 because the tokenizer uses `typescript/unstable/ast`.
-- `cachedStatement` reuses prepared statements per connection, SQL text, and result mode. `SectionRepository` and eleven Main-process loop sites use it.
-- Migration helpers are documented as frozen and are pinned by a behavior test.
-- Twelve one-line `abortError` wrappers are replaced by `createAbortError`.
-
-Verification on macOS arm64:
-
-- The static gate (`node scripts/run-checks.mjs fast`) passes Biome, the error-handling guard, and all three typechecks.
-- The complete Electron-hosted Vitest suite passes 1,911 tests in 301 files, with three optional benchmarks skipped, in 22.2 seconds.
-- One production build is followed by the complete source E2E suite: 67 of 67 scenarios pass in 207 seconds, with zero retries, flaky results, or skips.
-- During implementation, focused reruns fixed test expectations for asynchronous handlers. They also repaired one incorrect automated edit, which had turned synchronous `authorizeLayoutFlush` checks into Promise rejections. Final results include no retries.
-
-Runtime and platform limits:
-
-- The pnpm wrapper cannot run in this environment. The host has Node 26.12.0 and pnpm 11.17.0, and no installed Node satisfies the `>=24.21.0 <25` engine range. Commands ran through `node scripts/...` directly.
-- The frozen install after the TypeScript pin did not run for the same reason. The package and lockfile specifiers were edited together.
-- No packaged App gate ran: this change touches no native module, worker entrypoint, Pino transport, or package resource.
-- Windows, Linux, and macOS x64 remain unverified.
-
-The Renderer decomposition items carried from Issue 18 remain deferred.
-This task creates no commit, push, or GitHub issue update.
-
-Evidence: [static gate](../../.cache/verification/1792616076721-85410-a8f33c7f/stages-1792616076721-85410-a8f33c7f.json),
-[complete Electron suite](../../.cache/verification/1792616085216-85696-ebb72f5d/vitest-1792616085603-85697-94513c9b.json), and
-[source E2E](../../.cache/verification/1792616139136-86906-39dbe92d/e2e-1792616139474-86907-0a8535a3.json).
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-21-issue-19-follow-up-repairs).
 
 ## 2026-10-21 Pi 1.3 and compatible dependency maintenance
 
-The user authorizes updating Pi to 1.3 and all compatible dependency updates.
-[ADR 056](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-21-pi-13-and-compatible-maintenance-amendment) records the decisions.
+- Pi Agent Core and Pi AI were updated from 1.0.0 to 1.3.0 (ADR 056 amendment).
+- Pi 1.0.3 renamed the built-in Azure provider. The catalog keeps the stable `builtin:azure-openai-responses`
+  key, so selections and bound credentials survive. Azure models now stream through Pi's Azure provider.
+  While confirming the old routing bug, one request with the fake key `azure-test-key` reached
+  `api.openai.com` and received a 401.
+- Applied compatible updates at least one day old, including Vite 7.3.7, which repairs five advisories. The audits are back at
+  baseline.
+- The package gate passed with 45/45 packaged scenarios and 67/67 source scenarios.
+- A HEAD bisect showed that the `workbench.tabs-docking-restore` native-menu Knowledge toggle failure is
+  pre-existing and intermittent: it fails 2 of 25 runs on unmodified `7b5e287`.
 
-Pi Agent Core and Pi AI advance from 1.0.0 to 1.3.0, and `AGENT_RUNTIME_VERSION` follows them.
-The installed tree no longer resolves any Pi 1.0 package.
-
-Pi 1.0.3 renamed the built-in Azure provider. The catalog keeps the stable `builtin:azure-openai-responses` key, so existing selections, preferences, provider records, and bound credentials remain valid.
-A catalog regression covers the stored key, credential binding, and resolution to Pi's `azure` provider.
-
-The Agent worker now streams Azure models through Pi's Azure provider.
-A routing regression shows the generic Chat Completions transport could not resolve an Azure endpoint.
-While confirming that regression on the generic path, one request with the fake test key `azure-test-key` reached `api.openai.com` and received a 401. The fixed path fails locally before any network request.
-
-Compatible updates:
-
-- `@ai-sdk/cohere` 4.0.65, `@ai-sdk/openai-compatible` 3.0.74, `ai` 7.0.147, and `openai` 7.39.0
-- `@tanstack/react-query` 5.104.5, `dockview-react` 8.6.1, and `docx` 9.13.0
-- `isomorphic-git` 1.44.3 and `kysely` 0.29.7
-- `lucide-react` ^1.60.0 and `react-resizable-panels` ^4.14.7
-- `vitest` ^5.0.5
-- `vite` ^7.3.7, which repairs five advisories against 7.3.6
-
-Each selected version is at least one day old under the release-age policy. Newer releases from the last day remain excluded.
-The excluded majors and coupled migrations in the ADR remain deferred.
-
-Verification on macOS arm64 with pnpm 11.28.3:
-
-- A frozen installation passes.
-- The production audit reports one low KaTeX advisory. The full audit adds the unresolved moderate sprintf-js advisory. This matches the documented baseline after the Vite repair.
-- The static gate passes.
-- The complete Electron-hosted suite passes 1,913 tests in 301 files, with three optional benchmarks skipped, in 23.4 seconds.
-
-Package gate:
-
-- The final run passes all ten stages in 257.3 seconds, with one App build.
-- It covers twelve runtime checks, 45 of 45 packaged scenarios with zero retries, the installers, and artifact checksums.
-- The same build then passes all 67 source E2E scenarios in 198.2 seconds, with zero retries.
-
-Earlier package gate attempts did not count as acceptance:
-
-- The first stopped before any stage because a stale `dist/macos-arm64/mac-arm64` directory could not be removed (`ENOTEMPTY`).
-- The second failed `agent.message-copy-edit` at a focus tooltip assertion. The scenario then passed three isolated reruns against the same App.
-- The third failed `workbench.tabs-docking-restore`.
-
-Repeated runs and a HEAD worktree bisect located the `workbench.tabs-docking-restore` failure:
-
-| Configuration | Failures |
-| --- | --- |
-| This change set | 1 of 10 |
-| This change set with Dockview 8.5.1 | 2 of 10 |
-| HEAD with the new dependencies | 2 of 10 |
-| HEAD with the new dependencies and react-resizable-panels 4.14.5 | 6 of 12 |
-| HEAD with the new dependencies and Vite 7.3.6 | 1 of 12 |
-| Unmodified HEAD `7b5e287` | 2 of 25 |
-
-The native-menu Knowledge toggle is therefore a pre-existing intermittent failure and not introduced here. It needs a separate fix.
-The host Node 26.12.0 exceeds the declared 24.x engine range. Windows, Linux, and macOS x64 remain unverified.
-This task creates no commit, push, release, or GitHub issue update.
-
-Evidence: [complete Electron suite](../../.cache/verification/1792617714359-16522-d85631cc/vitest-1792617714649-16523-99df7bd4.json),
-[package gate](../../.cache/verification/1792621763700-69655-904ebf72/stages-1792621763700-69655-904ebf72.json),
-[packaged scenarios](../../.cache/verification/1792621763700-69655-904ebf72/e2e-1792621845962-70417-62de8a2e.json), and
-[source E2E](../../.cache/verification/1792622033920-72377-b4c79069/e2e-1792622034248-72378-5647a7b3.json).
+Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance).
 
 ## 2026-10-22 Release 0.2026.10.3 preparation
 
@@ -6707,3 +1993,33 @@ The release attaches exactly four assets:
 
 Hosted rows build and inspect packages without runtime tests. Runtime acceptance remains macOS arm64 only.
 This record changes no application source, and the tag does not move.
+
+## 2026-10-22 Documentation evidence archive
+
+The user asks to simplify the 1.9 MB `docs/` tree while keeping the decision history.
+[ADR 092](../adrs/092-documentation-evidence-archive.md) records the decision. It also amends the
+append-only rule for this one summary pass. Commit `493f02a` is the evidence archive.
+
+- History log: entries longer than 30 lines become summaries with a `Full record` link, and
+  shorter entries stay verbatim. Size: 533 KB → 132 KB.
+- Phase files: evidence sections and paragraphs become `archived record` links, and plans,
+  decisions, and acceptance criteria stay. The Checkpoint 26.9 CI attempt narrative becomes an
+  outcome summary. Size: 509 KB → 380 KB.
+- `architecture.md`: feature detail already stated in the cited ADRs is condensed. Size: 1,907 →
+  1,720 lines, 112 KB → 99 KB.
+- `current-plan.md` keeps only current state, gaps, authorized work, and deferred scope. It also
+  fixes the stale "Issue 19 remains uncommitted" line. Size: 12 KB → 4 KB.
+- ADRs are unchanged. AGENTS.md gains the concise-evidence rule, and the docs and ADR indexes link
+  ADR 092.
+
+Markdown in `docs/` falls from 1.67 MB to 1.12 MB. ADRs (442 KB) are now the largest part.
+
+Verification is documentation-only, with no build or tests:
+
+- A repository link check resolves every relative Markdown link and heading anchor.
+- Every pinned `Full record` (79) and `archived record` (86) anchor resolves in the files at
+  `493f02a`.
+- `git diff --check` passes.
+
+The ADR index also gains a one-line-per-ADR decision table, with 91 rows, a one-sentence decision for each, and a status of current, partly replaced, or replaced. No ADR body changes.
+The user authorizes committing and pushing the change to `main`.

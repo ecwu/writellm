@@ -18,28 +18,4 @@ Recorded: 2026-08-26
 
 ## Local evidence
 
-- Renderer-only presentation helpers now derive header status and attention-grouped conversation
-  sections without changing session, run, task, or proposal authority.
-- The Agent surface uses a stable header, timeline, inline Writing Task row, attention dock, and
-  bounded composer hierarchy. Successful activity collapses by default; active, failed, stopped,
-  clarification, and review states remain visible with icon-and-text status. Waiting follow-ups and
-  non-default composer context use local progressive disclosure.
-- Focused Renderer coverage passed: 2 files / 46 tests for task attention, conversation grouping,
-  header state, timeline projection, and existing Agent presentation behavior.
-- `pnpm check:fast` passed. `pnpm check:electron` passed 200 files / 1,140 tests with three
-  intentional benchmark skips, followed by a successful production build.
-- The fresh `pnpm check:e2e` gate passed all 46 Real-Electron scenarios with no flaky, skipped, or
-  failed scenario, including background conversations, clarification, proposal review, Writing
-  Task identity, queue/steer/stop behavior, and keyboard accessibility.
-- Bounded runtime visual QA included the desktop Agent sidebar. The one correction reduced the
-  expanded task height and fixed the composer in place; confirmation screenshots show a continuously
-  visible primary action. Evidence lives under `.impeccable/review/cp73/`.
-- The scoped Impeccable detector reported no findings. Reduced-motion and icon-plus-text state
-  treatment were inspected, and `git diff --check` passed. No dependency, database, IPC, shared
-  Agent protocol, tool permission, or persistence format changed.
-- The separately authorized unpacked App gate refreshed the protected Agent recovery source digest
-  after its CP72 fixture changed, then passed all 27 recovery cases from 25 sources, the production
-  build, arm64 native and 53,287-entry ASAR inventory, no-Team-ID signature policy, all 12 packaged
-  smoke scenarios, and 33/33 packaged E2E scenarios. It produced
-  `dist/macos-arm64/mac-arm64/WriteLLM.app`; no DMG, ZIP, release, commit, tag, push, signing identity,
-  notarization, promotion, or publication action ran.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-22.md#local-evidence).

@@ -24,14 +24,7 @@ remediation plan and explicitly requested implementation. This maintenance does 
 Checkpoint 28.6 or authorize new IPC, migrations, Renderer authority, package/release, hosted CI,
 commit, tag, push, or publication work.
 
-Local evidence: 7 focused Electron-hosted files / 82 passing tests; `check:fast` passed;
-`check:electron` passed with 142 Electron-hosted test files, 773 passing tests, one opt-in benchmark
-skipped, and a successful production build; the fresh full Real-Electron gate passed 25/25
-scenarios without flakes or skips; all 25 recovery fixtures from 23 sources passed; the single-pass
-Impeccable detector over the current uncommitted Renderer implementation files was clean; and
-`git diff --check` passed. This is a four-test maintenance increment above the unchanged Checkpoint
-28.6 baseline of 142 files / 769 passing tests. Package/release, hosted CI, commit, tag, push, and
-publication were not run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-checkpoint-28x-audit-remediation-and-verification-hardening).
 
 ### Checkpoint 28.6: Configurable Citation Presentation And References
 
@@ -48,12 +41,7 @@ Authorization: on 2026-08-12 the user supplied and explicitly requested implemen
 decision-complete Checkpoint 28.6 plan. The work is additive to the completed Checkpoint 28.5
 worktree and does not authorize package/release, hosted CI, commit, push, or publication work.
 
-Local evidence: 71 focused citation, count, contract, repository, IPC, migration, export, and
-Renderer tests passed; `check:fast` passed; `check:electron` passed with 142 Electron-hosted test
-files, 769 passing tests, one opt-in benchmark skipped, and a successful production build; the
-fresh full Real-Electron gate passed 25/25 scenarios without flakes or skips; all 25 recovery
-fixtures from 23 sources passed; the scoped Impeccable detector was clean; and `git diff --check`
-passed. Package/release, hosted CI, commit, push, and publication were not run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-286-configurable-citation-presentation-and-references).
 
 ### Checkpoint 28.5: Rolling Context Checkpoints And Safe Recovery
 
@@ -75,15 +63,7 @@ explicitly requested implementation. The checkpoint adds no compaction or long-t
 durable job, worker, auxiliary model, cross-session memory, editable prompt/token setting, release,
 hosted CI, commit, push, or publication work.
 
-Local evidence: the focused contract, migration, planner, session, Worker, provider, IPC, broker,
-Renderer, prompt, and safety suites passed; `check:fast` passed; `check:electron` passed with 140
-files and 758 tests, one opt-in benchmark skipped, plus the production build; the fresh full
-Real-Electron suite passed 24/24 without flakes or skips; all 24 recovery fixtures from 22 sources
-passed; the scoped Impeccable detector returned no findings; and `git diff --check` was clean. The
-required no-identity macOS arm64 package gate passed all 12 packaged runtime smoke scenarios and
-16/16 packaged Real-Electron scenarios, verified the Agent Worker/native inventory, the unpacked
-App, DMG, ZIP, and no Apple Team identity. No signed release, hosted CI, commit, tag, push, or
-publication was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-285-rolling-context-checkpoints-and-safe-recovery).
 
 ### Maintenance: Follow active Agent section edits
 
@@ -97,14 +77,7 @@ Authorization: on 2026-08-12 the user approved the decision-complete plan and ex
 implementation. This maintenance is Renderer-only and adds no IPC, persistence, Agent protocol,
 mutation authority, package, release, hosted CI, commit, push, or promotion work.
 
-Local evidence: the focused Agent panel suite passed 5/5; two focused Real-Electron Agent scenarios
-passed without flakes or skips, covering save-before-follow, focus preservation, scroll reset,
-background-conversation isolation, and historical replay; `check:fast`
-passed; and `check:electron` passed on its confirming run with 137 files and 733 tests, one opt-in
-benchmark skipped, plus the production build. The first full Electron run exposed one unrelated
-scheduler timing timeout; its focused retry and the complete confirming run both passed. The scoped
-Impeccable detector returned no findings, and `git diff --check` was clean. No package, release,
-hosted CI, commit, push, or promotion was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-follow-active-agent-section-edits).
 
 ### Checkpoint 28.4: Multi-Conversation Agent Concurrency
 
@@ -123,13 +96,7 @@ explicitly requested implementation. The accepted scope adds no database migrati
 worker type, extra worker process, configurable limit, queue, release, hosted CI, commit, push, or
 promotion.
 
-Local evidence: `check:fast` passed; `check:electron` passed with 137 files and 731 tests, with one
-opt-in benchmark skipped, plus the production build; the full Real-Electron suite passed 24/24
-without flakes or skips; all 23 recovery fixtures and the scoped Impeccable detector passed; and
-`git diff --check` was clean. The required no-identity macOS arm64 package gate passed 12/12 runtime
-smoke scenarios and 16/16 packaged Real-Electron scenarios, including the concurrency scenario,
-and verified the unpacked App, DMG, ZIP, native inventory, and no Apple Team identity. No signed
-release, hosted CI, commit, tag, push, or promotion was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-284-multi-conversation-agent-concurrency).
 
 ### Checkpoint 28.3: Agent Prompt Architecture
 
@@ -147,12 +114,7 @@ improve the project's currently scattered prompt management. ADR 017 is accepted
 internal checkpoint. No tool, authority, provider-specific prompt fork, persistence, migration,
 background job, packaging, release, hosted CI, commit, push, or promotion is authorized.
 
-Local evidence: 68 focused prompt, context, session, Skill-budget, and IPC tests; `check:fast`;
-`check:electron` with 137 passing files, 723 passing tests, one opt-in benchmark skipped, and a
-successful production build; and `git diff --check`. The focused coverage proves fixed layer order,
-prompt-budget review, title and compaction handoffs, review-continuation integration, and that
-dynamic project, Skill-reference, conversation, and review content cannot close its declared
-semantic block.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-283-agent-prompt-architecture).
 
 ### Maintenance: Reviewed Writing Skill catalog expansion
 
@@ -189,17 +151,7 @@ screenshots as the reference and later authorized a local unsigned macOS App bui
 CP28.2 worktree. ADR 016 is accepted. Commit, tag, push, hosted CI, signed release, and promotion
 remain unauthorized.
 
-Local evidence: 26 focused policy, view-model, and Renderer tests; `check:fast`;
-`check:electron` with 135 passing files, 716 passing tests, one opt-in benchmark skipped, and a
-successful production build; fresh `check:e2e` with 23/23 Real-Electron scenarios and no failures,
-flakes, or skips; 23/23 recovery fixtures; a clean scoped Impeccable detector; and
-`git diff --check`. The grounded Agent scenario verifies the five visible quick controls, concise
-assistant progress between material tool phases, expandable human-readable tool steps, and the
-unchanged review boundary. The global Writing Skill scenario verifies isolated composer/Details
-popover state and immutable Skill snapshots. The authorized no-identity macOS arm64 package gate
-passed 12/12 packaged runtime smoke scenarios and 15/15 packaged Real-Electron scenarios, verified
-app.sqlite integrity and no Apple Team identity, and produced an unpacked App, DMG, ZIP, and package
-evidence from source revision `daff1fc` plus the documented dirty CP28.2 worktree.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-282-agent-progress-visibility).
 
 ### Maintenance: v0.2026.8.12 local tag and macOS App
 
@@ -211,10 +163,7 @@ Authorization: on 2026-08-12 the user explicitly requested the `v0.2026.8.12` ta
 This authorizes the necessary local commit and tag plus an unsigned macOS arm64 App. Push, hosted
 CI, signing/notarization, GitHub Release, and promotion remain out of scope.
 
-Local evidence: `check:fast`; recovery fixture verification with all 23 cases; `git diff --check`;
-the no-identity macOS arm64 unpacked package gate with 12/12 packaged runtime smoke scenarios and
-15/15 packaged Real-Electron scenarios; bundle version `0.2026.8` / build `2026.8.12`; and a
-verified no-Team-ID ad-hoc/linker signature. The final App is rebuilt from the clean annotated tag.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-v02026812-local-tag-and-macos-app).
 
 ### Checkpoint 28.1: Agent Flow Polish
 
@@ -234,13 +183,7 @@ requested implementation. ADR 015 is accepted. The later `v0.2026.8.12` request 
 local candidate commit, tag, and unsigned macOS arm64 App build; push, hosted CI, signed release,
 and promotion remain unauthorized.
 
-Local evidence: 90 focused tests; `check:fast`; `check:electron` with 135 passing files, 715 passing
-tests, one opt-in benchmark skipped, and a successful production build; fresh `check:e2e` with
-23/23 Real-Electron scenarios and no failures, flakes, or skips; a clean scoped Impeccable
-detector; and `git diff --check`. The grounded Agent scenario proves feedback-only presentation,
-Main-owned revision continuation, per-run citation re-authorization, revised proposal review,
-Apply and continue, exactly one accepted manuscript mutation, reopen, Undo, title regeneration,
-archive, and restore. Package, release, hosted CI, commit, push, and promotion were not run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-281-agent-flow-polish).
 
 ### Checkpoint 27.9: Adaptive section titles
 
@@ -254,10 +197,7 @@ explicitly requested implementation. This checkpoint is Renderer-only; manuscrip
 IPC, export, Agent behavior, packaging, release, hosted CI, commit, push, and promotion remain out
 of scope.
 
-Local evidence: the focused `manuscript.section-title-wraps` Real-Electron scenario at the desktop
-layout; `check:fast`; `check:electron` with 134 passing Electron-hosted test files, 704
-passing tests, one opt-in benchmark skipped, and a successful production build; a clean scoped
-Impeccable detector; and scoped `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-279-adaptive-section-titles).
 
 ### Maintenance: Whole-manuscript preview hardening
 
@@ -270,10 +210,7 @@ manuscript content, and broken project images in the whole-manuscript preview, t
 decision-complete local Renderer repair plan. Package, release, hosted CI, commit, push, and
 promotion remain out of scope.
 
-Local evidence: 4/4 focused project-asset URL tests; `check:fast`; `check:electron` with 134 passing
-Electron-hosted test files, 704 passing tests, one opt-in benchmark skipped, and a successful
-production build; the focused workspace and rich-media preview Real-Electron scenarios; a
-clean scoped Impeccable detector; and scoped `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-whole-manuscript-preview-hardening).
 
 ### Maintenance: Agent partial tool-failure summary
 
@@ -285,8 +222,7 @@ activity summary look wholly failed and explicitly requested a display improveme
 Renderer-only presentation repair; it does not change Agent tools, execution, persistence, or
 authority. Hosted CI, package, release, commit, push, and promotion remain out of scope.
 
-Local evidence: 15/15 focused Agent view-model tests; `check:fast` with the full Biome check plus
-Node and Renderer typechecks; a clean scoped Impeccable detector; and scoped `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-agent-partial-tool-failure-summary).
 
 ### Maintenance: Post-repair macOS arm64 package rebuild
 
@@ -298,16 +234,7 @@ Authorization: on 2026-08-11 the user explicitly requested a fresh App and DMG a
 capability-invariant false-positive repair. This authorizes only the local unsigned macOS arm64
 package; commit, push, hosted CI, signing/notarization, release, and promotion remain out of scope.
 
-Local evidence: exact pnpm 11.17.0; Electron 43.1.0 ABI 148; arm64 `better-sqlite3` 12.11.1 and
-`sqlite-vec` 0.1.9 inventory; a successful production build; 23 recovery fixture cases from 21
-sources; all 12 packaged smoke scenarios; 15/15 packaged Real-Electron E2E scenarios with no
-failures, flakes, or skips; an arm64 unpacked App with bundle version `2026.8.11`; and an immutable
-read-only DMG mount containing `WriteLLM.app`, `Applications -> /Applications`, the configured
-background, and the exact generated ICNS bytes. The App is intentionally ad-hoc/no-Team-ID and is
-not notarized. `WriteLLM-0.2026.8.11-arm64.dmg` is 257,528,314 bytes with SHA-256
-`94814c96a93cd58b9c6a70f06548d615c3501a7932b7fec9665757f0f43d12bf`; the companion ZIP is
-254,341,328 bytes with SHA-256
-`2b49454ff68a6b000c366477464e9f23977c34fa0503c0ba1eb808af810728db`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-post-repair-macos-arm64-package-rebuild).
 
 ### Maintenance: MinerU capability invariant false-positive repair
 
@@ -322,12 +249,7 @@ integrity-valid database whose `sections.objective` contained the ordinary text
 persisted MinerU capability. No hosted CI, package, release, commit, push, or promotion work is
 authorized.
 
-Local evidence: exact pnpm 11.17.0; 2 focused Electron-hosted files with 21 passing tests;
-`check:fast`; `check:electron` with 134 passing files, 704 passing tests, one opt-in benchmark
-skipped, and a successful production build; scoped `git diff --check`; and an immutable read-only
-inspection of the affected project showing `quick_check=ok`, no foreign-key errors, zero forbidden
-schema or operational values, one permitted manuscript marker, and an unchanged database SHA-256
-before and after inspection.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-mineru-capability-invariant-false-positive-repair).
 
 ### Maintenance: Branded drag-to-Applications DMG
 
@@ -340,15 +262,7 @@ drag-to-Applications Finder window and a new application icon. Hosted CI, workfl
 commit, push, signing/notarization credential enrollment, and production promotion remain out of
 scope.
 
-Local evidence: exact pnpm 11.17.0; a successful production build; Electron ABI 148 with arm64
-`better-sqlite3` and `sqlite-vec`; the 12-scenario packaged smoke; 15/15 packaged Real-Electron E2E
-scenarios with no failures, flakes, or skips; a read-only mounted DMG containing `WriteLLM.app`, an
-`Applications -> /Applications` link, the standard drag arrow background, and the exact generated
-ICNS bytes; an intentionally ad-hoc/no-Team-ID application signature; and inspected DMG/ZIP
-artifacts. `WriteLLM-0.2026.8.11-arm64.dmg` is 257,527,981 bytes with SHA-256
-`db866481280a10c9148489c3583e0bf347956fcd7d1aac73b75f9a965c8dfc9f`; the companion ZIP is
-254,339,825 bytes with SHA-256
-`5a3af3a9874bd5aa59c4f426a9ecb4c741750c90f256d5791f8b2c206d69aa8b`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-branded-drag-to-applications-dmg).
 
 ### Checkpoint 27.8: Agent conversation titles and archive lifecycle
 
@@ -365,16 +279,7 @@ Authorization: on 2026-08-11 the user approved the decision-complete plan, confi
 a fresh local App build after reporting a packaged-runtime title failure. Release, hosted CI,
 commit, push, and promotion work remain unauthorized.
 
-Local evidence: 54 focused title, archive, contract, broker, and IPC tests; `check:fast`;
-`check:electron` with 133 passing Electron-hosted test files, 697 passing tests, and one opt-in
-benchmark skipped; a successful production build; 22/22 full Real-Electron E2E scenarios including
-automatic/manual title flows, keyboard menus, archived read-only history, and restore; a clean
-Impeccable detector; and `git diff --check`. A same-day runtime follow-up made title request
-parameters reasoning-aware after Codex rejected the explicit temperature and DeepSeek exhausted the
-non-reasoning output budget. Follow-up evidence includes 36/36 focused service/worker tests,
-`check:fast`, the complete `check:electron` gate, the 23-case recovery-fixture verifier, and an
-unsigned macOS arm64 unpacked package with 12/12 packaged smoke scenarios and 15/15 packaged E2E
-scenarios. Release, hosted CI, commit, push, and promotion were not run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-278-agent-conversation-titles-and-archive-lifecycle).
 
 ### Maintenance: Distill the Agent run summary
 
@@ -389,10 +294,7 @@ requested the simplification. This is a Renderer-only presentation repair; Agent
 persistence, selection, and provenance remain unchanged. Hosted CI, package, release, commit,
 push, and promotion remain out of scope.
 
-Local evidence: `check:fast`; a successful production build; the focused
-`agent.global-writing-skill` Real-Electron scenario with active-run assertions for zero ordinary
-badges plus accessible provider/model/Thinking/Skill details; a clean scoped Impeccable detector;
-visual inspection of the active run and open details popover; and scoped `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-distill-the-agent-run-summary).
 
 ### Checkpoint 27.7: Editor citation highlighting and source preview
 
@@ -406,13 +308,7 @@ visual inspection of the active run and open details popover; and scoped `git di
 Authorization: on 2026-08-11 the user approved the decision-complete Checkpoint 27.7 plan and
 explicitly requested implementation.
 
-Local evidence: frozen dependency installation; 23 focused parser, extension, resolver, IPC,
-session-validation, and safe-logging tests; `check:fast`; `check:electron` with 132 passing
-Electron-hosted test files, 686 passing tests, and one opt-in benchmark skipped; a successful fresh
-production build; the focused grounded Agent Real-Electron scenario covering keyboard and mouse
-preview activation, exact source content, focus restoration, reopen, and undo; a clean Impeccable
-detector; and `git diff --check`. Package, release, hosted CI, commit, push, and promotion were not
-run.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-277-editor-citation-highlighting-and-source-preview).
 
 ### Maintenance: Recent project path de-duplication
 
@@ -455,13 +351,7 @@ decision-complete Checkpoint 27.6 plan. On 2026-08-11 the user authorized the lo
 `v0.2026.8.11` commit, tag, and macOS arm64 package build. Push, hosted CI, release, workflow
 restoration, and promotion remain unauthorized.
 
-Local evidence: focused native-loader, progressive Auto/Explicit runtime, tool protocol,
-provider transport, migration, Main/Worker, IPC, and Renderer suites; `check:fast`;
-`check:electron` with 129 passing Electron-hosted test files, 661 passing tests, and one opt-in
-benchmark skipped; a successful production build; 22/22 full Real-Electron E2E scenarios with no
-flaky or skipped results; the focused `agent.global-writing-skill` scenario covering two-turn
-explicit persistence and Auto `read_writing_skill`; a clean Impeccable detector; and
-`git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-276-pi-native-progressive-writing-skills).
 
 ### Checkpoint 27.5: Agent Thinking Level
 
@@ -479,11 +369,7 @@ Authorization: on 2026-08-10 the user approved the decision-complete Checkpoint 
 explicitly requested implementation. Hosted CI, package, release, commit, push, and promotion are
 not authorized.
 
-Local evidence: focused contract/catalog/settings/migration/Main/Worker/Renderer suites;
-`check:fast`; `check:electron` with 125 passing Electron-hosted test files, 644 passing tests, and
-one opt-in benchmark skipped; a successful production build; 22/22 full Real-Electron E2E
-scenarios with no flaky or skipped results; the focused `agent.thinking-level-memory` scenario;
-23 recovery cases from 21 sources; a clean Impeccable detector; and `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-275-agent-thinking-level).
 
 ### Checkpoint 27.4: Global Writing Skill management
 
@@ -543,9 +429,7 @@ work is authorized. ADR 013 records the architecture change required for on-dema
 skills; its implementation is not yet approved. No new Agent tools, generic plugin/skill loading,
 hosted CI, package, release, push, or promotion work is authorized.
 
-Local evidence: 18 focused Main policy/context/proposal tests; `check:fast`; `check:electron` with
-119 passing Electron-hosted test files, 615 passing tests, and one opt-in benchmark skipped; a
-successful production build; and `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-273-agent-academic-writing-and-citation-policy).
 
 ### Checkpoint 27.2: Agent approval experience repair
 
@@ -559,10 +443,7 @@ successful production build; and `git diff --check`.
 Authorization: on 2026-08-10 the user explicitly requested these three approval-experience repairs.
 No provider, protocol, release, hosted CI, package, push, or promotion work is authorized.
 
-Local evidence: 15 focused Main/Renderer tests; `check:fast`; `check:electron` with 117 passing
-Electron-hosted test files, 602 passing tests, and one opt-in benchmark skipped; a successful
-production build; the focused real-Electron `agent.grounded-proposal-workflow` E2E scenario; a
-clean Impeccable detector result; and `git diff --check`.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-272-agent-approval-experience-repair).
 
 ### Checkpoint 27.1: Agent provider request lifetime and retry policy
 
@@ -580,10 +461,7 @@ Authorization: on 2026-08-10 the user explicitly approved executing this checkpo
 deadlines and non-Agent provider timeouts remain out of scope. No hosted CI, package, release, push,
 or promotion work is authorized.
 
-Local evidence: `check:fast`; 65 focused tests; 117 Electron-hosted Vitest files with 600 passing
-tests and one opt-in benchmark skipped; a successful production build; 20/20 full Electron E2E
-scenarios with no flaky or skipped results; and `git diff --check`. The Agent E2E scenario now
-forces a transient HTTP 503, recovers automatically, and verifies durable `retryCount: 1` evidence.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-271-agent-provider-request-lifetime-and-retry-policy).
 
 ### Checkpoint 27: Electron E2E evolution
 
@@ -602,7 +480,4 @@ forces a transient HTTP 503, recovers automatically, and verifies durable `retry
 Authorization: on 2026-08-09 the user explicitly approved starting this checkpoint before 26.9.
 Checkpoint 26.9 is now paused and is not represented as complete.
 
-Local evidence: `check:fast`; 115 Electron-hosted Vitest files with 583 passing tests and one
-opt-in benchmark skipped; 20/20 full Electron E2E scenarios with two workers and no flaky or
-skipped results; 6/6 critical scenarios; 15/15 packaged E2E scenarios; 12 packaged smoke
-scenarios; and 22 recovery cases from 20 sources.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-27-electron-e2e-evolution).

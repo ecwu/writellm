@@ -50,13 +50,4 @@ index generations. Metadata-only References remain unavailable as Agent evidence
 
 ## Local evidence
 
-- The shared contracts, connector, Reference service, IPC, preload, Knowledge import context, and
-  unified Renderer flow implement the bounded prepare/confirm capability. Focused tests cover
-  candidate and attachment limits, explicit RPC consent, stale previews, completion, relinking,
-  duplicate ownership, and orphan prevention.
-- The canonical Electron suite passed 1,232 tests with three benchmark skips, followed by a
-  successful production build. `pnpm check:fast` passed.
-- All 48 fresh Electron E2E scenarios passed, including the project-contained `.bib` plus relative
-  PDF unified-import fixture. The scoped Impeccable detector reported no findings.
-- `git diff --check` passed. No dependency, migration, package, release, commit, tag, push, signing,
-  notarization, promotion, or publication action was performed.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-28.md#local-evidence).

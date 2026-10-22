@@ -16,16 +16,4 @@ Recorded: 2026-08-24
 
 ## Local evidence
 
-- `pnpm install --frozen-lockfile` restored the exact dependency graph, passed the supply-chain
-  lock check, installed `@shadcn/react@0.3.0`, and rebuilt Electron 43.4.1 native dependencies for
-  ABI 148.
-- The focused shared, Worker, Main, IPC, Renderer, view-model, and Questionnaire command passed 10
-  files / 168 tests; the explicit prompt-budget baseline passed another 2 tests.
-- Scoped Impeccable inspection returned no findings, `pnpm check:fast` passed, and
-  `pnpm check:electron` passed 200 files / 1118 tests with three intentional benchmark skips plus
-  the Main, Preload, and Renderer production build.
-- The dedicated `agent.user-clarification` Real-Electron scenario passed, then the fresh full
-  `pnpm check:e2e` build and 46/46 manifest passed with no flaky, skipped, or failed scenario. The
-  scenario includes same-run continuation, Stop, restart, and non-interactive historical recovery.
-- No package/release action, hosted CI, commit, tag, push, signing, notarization, promotion, or
-  publication ran.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-18.md#local-evidence).

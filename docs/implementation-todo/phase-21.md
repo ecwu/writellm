@@ -16,15 +16,4 @@ Recorded: 2026-08-25
 
 ## Local evidence
 
-- Exhaustive `AgentToolName` coverage now rejects unclassified tools at compile time. Knowledge,
-  citation, manuscript, section, Skill, proposal, review, image, and task observations retain only
-  bounded identity, revision, status, and outcome facts; re-readable bodies and duplicate
-  narration are excluded.
-- The field-scale fixture covers 415 events, 101 assistant messages, 104 tool calls, and more than
-  1.5 MB of Knowledge results. Its final escaped prompt stays below 262,144 characters, preserves
-  byte-identical raw events, deduplicates source revisions, and excludes seeded private content.
-- Focused compaction, service, and Renderer coverage passed 104/104 tests. `pnpm check:fast`
-  passed; the full Electron-hosted suite passed 200 files and 1,137 tests with three benchmark
-  skips. The `check:electron` suite and a clean production build passed.
-- Fresh `pnpm check:e2e` passed all 46 required Real-Electron scenarios with no flaky, skipped, or
-  failed scenarios. No package, release, commit, tag, push, signing, or publication action ran.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-21.md#local-evidence).

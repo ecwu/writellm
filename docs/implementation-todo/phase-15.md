@@ -27,18 +27,4 @@ user-prioritized delivery. Its existing worktree changes and Phase 14 evidence a
 
 ## Local evidence
 
-- Focused Notebook contract, prompt, limiter, service, IPC, persistence, and Renderer coverage
-  passed across eight files / 18 tests. Focused terms-mode FTS, retrieval, and chat-service
-  coverage passed across four files / 28 tests.
-- `pnpm check:fast` passed Biome over 638 files plus Node and Renderer typechecks.
-- `pnpm check:electron` passed 198 Electron-hosted files / 1097 tests with three intentional
-  benchmark skips, then passed the production build.
-- A focused Real-Electron Notebook scenario passed natural-language selected-source retrieval,
-  streamed citation rendering and preview, page-switch recovery, and database/diagnostic privacy
-  assertions.
-- The fresh `pnpm check:e2e` gate passed 44/44 Real-Electron scenarios with no flaky or skipped
-  result. Its evidence manifest SHA-256 is
-  `73109890fbd181ba045bf2b384d85f785485d55c0a16f4fb1cee9824a64b1f47`.
-- Scoped Impeccable review reported no remaining UI findings. No migration, dependency,
-  package/release action, hosted CI, commit, push, signing, notarization, promotion, or publication
-  ran.
+Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-15.md#local-evidence).

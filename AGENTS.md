@@ -30,6 +30,12 @@ Keep current status separate from decisions and past evidence:
   Do not copy detailed evidence into the tracker.
 - `docs/history/implementation-log.md` records work across phases. Append new entries. Do not rewrite existing entries.
   If maintenance has no numbered Phase file, append its evidence to this log.
+- Keep evidence concise ([ADR 092](docs/adrs/092-documentation-evidence-archive.md)). A log entry or
+  Phase evidence section records what changed, the commits, the gates with counts, duration,
+  retries, and platform limits, and open risks. Put command transcripts, report paths,
+  per-scenario lists, artifact digests, and bisect tables in commit messages, issues, or
+  `.cache/verification/`. Older evidence is summarized in place with links to its full text at a
+  pinned commit; do not restore it into the working tree.
 - Update only records affected by the task: the current plan for delivery-state changes, the
   tracker for checkpoint-state changes, and the Phase file or history log for completed
   implementation. Keep affected records consistent in the same change. Documentation-only
