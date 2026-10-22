@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs are committed and pushed. Release 0.2026.10.3 is prepared.
+Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs are committed and pushed. Release 0.2026.10.3 is published.
 Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible maintenance passes local acceptance. Checkpoint 77 remains paused.
 Recorded: 2026-10-21

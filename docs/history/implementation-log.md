@@ -6687,3 +6687,23 @@ Application source is unchanged from the accepted dependency maintenance, whose 
 Local runtime acceptance covers macOS arm64 only. Distribution remains unsigned and unnotarized.
 
 Evidence: [package gate](../../.cache/verification/1792658329924-20383-5ce61f67) and [package evidence](../../dist/macos-arm64/package-evidence.json).
+
+## 2026-10-22 Release 0.2026.10.3 publication
+
+Release commit `167026d` is pushed to `origin/main`. The annotated tag `v0.2026.10.3` points to it.
+The [cross-platform tag build](https://github.com/ecwu/writellm/actions/runs/39757488096) passes the static and fixture gate and all four platform builds on its first attempt:
+
+- Windows x64
+- macOS arm64
+- macOS x64
+- Linux x64
+
+The [automatic publication run](https://github.com/ecwu/writellm/actions/runs/39758438799) succeeds and publishes the non-prerelease [WriteLLM 0.2026.10.3](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.3) at 09:51:11 UTC.
+The release attaches exactly four assets:
+
+- the Windows x64 setup EXE
+- the macOS arm64 and macOS x64 DMGs
+- the Linux x64 AppImage
+
+Hosted rows build and inspect packages without runtime tests. Runtime acceptance remains macOS arm64 only.
+This record changes no application source, and the tag does not move.

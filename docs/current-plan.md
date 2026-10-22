@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.3 passes local package acceptance. Tag publication is pending.
+Status: Release 0.2026.10.3 is published.
 Pi 1.3 dependency maintenance and the Issue 19 follow-up repairs are committed and pushed to `main`.
 Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible dependency maintenance passes local acceptance. Release 0.2026.10.2 is published.
@@ -16,7 +16,9 @@ Historical authorization records do not authorize new work.
 Release 0.2026.10.3 includes the Issue 19 repairs ([ad0786e](https://github.com/ecwu/writellm/commit/ad0786e)) and the Pi 1.3 dependency update ([0f8d964](https://github.com/ecwu/writellm/commit/0f8d964)).
 Local macOS arm64 acceptance passes all twelve packaged runtime scenarios and all 45 packaged interaction scenarios.
 The complete package gate takes 270.0 seconds, with one App build and zero retries or skips.
-The DMG and ZIP are ready for local use. The four-platform tag build and automatic publication remain pending.
+[Release 0.2026.10.3](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.3) is published with four assets.
+Its [four-platform build](https://github.com/ecwu/writellm/actions/runs/39757488096) and [automatic publication](https://github.com/ecwu/writellm/actions/runs/39758438799) succeed on their first attempts.
+Tag `v0.2026.10.3` remains fixed at `167026d`.
 [Release preparation evidence](history/implementation-log.md#2026-10-22-release-02026103-preparation) records the commands, artifacts, and platform limits.
 
 Pi Agent Core and Pi AI advance to 1.3.0, together with compatible provider, Renderer, data, test, and Vite repairs.
