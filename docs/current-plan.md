@@ -1,6 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
+Status: Release 0.2026.10.3 passes local package acceptance. Tag publication is pending.
+Pi 1.3 dependency maintenance and the Issue 19 follow-up repairs are committed and pushed to `main`.
 Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible dependency maintenance passes local acceptance. Release 0.2026.10.2 is published.
 Recorded: 2026-10-21
@@ -11,6 +12,12 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+Release 0.2026.10.3 includes the Issue 19 repairs ([ad0786e](https://github.com/ecwu/writellm/commit/ad0786e)) and the Pi 1.3 dependency update ([0f8d964](https://github.com/ecwu/writellm/commit/0f8d964)).
+Local macOS arm64 acceptance passes all twelve packaged runtime scenarios and all 45 packaged interaction scenarios.
+The complete package gate takes 270.0 seconds, with one App build and zero retries or skips.
+The DMG and ZIP are ready for local use. The four-platform tag build and automatic publication remain pending.
+[Release preparation evidence](history/implementation-log.md#2026-10-22-release-02026103-preparation) records the commands, artifacts, and platform limits.
 
 Pi Agent Core and Pi AI advance to 1.3.0, together with compatible provider, Renderer, data, test, and Vite repairs.
 The Azure preset key and credentials remain stable across Pi's provider rename. Azure models stream through Pi's Azure provider.
@@ -106,9 +113,9 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 
 ## Current authorized work
 
-The user authorizes fixing the Issue 19 findings. The repairs are implemented and verified locally.
-The user authorizes the Pi 1.3 update and compatible dependency updates. They are implemented and verified locally.
-Committing, pushing, and updating Issue 19 are not yet authorized.
+The user authorizes committing and pushing the Issue 19 repairs and the Pi 1.3 update to `main`.
+The same request authorizes the local App build, release 0.2026.10.3 preparation, and immutable tag publication.
+Updating Issue 19 is not part of this request.
 
 The authorized Issue 18 maintenance passes local acceptance for the combined source.
 The changes retain existing security, data integrity, and provider capability boundaries.

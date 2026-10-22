@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Issue 19 follow-up repairs pass local acceptance and remain uncommitted.
+Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs are committed and pushed. Release 0.2026.10.3 is prepared.
 Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible maintenance passes local acceptance. Checkpoint 77 remains paused.
 Recorded: 2026-10-21
@@ -22,9 +22,9 @@ Status markers:
 
 ## Active and paused work
 
-- [x] Pi 1.3 and compatible dependency maintenance pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md); changes are uncommitted.
+- [x] Pi 1.3 and compatible dependency maintenance pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md); changes are committed in `0f8d964`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance).
-- [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are uncommitted.
+- [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are committed in `ad0786e`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-19-follow-up-repairs).
 
 - [x] Issue 18 maintenance: targeted repairs pass local macOS arm64 acceptance under [ADR 086](adrs/086-issue-18-engineering-quality.md); changes are pushed and the issue is closed.

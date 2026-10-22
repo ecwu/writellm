@@ -6660,3 +6660,30 @@ Evidence: [complete Electron suite](../../.cache/verification/1792617714359-1652
 [package gate](../../.cache/verification/1792621763700-69655-904ebf72/stages-1792621763700-69655-904ebf72.json),
 [packaged scenarios](../../.cache/verification/1792621763700-69655-904ebf72/e2e-1792621845962-70417-62de8a2e.json), and
 [source E2E](../../.cache/verification/1792622033920-72377-b4c79069/e2e-1792622034248-72378-5647a7b3.json).
+
+## 2026-10-22 Release 0.2026.10.3 preparation
+
+The user authorizes committing and pushing the verified changes to `main`, building the App locally, and tagging and releasing the next 0.2026.10.x version after a successful build.
+
+The Issue 19 repairs and the dependency update are committed separately, so each can be reviewed and reverted on its own:
+
+- [`ad0786e`](https://github.com/ecwu/writellm/commit/ad0786e) contains the Issue 19 repairs.
+- [`0f8d964`](https://github.com/ecwu/writellm/commit/0f8d964) contains the Pi 1.3 and compatible dependency update.
+
+Before the first commit, its staged tree passes alone: the static gate and 1,911 Electron tests pass with the dependency changes set aside.
+Both commits are pushed to `origin/main` as `7b5e287..0f8d964`.
+
+`package.json#release.version` advances to 0.2026.10.3. The SemVer base remains 0.2026.10.
+The complete package gate passes all ten stages in 270.0 seconds with one App build.
+It covers the packaged runtime smoke, all 45 packaged interaction scenarios with zero retries or skips, the installers, and artifact checksums.
+The App reports `CFBundleVersion` 2026.10.3 and short version 0.2026.10.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `WriteLLM-0.2026.10.3-arm64.dmg` | `ea1be599def4779e7197747d61ad8b45dc52b3a1504613257a3815aacc8e4104` |
+| `WriteLLM-0.2026.10.3-arm64.zip` | `feb466de2a8a553caf1c28a356405f0777bbe6d8ae3dedaca94bf19be8921613` |
+
+Application source is unchanged from the accepted dependency maintenance, whose 1,913 Electron tests and 67 source scenarios remain valid.
+Local runtime acceptance covers macOS arm64 only. Distribution remains unsigned and unnotarized.
+
+Evidence: [package gate](../../.cache/verification/1792658329924-20383-5ce61f67) and [package evidence](../../dist/macos-arm64/package-evidence.json).
