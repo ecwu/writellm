@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import { randomUUID } from 'node:crypto'
 import { lstat, readFile, rm } from 'node:fs/promises'
 import type Database from 'better-sqlite3'
@@ -837,10 +838,11 @@ export function recordRevisionAssetReferences(
   }
   visit(document)
   for (const assetId of assetIds) {
-    const exists = database
-      .prepare("SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'")
-      .pluck()
-      .get(assetId)
+    const exists = cachedStatement(
+      database,
+      "SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'",
+      { pluck: true }
+    ).get(assetId)
     if (exists !== 1) throw new Error('Section references an unknown manuscript asset')
     database
       .prepare(`INSERT INTO section_revision_assets (section_revision_id, asset_id) VALUES (?, ?)`)

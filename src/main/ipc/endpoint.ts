@@ -1,4 +1,5 @@
 import type { IpcMainInvokeEvent } from 'electron'
+import type { z } from 'zod'
 import { authorizeSender } from './authorize-sender'
 import type {
   IpcEndpointDefinition,
@@ -14,30 +15,52 @@ export interface TypedIpcMain {
   removeHandler(channel: string): void
 }
 
-export interface ProjectSessionAuthorizer {
-  assertActiveSession(projectSessionId: string): unknown
-  assertMutationSession(projectSessionId: string): unknown
+export interface ProjectSessionAuthorizer<Context = unknown> {
+  assertActiveSession(projectSessionId: string): Context
+  assertMutationSession(projectSessionId: string): Context
 }
 
-export interface RegisterEndpointOptions<Endpoint extends IpcEndpointDefinition> {
+/** The project context a handler receives after the declared session check. */
+export type IpcEndpointContext<
+  Endpoint extends IpcEndpointDefinition,
+  Context
+> = Endpoint['session'] extends 'none' ? undefined : Context
+
+/** Handlers may return pre-validation data; the registration parses it with the output schema. */
+export type IpcEndpointHandlerResult<Endpoint extends IpcEndpointDefinition> =
+  | z.input<Endpoint['output']>
+  | IpcEndpointOutput<Endpoint>
+  // biome-ignore lint/suspicious/noConfusingVoidType: async handlers for undefined outputs return Promise<void>.
+  | (undefined extends z.input<Endpoint['output']> ? void : never)
+
+export type IpcEndpointHandler<Endpoint extends IpcEndpointDefinition, Context = unknown> = (
+  input: IpcEndpointParsedInput<Endpoint>,
+  context: IpcEndpointContext<Endpoint, Context>,
+  event: IpcMainInvokeEvent
+) => IpcEndpointHandlerResult<Endpoint> | Promise<IpcEndpointHandlerResult<Endpoint>>
+
+export interface RegisterEndpointOptions<Endpoint extends IpcEndpointDefinition, Context> {
   developmentUrl?: string
-  manager?: ProjectSessionAuthorizer
-  /** Keep legacy async rejection behavior for handlers that previously used an async listener. */
-  alwaysAsync?: boolean
+  manager?: ProjectSessionAuthorizer<Context>
+  /**
+   * Wrap session authorization, the handler, and output validation. Domains use this for
+   * lifecycle logging so session rejections report the same operation event as handler failures.
+   */
+  around?: (
+    input: IpcEndpointParsedInput<Endpoint>,
+    run: () => Promise<IpcEndpointOutput<Endpoint>>
+  ) => Promise<IpcEndpointOutput<Endpoint>>
   /** Preserve a domain's established safe error boundary for this endpoint. */
   onError?: (error: unknown) => never
-  handle(
-    input: IpcEndpointParsedInput<Endpoint>,
-    event: IpcMainInvokeEvent
-  ): IpcEndpointOutput<Endpoint> | Promise<IpcEndpointOutput<Endpoint>>
+  handle: IpcEndpointHandler<Endpoint, Context>
 }
 
-function assertSession<Endpoint extends IpcEndpointDefinition>(
+function authorizeSession<Endpoint extends IpcEndpointDefinition, Context>(
   endpoint: Endpoint,
   input: IpcEndpointParsedInput<Endpoint>,
-  manager: ProjectSessionAuthorizer | undefined
-): void {
-  if (endpoint.session === 'none') return
+  manager: ProjectSessionAuthorizer<Context> | undefined
+): IpcEndpointContext<Endpoint, Context> {
+  if (endpoint.session === 'none') return undefined as IpcEndpointContext<Endpoint, Context>
   if (manager === undefined) {
     throw new Error(`IPC endpoint ${endpoint.channel} requires a project session authorizer`)
   }
@@ -49,42 +72,72 @@ function assertSession<Endpoint extends IpcEndpointDefinition>(
   ) {
     throw new Error(`IPC endpoint ${endpoint.channel} requires projectSessionId input`)
   }
-  if (endpoint.session === 'mutation') manager.assertMutationSession(input.projectSessionId)
-  else manager.assertActiveSession(input.projectSessionId)
+  const context =
+    endpoint.session === 'mutation'
+      ? manager.assertMutationSession(input.projectSessionId)
+      : manager.assertActiveSession(input.projectSessionId)
+  return context as IpcEndpointContext<Endpoint, Context>
 }
 
-/** Register one endpoint with the shared sender, input, session, and output boundary. */
-export function registerIpcEndpoint<Endpoint extends IpcEndpointDefinition>(
+/**
+ * Register one endpoint with the shared sender, input, session, and output boundary. This is the
+ * only place a migrated endpoint parses its input and output or checks its declared session.
+ * Every invocation is asynchronous, so failures always surface as rejections.
+ */
+export function registerIpcEndpoint<Endpoint extends IpcEndpointDefinition, Context = unknown>(
   ipc: TypedIpcMain,
   endpoint: Endpoint,
-  options: RegisterEndpointOptions<Endpoint>
+  options: RegisterEndpointOptions<Endpoint, Context>
 ): () => void {
-  ipc.handle(endpoint.channel, (event, rawInput) => {
-    const invoke = () => {
-      try {
-        authorizeSender(event.senderFrame, options.developmentUrl)
-        const input = endpoint.input.parse(rawInput) as IpcEndpointParsedInput<Endpoint>
-        assertSession(endpoint, input, options.manager)
-        const output = options.handle(input, event)
-        const parsedOutput =
-          output instanceof Promise
-            ? output.then((value) => endpoint.output.parse(value))
-            : endpoint.output.parse(output)
-        if (parsedOutput instanceof Promise && options.onError !== undefined) {
-          return parsedOutput.catch(options.onError)
-        }
-        return parsedOutput
-      } catch (error) {
-        if (options.onError !== undefined) return options.onError(error)
-        throw error
-      }
-    }
-    if (!options.alwaysAsync) return invoke()
+  ipc.handle(endpoint.channel, async (event, rawInput) => {
     try {
-      return Promise.resolve(invoke())
+      authorizeSender(event.senderFrame, options.developmentUrl)
+      const input = endpoint.input.parse(rawInput) as IpcEndpointParsedInput<Endpoint>
+      const run = async (): Promise<IpcEndpointOutput<Endpoint>> => {
+        const context = authorizeSession(endpoint, input, options.manager)
+        const output = await options.handle(input, context, event)
+        return endpoint.output.parse(output) as IpcEndpointOutput<Endpoint>
+      }
+      return await (options.around === undefined ? run() : options.around(input, run))
     } catch (error) {
-      return Promise.reject(error)
+      if (options.onError !== undefined) return options.onError(error)
+      throw error
     }
   })
   return () => ipc.removeHandler(endpoint.channel)
+}
+
+/**
+ * Bind the shared registration options for one IPC domain. The returned function only accepts
+ * endpoint definitions, so a domain cannot register a channel without a declared contract.
+ */
+export function createEndpointRegistrar<Context>(
+  ipc: TypedIpcMain,
+  defaults: {
+    developmentUrl?: string
+    manager?: ProjectSessionAuthorizer<Context>
+    onError?: (channel: string, error: unknown) => never
+    wrap?: <T>(event: IpcMainInvokeEvent, input: unknown, run: () => Promise<T>) => Promise<T>
+  }
+) {
+  return <Endpoint extends IpcEndpointDefinition>(
+    endpoint: Endpoint,
+    handle: IpcEndpointHandler<Endpoint, Context>,
+    extra: Pick<RegisterEndpointOptions<Endpoint, Context>, 'around'> = {}
+  ): (() => void) =>
+    registerIpcEndpoint(ipc, endpoint, {
+      developmentUrl: defaults.developmentUrl,
+      manager: defaults.manager,
+      ...extra,
+      ...(defaults.onError === undefined
+        ? {}
+        : { onError: (error: unknown) => defaults.onError?.(endpoint.channel, error) as never }),
+      handle:
+        defaults.wrap === undefined
+          ? handle
+          : (input, context, event) =>
+              defaults.wrap?.(event, input, async () => handle(input, context, event)) as Promise<
+                IpcEndpointHandlerResult<Endpoint>
+              >
+    })
 }

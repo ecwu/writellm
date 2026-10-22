@@ -88,7 +88,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     modelLimits?: Parameters<AgentModelRuntime['run']>[6],
     trace?: Parameters<AgentModelRuntime['run']>[7]
   ): ReturnType<AgentModelRuntime['run']> {
-    if (signal.aborted) return Promise.reject(abortError())
+    if (signal.aborted) return Promise.reject(createAbortError('Agent model request aborted'))
     if (config.role !== 'agent') return Promise.reject(new Error('Agent provider role is required'))
     const input = agentRunInputSchema.parse(rawInput)
     const request: AgentUtilityRequest = {
@@ -104,7 +104,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       requestId: request.requestId,
       payload: request,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('Agent model request aborted'),
       cancelPayload: {
         type: 'cancel',
         requestId: request.requestId,
@@ -124,7 +124,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     onToolRequest?: (request: AgentToolRequest, signal: AbortSignal) => Promise<AgentToolResponse>
   ): AgentSessionRunHandle {
     if (signal.aborted) {
-      return rejectedSessionHandle(abortError())
+      return rejectedSessionHandle(createAbortError('Agent model request aborted'))
     }
     if (config.role !== 'agent')
       return rejectedSessionHandle(new Error('Agent provider role is required'))
@@ -179,7 +179,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
         requestId,
         payload: request,
         signal,
-        rejectOnAbort: abortError(),
+        rejectOnAbort: createAbortError('Agent model request aborted'),
         cancelPayload: {
           operation: 'cancel',
           requestId,
@@ -646,10 +646,6 @@ function legacyLimits(contextWindowTokens?: number | null): AgentModelLimits {
     catalogModelKey: null,
     resolvedAt: null
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Agent model request aborted')
 }
 
 function decodeAgentRuntimeAuth(value: string): {

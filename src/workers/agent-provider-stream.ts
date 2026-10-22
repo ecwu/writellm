@@ -342,7 +342,11 @@ function abortableDelay(delayMs: number, signal: AbortSignal | undefined): Promi
     const onAbort = (): void => {
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
-      reject(signal.reason instanceof Error ? signal.reason : abortError())
+      reject(
+        signal.reason instanceof Error
+          ? signal.reason
+          : createAbortError('Agent provider request aborted')
+      )
     }
     signal?.addEventListener('abort', onAbort, { once: true })
   })
@@ -350,10 +354,8 @@ function abortableDelay(delayMs: number, signal: AbortSignal | undefined): Promi
 
 function assertNotAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
-    throw signal.reason instanceof Error ? signal.reason : abortError()
+    throw signal.reason instanceof Error
+      ? signal.reason
+      : createAbortError('Agent provider request aborted')
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Agent provider request aborted')
 }

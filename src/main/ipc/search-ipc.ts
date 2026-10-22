@@ -2,19 +2,10 @@ import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import {
-  citationExpansionInputSchema,
-  citationExpansionResultSchema,
-  knowledgeSearchInputSchema,
-  knowledgeSearchResultSchema,
-  readableCitationResolutionInputSchema,
-  readableCitationResolutionResultSchema
-} from '../../shared/contracts/search'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { knowledgeIpcEndpoints } from '../../shared/contracts/ipc-endpoints-knowledge'
 import type { ProjectManager } from '../project/project-manager'
 import { resolveReadableCitation } from '../search/readable-citation-resolver'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
 
 export function registerSearchIpc(options: {
   manager: ProjectManager
@@ -23,28 +14,11 @@ export function registerSearchIpc(options: {
   ipc?: Pick<IpcMain, 'handle' | 'removeHandler'>
 }): () => void {
   const ipc = options.ipc ?? ipcMain
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(knowledgeIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: listener.constructor.name === 'AsyncFunction',
-        handle: (input, event) => listener(event, input)
-      })
-      return
-    }
-    ipc.handle(channel, listener)
-  }
-  handle(IPC_CHANNELS.knowledgeSearch, async (_event, rawInput: unknown) => {
-    const input = knowledgeSearchInputSchema.parse(rawInput)
-    const context = options.manager.assertActiveSession(input.projectSessionId)
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
+  handle(knowledgeIpcEndpoints.search, async (input, context) => {
     if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge search is still preparing')
     }
@@ -53,7 +27,7 @@ export function registerSearchIpc(options: {
     try {
       const result = await context.retrieval.search(input, controller.signal)
       options.manager.assertActiveSession(input.projectSessionId)
-      return knowledgeSearchResultSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -69,9 +43,7 @@ export function registerSearchIpc(options: {
       release?.()
     }
   })
-  handle(IPC_CHANNELS.knowledgeExpandCitations, async (_event, rawInput: unknown) => {
-    const input = citationExpansionInputSchema.parse(rawInput)
-    const context = options.manager.assertActiveSession(input.projectSessionId)
+  handle(knowledgeIpcEndpoints.expandCitations, async (input, context) => {
     if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge citations are still preparing')
     }
@@ -80,7 +52,7 @@ export function registerSearchIpc(options: {
     try {
       const result = await context.retrieval.expand(input.citationIds, controller.signal)
       options.manager.assertActiveSession(input.projectSessionId)
-      return citationExpansionResultSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -96,9 +68,7 @@ export function registerSearchIpc(options: {
       release?.()
     }
   })
-  handle(IPC_CHANNELS.knowledgeResolveReadableCitation, async (_event, rawInput: unknown) => {
-    const input = readableCitationResolutionInputSchema.parse(rawInput)
-    const context = options.manager.assertActiveSession(input.projectSessionId)
+  handle(knowledgeIpcEndpoints.resolveReadableCitation, async (input, context) => {
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     const startedAt = Date.now()
@@ -111,7 +81,7 @@ export function registerSearchIpc(options: {
         signal: controller.signal
       })
       options.manager.assertActiveSession(input.projectSessionId)
-      const parsed = readableCitationResolutionResultSchema.parse(result)
+      const parsed = result
       options.logger.info(
         {
           event: 'knowledge.readable_citation_resolution.completed',

@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import type Database from 'better-sqlite3'
 import { blockNoteInlinePlainText } from '../../shared/blocknote-inline-text'
 import {
@@ -142,13 +143,12 @@ export function updateCommentAnchors(
 
   for (const row of rows) {
     const sourceRevisionId = row.anchor_revision_id ?? row.created_revision_id
-    const source = database
-      .prepare(
-        `SELECT section_revision_id, section_id, content_json,
+    const source = cachedStatement(
+      database,
+      `SELECT section_revision_id, section_id, content_json,
                 content_schema_version, content_hash, content_body_retained
          FROM section_revisions WHERE section_revision_id = ?`
-      )
-      .get(sourceRevisionId) as SectionRevisionRow | undefined
+    ).get(sourceRevisionId) as SectionRevisionRow | undefined
 
     const sourceHistory = database
       .prepare(

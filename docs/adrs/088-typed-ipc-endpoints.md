@@ -1,6 +1,10 @@
 # ADR 088: Typed IPC Endpoint Definitions
 
 Status: accepted under the user's Issue 18 implementation request
+
+Current rule: [ADR 091](091-issue-19-endpoint-authority-and-compatibility.md) makes the endpoint
+registration the only Main-side parse and session authority, passes the checked context to handlers,
+and removes the channel fallback. Read it before the migration clauses below.
 Date: 2026-10-21
 
 ## Context

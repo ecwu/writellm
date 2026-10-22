@@ -1,6 +1,7 @@
 # WriteLLM Implementation Tracker
 
-Status: Issue 18 maintenance is committed, pushed, and closed after local acceptance.
+Status: Issue 19 follow-up repairs pass local acceptance and remain uncommitted.
+Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible maintenance passes local acceptance. Checkpoint 77 remains paused.
 Recorded: 2026-10-21
 
@@ -21,6 +22,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are uncommitted.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-19-follow-up-repairs).
 - [x] Issue 18 maintenance: targeted repairs pass local macOS arm64 acceptance under [ADR 086](adrs/086-issue-18-engineering-quality.md); changes are pushed and the issue is closed.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-18-engineering-quality).
 

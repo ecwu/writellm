@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
-import { canonicalizeJson, type CanonicalJsonError } from '../../shared/canonical-json'
+import {
+  canonicalizeJson,
+  LEGACY_MODEL_REQUEST_FINGERPRINT,
+  type CanonicalJsonError
+} from '../../shared/canonical-json'
 import { sha256 } from '../../shared/hash'
 import type { ModelExecutionMetadata } from '../../shared/contracts/model-runtime'
 import type { AgentThinkingLevel, ProviderConfig } from '../../shared/contracts/providers'
@@ -301,7 +305,7 @@ export class ModelRequestRepository {
 
 function fingerprint(value: unknown): string {
   const normalized = canonicalizeJson(value, {
-    omitUndefinedObjectProperties: true,
+    ...LEGACY_MODEL_REQUEST_FINGERPRINT,
     onError: (error) => new Error(modelFingerprintErrorMessage(error), { cause: error })
   })
   const serialized = JSON.stringify(normalized)

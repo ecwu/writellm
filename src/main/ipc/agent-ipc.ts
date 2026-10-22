@@ -3,52 +3,11 @@ import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
 import type { AgentUserMessagePayload } from '../../shared/contracts/agent'
 import {
-  agentArchiveSessionInputSchema,
-  agentArchiveSessionResultSchema,
-  agentAnswerUserQuestionInputSchema,
-  agentAnswerUserQuestionResultSchema,
-  agentSessionInputSchema,
-  agentForkConversationInputSchema,
-  agentForkConversationResultSchema,
-  agentCreateSessionInputSchema,
-  agentCreateSessionResultSchema,
-  agentCompactSessionInputSchema,
-  agentCompactSessionResultSchema,
-  agentEventPageInputSchema,
   agentEventPageSchema,
-  agentListProposalsResultSchema,
-  agentListRunsInputSchema,
-  agentListRunsResultSchema,
-  agentListSessionsInputSchema,
-  agentListSessionsResultSchema,
   agentProjectActivitySnapshotSchema,
   agentProjectActivitySubscriptionInputSchema,
-  agentGenerateSessionTitleInputSchema,
-  agentGenerateSessionTitleResultSchema,
-  agentPendingMessageActionInputSchema,
-  agentQueueInputSchema,
-  agentRestoreSessionInputSchema,
-  agentRestoreSessionResultSchema,
-  agentRunInputSchema,
-  agentSetApprovalModeInputSchema,
-  agentSetApprovalModeResultSchema,
-  agentSetInteractionModeInputSchema,
-  agentSetInteractionModeResultSchema,
-  agentSetModelSelectionInputSchema,
-  agentSetModelSelectionResultSchema,
-  agentSetThinkingLevelInputSchema,
-  agentSetThinkingLevelResultSchema,
-  agentEditLastMessageInputSchema,
-  agentStartRunInputSchema,
-  agentStartRunResultSchema,
-  agentStopCompactionInputSchema,
-  agentStopCompactionResultSchema,
   agentSubscriptionInputSchema
 } from '../../shared/contracts/agent-ipc'
-import {
-  userUpdateWritingTaskInputSchema,
-  userUpdateWritingTaskResultSchema
-} from '../../shared/contracts/writing-task'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
 import type { AgentEventBroker } from '../agent/event-broker'
@@ -65,9 +24,8 @@ import {
   clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService
 } from '../providers/agent-provider-catalog'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { authorizeSender } from './authorize-sender'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
 
 export interface AgentIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -83,75 +41,50 @@ export function registerAgentIpc(options: {
   ipc?: AgentIpcMain
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: handler.constructor.name === 'AsyncFunction',
-        handle: (input, event) => handler(event, input)
-      })
-      return
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
+  const readService = (projectSessionId: string) =>
+    options.manager.assertActiveSession(projectSessionId).agentSessions
+  /** Log one Agent operation, including session rejections from the endpoint boundary. */
+  const lifecycle =
+    (event: string) =>
+    async <T>(_input: unknown, run: () => Promise<T>): Promise<T> => {
+      const startedAt = Date.now()
+      try {
+        const result = await run()
+        options.logger.info(
+          { event: `${event}.completed`, durationMs: Date.now() - startedAt },
+          'Agent IPC operation completed'
+        )
+        return result
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          { event: `${event}.failed`, err, durationMs: Date.now() - startedAt },
+          'Agent IPC operation failed'
+        )
+        throw err
+      }
     }
-    ipc.handle(channel, handler)
-  }
-  const readService = (projectSessionId: string) => {
-    const context = options.manager.assertActiveSession(projectSessionId)
-    return context.agentSessions
-  }
-  const mutationContext = (projectSessionId: string) => {
-    const context = options.manager.assertMutationSession(projectSessionId)
-    return context
-  }
-  const lifecycle = async <T>(event: string, operation: () => T | Promise<T>): Promise<T> => {
-    const startedAt = Date.now()
-    try {
-      const result = await operation()
-      options.logger.info(
-        { event: `${event}.completed`, durationMs: Date.now() - startedAt },
-        'Agent IPC operation completed'
-      )
-      return result
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        { event: `${event}.failed`, err, durationMs: Date.now() - startedAt },
-        'Agent IPC operation failed'
-      )
-      throw err
-    }
-  }
 
-  handle(IPC_CHANNELS.agentListSessions, (_event, raw: unknown) => {
-    const input = agentListSessionsInputSchema.parse(raw)
-    return agentListSessionsResultSchema.parse(
-      readService(input.projectSessionId).listSessions(input.status)
-    )
+  handle(agentIpcEndpoints.listSessions, (input, context) => {
+    return context.agentSessions.listSessions(input.status)
   })
-  handle(IPC_CHANNELS.agentGetSession, (_event, raw: unknown) => {
-    const input = agentSessionInputSchema.parse(raw)
-    return agentCreateSessionResultSchema.parse(
-      readService(input.projectSessionId).getSession(input.agentSessionId)
-    )
+  handle(agentIpcEndpoints.getSession, (input, context) => {
+    return context.agentSessions.getSession(input.agentSessionId)
   })
-  handle(IPC_CHANNELS.agentForkConversation, (_event, raw: unknown) => {
-    const input = agentForkConversationInputSchema.parse(raw)
-    return lifecycle('agent.session.fork', () =>
-      agentForkConversationResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.forkConversation(input)
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentCreateSession, async (_event, raw: unknown) => {
-    const input = agentCreateSessionInputSchema.parse(raw)
-    return lifecycle('agent.session.create', async () => {
+  handle(
+    agentIpcEndpoints.forkConversation,
+    (input, context) => {
+      return context.agentSessions.forkConversation(input)
+    },
+    { around: lifecycle('agent.session.fork') }
+  )
+  handle(
+    agentIpcEndpoints.createSession,
+    async (input) => {
       const selection = input.modelSelection ?? (await options.catalog.snapshot()).defaultSelection
       const thinkingLevel =
         selection === null
@@ -160,47 +93,42 @@ export function registerAgentIpc(options: {
               await options.catalog.resolve(selection),
               await options.catalog.getLastThinkingLevel()
             )
-      return agentCreateSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.createSession(
-          input.title,
-          undefined,
-          selection,
-          thinkingLevel
-        )
-      )
-    })
-  })
-  handle(IPC_CHANNELS.agentGenerateSessionTitle, async (_event, raw: unknown) => {
-    const input = agentGenerateSessionTitleInputSchema.parse(raw)
-    return lifecycle('agent.session.generate_title', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
-      return agentGenerateSessionTitleResultSchema.parse(
-        await service.generateSessionTitle(input.agentSessionId)
-      )
-    })
-  })
-  handle(IPC_CHANNELS.agentArchiveSession, (_event, raw: unknown) => {
-    const input = agentArchiveSessionInputSchema.parse(raw)
-    return lifecycle('agent.session.archive', () =>
-      agentArchiveSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.archiveSession(input.agentSessionId)
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentRestoreSession, (_event, raw: unknown) => {
-    const input = agentRestoreSessionInputSchema.parse(raw)
-    return lifecycle('agent.session.restore', () =>
-      agentRestoreSessionResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.restoreSession(input.agentSessionId)
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentSetModelSelection, async (_event, raw: unknown) => {
-    const input = agentSetModelSelectionInputSchema.parse(raw)
-    return lifecycle('agent.session.set_model_selection', async () => {
+      // Catalog reads await, so revalidate the session before creating Agent state.
+      return options.manager
+        .assertMutationSession(input.projectSessionId)
+        .agentSessions.createSession(input.title, undefined, selection, thinkingLevel)
+    },
+    { around: lifecycle('agent.session.create') }
+  )
+  handle(
+    agentIpcEndpoints.generateSessionTitle,
+    async (input, context) => {
+      const service = context.agentSessions
+      return await service.generateSessionTitle(input.agentSessionId)
+    },
+    { around: lifecycle('agent.session.generate_title') }
+  )
+  handle(
+    agentIpcEndpoints.archiveSession,
+    (input, context) => {
+      return context.agentSessions.archiveSession(input.agentSessionId)
+    },
+    { around: lifecycle('agent.session.archive') }
+  )
+  handle(
+    agentIpcEndpoints.restoreSession,
+    (input, context) => {
+      return context.agentSessions.restoreSession(input.agentSessionId)
+    },
+    { around: lifecycle('agent.session.restore') }
+  )
+  handle(
+    agentIpcEndpoints.setModelSelection,
+    async (input) => {
       const catalog = options.catalog
       const resolved = await catalog.resolve(input.selection)
-      const service = mutationContext(input.projectSessionId).agentSessions
+      // The catalog read awaits, so revalidate the session before reading Agent state.
+      const service = options.manager.assertMutationSession(input.projectSessionId).agentSessions
       const current = service
         .listSessions()
         .find((session) => session.agentSessionId === input.agentSessionId)
@@ -210,18 +138,17 @@ export function registerAgentIpc(options: {
           ? await catalog.getLastThinkingLevel()
           : current.thinkingLevel
       const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, requestedLevel)
-      const result = agentSetModelSelectionResultSchema.parse(
-        service.setModelSelection(input.agentSessionId, input.selection, thinkingLevel)
-      )
+      const result = service.setModelSelection(input.agentSessionId, input.selection, thinkingLevel)
       await catalog.setDefaultSelection(input.selection)
       return result
-    })
-  })
-  handle(IPC_CHANNELS.agentSetThinkingLevel, async (_event, raw: unknown) => {
-    const input = agentSetThinkingLevelInputSchema.parse(raw)
-    return lifecycle('agent.session.set_thinking_level', async () => {
+    },
+    { around: lifecycle('agent.session.set_model_selection') }
+  )
+  handle(
+    agentIpcEndpoints.setThinkingLevel,
+    async (input, context) => {
       const catalog = options.catalog
-      const service = mutationContext(input.projectSessionId).agentSessions
+      const service = context.agentSessions
       const session = service
         .listSessions()
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
@@ -231,82 +158,67 @@ export function registerAgentIpc(options: {
       if (clampResolvedAgentThinkingLevel(resolved, input.level) !== input.level) {
         throw new Error('Selected Thinking level is unavailable for this Agent model')
       }
-      const result = agentSetThinkingLevelResultSchema.parse(
-        service.setThinkingLevel(input.agentSessionId, input.level)
-      )
+      const result = service.setThinkingLevel(input.agentSessionId, input.level)
       await catalog.setLastThinkingLevel(input.level)
       return result
-    })
-  })
-  handle(IPC_CHANNELS.agentSetApprovalMode, (_event, raw: unknown) => {
-    const input = agentSetApprovalModeInputSchema.parse(raw)
-    return lifecycle('agent.session.set_approval_mode', () =>
-      agentSetApprovalModeResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.setApprovalMode(
-          input.agentSessionId,
-          input.mode
-        )
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentSetInteractionMode, (_event, raw: unknown) => {
-    const input = agentSetInteractionModeInputSchema.parse(raw)
-    return lifecycle('agent.session.set_interaction_mode', () =>
-      agentSetInteractionModeResultSchema.parse(
-        mutationContext(input.projectSessionId).agentSessions.setInteractionMode(
-          input.agentSessionId,
-          input.mode
-        )
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentUpdateWritingTask, (_event, raw: unknown) => {
-    const input = userUpdateWritingTaskInputSchema.parse(raw)
-    return lifecycle('agent.writing_task.user_update', () => {
-      const context = mutationContext(input.projectSessionId)
+    },
+    { around: lifecycle('agent.session.set_thinking_level') }
+  )
+  handle(
+    agentIpcEndpoints.setApprovalMode,
+    (input, context) => {
+      return context.agentSessions.setApprovalMode(input.agentSessionId, input.mode)
+    },
+    { around: lifecycle('agent.session.set_approval_mode') }
+  )
+  handle(
+    agentIpcEndpoints.setInteractionMode,
+    (input, context) => {
+      return context.agentSessions.setInteractionMode(input.agentSessionId, input.mode)
+    },
+    { around: lifecycle('agent.session.set_interaction_mode') }
+  )
+  handle(
+    agentIpcEndpoints.updateWritingTask,
+    (input, context) => {
       const session = context.agentSessions
         .listSessions()
         .find((candidate) => candidate.agentSessionId === input.agentSessionId)
       if (session?.workflowState !== 'idle') {
         throw new Error('Stop or finish Agent work before revising the plan')
       }
-      return userUpdateWritingTaskResultSchema.parse(context.writingTasks.updateByUser(input))
-    })
-  })
-  handle(IPC_CHANNELS.agentListEvents, (_event, raw: unknown) => {
-    const input = agentEventPageInputSchema.parse(raw)
-    return agentEventPageSchema.parse(
-      readService(input.projectSessionId).listEventPage(
-        input.agentSessionId,
-        input.afterSequence,
-        input.limit
-      )
+      const view = context.writingTasks.updateByUser(input)
+      if (view === null) throw new Error('Writing task is unavailable after the update')
+      return view
+    },
+    { around: lifecycle('agent.writing_task.user_update') }
+  )
+  handle(agentIpcEndpoints.listEvents, (input, context) => {
+    return context.agentSessions.listEventPage(
+      input.agentSessionId,
+      input.afterSequence,
+      input.limit
     )
   })
-  handle(IPC_CHANNELS.agentListRuns, (_event, raw: unknown) => {
-    const input = agentListRunsInputSchema.parse(raw)
-    return agentListRunsResultSchema.parse(
-      readService(input.projectSessionId).listRuns(input.agentSessionId, input.limit)
-    )
+  handle(agentIpcEndpoints.listRuns, (input, context) => {
+    return context.agentSessions.listRuns(input.agentSessionId, input.limit)
   })
-  handle(IPC_CHANNELS.agentListProposals, (_event, raw: unknown) => {
-    const input = agentListRunsInputSchema.omit({ limit: true }).parse(raw)
-    const context = options.manager.assertActiveSession(input.projectSessionId)
-    return agentListProposalsResultSchema.parse(context.agentMutations.list(input.agentSessionId))
-  })
-  handle(IPC_CHANNELS.agentEditLastMessage, (_event, raw: unknown) => {
-    const input = agentEditLastMessageInputSchema.parse(raw)
-    return lifecycle('agent.message.edit', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
+  handle(agentIpcEndpoints.listProposals, (input, context) =>
+    context.agentMutations.list(input.agentSessionId)
+  )
+  handle(
+    agentIpcEndpoints.editLastMessageAndRestart,
+    async (input, context) => {
+      const service = context.agentSessions
       const started = await service.editLastMessageAndRestart(input)
       options.manager.assertActiveSession(input.projectSessionId)
-      return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
-    })
-  })
-  handle(IPC_CHANNELS.agentStartRun, (_event, raw: unknown) => {
-    const input = agentStartRunInputSchema.parse(raw)
-    return lifecycle('agent.run.start', async () => {
-      const context = mutationContext(input.projectSessionId)
+      return { run: service.requireRun(started.agentRunId) }
+    },
+    { around: lifecycle('agent.message.edit') }
+  )
+  handle(
+    agentIpcEndpoints.startRun,
+    async (input, context) => {
       const service = context.agentSessions
       const session = service
         .listSessions()
@@ -465,78 +377,71 @@ export function registerAgentIpc(options: {
         presentation,
         interactionMode
       })
-      return agentStartRunResultSchema.parse({ run: service.requireRun(started.agentRunId) })
-    })
-  })
-  handle(IPC_CHANNELS.agentSteerRun, (_event, raw: unknown) => {
-    const input = agentQueueInputSchema.parse(raw)
-    return lifecycle('agent.run.steer', () =>
-      mutationContext(input.projectSessionId).agentSessions.steer(
-        input.agentRunId,
-        input.content,
-        input.attachmentIds
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentFollowUpRun, (_event, raw: unknown) => {
-    const input = agentQueueInputSchema.parse(raw)
-    return lifecycle('agent.run.follow_up', () =>
-      mutationContext(input.projectSessionId).agentSessions.followUp(
-        input.agentRunId,
-        input.content,
-        input.attachmentIds
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentSteerPendingFollowUp, (_event, raw: unknown) => {
-    const input = agentPendingMessageActionInputSchema.parse(raw)
-    return lifecycle('agent.run.pending_follow_up_steer', () =>
-      mutationContext(input.projectSessionId).agentSessions.steerPendingFollowUp(
-        input.agentRunId,
-        input.pendingMessageId
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentDeletePendingFollowUp, (_event, raw: unknown) => {
-    const input = agentPendingMessageActionInputSchema.parse(raw)
-    return lifecycle('agent.run.pending_follow_up_delete', () =>
-      mutationContext(input.projectSessionId).agentSessions.deletePendingFollowUp(
-        input.agentRunId,
-        input.pendingMessageId
-      )
-    )
-  })
-  handle(IPC_CHANNELS.agentAbortRun, (_event, raw: unknown) => {
-    const input = agentRunInputSchema.parse(raw)
-    return lifecycle('agent.run.abort', () =>
-      mutationContext(input.projectSessionId).agentSessions.abort(input.agentRunId)
-    )
-  })
-  handle(IPC_CHANNELS.agentAnswerUserQuestion, (_event, raw: unknown) => {
-    const input = agentAnswerUserQuestionInputSchema.parse(raw)
-    return lifecycle('agent.question.answer', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
+      return { run: service.requireRun(started.agentRunId) }
+    },
+    { around: lifecycle('agent.run.start') }
+  )
+  handle(
+    agentIpcEndpoints.steerRun,
+    (input, context) => {
+      return context.agentSessions.steer(input.agentRunId, input.content, input.attachmentIds)
+    },
+    { around: lifecycle('agent.run.steer') }
+  )
+  handle(
+    agentIpcEndpoints.followUpRun,
+    (input, context) => {
+      return context.agentSessions.followUp(input.agentRunId, input.content, input.attachmentIds)
+    },
+    { around: lifecycle('agent.run.follow_up') }
+  )
+  handle(
+    agentIpcEndpoints.steerPendingFollowUp,
+    (input, context) => {
+      return context.agentSessions.steerPendingFollowUp(input.agentRunId, input.pendingMessageId)
+    },
+    { around: lifecycle('agent.run.pending_follow_up_steer') }
+  )
+  handle(
+    agentIpcEndpoints.deletePendingFollowUp,
+    (input, context) => {
+      return context.agentSessions.deletePendingFollowUp(input.agentRunId, input.pendingMessageId)
+    },
+    { around: lifecycle('agent.run.pending_follow_up_delete') }
+  )
+  handle(
+    agentIpcEndpoints.abortRun,
+    (input, context) => {
+      return context.agentSessions.abort(input.agentRunId)
+    },
+    { around: lifecycle('agent.run.abort') }
+  )
+  handle(
+    agentIpcEndpoints.answerUserQuestion,
+    async (input, context) => {
+      const service = context.agentSessions
       await service.answerUserQuestion(input)
-      return agentAnswerUserQuestionResultSchema.parse({})
-    })
-  })
-  handle(IPC_CHANNELS.agentCompactSession, (_event, raw: unknown) => {
-    const input = agentCompactSessionInputSchema.parse(raw)
-    return lifecycle('agent.compaction.start', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
-      return agentCompactSessionResultSchema.parse(
-        await service.compactSession(input.agentSessionId)
-      )
-    })
-  })
-  handle(IPC_CHANNELS.agentStopCompaction, (_event, raw: unknown) => {
-    const input = agentStopCompactionInputSchema.parse(raw)
-    return lifecycle('agent.compaction.stop', async () => {
-      const service = mutationContext(input.projectSessionId).agentSessions
+      return {}
+    },
+    { around: lifecycle('agent.question.answer') }
+  )
+  handle(
+    agentIpcEndpoints.compactSession,
+    async (input, context) => {
+      const service = context.agentSessions
+      return await service.compactSession(input.agentSessionId)
+    },
+    { around: lifecycle('agent.compaction.start') }
+  )
+  handle(
+    agentIpcEndpoints.stopCompaction,
+    async (input, context) => {
+      const service = context.agentSessions
       await service.stopCompaction(input.agentSessionId, input.compactionId)
-      return agentStopCompactionResultSchema.parse({})
-    })
-  })
+      return {}
+    },
+    { around: lifecycle('agent.compaction.stop') }
+  )
   ipc.handle(IPC_CHANNELS.agentSubscribeEvents, (event, raw: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)
     const input = agentSubscriptionInputSchema.parse(raw)

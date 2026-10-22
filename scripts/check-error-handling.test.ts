@@ -95,4 +95,81 @@ catch { /* safe parser fallback */ }`,
     expect(findings).toHaveLength(1)
     expect(findings[0]).toMatchObject({ kind: 'swallowed-promise', line: 2 })
   })
+
+  it('rejects catches that name the error but never use it', () => {
+    const findings = scanSourceText(
+      `async function run(task: Promise<void>) {
+  await task.catch((err) => notify('Task failed'))
+  try {
+    work()
+  } catch (error) {
+    toast(error.message ? 'x' : 'y')
+  }
+  try {
+    work()
+  } catch (err) {
+    toast('Work failed')
+  }
+}`,
+      'unused.ts'
+    )
+
+    expect(findings.map(({ kind, line }) => ({ kind, line }))).toEqual([
+      { kind: 'unused-rejection', line: 2 },
+      { kind: 'unused-catch-binding', line: 10 }
+    ])
+  })
+
+  it('accepts catches that pass the error on, including inside template expressions', () => {
+    const findings = scanSourceText(
+      `async function run(task: Promise<void>) {
+  await task.catch(report)
+  await task.catch((err): never => {
+    throw new Error(\`Task \${label} failed\`, { cause: err })
+  })
+  try {
+    work()
+  } catch (error) {
+    throw new Error(\`\${provider} request \${aborted ? 'cancelled' : 'failed'}\`, { cause: error })
+  }
+}`,
+      'forwarded.ts'
+    )
+
+    expect(findings).toEqual([])
+  })
+
+  it('does not count a property with the same name as a use of the error', () => {
+    const findings = scanSourceText(
+      `try {
+  work()
+} catch (err) {
+  log(state.err)
+}`,
+      'property.ts'
+    )
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ kind: 'unused-catch-binding', line: 3 })
+  })
+
+  it('requires a marker for a non-empty catch without an error binding', () => {
+    const findings = scanSourceText(
+      `try {
+  parse()
+} catch {
+  return fallback
+}
+try {
+  parse()
+  // error-handling: allow owner=parser cause=invalid-input-uses-fallback
+} catch {
+  return fallback
+}`,
+      'unbound.ts'
+    )
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]).toMatchObject({ kind: 'unbound-catch', line: 3 })
+  })
 })

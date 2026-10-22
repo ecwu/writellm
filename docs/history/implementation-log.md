@@ -6546,3 +6546,51 @@ No application build or tests repeat for these document changes.
 The local App and installers retain version 0.2026.10.2 and the accepted runtime contents.
 This delivery creates no tag or release and does not change the published release artifacts.
 Earlier history entries retain their original local-only state as past evidence.
+
+## 2026-10-21 Issue 19 follow-up repairs
+
+The user authorizes fixing the problems recorded in [Issue 19](https://github.com/ecwu/writellm/issues/19), the audit of the Issue 18 delivery in commit `7da0fc8`.
+[ADR 091](../adrs/091-issue-19-endpoint-authority-and-compatibility.md) records the decisions.
+
+IPC endpoints:
+
+- `registerIpcEndpoint` is now the only Main-side sender, input, session, and output authority.
+- Handlers receive the checked `ProjectContext`. Their duplicate parses and session assertions are removed in the agent, attachment, editor, knowledge, manuscript, project, and search modules.
+- `createEndpointRegistrar` accepts only endpoint definitions. This removes the unauthorized `ipc.handle` fallback; a raw channel string is now a compile error.
+- Every endpoint invocation is asynchronous, which removes the `constructor.name` reflection.
+- Agent, mutation, manuscript outline, editor export, workspace, reference index, and original-file operations run their lifecycle logging or safe error through `around`, so session rejections report their domain events again.
+- Agent session creation and model selection revalidate the session after their catalog awaits.
+- Eight project template and version history endpoints declare `none` because `ProjectManager` authorizes inside their failure boundaries. An allowlist test names all fifteen project-scoped `none` endpoints.
+- Project IPC no longer nests a second log context with a new `requestId` inside `withIpcLogging`.
+
+Other repairs:
+
+- Canonical JSON adds explicit compatibility options and two legacy profiles. Model-request fingerprints, traces, and manuscript exports again accept the inputs their historical serializers accepted. Expected values come from the pre-`7da0fc8` implementations.
+- The error-handling guard rejects catches without an error binding and catches whose error binding is never used.
+- `scripts/lib/ts-source.mjs` provides the shared tokenizer for the guard and the schema contract test. It fixes template continuation rescanning, which had hidden catch bodies from the guard.
+- Fourteen existing validation and diagnostic fallbacks receive owner and reason markers.
+- TypeScript is pinned to exactly 7.0.2 because the tokenizer uses `typescript/unstable/ast`.
+- `cachedStatement` reuses prepared statements per connection, SQL text, and result mode. `SectionRepository` and eleven Main-process loop sites use it.
+- Migration helpers are documented as frozen and are pinned by a behavior test.
+- Twelve one-line `abortError` wrappers are replaced by `createAbortError`.
+
+Verification on macOS arm64:
+
+- The static gate (`node scripts/run-checks.mjs fast`) passes Biome, the error-handling guard, and all three typechecks.
+- The complete Electron-hosted Vitest suite passes 1,911 tests in 301 files, with three optional benchmarks skipped, in 22.2 seconds.
+- One production build is followed by the complete source E2E suite: 67 of 67 scenarios pass in 207 seconds, with zero retries, flaky results, or skips.
+- During implementation, focused reruns fixed test expectations for asynchronous handlers. They also repaired one incorrect automated edit, which had turned synchronous `authorizeLayoutFlush` checks into Promise rejections. Final results include no retries.
+
+Runtime and platform limits:
+
+- The pnpm wrapper cannot run in this environment. The host has Node 26.12.0 and pnpm 11.17.0, and no installed Node satisfies the `>=24.21.0 <25` engine range. Commands ran through `node scripts/...` directly.
+- The frozen install after the TypeScript pin did not run for the same reason. The package and lockfile specifiers were edited together.
+- No packaged App gate ran: this change touches no native module, worker entrypoint, Pino transport, or package resource.
+- Windows, Linux, and macOS x64 remain unverified.
+
+The Renderer decomposition items carried from Issue 18 remain deferred.
+This task creates no commit, push, or GitHub issue update.
+
+Evidence: [static gate](../../.cache/verification/1792616076721-85410-a8f33c7f/stages-1792616076721-85410-a8f33c7f.json),
+[complete Electron suite](../../.cache/verification/1792616085216-85696-ebb72f5d/vitest-1792616085603-85697-94513c9b.json), and
+[source E2E](../../.cache/verification/1792616139136-86906-39dbe92d/e2e-1792616139474-86907-0a8535a3.json).

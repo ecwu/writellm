@@ -112,7 +112,7 @@ export class AgentToolBridge {
     signal?: AbortSignal
   ): Promise<AgentToolResponse> {
     if (this.#closed) return Promise.reject(new Error('Agent tool bridge is closed'))
-    if (signal?.aborted) return Promise.reject(abortError())
+    if (signal?.aborted) return Promise.reject(createAbortError('Agent tool request aborted'))
     const requestId = randomUUID()
     const request = agentToolRequestSchema.parse({
       type: 'tool_request',
@@ -129,7 +129,7 @@ export class AgentToolBridge {
           ? undefined
           : () => {
               this.#finish(requestId)
-              reject(abortError())
+              reject(createAbortError('Agent tool request aborted'))
             }
       this.#pending.set(requestId, {
         toolName,
@@ -207,8 +207,4 @@ function prepareReadSectionArguments(args: unknown): unknown {
 
 function escapeToolEnvelopeText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-function abortError(): Error {
-  return createAbortError('Agent tool request aborted')
 }

@@ -74,6 +74,7 @@ export function agentDiagnosticSensitiveValues(credential: unknown): string[] {
     values.add(credential)
     try {
       root = JSON.parse(credential) as unknown
+      // error-handling: allow owner=diagnostic-redaction reason=literal-credential-format
     } catch {
       // Literal credentials are a supported format, including text beginning with "{".
       root = credential
@@ -410,6 +411,7 @@ function readProperty(value: unknown, property: DiagnosticProperty): unknown {
   if (!isObjectLike(value)) return undefined
   try {
     return Reflect.get(value, property)
+    // error-handling: allow owner=diagnostic-redaction reason=hostile-getter-reads-as-absent
   } catch {
     return undefined
   }
@@ -418,6 +420,7 @@ function readProperty(value: unknown, property: DiagnosticProperty): unknown {
 function safeInstanceOfError(value: unknown): boolean {
   try {
     return value instanceof Error
+    // error-handling: allow owner=diagnostic-redaction reason=hostile-prototype-is-not-error
   } catch {
     return false
   }
@@ -436,6 +439,7 @@ function primitiveText(value: unknown): string {
   if (value === undefined) return 'undefined'
   try {
     return String(value)
+    // error-handling: allow owner=diagnostic-redaction reason=unprintable-value-renders-empty
   } catch {
     return ''
   }

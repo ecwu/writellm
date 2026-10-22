@@ -325,7 +325,7 @@ export class IndexClient {
       this.#closed = true
       this.#detachLogs?.()
       this.#detachLogs = undefined
-      this.#worker.terminate(abortError())
+      this.#worker.terminate(createAbortError('Index utility request aborted'))
       return
     }
     if (!this.#worker.running) {
@@ -366,7 +366,7 @@ export class IndexClient {
     signal: AbortSignal,
     allowClosed = false
   ): Promise<IndexUtilityResponse> {
-    if (signal.aborted) throw abortError()
+    if (signal.aborted) throw createAbortError('Index utility request aborted')
     if (this.#closed && !allowClosed) throw new Error('Index utility client is closed')
     await this.initialize()
     if (!this.#worker.running) {
@@ -381,7 +381,7 @@ export class IndexClient {
       requestId: parsed.requestId,
       payload: parsed,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('Index utility request aborted'),
       terminateOnAbort: !allowClosed,
       onMessage: (raw) => this.#handleMessage(raw)
     })
@@ -409,7 +409,7 @@ export class IndexClient {
         requestId,
         payload: request,
         signal: new AbortController().signal,
-        rejectOnAbort: abortError(),
+        rejectOnAbort: createAbortError('Index utility request aborted'),
         transfer: [port2],
         onMessage: (raw) => this.#handleMessage(raw)
       })
@@ -499,8 +499,4 @@ export class IndexClient {
       }
     }
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Index utility request aborted')
 }

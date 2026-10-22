@@ -31,7 +31,6 @@ export function registerIpcHandlers({
   const unregister = [
     registerIpcEndpoint(ipc, appIpcEndpoints.quit, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async () => {
         try {
           if (projectManager.snapshot().state === 'open') await projectManager.close()
@@ -60,12 +59,10 @@ export function registerIpcHandlers({
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.getThemePreference, {
       developmentUrl,
-      alwaysAsync: true,
       handle: () => appSettings.getThemePreference()
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.setThemePreference, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async ({ preference }) => {
         const persisted = await appSettings.setThemePreference(preference)
         logger.info(
@@ -77,12 +74,10 @@ export function registerIpcHandlers({
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.getAccentPreference, {
       developmentUrl,
-      alwaysAsync: true,
       handle: () => appSettings.getAccentPreference()
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.setAccentPreference, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async ({ preference }) => {
         const persisted = await appSettings.setAccentPreference(preference)
         logger.info(
@@ -94,12 +89,10 @@ export function registerIpcHandlers({
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.getCitationDisplayMode, {
       developmentUrl,
-      alwaysAsync: true,
       handle: () => appSettings.getCitationDisplayMode()
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.setCitationDisplayMode, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async ({ mode }) => {
         const persisted = await appSettings.setCitationDisplayMode(mode)
         logger.info(
@@ -111,12 +104,10 @@ export function registerIpcHandlers({
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.getDefaultAgentApprovalMode, {
       developmentUrl,
-      alwaysAsync: true,
       handle: () => appSettings.getDefaultAgentApprovalMode()
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.setDefaultAgentApprovalMode, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async ({ mode }) => {
         const persisted = await appSettings.setDefaultAgentApprovalMode(mode)
         logger.info(
@@ -128,12 +119,10 @@ export function registerIpcHandlers({
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.getOnboardingState, {
       developmentUrl,
-      alwaysAsync: true,
       handle: () => appSettings.getOnboardingState()
     }),
     registerIpcEndpoint(ipc, appIpcEndpoints.setOnboardingState, {
       developmentUrl,
-      alwaysAsync: true,
       handle: async ({ state }) => {
         const persisted = await appSettings.setOnboardingState(state)
         logger.info(

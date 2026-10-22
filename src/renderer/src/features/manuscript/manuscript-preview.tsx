@@ -84,6 +84,7 @@ export function safePreviewMarkdownUrl(url: string, key: string): string {
   try {
     logicalAssetId(url)
     return url
+    // error-handling: allow owner=manuscript-preview reason=invalid-asset-url-renders-fallback
   } catch {
     // Invalid asset URLs are expected validation failures. The caller renders a safe fallback.
     return ''

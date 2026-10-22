@@ -1,26 +1,19 @@
 import { reportIpcFailure } from '../observability/ipc-context'
-import { BrowserWindow, clipboard, dialog, type IpcMain, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, clipboard, dialog, type IpcMain } from 'electron'
 import { readBoundedAgentImage } from '../agent/attachment-file'
 import { basename, extname } from 'node:path'
 import type { Logger } from 'pino'
 import {
   AGENT_IMAGE_MAX_BYTES,
-  agentAttachmentActionSchema,
-  agentAttachmentSelectSchema,
-  agentAttachmentSelectionSchema,
-  agentAttachmentImportSchema,
-  agentAttachmentSchema,
-  agentAttachmentScopeSchema,
   type AgentAttachment
 } from '../../shared/contracts/agent-attachments'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { ProjectManager } from '../project/project-manager'
 import type { AgentImageProcessClient } from '../agent/image-process-client'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
-import { authorizeSender } from './authorize-sender'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
+import type { ProjectContext } from '../project/project-context'
 
 export function registerAgentAttachmentIpc(options: {
   manager: ProjectManager
@@ -34,9 +27,6 @@ export function registerAgentAttachmentIpc(options: {
     AbortController,
     { session: string; agentSessionId: string; completion: Promise<void> }
   >()
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
   const safeError = (channel: string, err: unknown): never => {
     reportIpcFailure(
       options.log,
@@ -48,38 +38,25 @@ export function registerAgentAttachmentIpc(options: {
       { cause: err }
     )
   }
-  const handle = (channel: string, listener: Parameters<IpcMain['handle']>[1]): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(options.ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: true,
-        onError: (err) => safeError(channel, err),
-        handle: (input, event) => listener(event, input)
-      })
-      return
-    }
-    options.ipc.handle(channel, async (event, raw: unknown) => {
-      try {
-        return await listener(event, raw)
-      } catch (err) {
-        return safeError(channel, err)
-      }
-    })
+  const handle = createEndpointRegistrar(options.ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager,
+    onError: safeError
+  })
+  const attachmentsOf = (context: ProjectContext) => {
+    if (!context.agentSessions) throw new Error('Agent sessions are unavailable')
+    return context.agentSessions.attachments
   }
-  const service = (projectSessionId: string) => {
-    const sessions = options.manager.assertActiveSession(projectSessionId).agentSessions
-    if (!sessions) throw new Error('Agent sessions are unavailable')
-    return sessions.attachments
-  }
+  const service = (projectSessionId: string) =>
+    attachmentsOf(options.manager.assertActiveSession(projectSessionId))
   const describe = (
     scope: { projectSessionId: string; agentSessionId: string },
     id: string
   ): AgentAttachment => {
     const attachments = service(scope.projectSessionId)
     const row = attachments.get(scope.agentSessionId, id)
-    return agentAttachmentSchema.parse({
+    // Endpoint output schemas validate every attachment returned to the Renderer.
+    return {
       attachmentId: id,
       name: row.name,
       mimeType: row.image_mime,
@@ -91,7 +68,7 @@ export function registerAgentAttachmentIpc(options: {
         assetId: id,
         assets: attachments
       }).url
-    })
+    }
   }
   const importImage = async (
     scope: { projectSessionId: string; agentSessionId: string },
@@ -99,8 +76,9 @@ export function registerAgentAttachmentIpc(options: {
     mimeType: string,
     name: string
   ) => {
-    options.manager.assertMutationSession(scope.projectSessionId)
-    const attachments = service(scope.projectSessionId)
+    // Select and paste reach this shared import path from active-session endpoints, so it keeps
+    // its own mutation check rather than relying on the endpoint declaration.
+    const attachments = attachmentsOf(options.manager.assertMutationSession(scope.projectSessionId))
     attachments.assertConversation(scope.agentSessionId)
     if (
       [...active.values()].filter(
@@ -154,15 +132,11 @@ export function registerAgentAttachmentIpc(options: {
       finish()
     }
   }
-  handle(IPC_CHANNELS.agentImportImage, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentAttachmentImportSchema.parse(raw)
-    return importImage(input, Buffer.from(input.dataBase64, 'base64'), input.mimeType, input.name)
-  })
-  handle(IPC_CHANNELS.agentSelectImages, async (event: IpcMainInvokeEvent, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentAttachmentSelectSchema.parse(raw)
-    service(input.projectSessionId).assertConversation(input.agentSessionId)
+  handle(agentIpcEndpoints.importImage, (input) =>
+    importImage(input, Buffer.from(input.dataBase64, 'base64'), input.mimeType, input.name)
+  )
+  handle(agentIpcEndpoints.selectImages, async (input, context, event) => {
+    attachmentsOf(context).assertConversation(input.agentSessionId)
     const parent = BrowserWindow.fromWebContents(event.sender)
     const configuration: Electron.OpenDialogOptions = {
       properties: ['openFile', 'multiSelections'],
@@ -171,13 +145,9 @@ export function registerAgentAttachmentIpc(options: {
     const selected = await (parent
       ? dialog.showOpenDialog(parent, configuration)
       : dialog.showOpenDialog(configuration))
-    if (selected.canceled)
-      return agentAttachmentSelectionSchema.parse({ attachments: [], errors: [] })
+    if (selected.canceled) return { attachments: [], errors: [] }
     if (selected.filePaths.length > input.remaining)
-      return agentAttachmentSelectionSchema.parse({
-        attachments: [],
-        errors: [`Choose up to ${input.remaining} images.`]
-      })
+      return { attachments: [], errors: [`Choose up to ${input.remaining} images.`] }
     const attachments: AgentAttachment[] = []
     const errors: string[] = []
     for (const path of selected.filePaths) {
@@ -204,12 +174,10 @@ export function registerAgentAttachmentIpc(options: {
         errors.push('A selected image could not be imported.')
       }
     }
-    return agentAttachmentSelectionSchema.parse({ attachments, errors })
+    return { attachments, errors }
   })
-  handle(IPC_CHANNELS.agentPasteImage, async (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentAttachmentScopeSchema.parse(raw)
-    service(input.projectSessionId).assertConversation(input.agentSessionId)
+  handle(agentIpcEndpoints.pasteImage, async (input, context) => {
+    attachmentsOf(context).assertConversation(input.agentSessionId)
     for (const item of await clipboard.read()) {
       const mimeType = item.types.find((type) =>
         ['image/png', 'image/jpeg', 'image/webp'].includes(type)
@@ -222,16 +190,11 @@ export function registerAgentAttachmentIpc(options: {
     }
     return null
   })
-  handle(IPC_CHANNELS.agentGetImage, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentAttachmentActionSchema.parse(raw)
-    return describe(input, input.attachmentId)
-  })
-  handle(IPC_CHANNELS.agentReleaseImage, (event, raw: unknown) => {
-    authorizeSender(event.senderFrame, options.developmentUrl)
-    const input = agentAttachmentActionSchema.parse(raw)
-    service(input.projectSessionId).get(input.agentSessionId, input.attachmentId)
-    service(input.projectSessionId).release(`draft:${input.agentSessionId}`, [input.attachmentId])
+  handle(agentIpcEndpoints.getImage, (input) => describe(input, input.attachmentId))
+  handle(agentIpcEndpoints.releaseImage, (input, context) => {
+    const attachments = attachmentsOf(context)
+    attachments.get(input.agentSessionId, input.attachmentId)
+    attachments.release(`draft:${input.agentSessionId}`, [input.attachmentId])
   })
   return {
     async revokeSession(projectSessionId: string) {

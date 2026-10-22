@@ -397,9 +397,9 @@ describe('project IPC', () => {
   it('authorizes and routes manuscript export cancellation to the active session', async () => {
     const { invoke, manager } = harness(openSnapshot)
 
-    expect(
+    await expect(
       invoke(IPC_CHANNELS.projectManuscriptExportCancel, { projectSessionId: sessionId })
-    ).toEqual({ cancelled: true })
+    ).resolves.toEqual({ cancelled: true })
     expect(manager.cancelManuscriptExport).toHaveBeenCalledWith(sessionId)
   })
 
@@ -417,7 +417,9 @@ describe('project IPC', () => {
       sessionId,
       '/private/Safe project copy.writellm'
     )
-    expect(invoke(IPC_CHANNELS.projectCloneCancel, { projectSessionId: sessionId })).toEqual({
+    await expect(
+      invoke(IPC_CHANNELS.projectCloneCancel, { projectSessionId: sessionId })
+    ).resolves.toEqual({
       cancelled: true
     })
     expect(manager.cancelProjectClone).toHaveBeenCalledWith(sessionId)
@@ -597,9 +599,9 @@ describe('project IPC', () => {
 
   it('rejects stale subscriptions without emitting an event', async () => {
     const { invoke, sender } = harness(openSnapshot)
-    expect(() =>
+    await expect(
       invoke(IPC_CHANNELS.projectSubscribeLifecycle, { projectSessionId: projectId })
-    ).toThrow('stale')
+    ).rejects.toThrow('stale')
     expect(sender.send).not.toHaveBeenCalled()
   })
 })

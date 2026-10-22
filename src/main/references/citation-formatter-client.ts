@@ -31,7 +31,7 @@ export class CitationFormatterClient {
       requestId: request.requestId,
       payload: request,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('Citation formatting was superseded'),
       cancelPayload: {
         type: 'cancel',
         requestId: request.requestId,
@@ -67,8 +67,4 @@ export class CitationFormatterClient {
       }
     })
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Citation formatting was superseded')
 }

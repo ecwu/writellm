@@ -120,13 +120,15 @@ export const projectIpcEndpoints = {
     channel: IPC_CHANNELS.projectTemplatePreview,
     input: projectSessionInputSchema,
     output: projectTemplateExtractionPreviewSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   saveTemplate: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectTemplateSave,
     input: saveUserProjectTemplateInputSchema,
     output: projectTemplateCatalogSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   deleteTemplate: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectTemplateDelete,
@@ -210,13 +212,15 @@ export const projectIpcEndpoints = {
     channel: IPC_CHANNELS.projectHistoryEnable,
     input: enableVersionHistoryInputSchema,
     output: checkpointOperationResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   reinitializeVersionHistory: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectHistoryReinitialize,
     input: reinitializeVersionHistoryInputSchema,
     output: checkpointOperationResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   dismissVersionHistoryPrompt: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectHistoryDismissPrompt,
@@ -228,25 +232,29 @@ export const projectIpcEndpoints = {
     channel: IPC_CHANNELS.projectHistoryCreateCheckpoint,
     input: createCheckpointInputSchema,
     output: checkpointOperationResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   listCheckpoints: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectHistoryListCheckpoints,
     input: listCheckpointsInputSchema,
     output: listCheckpointsResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   compareCheckpointState: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectHistoryCompareState,
     input: compareCheckpointStateInputSchema,
     output: compareCheckpointStateResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   restoreCheckpoint: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectHistoryRestoreCheckpoint,
     input: restoreCheckpointInputSchema,
     output: restoreCheckpointResultSchema,
-    session: 'active'
+    // ProjectManager authorizes the session inside the handler's failure boundary.
+    session: 'none'
   }),
   subscribe: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectSubscribeLifecycle,

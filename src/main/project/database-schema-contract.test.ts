@@ -1,7 +1,11 @@
 import Database from 'better-sqlite3'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { createScanner, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
+import {
+  SyntaxKind,
+  tokenizeTypeScript,
+  type SourceToken
+} from '../../../scripts/lib/ts-source.mjs'
 import { describe, expect, it } from 'vitest'
 import pino from 'pino'
 import { migrateDatabase } from '../db/migrations'
@@ -9,13 +13,6 @@ import { projectMigrations } from './migrations'
 
 type ColumnInfo = { name: string; type: string; notnull: number; pk: number }
 type ExpectedColumn = { name: string; nullable: boolean; storageType: 'TEXT' | 'INTEGER' | null }
-type SourceToken = {
-  kind: SyntaxKind
-  text: string
-  start: number
-  end: number
-  hasPrecedingLineBreak: boolean
-}
 type Property = { name: string; type: string }
 type Declarations = {
   interfaces: Map<string, string>
@@ -288,20 +285,7 @@ function isNullable(type: string): boolean {
 }
 
 function tokenize(source: string): SourceToken[] {
-  const scanner = createScanner(true, LanguageVariant.Standard, source)
-  const tokens: SourceToken[] = []
-  while (true) {
-    const kind = scanner.scan()
-    if (kind === SyntaxKind.EndOfFile) return tokens
-    if (scanner.isUnterminated()) throw new Error('Unterminated token in database-types.ts')
-    tokens.push({
-      kind,
-      text: scanner.getTokenText(),
-      start: scanner.getTokenStart(),
-      end: scanner.getTokenEnd(),
-      hasPrecedingLineBreak: scanner.hasPrecedingLineBreak()
-    })
-  }
+  return tokenizeTypeScript(source, { failOnUnterminated: true })
 }
 
 function findMatchingBrace(tokens: SourceToken[], openIndex: number): number {

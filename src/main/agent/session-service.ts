@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import {
   AgentRunCoordinator,
   type ActiveRun,
@@ -1855,13 +1856,12 @@ export class AgentSessionService {
         .prepare(`SELECT agent_run_id, agent_session_id FROM agent_runs WHERE status = 'running'`)
         .all() as Array<{ agent_run_id: string; agent_session_id: string }>
       for (const row of rows) {
-        database
-          .prepare(
-            `UPDATE agent_runs
+        cachedStatement(
+          database,
+          `UPDATE agent_runs
                 SET status = 'interrupted', error_json = ?, completed_at = ?, updated_at = ?
               WHERE agent_run_id = ? AND status = 'running'`
-          )
-          .run(JSON.stringify({ code: 'process_restarted' }), now, now, row.agent_run_id)
+        ).run(JSON.stringify({ code: 'process_restarted' }), now, now, row.agent_run_id)
         insertEvent(database, {
           eventId: this.#createId(),
           sessionId: row.agent_session_id,

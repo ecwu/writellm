@@ -258,37 +258,37 @@ export const agentIpcEndpoints = {
     output: agentStopCompactionResultSchema,
     session: 'mutation'
   }),
-  // Proposal handlers keep their mutation assertion inside lifecycle() so stale-session failures
-  // retain the existing per-operation audit event and safe error behavior.
+  // Proposal handlers run the mutation session check inside their lifecycle() wrapper so a stale
+  // session still reports the per-operation audit event.
   approveProposal: defineIpcEndpoint({
     channel: IPC_CHANNELS.agentProposalApprove,
     input: approveMutationProposalInputSchema,
     output: approveMutationProposalResultSchema,
-    session: 'none'
+    session: 'mutation'
   }),
   rejectProposal: defineIpcEndpoint({
     channel: IPC_CHANNELS.agentProposalReject,
     input: rejectMutationProposalInputSchema,
     output: mutationProposalActionResultSchema,
-    session: 'none'
+    session: 'mutation'
   }),
   undoProposal: defineIpcEndpoint({
     channel: IPC_CHANNELS.agentProposalUndo,
     input: undoMutationProposalInputSchema,
     output: mutationProposalActionResultSchema,
-    session: 'none'
+    session: 'mutation'
   }),
   decideChangeSet: defineIpcEndpoint({
     channel: IPC_CHANNELS.agentChangeSetBatch,
     input: changeSetBatchInputSchema,
     output: changeSetBatchResultSchema,
-    session: 'none'
+    session: 'active'
   }),
   cancelImageGeneration: defineIpcEndpoint({
     channel: IPC_CHANNELS.agentCancelImageGeneration,
     input: cancelImageGenerationInputSchema,
     output: cancelImageGenerationResultSchema,
-    session: 'none'
+    session: 'mutation'
   })
 } as const
 

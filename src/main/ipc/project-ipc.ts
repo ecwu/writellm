@@ -3,32 +3,10 @@ import { dialog, ipcMain, type BrowserWindow, type IpcMain, type WebContents } f
 import { basename, join } from 'node:path'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { projectIpcEndpoints } from '../../shared/contracts/ipc-endpoints-project'
 import {
-  checkpointOperationResultSchema,
-  compareCheckpointStateInputSchema,
-  compareCheckpointStateResultSchema,
-  createCheckpointInputSchema,
-  dismissVersionHistoryPromptInputSchema,
-  enableVersionHistoryInputSchema,
-  listCheckpointsInputSchema,
-  listCheckpointsResultSchema,
-  projectCreateInputSchema,
-  projectCloneCancelResultSchema,
-  projectCloneInputSchema,
   projectLifecycleEventSchema,
   projectLifecycleSnapshotSchema,
-  projectRecoveryActionInputSchema,
-  recentProjectOpenInputSchema,
-  recentProjectRemoveInputSchema,
-  recentProjectsSchema,
-  reinitializeVersionHistoryInputSchema,
-  restoreCheckpointInputSchema,
-  restoreCheckpointResultSchema,
-  projectSelectionResultSchema,
-  projectSessionInputSchema,
-  versionHistoryStatusSchema,
   type ProjectSessionId
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
@@ -36,20 +14,8 @@ import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { ProjectTemplateRepository } from '../app-db/repositories/project-templates'
 import type { ProjectManager } from '../project/project-manager'
-import { registerIpcEndpoint } from './endpoint'
-import { withIpcLogContext } from '../observability/ipc-context'
-import {
-  manuscriptExportInputSchema,
-  manuscriptExportCancelResultSchema,
-  manuscriptExportResultSchema,
-  type ManuscriptExportKind
-} from '../../shared/contracts/manuscript-export'
-import {
-  deleteUserProjectTemplateInputSchema,
-  projectTemplateCatalogSchema,
-  projectTemplateExtractionPreviewSchema,
-  saveUserProjectTemplateInputSchema
-} from '../../shared/contracts/project-templates'
+import { createEndpointRegistrar } from './endpoint'
+import type { ManuscriptExportKind } from '../../shared/contracts/manuscript-export'
 
 export interface ProjectIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -105,27 +71,10 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     getVersionHistoryPromptDismissed: async () => false,
     setVersionHistoryPromptDismissed: async () => undefined
   }
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(projectIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: handler.constructor.name === 'AsyncFunction',
-        handle: (input, event) => withIpcLogContext(event, input, () => handler(event, input))
-      })
-      return
-    }
-    ipc.handle(channel, (event, ...args) =>
-      withIpcLogContext(event, args[0], () => handler(event, ...args))
-    )
-  }
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
 
   const selectFolder = async (purpose: 'create' | 'open'): Promise<string | null> => {
     if (projectDialogOpen) throw new Error('A project folder dialog is already open')
@@ -266,14 +215,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     sender.send(IPC_CHANNELS.projectLifecycleEvent, event)
   }
 
-  handle(IPC_CHANNELS.projectGetLifecycle, (_event) => {
-    return projectLifecycleSnapshotSchema.parse(options.manager.snapshot())
+  handle(projectIpcEndpoints.lifecycle, (_input) => {
+    return options.manager.snapshot()
   })
 
-  handle(IPC_CHANNELS.projectGetRecent, async (_event) => {
+  handle(projectIpcEndpoints.recent, async (_input) => {
     try {
       const recentProjects = await options.recentProjects.list()
-      return recentProjectsSchema.parse(recentProjects.slice(0, 5))
+      return recentProjects.slice(0, 5)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -284,15 +233,15 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRemoveRecent, async (_event, input: unknown) => {
-    const { projectId } = recentProjectRemoveInputSchema.parse(input)
+  handle(projectIpcEndpoints.removeRecent, async (input) => {
+    const { projectId } = input
     try {
       await options.recentProjects.remove(projectId)
       options.logger.info(
         { event: 'ipc.project_recent.removed', projectId },
         'Removed project from recent projects'
       )
-      return recentProjectsSchema.parse((await options.recentProjects.list()).slice(0, 5))
+      return (await options.recentProjects.list()).slice(0, 5)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -303,8 +252,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectCreate, async (_event, input: unknown) => {
-    const { name, templateId } = projectCreateInputSchema.parse(input)
+  handle(projectIpcEndpoints.create, async (input) => {
+    const { name, templateId } = input
     assertClosedBeforeSelection()
     let template: Awaited<ReturnType<ProjectTemplateRepository['resolve']>> | undefined
     try {
@@ -319,7 +268,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       throw operationError('Unable to use the selected project template', err)
     }
     const parentDirectory = await selectFolder('create')
-    if (parentDirectory === null) return projectSelectionResultSchema.parse({ project: null })
+    if (parentDirectory === null) return { project: null }
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.create({ parentDirectory, name })
@@ -331,7 +280,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
           : projectLifecycleSnapshotSchema.parse(
               await options.manager.applyTemplate(active.projectSessionId, template)
             )
-      return projectSelectionResultSchema.parse({ project: finalSnapshot.activeProject })
+      return { project: finalSnapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -342,9 +291,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplatesList, async (_event) => {
+  handle(projectIpcEndpoints.templates, async (_input) => {
     try {
-      return projectTemplateCatalogSchema.parse(await options.projectTemplates.list())
+      return await options.projectTemplates.list()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -355,13 +304,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplatePreview, async (_event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
+  handle(projectIpcEndpoints.previewTemplate, async (input) => {
+    const { projectSessionId } = input
     try {
       const defaultPresetId = options.publicationPresets.snapshot().defaultPresetId
-      return projectTemplateExtractionPreviewSchema.parse(
-        await options.manager.previewTemplateExtraction(projectSessionId, defaultPresetId)
-      )
+      return await options.manager.previewTemplateExtraction(projectSessionId, defaultPresetId)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -372,8 +319,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplateSave, async (_event, input: unknown) => {
-    const parsed = saveUserProjectTemplateInputSchema.parse(input)
+  handle(projectIpcEndpoints.saveTemplate, async (parsed) => {
     try {
       const defaultPresetId = parsed.includePublicationPreset
         ? options.publicationPresets.snapshot().defaultPresetId
@@ -384,7 +330,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         description: parsed.description,
         publicationPresetId: defaultPresetId
       })
-      return projectTemplateCatalogSchema.parse(await options.projectTemplates.create(template))
+      return await options.projectTemplates.create(template)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -399,10 +345,10 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectTemplateDelete, async (_event, input: unknown) => {
-    const { templateId } = deleteUserProjectTemplateInputSchema.parse(input)
+  handle(projectIpcEndpoints.deleteTemplate, async (input) => {
+    const { templateId } = input
     try {
-      return projectTemplateCatalogSchema.parse(await options.projectTemplates.delete(templateId))
+      return await options.projectTemplates.delete(templateId)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -413,15 +359,15 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectOpen, async (_event) => {
+  handle(projectIpcEndpoints.open, async (_input) => {
     assertClosedBeforeSelection()
     const selectedRoot = await selectFolder('open')
-    if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
+    if (selectedRoot === null) return { project: null }
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.open(selectedRoot)
       )
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -432,8 +378,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectOpenRecent, async (_event, input: unknown) => {
-    const { projectId } = recentProjectOpenInputSchema.parse(input)
+  handle(projectIpcEndpoints.openRecent, async (input) => {
+    const { projectId } = input
     assertClosedBeforeSelection()
     try {
       const recentProject = await options.recentProjects.find(projectId)
@@ -441,7 +387,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.open(recentProject.projectPath)
       )
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -452,18 +398,17 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSwitch, async (_event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
-    options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.switch, async (input, _context) => {
+    const { projectSessionId } = input
     const selectedRoot = await selectFolder('open')
     options.manager.assertActiveSession(projectSessionId)
-    if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
+    if (selectedRoot === null) return { project: null }
     revokeSession(projectSessionId)
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.switch(selectedRoot)
       )
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -474,12 +419,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectClose, async (_event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
-    options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.close, async (input, _context) => {
+    const { projectSessionId } = input
     revokeSession(projectSessionId)
     try {
-      const snapshot = projectLifecycleSnapshotSchema.parse(await options.manager.close())
+      const snapshot = await options.manager.close()
       return snapshot
     } catch (err) {
       reportIpcFailure(
@@ -491,10 +435,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryRetryOpen, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.retryOpen, async (_input) => {
     try {
-      return projectLifecycleSnapshotSchema.parse(await options.manager.retryOpen())
+      return await options.manager.retryOpen()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -505,12 +448,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryStaleLock, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.recoverStaleLock, async (_input) => {
     try {
-      return projectLifecycleSnapshotSchema.parse(
-        await options.manager.recoverStaleLockAndRetryOpen()
-      )
+      return await options.manager.recoverStaleLockAndRetryOpen()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -521,10 +461,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryRetryClose, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.retryClose, async (_input) => {
     try {
-      return projectLifecycleSnapshotSchema.parse(await options.manager.retryClose())
+      return await options.manager.retryClose()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -535,10 +474,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.discardIncompleteCreate, async (_input) => {
     try {
-      return projectLifecycleSnapshotSchema.parse(await options.manager.discardIncompleteCreate())
+      return await options.manager.discardIncompleteCreate()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -549,13 +487,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryLocateMoved, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.locateMoved, async (_input) => {
     const selectedRoot = await selectRestoreSource()
-    if (selectedRoot === null) return projectSelectionResultSchema.parse({ project: null })
+    if (selectedRoot === null) return { project: null }
     try {
       const snapshot = await options.manager.locateMovedProject(selectedRoot)
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -566,8 +503,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryExportDiagnostics, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.exportRecoveryDiagnostics, async (_input) => {
     try {
       return await options.manager.exportDiagnostics()
     } catch (err) {
@@ -580,10 +516,9 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectRecoveryReturnToClosed, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.returnToClosed, async (_input) => {
     try {
-      return projectLifecycleSnapshotSchema.parse(await options.manager.returnToClosed())
+      return await options.manager.returnToClosed()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -594,9 +529,8 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSnapshotCreate, async (_event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
-    options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.createSnapshot, async (input, _context) => {
+    const { projectSessionId } = input
     const destination = await selectSnapshotDestination()
     if (destination === null) return { created: false }
     try {
@@ -612,16 +546,15 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSnapshotRestore, async (_event, input: unknown) => {
-    projectRecoveryActionInputSchema.parse(input)
+  handle(projectIpcEndpoints.restoreSnapshot, async (_input) => {
     const source = await selectRestoreSource()
-    if (source === null) return projectSelectionResultSchema.parse({ project: null })
+    if (source === null) return { project: null }
     const parent = await selectRestoreDestinationParent()
-    if (parent === null) return projectSelectionResultSchema.parse({ project: null })
+    if (parent === null) return { project: null }
     try {
       const destination = join(parent, `${basename(source)}.writellm`)
       const snapshot = await options.manager.restoreSnapshot({ snapshotRoot: source, destination })
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -632,18 +565,17 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectClone, async (_event, input: unknown) => {
-    const { projectSessionId } = projectCloneInputSchema.parse(input)
-    options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.clone, async (input, _context) => {
+    const { projectSessionId } = input
     const destination = await selectCloneDestination(projectSessionId)
     options.manager.assertActiveSession(projectSessionId)
-    if (destination === null) return projectSelectionResultSchema.parse({ project: null })
+    if (destination === null) return { project: null }
     try {
       const snapshot = projectLifecycleSnapshotSchema.parse(
         await options.manager.cloneProject(projectSessionId, destination)
       )
       revokeSession(projectSessionId)
-      return projectSelectionResultSchema.parse({ project: snapshot.activeProject })
+      return { project: snapshot.activeProject }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -654,23 +586,19 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectCloneCancel, (_event, input: unknown) => {
-    const { projectSessionId } = projectCloneInputSchema.parse(input)
-    return projectCloneCancelResultSchema.parse(
-      options.manager.cancelProjectClone(projectSessionId)
-    )
+  handle(projectIpcEndpoints.cancelClone, (input) => {
+    const { projectSessionId } = input
+    return options.manager.cancelProjectClone(projectSessionId)
   })
 
-  handle(IPC_CHANNELS.projectManuscriptExport, async (_event, input: unknown) => {
-    const parsed = manuscriptExportInputSchema.parse(input)
-    options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(projectIpcEndpoints.exportManuscript, async (parsed, _context) => {
     const destination = await selectManuscriptExportDestination(
       parsed.projectSessionId,
       parsed.kind
     )
     options.manager.assertActiveSession(parsed.projectSessionId)
     if (destination === null) {
-      return manuscriptExportResultSchema.parse({ created: false, kind: parsed.kind })
+      return { created: false as const, kind: parsed.kind }
     }
     try {
       const publicationOptions =
@@ -683,14 +611,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
         parsed.kind,
         publicationOptions
       )
-      return manuscriptExportResultSchema.parse({
-        created: true,
+      return {
+        created: true as const,
         kind: parsed.kind,
         packageName: published.packageName,
         contentSha256: published.manifest.content.sha256,
         assetCount: published.manifest.assetCount,
         ...(published.lossReport === undefined ? {} : { lossReport: published.lossReport })
-      })
+      }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -706,23 +634,19 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectManuscriptExportCancel, (_event, input: unknown) => {
-    const parsed = projectSessionInputSchema.parse(input)
-    return manuscriptExportCancelResultSchema.parse(
-      options.manager.cancelManuscriptExport(parsed.projectSessionId)
-    )
+  handle(projectIpcEndpoints.cancelManuscriptExport, (parsed) => {
+    return options.manager.cancelManuscriptExport(parsed.projectSessionId)
   })
 
-  handle(IPC_CHANNELS.projectHistoryStatus, async (_event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.versionHistoryStatus, async (input, context) => {
+    const { projectSessionId } = input
     try {
       const [state, promptDismissed] = await Promise.all([
         options.manager.versionHistoryState(projectSessionId),
         historyPromptSettings.getVersionHistoryPromptDismissed(context.manifest.projectId)
       ])
       options.manager.assertActiveSession(projectSessionId)
-      return versionHistoryStatusSchema.parse({ state, promptDismissed })
+      return { state, promptDismissed }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -733,13 +657,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryDismissPrompt, async (_event, input: unknown) => {
-    const { projectSessionId } = dismissVersionHistoryPromptInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.dismissVersionHistoryPrompt, async (input, context) => {
+    const { projectSessionId } = input
     try {
       await historyPromptSettings.setVersionHistoryPromptDismissed(context.manifest.projectId, true)
       options.manager.assertActiveSession(projectSessionId)
-      return versionHistoryStatusSchema.parse({ state: 'uninitialized', promptDismissed: true })
+      return { state: 'uninitialized' as const, promptDismissed: true }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -750,11 +673,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryEnable, async (_event, input: unknown) => {
-    const { projectSessionId } = enableVersionHistoryInputSchema.parse(input)
+  handle(projectIpcEndpoints.enableVersionHistory, async (input) => {
+    const { projectSessionId } = input
     try {
       const checkpoint = await options.manager.enableVersionHistory(projectSessionId)
-      return checkpointOperationResultSchema.parse({ checkpoint })
+      return { checkpoint }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -765,14 +688,13 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryCreateCheckpoint, async (_event, input: unknown) => {
-    const parsed = createCheckpointInputSchema.parse(input)
+  handle(projectIpcEndpoints.createCheckpoint, async (parsed) => {
     try {
       const checkpoint = await options.manager.createCheckpoint(parsed.projectSessionId, {
         name: parsed.name,
         ...(parsed.note === undefined ? {} : { note: parsed.note })
       })
-      return checkpointOperationResultSchema.parse({ checkpoint })
+      return { checkpoint }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -787,15 +709,12 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryListCheckpoints, async (_event, input: unknown) => {
-    const parsed = listCheckpointsInputSchema.parse(input)
+  handle(projectIpcEndpoints.listCheckpoints, async (parsed) => {
     try {
-      return listCheckpointsResultSchema.parse(
-        await options.manager.listCheckpoints(parsed.projectSessionId, {
-          ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
-          limit: parsed.limit
-        })
-      )
+      return await options.manager.listCheckpoints(parsed.projectSessionId, {
+        ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
+        limit: parsed.limit
+      })
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -810,12 +729,10 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryCompareState, async (_event, input: unknown) => {
-    const { projectSessionId } = compareCheckpointStateInputSchema.parse(input)
+  handle(projectIpcEndpoints.compareCheckpointState, async (input) => {
+    const { projectSessionId } = input
     try {
-      return compareCheckpointStateResultSchema.parse(
-        await options.manager.compareCheckpointState(projectSessionId)
-      )
+      return await options.manager.compareCheckpointState(projectSessionId)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -826,17 +743,16 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryRestoreCheckpoint, async (_event, input: unknown) => {
-    const parsed = restoreCheckpointInputSchema.parse(input)
+  handle(projectIpcEndpoints.restoreCheckpoint, async (parsed) => {
     try {
       const restored = await options.manager.restoreCheckpoint(parsed.projectSessionId, parsed.oid)
       if (restored.snapshot.activeProject === null) {
         throw new Error('Restored project did not become active')
       }
-      return restoreCheckpointResultSchema.parse({
+      return {
         checkpoint: restored.checkpoint,
         project: restored.snapshot.activeProject
-      })
+      }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -852,11 +768,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectHistoryReinitialize, async (_event, input: unknown) => {
-    const { projectSessionId } = reinitializeVersionHistoryInputSchema.parse(input)
+  handle(projectIpcEndpoints.reinitializeVersionHistory, async (input) => {
+    const { projectSessionId } = input
     try {
       const checkpoint = await options.manager.reinitializeVersionHistory(projectSessionId)
-      return checkpointOperationResultSchema.parse({ checkpoint })
+      return { checkpoint }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -867,15 +783,14 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
-  handle(IPC_CHANNELS.projectSubscribeLifecycle, (event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
-    options.manager.assertActiveSession(projectSessionId)
+  handle(projectIpcEndpoints.subscribe, (input, _context, event) => {
+    const { projectSessionId } = input
     subscriptions.set(event.sender.id, { sender: event.sender, projectSessionId })
     sendCurrent(event.sender, projectSessionId)
   })
 
-  handle(IPC_CHANNELS.projectUnsubscribeLifecycle, (event, input: unknown) => {
-    const { projectSessionId } = projectSessionInputSchema.parse(input)
+  handle(projectIpcEndpoints.unsubscribe, (input, _context, event) => {
+    const { projectSessionId } = input
     const subscription = subscriptions.get(event.sender.id)
     if (subscription?.projectSessionId === projectSessionId) subscriptions.delete(event.sender.id)
   })

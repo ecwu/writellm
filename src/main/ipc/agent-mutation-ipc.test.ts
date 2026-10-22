@@ -102,12 +102,12 @@ describe('Agent mutation IPC', () => {
       senderFrame: { url: 'https://attacker.invalid/' },
       sender: value.sender
     } as unknown as IpcMainInvokeEvent
-    expect(() =>
+    await expect(
       value.handlers.get(IPC_CHANNELS.agentProposalReject)?.(
         unauthorized as never,
         { projectSessionId, agentSessionId, proposalId, reason: 'No' } as never
       )
-    ).toThrow('Unauthorized IPC sender')
+    ).rejects.toThrow('Unauthorized IPC sender')
   })
 
   it('rejects every proposal write after its conversation is archived', async () => {
@@ -149,7 +149,7 @@ function harness(approveResult: ApproveMutationProposalResult = approvalResult, 
   const manager = {
     assertMutationSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')
-      return { agentMutations: service }
+      return { agentMutations: service, agentSessions, agentChangeSets }
     }),
     assertActiveSession: vi.fn((sessionId: string) => {
       if (sessionId !== projectSessionId) throw new Error('stale')

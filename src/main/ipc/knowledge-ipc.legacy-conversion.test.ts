@@ -117,8 +117,8 @@ async function fixture(faults: EditorPersistenceFaults = {}) {
       })
     ).revision
   }
-  const plan = () =>
-    invoke(IPC_CHANNELS.referencePlanLegacyConversion, {}) as LegacyCitationConversionPlan
+  const plan = async () =>
+    (await invoke(IPC_CHANNELS.referencePlanLegacyConversion, {})) as LegacyCitationConversionPlan
   const apply = async (planId: string) =>
     legacyCitationConversionApplyResultSchema.parse(
       await invoke(IPC_CHANNELS.referenceApplyLegacyConversion, { planId })
@@ -147,7 +147,7 @@ describe('legacy citation conversion IPC persistence', () => {
   it('publishes converted revisions immediately and retains their checkpoint parents', async () => {
     const f = await fixture()
     const prior = await f.seed()
-    const result = await f.apply(f.plan().planId)
+    const result = await f.apply((await f.plan()).planId)
     const current = f.editorPersistence.loadSection(prior.sectionId).revision
     expect(result).toMatchObject({ sectionsChanged: 1 })
     expect(current).toMatchObject({
@@ -165,7 +165,7 @@ describe('legacy citation conversion IPC persistence', () => {
   it('rejects expired, consumed, missing and outline-stale plans without writes', async () => {
     const f = await fixture()
     const prior = await f.seed()
-    const expired = f.plan()
+    const expired = await f.plan()
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 11 * 60_000)
     expect(await f.apply(expired.planId)).toEqual({
       status: 'stale_plan',
@@ -175,7 +175,7 @@ describe('legacy citation conversion IPC persistence', () => {
     clock.mockRestore()
     expect((await f.apply(expired.planId)).status).toBe('stale_plan')
     expect((await f.apply(crypto.randomUUID())).status).toBe('stale_plan')
-    const stale = f.plan()
+    const stale = await f.plan()
     f.manuscript.createSection({
       baseOutlineVersion: f.manuscript.getWorkspace().outlineVersion,
       parentSectionId: null,
@@ -200,7 +200,7 @@ describe('legacy citation conversion IPC persistence', () => {
   it('records a rejected session and exposes only a safe error with its cause', async () => {
     const f = await fixture()
     await f.seed()
-    const plan = f.plan()
+    const plan = await f.plan()
     f.revoke()
     await expect(f.apply(plan.planId)).rejects.toMatchObject({
       message: 'Legacy citations could not be converted',
@@ -218,7 +218,7 @@ describe('legacy citation conversion IPC persistence', () => {
   it('records handler failures without calling them stale plans', async () => {
     const f = await fixture()
     await f.seed()
-    const plan = f.plan()
+    const plan = await f.plan()
     const err = new Error('assembly unavailable', { cause: new Error('underlying failure') })
     vi.spyOn(f.manuscript, 'assemble').mockImplementation(() => {
       throw err
@@ -243,7 +243,7 @@ describe('legacy citation conversion IPC persistence', () => {
     })
     const prior = await f.seed()
     failure = new Error('publication failed', { cause: new Error('disk unavailable') })
-    expect(await f.apply(f.plan().planId)).toEqual({
+    expect(await f.apply((await f.plan()).planId)).toEqual({
       status: 'converted',
       sectionsChanged: 1,
       pendingRepairSectionIds: [prior.sectionId]
@@ -284,7 +284,7 @@ describe('legacy citation conversion IPC persistence', () => {
       )
       await materialize(...args)
     })
-    expect((await f.apply(f.plan().planId)).sectionsChanged).toBe(2)
+    expect((await f.apply((await f.plan()).planId)).sectionsChanged).toBe(2)
     expect(observed).toEqual([
       ['manual_checkpoint', 'manual_checkpoint'],
       ['manual_checkpoint', 'manual_checkpoint']
@@ -321,7 +321,7 @@ describe('legacy citation conversion IPC persistence', () => {
       )
       f.log.error.mockClear()
       failure = failPublication
-      const result = await f.apply(f.plan().planId)
+      const result = await f.apply((await f.plan()).planId)
       expect(result).toEqual({
         status: 'failed',
         sectionsChanged: 1,
@@ -353,7 +353,9 @@ describe('legacy citation conversion IPC persistence', () => {
     const f = await fixture({ beforeMaterializationRename: () => beforeRename() })
     const prior = await f.seed()
     beforeRename = f.revoke
-    expect((await f.apply(f.plan().planId)).pendingRepairSectionIds).toEqual([prior.sectionId])
+    expect((await f.apply((await f.plan()).planId)).pendingRepairSectionIds).toEqual([
+      prior.sectionId
+    ])
     expect((await f.mirror(prior.sectionId)).sectionRevisionId).toBe(prior.sectionRevisionId)
     expect(f.log.error).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -379,7 +381,7 @@ describe('legacy citation conversion IPC persistence', () => {
         source: 'manual'
       })
     }
-    await f.apply(f.plan().planId)
+    await f.apply((await f.plan()).planId)
     expect((await f.mirror(prior.sectionId)).sectionRevisionId).toBe(prior.sectionRevisionId)
     const latest = f.editorPersistence.loadSection(prior.sectionId).revision
     await f.editorPersistence.materialize(latest)
@@ -399,7 +401,7 @@ describe('legacy citation conversion IPC persistence', () => {
         content: prior.content.map((block) => ({ ...block, id: crypto.randomUUID() }))
       })
     }
-    await f.apply(f.plan().planId)
+    await f.apply((await f.plan()).planId)
     const retained = (id: string) =>
       f.database.immediate((native) =>
         native
@@ -412,7 +414,7 @@ describe('legacy citation conversion IPC persistence', () => {
     expect(retained(first.sectionRevisionId)).toBe(0)
     expect(retained(prior.sectionRevisionId)).toBe(1)
     const publish = vi.spyOn(f.editorPersistence, 'materialize')
-    expect(await f.apply(f.plan().planId)).toEqual({
+    expect(await f.apply((await f.plan()).planId)).toEqual({
       status: 'converted',
       sectionsChanged: 0,
       pendingRepairSectionIds: []

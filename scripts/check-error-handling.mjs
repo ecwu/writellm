@@ -1,114 +1,166 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
-import { createScanner, LanguageVariant, SyntaxKind } from 'typescript/unstable/ast'
+import { matchingTokenIndex, SyntaxKind, tokenizeTypeScript } from './lib/ts-source.mjs'
 
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx'])
 const MARKER_LINE = /^\s*\/\/\s*error-handling:\s*allow\b(.*)$/iu
 const OWNER_FIELD = /\bowner=[^\s]+/u
 const CAUSE_FIELD = /\b(?:cause|reason)=[^\s]+/u
-const REGEX_PREFIXES = new Set([
-  '(',
-  '[',
-  '{',
-  ',',
-  ';',
-  ':',
-  '=',
-  '==',
-  '===',
-  '!=',
-  '!==',
-  '!',
-  '&',
-  '&&',
-  '|',
-  '||',
-  '+',
-  '-',
-  '*',
-  '%',
-  '^',
-  '~',
-  '<',
-  '>',
-  '=>',
-  '?',
-  '??'
-])
-const REGEX_KEYWORDS = new Set([
-  'return',
-  'throw',
-  'case',
-  'delete',
-  'void',
-  'typeof',
-  'instanceof',
-  'in',
-  'of',
-  'yield',
-  'await'
-])
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const defaultSourceRoot = resolve(scriptDirectory, '../src')
 
 /**
- * Scan source text for catches that intentionally discard a rejection without documenting the
- * ownership and recovery cause. The scanner is token-aware, so strings, comments, regex literals,
- * and template text do not create findings; template expressions remain executable tokens.
+ * Scan source text for catches that discard the original error without documenting the
+ * ownership and recovery cause. A catch must either reference its error binding or carry an
+ * `error-handling: allow` marker. The scanner is token-aware, so strings, comments, regex
+ * literals, and template text do not create findings; template expressions remain executable.
  */
 export function scanSourceText(source, filePath = 'source.ts') {
-  const tokens = tokenize(source)
+  const tokens = tokenizeTypeScript(source, { rescanRegex: true })
   const findings = []
+  const report = (position, kind, message) =>
+    addFinding(findings, findingFor(source, filePath, position, kind, message))
 
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]
-    if (token.kind === SyntaxKind.CatchKeyword) {
-      const bodyOpen = catchBodyOpen(tokens, index)
-      if (bodyOpen !== -1 && tokens[bodyOpen + 1]?.kind === SyntaxKind.CloseBraceToken) {
-        addFinding(
-          findings,
-          findingFor(
-            source,
-            filePath,
-            token.start,
-            'empty-catch',
-            'empty catch blocks must preserve the original error or document their owner and cause'
-          )
-        )
-      }
-    }
-
-    if (
-      token.kind !== SyntaxKind.DotToken ||
-      tokens[index + 1]?.kind !== SyntaxKind.CatchKeyword ||
-      tokens[index + 2]?.kind !== SyntaxKind.OpenParenToken
-    ) {
+    if (token.kind === SyntaxKind.CatchKeyword && tokens[index - 1]?.kind !== SyntaxKind.DotToken) {
+      inspectCatchClause(tokens, index, report)
       continue
     }
-    let callback = index + 3
-    if (tokens[callback]?.text === 'async') callback += 1
     if (
-      tokens[callback]?.kind !== SyntaxKind.OpenParenToken ||
-      tokens[callback + 1]?.kind !== SyntaxKind.CloseParenToken ||
-      tokens[callback + 2]?.kind !== SyntaxKind.EqualsGreaterThanToken
+      token.kind === SyntaxKind.DotToken &&
+      tokens[index + 1]?.kind === SyntaxKind.CatchKeyword &&
+      tokens[index + 2]?.kind === SyntaxKind.OpenParenToken
     ) {
-      continue
+      inspectPromiseCatch(tokens, index, report)
     }
-    addFinding(
-      findings,
-      findingFor(
-        source,
-        filePath,
-        token.start,
-        'swallowed-promise',
-        'zero-argument Promise catches must preserve the rejection or document their owner and cause'
-      )
-    )
   }
 
   return findings
+}
+
+function inspectCatchClause(tokens, catchIndex, report) {
+  const catchToken = tokens[catchIndex]
+  let bodyOpen = catchIndex + 1
+  let binding
+  if (tokens[bodyOpen]?.kind === SyntaxKind.OpenParenToken) {
+    const close = matchingTokenIndex(
+      tokens,
+      bodyOpen,
+      SyntaxKind.OpenParenToken,
+      SyntaxKind.CloseParenToken
+    )
+    if (close === -1) return
+    const first = tokens[bodyOpen + 1]
+    // Destructured bindings deliberately read selected fields; only plain names are checked.
+    if (first?.kind === SyntaxKind.Identifier) binding = first.text
+    bodyOpen = close + 1
+  }
+  if (tokens[bodyOpen]?.kind !== SyntaxKind.OpenBraceToken) return
+  const bodyClose = matchingTokenIndex(
+    tokens,
+    bodyOpen,
+    SyntaxKind.OpenBraceToken,
+    SyntaxKind.CloseBraceToken
+  )
+  if (bodyClose === -1) return
+  if (bodyClose === bodyOpen + 1) {
+    report(
+      catchToken.start,
+      'empty-catch',
+      'empty catch blocks must preserve the original error or document their owner and cause'
+    )
+    return
+  }
+  if (binding === undefined) {
+    if (tokens[catchIndex + 1]?.kind === SyntaxKind.OpenParenToken) return
+    report(
+      catchToken.start,
+      'unbound-catch',
+      'catch blocks without an error binding must document their owner and cause'
+    )
+    return
+  }
+  if (!referencesIdentifier(tokens, bodyOpen + 1, bodyClose, binding)) {
+    report(
+      catchToken.start,
+      'unused-catch-binding',
+      `catch blocks must use the original error \`${binding}\` or document their owner and cause`
+    )
+  }
+}
+
+function inspectPromiseCatch(tokens, dotIndex, report) {
+  const callOpen = dotIndex + 2
+  const callClose = matchingTokenIndex(
+    tokens,
+    callOpen,
+    SyntaxKind.OpenParenToken,
+    SyntaxKind.CloseParenToken
+  )
+  if (callClose === -1) return
+  let callback = callOpen + 1
+  if (tokens[callback]?.text === 'async') callback += 1
+  let parameter
+  let arrow
+  if (tokens[callback]?.kind === SyntaxKind.Identifier) {
+    parameter = tokens[callback].text
+    arrow = callback + 1
+  } else if (tokens[callback]?.kind === SyntaxKind.OpenParenToken) {
+    const parametersClose = matchingTokenIndex(
+      tokens,
+      callback,
+      SyntaxKind.OpenParenToken,
+      SyntaxKind.CloseParenToken
+    )
+    if (parametersClose === -1) return
+    if (parametersClose > callback + 1) {
+      const first = tokens[callback + 1]
+      if (first?.kind !== SyntaxKind.Identifier) return
+      parameter = first.text
+    }
+    arrow = parametersClose + 1
+    // Skip an optional return type annotation such as `(err): never =>`.
+    while (
+      arrow < callClose &&
+      tokens[arrow]?.kind !== SyntaxKind.EqualsGreaterThanToken &&
+      tokens[arrow]?.kind !== SyntaxKind.OpenBraceToken
+    ) {
+      arrow += 1
+    }
+  } else {
+    // A function reference such as `.catch(report)` receives the rejection.
+    return
+  }
+  if (tokens[arrow]?.kind !== SyntaxKind.EqualsGreaterThanToken) return
+  if (parameter === undefined) {
+    report(
+      tokens[dotIndex].start,
+      'swallowed-promise',
+      'zero-argument Promise catches must preserve the rejection or document their owner and cause'
+    )
+    return
+  }
+  if (!referencesIdentifier(tokens, arrow + 1, callClose, parameter)) {
+    report(
+      tokens[dotIndex].start,
+      'unused-rejection',
+      `Promise catches must use the rejection \`${parameter}\` or document their owner and cause`
+    )
+  }
+}
+
+function referencesIdentifier(tokens, start, end, name) {
+  for (let index = start; index < end; index += 1) {
+    const token = tokens[index]
+    if (token.kind !== SyntaxKind.Identifier || token.text !== name) continue
+    // `object.name` is a property access, not a use of the binding.
+    if (tokens[index - 1]?.kind === SyntaxKind.DotToken) continue
+    return true
+  }
+  return false
 }
 
 /** Return every unapproved swallowed-error finding beneath a source tree. */
@@ -131,81 +183,6 @@ export function formatFindings(findings) {
 
 function addFinding(findings, finding) {
   if (finding !== undefined) findings.push(finding)
-}
-
-function tokenize(source) {
-  const scanner = createScanner(true, LanguageVariant.Standard, source, 0)
-  const tokens = []
-  let kind = scanner.scan()
-  while (kind !== SyntaxKind.EndOfFile) {
-    if (
-      kind === SyntaxKind.SlashToken &&
-      likelyRegexStart(tokens) &&
-      !isJsxClosingTagStart(source, scanner.getTokenStart())
-    ) {
-      kind = scanner.reScanSlashToken()
-    }
-    const start = scanner.getTokenStart()
-    const end = scanner.getTokenEnd()
-    if (end <= start) {
-      // Keep malformed/raw tokens from stalling the CI scan forever.
-      scanner.resetTokenState(start + 1)
-      kind = scanner.scan()
-      continue
-    }
-    tokens.push({
-      kind,
-      start,
-      end,
-      text: scanner.getTokenText()
-    })
-    kind = scanner.scan()
-  }
-  return tokens
-}
-
-function likelyRegexStart(tokens) {
-  const previous = tokens.at(-1)
-  return (
-    previous === undefined || REGEX_PREFIXES.has(previous.text) || REGEX_KEYWORDS.has(previous.text)
-  )
-}
-
-function isJsxClosingTagStart(source, slashStart) {
-  if (source[slashStart - 1] !== '<') return false
-  // A closing JSX tag starts with `</`, while a less-than regex can also do so. Require a
-  // tag-shaped prefix and a JSX boundary after `>` before leaving the slash unrescanned.
-  const closingTag = source.slice(slashStart).match(/^\/(?:[A-Za-z_$][\w$.-]*\s*|)>/u)
-  if (closingTag === null) return false
-  const nextCharacter = source[slashStart + closingTag[0].length]
-  return nextCharacter === undefined || /[\s<{()[\],;?:]/u.test(nextCharacter)
-}
-
-function catchBodyOpen(tokens, catchIndex) {
-  let index = catchIndex + 1
-  if (tokens[index]?.kind === SyntaxKind.OpenParenToken) {
-    const close = matchingToken(
-      tokens,
-      index,
-      SyntaxKind.OpenParenToken,
-      SyntaxKind.CloseParenToken
-    )
-    if (close === -1) return -1
-    index = close + 1
-  }
-  return tokens[index]?.kind === SyntaxKind.OpenBraceToken ? index : -1
-}
-
-function matchingToken(tokens, openIndex, openKind, closeKind) {
-  let depth = 0
-  for (let index = openIndex; index < tokens.length; index += 1) {
-    if (tokens[index].kind === openKind) depth += 1
-    else if (tokens[index].kind === closeKind) {
-      depth -= 1
-      if (depth === 0) return index
-    }
-  }
-  return -1
 }
 
 async function collectSourceFiles(directory) {
@@ -246,8 +223,8 @@ function findingFor(source, filePath, position, kind, message) {
     kind,
     message:
       marker === null
-        ? `${message}; add // error-handling: allow owner=<owner> cause=<cause>`
-        : `${message}; marker must include owner=<owner> and cause=<cause>`
+        ? `${message}; add // error-handling: allow owner=<owner> reason=<reason>`
+        : `${message}; marker must include owner=<owner> and reason=<reason>`
   }
 }
 

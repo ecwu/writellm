@@ -10,37 +10,14 @@ import {
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { editorIpcEndpoints } from '../../shared/contracts/ipc-endpoints-editor'
 import {
-  editorFlushAckInputSchema,
   editorFlushRequestSchema,
-  editorFlushSubscriptionInputSchema,
   editorSectionSchema,
-  editorSessionInputSchema,
-  exportMarkdownInputSchema,
-  exportNativeJsonInputSchema,
-  exportResultSchema,
-  finalFlushSaveInputSchema,
-  loadSectionInputSchema,
-  manuscriptAssetPreviewInputSchema,
-  manuscriptAssetPreviewResultSchema,
-  manuscriptAssetResultSchema,
   ManuscriptDomainError,
-  openEditorResultSchema,
-  saveSectionDocumentInputSchema,
   saveSectionDocumentResponseSchema,
-  uploadManuscriptAssetInputSchema,
   type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
-import {
-  manuscriptImportApplyInputSchema,
-  manuscriptImportApplyResultSchema,
-  manuscriptImportCancelInputSchema,
-  manuscriptImportCancelResultSchema,
-  manuscriptImportPlanRequestSchema,
-  manuscriptImportPlanResultSchema
-} from '../../shared/contracts/manuscript-import'
 import type { ProjectContext } from '../project/project-context'
 import {
   ProjectSessionError,
@@ -51,15 +28,9 @@ import {
 } from '../project/project-manager'
 import { resolveProjectPath } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
 import type { ManuscriptAssetCapabilities } from '../manuscript/asset-capabilities'
 import { manuscriptSectionToMarkdown } from '../../shared/manuscript-markdown'
-import {
-  deleteManuscriptAssetInputSchema,
-  deleteManuscriptAssetResultSchema,
-  manuscriptAssetWorkspaceInputSchema,
-  manuscriptAssetWorkspacePageSchema
-} from '../../shared/contracts/manuscript-assets'
 import { ManuscriptImportService } from '../manuscript/manuscript-import-service'
 import type { LatexImportWorkerResult } from '../../shared/contracts/latex-import'
 
@@ -110,97 +81,76 @@ export function registerEditorIpc(options: {
   const subscribers = new Map<string, Map<string, WebContents>>()
   const activeSections = new Map<string, string>()
   const pending = new Map<string, PendingFlush>()
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(editorIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: handler.constructor.name === 'AsyncFunction',
-        handle: (input, event) => handler(event, input)
-      })
-      return
-    }
-    ipc.handle(channel, handler)
-  }
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
   const importService = new ManuscriptImportService({
     log: options.logger,
     parseLatex: options.parseLatex
   })
 
-  handle(IPC_CHANNELS.editorOpen, (_event, input: unknown) => {
-    const parsed = editorSessionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    const result = openEditorResultSchema.parse(context.editorPersistence.openEditor())
+  handle(editorIpcEndpoints.open, (parsed, context) => {
+    const result = context.editorPersistence.openEditor()
     if (result.activeSection !== null) {
       activeSections.set(parsed.projectSessionId, result.activeSection.section.sectionId)
     }
     return result
   })
-  handle(IPC_CHANNELS.editorLoadSection, (_event, input: unknown) => {
-    const parsed = loadSectionInputSchema.parse(input)
-    const result = editorSectionSchema.parse(
-      options.manager
-        .assertActiveSession(parsed.projectSessionId)
-        .editorPersistence.loadSection(parsed.sectionId)
-    )
+  handle(editorIpcEndpoints.loadSection, (parsed, context) => {
+    const result = context.editorPersistence.loadSection(parsed.sectionId)
     activeSections.set(parsed.projectSessionId, result.section.sectionId)
     return result
   })
-  handle(IPC_CHANNELS.editorSetActiveSection, (_event, input: unknown) => {
-    const parsed = loadSectionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.setActiveSection, (parsed, context) => {
     context.manuscript.getSection(parsed.sectionId)
     activeSections.set(parsed.projectSessionId, parsed.sectionId)
   })
-  handle(IPC_CHANNELS.editorSaveSectionDocument, async (_event, input: unknown) => {
-    const parsed = saveSectionDocumentInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.saveSectionDocument, async (parsed, context) => {
     const result = await saveWithConflictResult(() => context.editorPersistence.save(parsed))
     options.manager.assertActiveSession(parsed.projectSessionId)
     return result
   })
-  handle(IPC_CHANNELS.editorCreateImportPlan, async (_event, input: unknown) => {
-    const parsed = manuscriptImportPlanRequestSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.createImportPlan, async (parsed, context) => {
     const selectedPath =
       options.selectImportSourceForTest === undefined
         ? await selectImportSource(options.getWindow?.() ?? null, parsed.selection ?? 'file')
         : await options.selectImportSourceForTest()
-    if (selectedPath === null)
-      return manuscriptImportPlanResultSchema.parse({ status: 'cancelled' })
+    if (selectedPath === null) return { status: 'cancelled' as const }
     const plan = await importService.createPlan({
       context,
       sourcePath: selectedPath,
       activeSectionId: parsed.activeSectionId
     })
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptImportPlanResultSchema.parse({ status: 'ready', plan })
+    return { status: 'ready' as const, plan }
   })
-  handle(IPC_CHANNELS.editorApplyImportPlan, async (_event, input: unknown) => {
-    const parsed = manuscriptImportApplyInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.applyImportPlan, async (parsed, context) => {
     const result = await importService.apply(context, parsed)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptImportApplyResultSchema.parse(result)
+    return result
   })
-  handle(IPC_CHANNELS.editorCancelImportPlan, async (_event, input: unknown) => {
-    const parsed = manuscriptImportCancelInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptImportCancelResultSchema.parse(
-      await importService.cancel(context, parsed.planId)
-    )
+  handle(editorIpcEndpoints.cancelImportPlan, async (parsed, context) => {
+    return await importService.cancel(context, parsed.planId)
   })
-  handle(IPC_CHANNELS.editorExportNativeJson, async (_event, input: unknown) => {
-    const parsed = exportNativeJsonInputSchema.parse(input)
-    try {
-      const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  /** Report export failures, including session rejections, behind one safe error. */
+  const exportBoundary =
+    (event: string, message: string, failure: string) =>
+    async <T>(parsed: { projectSessionId: string }, run: () => Promise<T>): Promise<T> => {
+      try {
+        return await run()
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          { event, err, projectSessionId: parsed.projectSessionId },
+          message
+        )
+        throw new Error(failure, { cause: err })
+      }
+    }
+  handle(
+    editorIpcEndpoints.exportNativeJson,
+    async (parsed, context) => {
       const current = editorSectionSchema.parse(
         context.editorPersistence.loadSection(parsed.sectionId)
       )
@@ -209,24 +159,19 @@ export function registerEditorIpc(options: {
         resolveProjectPath(context.projectRoot, relativePath),
         Buffer.from(JSON.stringify(current.revision.content))
       )
-      return exportResultSchema.parse({ relativePath })
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        {
-          event: 'editor.export_native_json.failed',
-          err,
-          projectSessionId: parsed.projectSessionId
-        },
-        'Native JSON export failed'
+      return { relativePath }
+    },
+    {
+      around: exportBoundary(
+        'editor.export_native_json.failed',
+        'Native JSON export failed',
+        'Native JSON export could not be completed'
       )
-      throw new Error('Native JSON export could not be completed', { cause: err })
     }
-  })
-  handle(IPC_CHANNELS.editorExportMarkdown, async (_event, input: unknown) => {
-    const parsed = exportMarkdownInputSchema.parse(input)
-    try {
-      const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  )
+  handle(
+    editorIpcEndpoints.exportMarkdown,
+    async (parsed, context) => {
       const current = context.editorPersistence.loadSection(parsed.sectionId).revision
       if (
         current.sectionRevisionId !== parsed.sectionRevisionId ||
@@ -248,19 +193,17 @@ export function registerEditorIpc(options: {
         resolveProjectPath(context.projectRoot, relativePath),
         Buffer.from(converted.markdown)
       )
-      return exportResultSchema.parse({ relativePath })
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        { event: 'editor.export_markdown.failed', err, projectSessionId: parsed.projectSessionId },
-        'Markdown export failed'
+      return { relativePath }
+    },
+    {
+      around: exportBoundary(
+        'editor.export_markdown.failed',
+        'Markdown export failed',
+        'Markdown export could not be completed'
       )
-      throw new Error('Markdown export could not be completed', { cause: err })
     }
-  })
-  handle(IPC_CHANNELS.editorUploadAsset, async (_event, input: unknown) => {
-    const parsed = uploadManuscriptAssetInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  )
+  handle(editorIpcEndpoints.uploadAsset, async (parsed, context) => {
     const bytes = decodeBase64(parsed.dataBase64)
     const result = await context.manuscriptAssets.store({
       bytes,
@@ -269,22 +212,21 @@ export function registerEditorIpc(options: {
       originalName: parsed.originalName
     })
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptAssetResultSchema.parse(result)
+    return result
   })
-  handle(IPC_CHANNELS.editorResolveAsset, (_event, input: unknown) => {
-    const parsed = manuscriptAssetPreviewInputSchema.parse(input)
+  handle(editorIpcEndpoints.resolveAsset, (parsed) => {
     try {
       const context = options.manager.assertActiveSession(parsed.projectSessionId)
       context.manuscriptAssets.get(parsed.assetId)
       if (options.assetCapabilities === undefined) throw new Error('Asset previews are unavailable')
-      return manuscriptAssetPreviewResultSchema.parse({
-        status: 'resolved',
+      return {
+        status: 'resolved' as const,
         ...options.assetCapabilities.issue({
           projectSessionId: parsed.projectSessionId,
           assetId: parsed.assetId,
           assets: context.manuscriptAssets
         })
-      })
+      }
     } catch (err) {
       if (!(err instanceof ProjectSessionError)) throw err
       reportIpcFailure(
@@ -297,40 +239,32 @@ export function registerEditorIpc(options: {
         },
         'Asset resolution arrived after the project session was revoked'
       )
-      return manuscriptAssetPreviewResultSchema.parse({ status: 'session-revoked' })
+      return { status: 'session-revoked' as const }
     }
   })
-  handle(IPC_CHANNELS.editorListAssets, async (_event, input: unknown) => {
-    const parsed = manuscriptAssetWorkspaceInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.listAssets, async (parsed, context) => {
     const page = await context.manuscriptAssets.listWorkspace(parsed)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return manuscriptAssetWorkspacePageSchema.parse(page)
+    return page
   })
-  handle(IPC_CHANNELS.editorDeleteAsset, async (_event, input: unknown) => {
-    const parsed = deleteManuscriptAssetInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.deleteAsset, async (parsed, context) => {
     const result = await context.manuscriptAssets.deleteUnprotected(parsed.assetId)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return deleteManuscriptAssetResultSchema.parse(result)
+    return result
   })
-  handle(IPC_CHANNELS.editorSubscribeFlush, (event, input: unknown) => {
-    const parsed = editorFlushSubscriptionInputSchema.parse(input)
-    options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(editorIpcEndpoints.subscribeFlush, (parsed, _context, event) => {
     const leases = subscribers.get(parsed.projectSessionId) ?? new Map<string, WebContents>()
     leases.set(parsed.subscriptionId, event.sender)
     subscribers.set(parsed.projectSessionId, leases)
   })
-  handle(IPC_CHANNELS.editorUnsubscribeFlush, (event, input: unknown) => {
-    const parsed = editorFlushSubscriptionInputSchema.parse(input)
+  handle(editorIpcEndpoints.unsubscribeFlush, (parsed, _context, event) => {
     const leases = subscribers.get(parsed.projectSessionId)
     if (leases?.get(parsed.subscriptionId)?.id === event.sender.id) {
       leases.delete(parsed.subscriptionId)
       if (leases.size === 0) subscribers.delete(parsed.projectSessionId)
     }
   })
-  handle(IPC_CHANNELS.editorFinalFlushSave, async (event, input: unknown) => {
-    const parsed = finalFlushSaveInputSchema.parse(input)
+  handle(editorIpcEndpoints.finalFlushSave, async (parsed, _context, event) => {
     const currentPending = pending.get(parsed.closingToken)
     if (currentPending?.senderId !== event.sender.id)
       throw new Error('Final editor flush sender is not authorized')
@@ -342,8 +276,7 @@ export function registerEditorIpc(options: {
           : options.manager.authorizeFinalFlush(parsed.projectSessionId, parsed.closingToken)
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
-  handle(IPC_CHANNELS.editorFlushAck, (event, input: unknown) => {
-    const parsed = editorFlushAckInputSchema.parse(input)
+  handle(editorIpcEndpoints.acknowledgeFlush, (parsed, _context, event) => {
     const currentPending = pending.get(parsed.closingToken)
     if (
       currentPending === undefined ||

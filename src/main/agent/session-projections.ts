@@ -77,6 +77,7 @@ export function safeSkillActivityProjection(
       .map((part) => {
         try {
           return decodeURIComponent(part)
+          // error-handling: allow owner=skill-path-display reason=malformed-escape-keeps-raw-segment
         } catch {
           return part
         }

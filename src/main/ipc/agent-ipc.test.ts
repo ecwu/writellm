@@ -38,12 +38,12 @@ describe('Agent session IPC', () => {
       senderFrame: { url: 'https://attacker.invalid/' },
       sender: value.sender
     } as unknown as IpcMainInvokeEvent
-    expect(() =>
+    await expect(
       value.handlers.get(IPC_CHANNELS.agentForkConversation)?.(
         unauthorized as never,
         input as never
       )
-    ).toThrow('Unauthorized IPC sender')
+    ).rejects.toThrow('Unauthorized IPC sender')
     expect(value.sessions.forkConversation).toHaveBeenCalledOnce()
     await expect(
       value.invoke(IPC_CHANNELS.agentGetSession, { projectSessionId, agentSessionId })
@@ -350,12 +350,28 @@ describe('Agent session IPC', () => {
       senderFrame: { url: 'https://attacker.invalid/' },
       sender: value.sender
     } as unknown as IpcMainInvokeEvent
-    expect(() =>
+    await expect(
       value.handlers.get(IPC_CHANNELS.agentListSessions)?.(
         unauthorized as never,
         { projectSessionId } as never
       )
-    ).toThrow('Unauthorized IPC sender')
+    ).rejects.toThrow('Unauthorized IPC sender')
+  })
+
+  it('reports the operation failure event when the endpoint rejects a stale session', async () => {
+    const value = harness()
+    await expect(
+      value.invoke(IPC_CHANNELS.agentAbortRun, {
+        projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc999',
+        agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc998'
+      })
+    ).rejects.toThrow('stale')
+    const failures = [...value.logger.warn.mock.calls, ...value.logger.error.mock.calls]
+    expect(failures).toContainEqual([
+      expect.objectContaining({ event: 'agent.run.abort.failed', err: expect.any(Error) }),
+      'Agent IPC operation failed'
+    ])
+    expect(value.sessions.abort).not.toHaveBeenCalled()
   })
 
   it('filters session lifecycle queries and projects title, archive, and restore commands', async () => {
@@ -724,11 +740,12 @@ function harness() {
     getLastThinkingLevel: vi.fn(async () => 'medium' as const),
     setLastThinkingLevel: vi.fn(async (level: string) => level)
   }
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   registerAgentIpc({
     manager: manager as never,
     broker: broker as never,
     catalog: catalog as never,
-    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    logger,
     developmentUrl: 'http://localhost:5173',
     ipc
   })
@@ -753,6 +770,7 @@ function harness() {
     manuscript,
     broker,
     catalog,
+    logger,
     order
   }
 }

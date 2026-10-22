@@ -76,7 +76,8 @@ Report the result, evidence, verification, and unresolved risks.
   Preserve its stack and `cause`.
   Then recover explicitly, rethrow it, or return a safe error that retains the cause.
   A message such as "operation failed" without the original error is not acceptable.
-  The static gate rejects empty catches and zero-argument Promise catches without an explicit exception.
+  The static gate rejects, without an explicit exception, empty catches, catches without an error
+  binding, zero-argument Promise catches, and catches whose error binding is never used.
   Document an intentional exception with `error-handling: allow owner=<owner> reason=<reason>` on the preceding comment line.
   Name the existing logging owner and the reason that recovery discards the rejection.
 - Do not leak secrets or private content when logging the original error.

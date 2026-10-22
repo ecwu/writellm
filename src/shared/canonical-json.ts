@@ -21,7 +21,38 @@ export interface CanonicalJsonOptions {
   readonly onError?: (error: CanonicalJsonError) => Error
   /** Preserve legacy JSON fingerprints that omitted undefined object properties. */
   readonly omitUndefinedObjectProperties?: boolean
+  /** Serialize undefined array members and array holes as null, as JSON.stringify does. */
+  readonly undefinedArrayMembersAsNull?: boolean
+  /** Serialize NaN and infinities as null, as JSON.stringify does. */
+  readonly nonFiniteNumbersAsNull?: boolean
+  /** Enumerate the own string keys of non-plain objects instead of rejecting them. */
+  readonly enumerateNonPlainObjects?: boolean
+  /** Skip symbol keys, as Object.keys does, instead of rejecting them. */
+  readonly ignoreSymbolKeys?: boolean
 }
+
+/**
+ * Historical model-request fingerprints accepted JSON.stringify's null projection for
+ * non-finite numbers and undefined array members, required plain objects, and skipped symbol
+ * keys. Persisted fingerprints depend on these rules.
+ */
+export const LEGACY_MODEL_REQUEST_FINGERPRINT: CanonicalJsonOptions = Object.freeze({
+  omitUndefinedObjectProperties: true,
+  undefinedArrayMembersAsNull: true,
+  nonFiniteNumbersAsNull: true,
+  ignoreSymbolKeys: true
+})
+
+/**
+ * Historical trace capture rejected non-finite numbers but projected undefined array members to
+ * null, enumerated non-plain objects, and skipped symbol keys.
+ */
+export const LEGACY_TRACE_DOCUMENT: CanonicalJsonOptions = Object.freeze({
+  omitUndefinedObjectProperties: true,
+  undefinedArrayMembersAsNull: true,
+  enumerateNonPlainObjects: true,
+  ignoreSymbolKeys: true
+})
 
 export type CanonicalJsonValue =
   | null
@@ -45,6 +76,7 @@ export function canonicalizeJson(
     if (typeof candidate === 'string' || typeof candidate === 'boolean') return candidate
     if (typeof candidate === 'number') {
       if (!Number.isFinite(candidate)) {
+        if (options.nonFiniteNumbersAsNull === true) return null
         return fail(options, 'non_finite', 'Canonical JSON cannot contain a non-finite number')
       }
       return candidate
@@ -62,6 +94,11 @@ export function canonicalizeJson(
       if (Array.isArray(candidate)) {
         const result: CanonicalJsonValue[] = []
         for (let index = 0; index < candidate.length; index += 1) {
+          const missing = !Object.hasOwn(candidate, index) || candidate[index] === undefined
+          if (missing && options.undefinedArrayMembersAsNull === true) {
+            result.push(null)
+            continue
+          }
           if (!Object.hasOwn(candidate, index)) {
             return fail(options, 'undefined', 'Canonical JSON arrays cannot contain holes')
           }
@@ -69,14 +106,17 @@ export function canonicalizeJson(
         }
         return result
       }
-      if (Object.getPrototypeOf(candidate) !== Object.prototype) {
+      if (
+        Object.getPrototypeOf(candidate) !== Object.prototype &&
+        options.enumerateNonPlainObjects !== true
+      ) {
         return fail(
           options,
           'non_plain',
           'Canonical JSON objects must use the plain object prototype'
         )
       }
-      if (Object.getOwnPropertySymbols(candidate).length > 0) {
+      if (options.ignoreSymbolKeys !== true && Object.getOwnPropertySymbols(candidate).length > 0) {
         return fail(options, 'symbol_key', 'Canonical JSON objects cannot contain symbol keys')
       }
       const entries: Array<readonly [string, CanonicalJsonValue]> = []

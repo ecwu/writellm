@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { CanonicalJsonError, canonicalJson, canonicalizeJson } from './canonical-json'
+import {
+  CanonicalJsonError,
+  canonicalJson,
+  canonicalizeJson,
+  LEGACY_MODEL_REQUEST_FINGERPRINT,
+  LEGACY_TRACE_DOCUMENT
+} from './canonical-json'
 import { sha256 } from './hash'
 
 describe('canonical JSON', () => {
@@ -75,5 +81,49 @@ describe('canonical JSON', () => {
         { onError: (error) => new Error('domain failure', { cause: error }) }
       )
     ).toThrow('domain failure')
+  })
+
+  describe('legacy compatibility profiles', () => {
+    // Expected values come from the serializers that wrote existing fingerprints and traces.
+    const serialize = (value: unknown, options: Parameters<typeof canonicalizeJson>[1]) =>
+      JSON.stringify(canonicalizeJson(value, options))
+    const symbol = Symbol('internal')
+
+    it('reproduces historical model-request fingerprint input', () => {
+      const options = LEGACY_MODEL_REQUEST_FINGERPRINT
+      expect(serialize({ messages: ['a', undefined, 'b'] }, options)).toBe(
+        '{"messages":["a",null,"b"]}'
+      )
+      // biome-ignore lint/suspicious/noSparseArray: the historical serializer accepted holes.
+      expect(serialize({ list: [1, , 3] }, options)).toBe('{"list":[1,null,3]}')
+      expect(
+        serialize({ temperature: Number.NaN, max: Infinity, list: [Number.NaN] }, options)
+      ).toBe('{"list":[null],"max":null,"temperature":null}')
+      expect(serialize({ [symbol]: 1, a: 1 }, options)).toBe('{"a":1}')
+      expect(() => serialize({ bytes: new Uint8Array([2, 1]) }, options)).toThrow(
+        CanonicalJsonError
+      )
+    })
+
+    it('reproduces historical trace document serialization', () => {
+      const options = LEGACY_TRACE_DOCUMENT
+      expect(serialize({ messages: ['a', undefined, 'b'] }, options)).toBe(
+        '{"messages":["a",null,"b"]}'
+      )
+      // biome-ignore lint/suspicious/noSparseArray: the historical serializer accepted holes.
+      expect(serialize({ list: [1, , 3] }, options)).toBe('{"list":[1,null,3]}')
+      expect(serialize({ [symbol]: 1, a: 1 }, options)).toBe('{"a":1}')
+      expect(serialize({ bytes: new Uint8Array([2, 1]), when: new Date(0) }, options)).toBe(
+        '{"bytes":{"0":2,"1":1},"when":{}}'
+      )
+      expect(() => serialize({ temperature: Number.NaN }, options)).toThrow(CanonicalJsonError)
+    })
+
+    it('keeps the strict default for new callers', () => {
+      expect(() => canonicalJson({ messages: [undefined] })).toThrow(CanonicalJsonError)
+      expect(() => canonicalJson({ temperature: Number.NaN })).toThrow(CanonicalJsonError)
+      expect(() => canonicalJson({ bytes: new Uint8Array([1]) })).toThrow(CanonicalJsonError)
+      expect(() => canonicalJson({ [symbol]: 1 })).toThrow(CanonicalJsonError)
+    })
   })
 })

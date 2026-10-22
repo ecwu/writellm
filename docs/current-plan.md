@@ -1,6 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Issue 18 maintenance is committed, pushed, and closed after local macOS arm64 acceptance.
+Status: Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
+Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible dependency maintenance passes local acceptance. Release 0.2026.10.2 is published.
 Recorded: 2026-10-21
 
@@ -10,6 +11,15 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
+[ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md) makes the endpoint registration the only Main-side IPC authority.
+It restores historical canonical JSON inputs and tightens the error-handling guard.
+The static gate and the complete Electron suite pass, with 1,911 tests and three optional benchmarks skipped.
+All 67 source E2E scenarios pass against one build, with zero retries.
+The frozen install after the TypeScript pin and the pnpm wrapper did not run, because no installed Node satisfies the engine range.
+[Issue 19 evidence](history/implementation-log.md#2026-10-21-issue-19-follow-up-repairs) records the changes, verification, and limits.
+Renderer decomposition carried from Issue 18 remains deferred.
 
 Issue 18 maintenance improves error reporting, shared helpers, IPC declarations, section writes, service ownership, and repository hygiene.
 [ADR 086](adrs/086-issue-18-engineering-quality.md) defines the maintenance boundaries.
@@ -89,6 +99,9 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 [Error ownership evidence](history/implementation-log.md#2026-10-14-error-handling-ownership) lists every original site, feature batch, and verification report.
 
 ## Current authorized work
+
+The user authorizes fixing the Issue 19 findings. The repairs are implemented and verified locally.
+Committing, pushing, and updating Issue 19 are not yet authorized.
 
 The authorized Issue 18 maintenance passes local acceptance for the combined source.
 The changes retain existing security, data integrity, and provider capability boundaries.

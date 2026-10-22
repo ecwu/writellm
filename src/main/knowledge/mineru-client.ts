@@ -134,13 +134,13 @@ export class MineruClient implements MineruGateway {
   }
 
   #run(request: MineruUtilityRequest, signal: AbortSignal): Promise<MineruSuccessResponse> {
-    if (signal.aborted) return Promise.reject(abortError())
+    if (signal.aborted) return Promise.reject(createAbortError('MinerU utility request aborted'))
     const parsedRequest = mineruUtilityRequestSchema.parse(request)
     return this.#worker.request({
       requestId: parsedRequest.requestId,
       payload: parsedRequest,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('MinerU utility request aborted'),
       onMessage: (raw) => this.#handleResponse(raw, parsedRequest.requestId)
     })
   }
@@ -182,8 +182,4 @@ function reconstructMineruError(input: {
 }): MineruGatewayError {
   const cause = reconstructUtilityError(input)
   return new MineruGatewayError(input.retryable, input.httpStatus, input.providerCode, { cause })
-}
-
-function abortError(): Error {
-  return createAbortError('MinerU utility request aborted')
 }

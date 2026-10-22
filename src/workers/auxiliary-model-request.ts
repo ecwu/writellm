@@ -465,6 +465,7 @@ function findMachineCodeFromJson(responseText: string | undefined): string | und
   let value: unknown
   try {
     value = JSON.parse(responseText) as unknown
+    // error-handling: allow owner=provider-errors reason=non-json-body-has-no-machine-code
   } catch {
     return undefined
   }

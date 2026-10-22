@@ -5,33 +5,8 @@ import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import type { SectionRevision } from '../../shared/contracts/manuscript'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { knowledgeIpcEndpoints } from '../../shared/contracts/ipc-endpoints-knowledge'
-import {
-  knowledgeCitationCoveragePageInputSchema,
-  knowledgeCitationCoveragePageResultSchema,
-  knowledgeEmbeddingRefreshInputSchema,
-  knowledgeImportPathsInputSchema,
-  knowledgeIndexStatusSchema,
-  knowledgeItemActionInputSchema,
-  knowledgeListInputSchema,
-  knowledgeListResultSchema,
-  parsedKnowledgeAssetInputSchema,
-  parsedKnowledgeAssetSchema,
-  parsedKnowledgeBlockPageInputSchema,
-  parsedKnowledgeBlockPageSchema,
-  parsedKnowledgeMarkdownInputSchema,
-  parsedKnowledgeMarkdownSchema,
-  parsedKnowledgeMetadataSchema,
-  SUPPORTED_KNOWLEDGE_EXTENSIONS
-} from '../../shared/contracts/knowledge'
-import {
-  knowledgeMappingPageInputSchema,
-  knowledgeMappingPageSchema,
-  pdfPreviewInputSchema,
-  pdfPreviewReleaseInputSchema,
-  pdfPreviewResultSchema
-} from '../../shared/contracts/knowledge-mapping'
+import { SUPPORTED_KNOWLEDGE_EXTENSIONS } from '../../shared/contracts/knowledge'
 import type { PdfPreviewCapabilities } from '../knowledge/pdf-preview-capabilities'
 import { KnowledgeCitationCoverageService } from '../knowledge/knowledge-citation-coverage-service'
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
@@ -39,33 +14,7 @@ import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
 import type { BibliographyConnectorService } from '../references/bibliography-connector-service'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
-import {
-  bibliographyChooseInputSchema,
-  bibliographyPrepareImportInputSchema,
-  bibliographyImportPlanSchema,
-  bibliographyImportAttachmentsPageInputSchema,
-  bibliographyImportAttachmentsPageSchema,
-  bibliographyConfirmImportInputSchema,
-  bibliographyConfirmImportResultSchema,
-  bibliographyExportInputSchema,
-  bibliographyExportResultSchema,
-  legacyCitationConversionPlanInputSchema,
-  legacyCitationConversionPlanSchema,
-  legacyCitationConversionApplyInputSchema,
-  legacyCitationConversionApplyResultSchema,
-  bibliographySnapshotInputSchema,
-  bibliographySnapshotResultSchema,
-  referenceListInputSchema,
-  referenceListResultSchema,
-  referenceSearchInputSchema,
-  referenceSearchResultSchema,
-  referenceSettingsInputSchema,
-  referenceCustomStyleInputSchema,
-  referenceSettingsSchema,
-  formattedReferenceSnapshotInputSchema,
-  formattedReferenceSnapshotSchema
-} from '../../shared/contracts/references'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
 import { createBibliographyExport } from '../references/reference-bibliography-export'
 import { assertInTextCslStyle } from '../../shared/csl-style'
 import { normalizeCitationTitle } from '../../shared/readable-citation'
@@ -100,46 +49,23 @@ export function registerKnowledgeIpc(options: {
       expiresAt: number
     }
   >()
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(knowledgeIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: handler.constructor.name === 'AsyncFunction',
-        handle: (input, event) => handler(event, input)
-      })
-      return
-    }
-    ipc.handle(channel, handler)
-  }
-
-  handle(IPC_CHANNELS.knowledgeList, (_event, input: unknown) => {
-    const parsed = knowledgeListInputSchema.parse(input)
-    return knowledgeListResultSchema.parse(
-      options.manager.assertActiveSession(parsed.projectSessionId).knowledgeImports.list()
-    )
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
   })
 
-  handle(IPC_CHANNELS.referenceList, (_event, input: unknown) => {
-    const parsed = referenceListInputSchema.parse(input)
-    return referenceListResultSchema.parse(
-      options.manager.assertActiveSession(parsed.projectSessionId).references.list(parsed.query)
-    )
+  handle(knowledgeIpcEndpoints.list, (_parsed, context) => {
+    return context.knowledgeImports.list()
   })
 
-  handle(IPC_CHANNELS.referenceSearch, (_event, input: unknown) => {
-    const parsed = referenceSearchInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.listReferences, (parsed, context) => {
+    return context.references.list(parsed.query)
+  })
+
+  handle(knowledgeIpcEndpoints.searchReferences, (parsed, context) => {
     const startedAt = Date.now()
     try {
-      const result = referenceSearchResultSchema.parse(context.references.search(parsed.query))
+      const result = context.references.search(parsed.query)
       options.manager.assertActiveSession(parsed.projectSessionId)
       options.logger.info(
         {
@@ -167,17 +93,11 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.referenceBibliographySnapshot, (_event, input: unknown) => {
-    const parsed = bibliographySnapshotInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
-    return bibliographySnapshotResultSchema.parse(
-      options.bibliographyConnectors?.snapshot(context.manifest.projectId) ?? null
-    )
+  handle(knowledgeIpcEndpoints.bibliographySnapshot, (_parsed, context) => {
+    return options.bibliographyConnectors?.snapshot(context.manifest.projectId) ?? null
   })
 
-  handle(IPC_CHANNELS.referenceChooseBibliography, async (_event, input: unknown) => {
-    const parsed = bibliographyChooseInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.chooseBibliography, async (parsed, context) => {
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
@@ -186,42 +106,30 @@ export function registerKnowledgeIpc(options: {
       : await chooseBibliography(options.getWindow())
     options.manager.assertActiveSession(parsed.projectSessionId)
     if (path === null) {
-      return bibliographySnapshotResultSchema.parse(
-        options.bibliographyConnectors.snapshot(context.manifest.projectId)
-      )
+      return options.bibliographyConnectors.snapshot(context.manifest.projectId)
     }
-    return bibliographySnapshotResultSchema.parse(
-      await options.bibliographyConnectors.connect(context.manifest.projectId, path)
-    )
+    return await options.bibliographyConnectors.connect(context.manifest.projectId, path)
   })
 
-  handle(IPC_CHANNELS.referenceRefreshBibliography, async (_event, input: unknown) => {
-    const parsed = bibliographySnapshotInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.refreshBibliography, async (_parsed, context) => {
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
-    return bibliographySnapshotResultSchema.parse(
-      await options.bibliographyConnectors.refreshForProject(context.manifest.projectId)
-    )
+    return await options.bibliographyConnectors.refreshForProject(context.manifest.projectId)
   })
 
-  handle(IPC_CHANNELS.referencePrepareImport, async (_event, input: unknown) => {
-    const parsed = bibliographyPrepareImportInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.prepareReferenceImport, async (parsed, context) => {
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
     try {
-      return bibliographyImportPlanSchema.parse(
-        await options.bibliographyConnectors.prepareImport({
-          projectId: context.manifest.projectId,
-          projectSessionId: parsed.projectSessionId,
-          connectorId: parsed.connectorId,
-          candidateIds: new Set(parsed.candidateIds),
-          includePdf: parsed.includePdf
-        })
-      )
+      return await options.bibliographyConnectors.prepareImport({
+        projectId: context.manifest.projectId,
+        projectSessionId: parsed.projectSessionId,
+        connectorId: parsed.connectorId,
+        candidateIds: new Set(parsed.candidateIds),
+        includePdf: parsed.includePdf
+      })
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -239,37 +147,29 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.referenceImportAttachmentsPage, async (_event, input: unknown) => {
-    const parsed = bibliographyImportAttachmentsPageInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.referenceImportAttachmentsPage, async (parsed, context) => {
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
-    return bibliographyImportAttachmentsPageSchema.parse(
-      await options.bibliographyConnectors.importAttachmentsPage({
-        projectId: context.manifest.projectId,
-        projectSessionId: parsed.projectSessionId,
-        previewId: parsed.previewId,
-        candidateId: parsed.candidateId,
-        cursor: parsed.cursor
-      })
-    )
+    return await options.bibliographyConnectors.importAttachmentsPage({
+      projectId: context.manifest.projectId,
+      projectSessionId: parsed.projectSessionId,
+      previewId: parsed.previewId,
+      candidateId: parsed.candidateId,
+      cursor: parsed.cursor
+    })
   })
 
-  handle(IPC_CHANNELS.referenceConfirmImport, async (_event, input: unknown) => {
-    const parsed = bibliographyConfirmImportInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.confirmReferenceImport, async (parsed, context) => {
     if (options.bibliographyConnectors === undefined) {
       throw new Error('Bibliography connectors are unavailable')
     }
     try {
-      return bibliographyConfirmImportResultSchema.parse(
-        await options.bibliographyConnectors.confirmImport({
-          projectId: context.manifest.projectId,
-          previewId: parsed.previewId,
-          selections: parsed.selections
-        })
-      )
+      return await options.bibliographyConnectors.confirmImport({
+        projectId: context.manifest.projectId,
+        previewId: parsed.previewId,
+        selections: parsed.selections
+      })
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -286,9 +186,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.referenceExportBibliography, async (_event, input: unknown) => {
-    const parsed = bibliographyExportInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.exportBibliography, async (parsed, context) => {
     const citedKeys = new Set(
       context.manuscript.getReferenceIndex().entries.flatMap((entry) => entry.citationKey ?? [])
     )
@@ -301,11 +199,11 @@ export function registerKnowledgeIpc(options: {
       : await chooseBibliographyExport(options.getWindow(), parsed.format)
     options.manager.assertActiveSession(parsed.projectSessionId)
     if (destination === null) {
-      return bibliographyExportResultSchema.parse({
+      return {
         exported: false,
         exportedCount: 0,
         lossCount: generated.losses.length
-      })
+      }
     }
     try {
       await writeFile(destination, generated.content, { encoding: 'utf8', flag: 'wx' }).catch(
@@ -331,11 +229,11 @@ export function registerKnowledgeIpc(options: {
         },
         'Bibliography export completed'
       )
-      return bibliographyExportResultSchema.parse({
+      return {
         exported: true,
         exportedCount: generated.exportedCount,
         lossCount: generated.losses.length
-      })
+      }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -351,9 +249,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.referencePlanLegacyConversion, (_event, input: unknown) => {
-    const parsed = legacyCitationConversionPlanInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.planLegacyCitationConversion, (parsed, context) => {
     const index = context.manuscript.getReferenceIndex()
     const planned = planLegacyCitationConversion(index, context.references.list())
     const planId = randomUUID()
@@ -373,11 +269,10 @@ export function registerKnowledgeIpc(options: {
       if (oldest === undefined) break
       legacyConversionPlans.delete(oldest)
     }
-    return legacyCitationConversionPlanSchema.parse({ planId, ...planned })
+    return { planId, ...planned }
   })
 
-  handle(IPC_CHANNELS.referenceApplyLegacyConversion, async (_event, input: unknown) => {
-    const parsed = legacyCitationConversionApplyInputSchema.parse(input)
+  handle(knowledgeIpcEndpoints.applyLegacyCitationConversion, async (parsed) => {
     const plan = legacyConversionPlans.get(parsed.planId)
     legacyConversionPlans.delete(parsed.planId)
     let context: ProjectContext
@@ -415,11 +310,11 @@ export function registerKnowledgeIpc(options: {
           },
           'Legacy citation conversion needs a new plan'
         )
-        return legacyCitationConversionApplyResultSchema.parse({
-          status: 'stale_plan',
+        return {
+          status: 'stale_plan' as const,
           sectionsChanged: 0,
           pendingRepairSectionIds: []
-        })
+        }
       }
       for (const entry of context.manuscript.assemble().sections) {
         const content = convertLegacyCitations(entry.revision.content, plan.citationKeyByTitle)
@@ -489,36 +384,28 @@ export function registerKnowledgeIpc(options: {
       },
       'Legacy citation conversion result recorded'
     )
-    return legacyCitationConversionApplyResultSchema.parse({
+    return {
       status,
       sectionsChanged: revisions.length,
       pendingRepairSectionIds
-    })
+    }
   })
 
-  handle(IPC_CHANNELS.referenceGetSettings, (_event, input: unknown) => {
-    const parsed = bibliographySnapshotInputSchema.parse(input)
-    return referenceSettingsSchema.parse(
-      options.manager.assertActiveSession(parsed.projectSessionId).references.settings()
-    )
+  handle(knowledgeIpcEndpoints.referenceSettings, (_parsed, context) => {
+    return context.references.settings()
   })
 
-  handle(IPC_CHANNELS.referenceSetSettings, (_event, input: unknown) => {
-    const parsed = referenceSettingsInputSchema.parse(input)
-    return referenceSettingsSchema.parse(
-      options.manager
-        .assertMutationSession(parsed.projectSessionId)
-        .references.setSettings(parsed.styleId, parsed.locale)
-    )
+  handle(knowledgeIpcEndpoints.setReferenceSettings, (parsed) => {
+    return options.manager
+      .assertMutationSession(parsed.projectSessionId)
+      .references.setSettings(parsed.styleId, parsed.locale)
   })
 
-  handle(IPC_CHANNELS.referenceChooseCustomStyle, async (_event, input: unknown) => {
-    const parsed = referenceCustomStyleInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.chooseCustomReferenceStyle, async (_parsed, context) => {
     const path = options.selectCustomStyleForTest
       ? await options.selectCustomStyleForTest()
       : await chooseCustomStyle(options.getWindow())
-    if (path === null) return referenceSettingsSchema.parse(context.references.settings())
+    if (path === null) return context.references.settings()
     try {
       const metadata = await lstat(path)
       if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) {
@@ -547,7 +434,7 @@ export function registerKnowledgeIpc(options: {
           throw new Error('Existing custom CSL resource failed integrity verification')
         }
       }
-      return referenceSettingsSchema.parse(context.references.setCustomStyle(relativePath, sha256))
+      return context.references.setCustomStyle(relativePath, sha256)
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -558,28 +445,24 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.referenceFormatSnapshot, async (_event, input: unknown) => {
-    const parsed = formattedReferenceSnapshotInputSchema.parse(input)
+  handle(knowledgeIpcEndpoints.formatReferences, async (parsed, context) => {
     if (options.citationFormatting === undefined) {
       throw new Error('Citation formatting is unavailable')
     }
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
     const result = await options.citationFormatting.format(context)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return formattedReferenceSnapshotSchema.parse(result)
+    return result
   })
 
-  handle(IPC_CHANNELS.knowledgeIndexStatus, async (_event, input: unknown) => {
-    const parsed = knowledgeListInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.indexStatus, async (parsed, context) => {
     const readiness = context.projectIndex.readiness()
     if (readiness !== 'available') {
-      return knowledgeIndexStatusSchema.parse({ readiness, indexed: false })
+      return { readiness, indexed: false }
     }
     try {
       const indexed = await context.projectIndex.isCurrentGenerationIndexed()
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return knowledgeIndexStatusSchema.parse({ readiness, indexed })
+      return { readiness, indexed }
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -590,9 +473,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeCitationCoveragePage, async (_event, input: unknown) => {
-    const parsed = knowledgeCitationCoveragePageInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.citationCoveragePage, async (parsed, context) => {
     const startedAt = Date.now()
     const controller = new AbortController()
     const release = context.operations?.track(controller)
@@ -602,16 +483,14 @@ export function registerKnowledgeIpc(options: {
         projectIndex: context.projectIndex,
         references: context.references
       })
-      const result = knowledgeCitationCoveragePageResultSchema.parse(
-        await service.page(
-          {
-            filter: parsed.filter,
-            query: parsed.query,
-            ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
-            limit: parsed.limit
-          },
-          controller.signal
-        )
+      const result = await service.page(
+        {
+          filter: parsed.filter,
+          query: parsed.query,
+          ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
+          limit: parsed.limit
+        },
+        controller.signal
       )
       options.manager.assertActiveSession(parsed.projectSessionId)
       options.logger.info(
@@ -652,18 +531,16 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeChooseAndImport, async (_event, input: unknown) => {
-    const parsed = knowledgeListInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.chooseAndImport, async (parsed, context) => {
     const paths = options.selectFilesForTest
       ? await options.selectFilesForTest()
       : await chooseFiles(options.getWindow())
     options.manager.assertActiveSession(parsed.projectSessionId)
-    if (paths.length === 0) return knowledgeListResultSchema.parse(context.knowledgeImports.list())
+    if (paths.length === 0) return context.knowledgeImports.list()
     try {
       await context.knowledgeImports.startImportPaths(paths)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return knowledgeListResultSchema.parse(context.knowledgeImports.list())
+      return context.knowledgeImports.list()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -674,13 +551,11 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeImportDropped, async (_event, input: unknown) => {
-    const parsed = knowledgeImportPathsInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.importDropped, async (parsed, context) => {
     try {
       await context.knowledgeImports.startImportPaths(parsed.paths)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return knowledgeListResultSchema.parse(context.knowledgeImports.list())
+      return context.knowledgeImports.list()
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -691,27 +566,37 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeCancel, (_event, input: unknown) => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const service = options.manager.assertMutationSession(parsed.projectSessionId).knowledgeImports
+  handle(knowledgeIpcEndpoints.cancel, (parsed, context) => {
+    const service = context.knowledgeImports
     service.cancel(parsed.knowledgeItemId)
-    return knowledgeListResultSchema.parse(service.list())
+    return service.list()
   })
 
-  handle(IPC_CHANNELS.knowledgeDelete, async (_event, input: unknown) => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.delete, async (parsed, context) => {
     const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
     cancelMineruJobs(context, references)
     await context.mineruWorkflow.cleanupAllArtifacts(parsed.knowledgeItemId, references)
     await context.knowledgeImports.delete(parsed.knowledgeItemId)
     options.manager.assertActiveSession(parsed.projectSessionId)
-    return knowledgeListResultSchema.parse(context.knowledgeImports.list())
+    return context.knowledgeImports.list()
   })
 
-  const openOriginal = async (input: unknown, reveal: boolean): Promise<void> => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  /** Report original-file failures, including session rejections, behind one safe error. */
+  const originalFileBoundary =
+    (event: string, message: string, failure: string) =>
+    async <T>(_parsed: unknown, run: () => Promise<T>): Promise<T> => {
+      try {
+        return await run()
+      } catch (err) {
+        reportIpcFailure(options.logger, { event, err }, message)
+        throw new Error(failure, { cause: err })
+      }
+    }
+  const openOriginal = async (
+    parsed: { knowledgeItemId: string },
+    context: ProjectContext,
+    reveal: boolean
+  ): Promise<void> => {
     const absolutePath = await context.filesystem.assertExistingRegularFile(
       context.knowledgeImports.originalRelativePath(parsed.knowledgeItemId)
     )
@@ -722,34 +607,26 @@ export function registerKnowledgeIpc(options: {
     }
   }
 
-  handle(IPC_CHANNELS.knowledgeReveal, async (_event, input: unknown) => {
-    try {
-      await openOriginal(input, true)
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        { event: 'knowledge.original_reveal.failed', err },
-        'Reveal original failed'
-      )
-      throw new Error('The original file could not be revealed', { cause: err })
-    }
+  handle(knowledgeIpcEndpoints.reveal, (parsed, context) => openOriginal(parsed, context, true), {
+    around: originalFileBoundary(
+      'knowledge.original_reveal.failed',
+      'Reveal original failed',
+      'The original file could not be revealed'
+    )
   })
-  handle(IPC_CHANNELS.knowledgeOpenOriginal, async (_event, input: unknown) => {
-    try {
-      await openOriginal(input, false)
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        { event: 'knowledge.original_open.failed', err },
-        'Open original failed'
+  handle(
+    knowledgeIpcEndpoints.openOriginal,
+    (parsed, context) => openOriginal(parsed, context, false),
+    {
+      around: originalFileBoundary(
+        'knowledge.original_open.failed',
+        'Open original failed',
+        'The original file could not be opened'
       )
-      throw new Error('The original file could not be opened', { cause: err })
     }
-  })
+  )
 
-  handle(IPC_CHANNELS.knowledgeStartParse, async (_event, input: unknown) => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.startParse, async (parsed, context) => {
     try {
       await context.mineruWorkflow.start(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -763,9 +640,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeCancelParse, async (_event, input: unknown) => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.cancelParse, async (parsed, context) => {
     try {
       const references = context.mineruWorkflow.cancelForKnowledgeItem(parsed.knowledgeItemId)
       cancelMineruJobs(context, references)
@@ -781,9 +656,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeRefreshEmbeddings, async (_event, input: unknown) => {
-    const parsed = knowledgeEmbeddingRefreshInputSchema.parse(input)
-    const context = options.manager.assertMutationSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.refreshEmbeddings, async (parsed, context) => {
     try {
       await context.projectIndex.requestEmbeddingRefresh(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
@@ -804,9 +677,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeCreatePdfPreview, async (_event, input: unknown) => {
-    const parsed = pdfPreviewInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.createPdfPreview, async (parsed, context) => {
     if (options.pdfPreview === undefined) throw new Error('PDF preview is unavailable')
     const item = context.knowledgeImports
       .list()
@@ -822,15 +693,13 @@ export function registerKnowledgeIpc(options: {
         throw new Error('Original PDF is unavailable')
       }
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return pdfPreviewResultSchema.parse(
-        options.pdfPreview.issue({
-          projectSessionId: parsed.projectSessionId,
-          knowledgeItemId: parsed.knowledgeItemId,
-          absolutePath,
-          byteSize: file.size,
-          sourceSha256: item.sha256
-        })
-      )
+      return options.pdfPreview.issue({
+        projectSessionId: parsed.projectSessionId,
+        knowledgeItemId: parsed.knowledgeItemId,
+        absolutePath,
+        byteSize: file.size,
+        sourceSha256: item.sha256
+      })
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -841,19 +710,15 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeReleasePdfPreview, (_event, input: unknown) => {
-    const parsed = pdfPreviewReleaseInputSchema.parse(input)
-    options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.releasePdfPreview, (parsed, _context) => {
     options.pdfPreview?.revoke(parsed.previewId, parsed.projectSessionId)
   })
 
-  handle(IPC_CHANNELS.knowledgeMappingPage, async (_event, input: unknown) => {
-    const parsed = knowledgeMappingPageInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.mappingPage, async (parsed, context) => {
     try {
       const result = await context.knowledgeMapping.page(parsed.knowledgeItemId, parsed.pageIndex)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return knowledgeMappingPageSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -870,13 +735,11 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeParsedMetadata, async (_event, input: unknown) => {
-    const parsed = knowledgeItemActionInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.parsedMetadata, async (parsed, context) => {
     try {
       const result = await context.knowledgeNormalization.metadata(parsed.knowledgeItemId)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return parsedKnowledgeMetadataSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -887,9 +750,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeParsedBlocks, async (_event, input: unknown) => {
-    const parsed = parsedKnowledgeBlockPageInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.parsedBlocks, async (parsed, context) => {
     try {
       const result = await context.knowledgeNormalization.blockPage(
         parsed.knowledgeItemId,
@@ -898,7 +759,7 @@ export function registerKnowledgeIpc(options: {
         parsed.limit
       )
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return parsedKnowledgeBlockPageSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -909,16 +770,14 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeParsedMarkdown, async (_event, input: unknown) => {
-    const parsed = parsedKnowledgeMarkdownInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.parsedMarkdown, async (parsed, context) => {
     try {
       const result = await context.knowledgeNormalization.markdown(
         parsed.knowledgeItemId,
         parsed.parseRevisionId
       )
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return parsedKnowledgeMarkdownSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -929,9 +788,7 @@ export function registerKnowledgeIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.knowledgeParsedAsset, async (_event, input: unknown) => {
-    const parsed = parsedKnowledgeAssetInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(knowledgeIpcEndpoints.parsedAsset, async (parsed, context) => {
     try {
       const result = await context.knowledgeNormalization.asset(
         parsed.knowledgeItemId,
@@ -939,7 +796,7 @@ export function registerKnowledgeIpc(options: {
         parsed.assetRef
       )
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return parsedKnowledgeAssetSchema.parse(result)
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,

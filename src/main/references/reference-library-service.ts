@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
@@ -301,13 +302,12 @@ export class ReferenceLibraryService {
         for (const binding of bindings) {
           const sourceItem = incoming.get(binding.upstream_key)
           if (sourceItem === undefined) {
-            database
-              .prepare(
-                `UPDATE reference_import_bindings
+            cachedStatement(
+              database,
+              `UPDATE reference_import_bindings
                     SET sync_status = 'relink_required', updated_at = ?
                   WHERE reference_id = ?`
-              )
-              .run(now, binding.reference_id)
+            ).run(now, binding.reference_id)
             continue
           }
           if (binding.source_fingerprint !== sourceItem.fingerprint) {
@@ -387,13 +387,12 @@ export class ReferenceLibraryService {
       const now = new Date().toISOString()
       const transaction = database.transaction(() => {
         for (const sourceItem of selected) {
-          const existing = database
-            .prepare(
-              `SELECT reference_id FROM reference_import_bindings
-                WHERE connector_id = ? AND upstream_key = ?`
-            )
-            .pluck()
-            .get(options.connectorId, sourceItem.upstreamKey)
+          const existing = cachedStatement(
+            database,
+            `SELECT reference_id FROM reference_import_bindings
+                WHERE connector_id = ? AND upstream_key = ?`,
+            { pluck: true }
+          ).get(options.connectorId, sourceItem.upstreamKey)
           if (existing !== undefined) continue
           const referenceId = randomUUID()
           const citationKey = createCitationKey({ ...sourceItem, reservedKeys })

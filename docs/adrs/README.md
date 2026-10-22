@@ -12,7 +12,7 @@ file or history log for evidence.
 - [Agent runtime and tools](008-pi-provider-catalog-and-agent-model-selection.md), [tool profiles](067-agent-tool-description-layering-and-demand-profiles.md), [interaction modes](068-agent-interaction-mode-ceilings.md), [diagnostics](074-agent-occam-ablation-and-error-propagation.md), [model configuration](076-agent-model-configuration-and-output-completion.md), [message editing](080-agent-message-edit-and-restart.md), [conversation forks](081-conversation-fork.md), [image input](085-agent-image-input.md), and [section write authority](089-section-write-authority.md).
 - [Desktop shell](083-tabbed-docking-workbench.md) and [macOS native menu](084-macos-native-menu.md).
 - [Dependency refresh](056-dependency-security-and-compatibility-refresh.md) and [this documentation and dependency boundary decision](090-document-navigation-and-dependency-boundaries.md).
-- [Engineering maintenance](086-issue-18-engineering-quality.md), [native SQL schema contracts](087-native-sql-and-schema-contract.md), and [typed IPC endpoints](088-typed-ipc-endpoints.md).
+- [Engineering maintenance](086-issue-18-engineering-quality.md), [native SQL schema contracts](087-native-sql-and-schema-contract.md), [typed IPC endpoints](088-typed-ipc-endpoints.md), and [single endpoint authority and compatibility repairs](091-issue-19-endpoint-authority-and-compatibility.md).
 
 Earlier ADRs remain available for historical context. Their current-rule notes and the map below
 identify clauses that a later ADR replaced.
@@ -26,6 +26,7 @@ identify clauses that a later ADR replaced.
 - [ADR 076](076-agent-model-configuration-and-output-completion.md) replaces the manual and custom reasoning exclusion in [ADR 014](014-agent-thinking-level.md).
 - [ADR 067](067-agent-tool-description-layering-and-demand-profiles.md), [ADR 074](074-agent-occam-ablation-and-error-propagation.md), and [ADR 077](077-remove-review-fixtures-and-annotations.md) replace separate clauses in [ADR 042](042-agent-tool-contract-reliability-and-scope-discipline.md).
 - [ADR 079](079-comment-acceptance-boundaries.md) replaces the quote-only mapping rule in [ADR 078](078-manuscript-comment-threads-and-agent-resolution.md).
+- [ADR 091](091-issue-19-endpoint-authority-and-compatibility.md) replaces the migration-batch wrapper, preserved per-handler session assertions, and synchronous rejection clauses in [ADR 088](088-typed-ipc-endpoints.md). It also adds canonical JSON compatibility profiles and stricter error-handling guard rules to [ADR 086](086-issue-18-engineering-quality.md).
 
 Read a later ADR first when an earlier record names it in a `Current rule` note. Keep the earlier
 record for the original context and accepted alternatives.

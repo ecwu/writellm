@@ -228,16 +228,16 @@ describe('application IPC', () => {
     const options = publicationPresets.snapshot().presets[0]?.options
     if (options === undefined) throw new Error('Preset fixture missing')
 
-    expect(invoke(IPC_CHANNELS.publicationPresetsSnapshot)).toMatchObject({
+    await expect(invoke(IPC_CHANNELS.publicationPresetsSnapshot)).resolves.toMatchObject({
       defaultPresetId: 'builtin:academic-a4'
     })
-    expect(
+    await expect(
       invoke(IPC_CHANNELS.publicationPresetsCreate, { name: 'Custom', options })
-    ).toMatchObject({ schemaVersion: 1 })
+    ).resolves.toMatchObject({ schemaVersion: 1 })
     expect(publicationPresets.create).toHaveBeenCalledWith({ name: 'Custom', options })
-    expect(() =>
+    await expect(
       invoke(IPC_CHANNELS.publicationPresetsSetDefault, { presetId: '../../../escape' })
-    ).toThrow()
+    ).rejects.toThrow()
     expect(publicationPresets.setDefault).not.toHaveBeenCalled()
   })
 })

@@ -144,7 +144,7 @@ function harness() {
 describe('manuscript IPC', () => {
   it('returns a bounded content-free workspace and an on-demand full preview', async () => {
     const { invoke, manuscript } = harness()
-    const result = invoke(IPC_CHANNELS.manuscriptGetWorkspace, { projectSessionId })
+    const result = await invoke(IPC_CHANNELS.manuscriptGetWorkspace, { projectSessionId })
     expect(result).toEqual(workspace)
     expect(result).not.toHaveProperty('sections.0.revision.content')
 
@@ -153,9 +153,9 @@ describe('manuscript IPC', () => {
     expect(manuscript.assemble).toHaveBeenCalledOnce()
   })
 
-  it('returns the bounded whole-manuscript reference index', () => {
+  it('returns the bounded whole-manuscript reference index', async () => {
     const { invoke, manuscript } = harness()
-    const result = invoke(IPC_CHANNELS.manuscriptGetReferences, { projectSessionId })
+    const result = await invoke(IPC_CHANNELS.manuscriptGetReferences, { projectSessionId })
     expect(result).toEqual({
       outlineVersion: 1,
       entries: [expect.objectContaining({ number: 1, title: 'Source', count: 1 })]
@@ -189,21 +189,21 @@ describe('manuscript IPC', () => {
     expect(manager.assertActiveSession).toHaveBeenCalled()
   })
 
-  it('authorizes the sender and rejects stale project capabilities', () => {
+  it('authorizes the sender and rejects stale project capabilities', async () => {
     const { handlers, invoke } = harness()
-    expect(() =>
+    await expect(
       invoke(IPC_CHANNELS.manuscriptGetWorkspace, { projectSessionId: 'stale-session' })
-    ).toThrow('stale')
+    ).rejects.toThrow('stale')
 
     const unauthorized = {
       senderFrame: { url: 'https://attacker.invalid/' }
     } as unknown as IpcMainInvokeEvent
-    expect(() =>
+    await expect(
       handlers.get(IPC_CHANNELS.manuscriptGetWorkspace)?.(
         unauthorized as never,
         { projectSessionId } as never
       )
-    ).toThrow('Unauthorized IPC sender')
+    ).rejects.toThrow('Unauthorized IPC sender')
   })
 
   it('materializes new sections and removes deleted mirrors after authoritative mutations', async () => {

@@ -1,5 +1,9 @@
 import { redactTraceImages } from '../../shared/trace-image-redaction'
-import { canonicalizeJson, type CanonicalJsonError } from '../../shared/canonical-json'
+import {
+  canonicalizeJson,
+  LEGACY_TRACE_DOCUMENT,
+  type CanonicalJsonError
+} from '../../shared/canonical-json'
 import { sha256 } from '../../shared/hash'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
@@ -455,7 +459,7 @@ function prepareDocument(
   chunks: PreparedChunk[]
 } {
   const normalized = canonicalizeJson(value, {
-    omitUndefinedObjectProperties: true,
+    ...LEGACY_TRACE_DOCUMENT,
     onError: (error) => traceCanonicalJsonError(error)
   })
   const complete = JSON.stringify(normalized)
@@ -524,7 +528,7 @@ function traceCanonicalJsonError(error: CanonicalJsonError): AgentTraceCaptureEr
 
 function traceCanonicalJson(value: unknown): string {
   const normalized = canonicalizeJson(value, {
-    omitUndefinedObjectProperties: true,
+    ...LEGACY_TRACE_DOCUMENT,
     onError: (error) => traceCanonicalJsonError(error)
   })
   const serialized = JSON.stringify(normalized)

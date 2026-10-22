@@ -505,7 +505,10 @@ src/shared/contracts/
 Do not introduce a broad RPC framework solely to reduce IPC boilerplate.
 
 [ADR 088](adrs/088-typed-ipc-endpoints.md) defines lightweight endpoint tables with shared schemas and explicit session requirements.
-Main retains sender authorization, input parsing, capability checks, and output parsing.
+[ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md) makes the shared endpoint registration the only Main-side authority.
+It authorizes the sender and parses input. It checks the declared session and passes the checked context to the handler. It parses output.
+Handlers do not repeat these steps. Domains must register endpoint definitions rather than raw channels.
+Main revalidates a session after an `await` when later work depends on it.
 Preload retains input and output parsing and exposes only named business methods.
 
 Renderer query keys include `projectSessionId` for every cached project read.

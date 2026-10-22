@@ -127,6 +127,7 @@ const safeLinkSchema = z
       .refine((href) => {
         try {
           return ['http:', 'https:', 'mailto:'].includes(new URL(href).protocol)
+          // error-handling: allow owner=manuscript-contract reason=invalid-url-is-validation-issue
         } catch {
           return false
         }
@@ -418,6 +419,7 @@ export const blockNoteDocumentSchema = z
       ) {
         context.addIssue({ code: 'custom', message: 'Section document is too large' })
       }
+      // error-handling: allow owner=manuscript-contract reason=unserializable-input-is-validation-issue
     } catch {
       context.addIssue({ code: 'custom', message: 'Section document is not JSON serializable' })
     }
@@ -432,6 +434,7 @@ export const legacyBlockNoteDocumentSchema = z
       ) {
         context.addIssue({ code: 'custom', message: 'Legacy section document is too large' })
       }
+      // error-handling: allow owner=manuscript-contract reason=unserializable-input-is-validation-issue
     } catch {
       context.addIssue({
         code: 'custom',
@@ -659,6 +662,7 @@ export const manuscriptBriefFieldsSchema = z
         ) {
           context.addIssue({ code: 'custom', message: 'Brief extensible data is too large' })
         }
+        // error-handling: allow owner=manuscript-contract reason=unserializable-input-is-validation-issue
       } catch {
         context.addIssue({
           code: 'custom',
@@ -821,6 +825,7 @@ const manuscriptSectionCollectionSchema = z
       ) {
         context.addIssue({ code: 'custom', message: 'Manuscript section collection is too large' })
       }
+      // error-handling: allow owner=manuscript-contract reason=unserializable-input-is-validation-issue
     } catch {
       context.addIssue({
         code: 'custom',
@@ -849,6 +854,7 @@ const manuscriptSectionSummaryCollectionSchema = z
       ) {
         context.addIssue({ code: 'custom', message: 'Manuscript section collection is too large' })
       }
+      // error-handling: allow owner=manuscript-contract reason=unserializable-input-is-validation-issue
     } catch {
       context.addIssue({
         code: 'custom',

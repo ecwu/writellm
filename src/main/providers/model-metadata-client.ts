@@ -28,7 +28,7 @@ export class ModelMetadataClient {
       requestId: request.requestId,
       payload: request,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('models.dev metadata refresh aborted'),
       cancelPayload: { type: 'cancel', requestId: request.requestId, projectSessionId: null },
       onMessage: (raw): UtilityMessageDecision<AgentModelLimits | null> => {
         const parsed = modelsDevResolveResponseSchema.safeParse(raw)
@@ -56,8 +56,4 @@ export class ModelMetadataClient {
       }
     })
   }
-}
-
-function abortError(): Error {
-  return createAbortError('models.dev metadata refresh aborted')
 }

@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
 import { blockNoteInlinePlainText } from '../../shared/blocknote-inline-text'
@@ -520,11 +521,10 @@ export class ManuscriptCommentService {
         .prepare('DELETE FROM manuscript_comment_delegations WHERE agent_session_id = ?')
         .run(parsed.agentSessionId)
       for (const thread of ordered) {
-        database
-          .prepare(
-            'INSERT INTO manuscript_comment_delegations (agent_session_id, thread_id, delegated_at) VALUES (?, ?, ?)'
-          )
-          .run(parsed.agentSessionId, thread.threadId, now)
+        cachedStatement(
+          database,
+          'INSERT INTO manuscript_comment_delegations (agent_session_id, thread_id, delegated_at) VALUES (?, ?, ?)'
+        ).run(parsed.agentSessionId, thread.threadId, now)
         insertEvent(
           database,
           thread.threadId,

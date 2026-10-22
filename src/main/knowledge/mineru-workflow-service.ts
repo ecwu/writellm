@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, open, readFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
@@ -169,13 +170,12 @@ export class MineruWorkflowService {
         )
         .all(knowledgeItemId) as ParseTaskTable[]
       for (const task of tasks) {
-        database
-          .prepare(
-            `UPDATE parse_tasks
+        cachedStatement(
+          database,
+          `UPDATE parse_tasks
                 SET state = 'cancelled', completed_at = ?, updated_at = ?
               WHERE parse_task_id = ? AND state NOT IN ('succeeded', 'failed', 'cancelled')`
-          )
-          .run(now, now, task.parse_task_id)
+        ).run(now, now, task.parse_task_id)
         insertEvent(
           database,
           task.parse_task_id,

@@ -1,3 +1,8 @@
+/**
+ * Frozen helpers for shipped forward-only migrations. Released migrations import these, so a
+ * behavior change here would silently change historical migrations. Add a new helper instead of
+ * editing an existing one; `helpers.test.ts` pins the current behavior.
+ */
 import type { DatabaseMigration } from '../../db/migrations'
 
 type MigrationDatabase = Parameters<DatabaseMigration['up']>[0]

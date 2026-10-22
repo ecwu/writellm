@@ -1,27 +1,14 @@
 import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain } from 'electron'
 import type { Logger } from 'pino'
-import {
-  approveMutationProposalInputSchema,
-  approveMutationProposalResultSchema,
-  cancelImageGenerationInputSchema,
-  cancelImageGenerationResultSchema,
-  mutationProposalActionResultSchema,
-  mutationSubscriptionInputSchema,
-  rejectMutationProposalInputSchema,
-  undoMutationProposalInputSchema
-} from '../../shared/contracts/agent-mutations'
+import { mutationSubscriptionInputSchema } from '../../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { agentIpcEndpoints } from '../../shared/contracts/ipc-endpoints-agent'
+import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
 import { authorizeSender } from './authorize-sender'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
 import type { MutationEventBroker } from '../agent/mutation-event-broker'
-import {
-  changeSetBatchInputSchema,
-  changeSetBatchResultSchema
-} from '../../shared/contracts/agent-change-set'
 
 export interface AgentMutationIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -36,31 +23,12 @@ export function registerAgentMutationIpc(options: {
   unregister(): void
 } {
   const ipc = options.ipc ?? ipcMain
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(agentIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    handler: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: handler.constructor.name === 'AsyncFunction',
-        handle: (input, event) => handler(event, input)
-      })
-      return
-    }
-    ipc.handle(channel, handler)
-  }
-  const service = (projectSessionId: string) => {
-    const context = options.manager.assertMutationSession(projectSessionId)
-    return context.agentMutations
-  }
-  const assertWritableSession = (projectSessionId: string, agentSessionId: string): void => {
-    const sessions = options.manager.assertActiveSession(projectSessionId).agentSessions
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
+  const assertWritableSession = (context: ProjectContext, agentSessionId: string): void => {
+    const sessions = context.agentSessions
     if (
       !sessions.listSessions('active').some((session) => session.agentSessionId === agentSessionId)
     ) {
@@ -87,36 +55,36 @@ export function registerAgentMutationIpc(options: {
       continueRequested: input.continueRequested ?? false
     })
   }
-  const lifecycle = async <T>(
-    event: string,
-    proposalId: string,
-    operation: () => Promise<T> | T
-  ): Promise<T> => {
-    const startedAt = Date.now()
-    try {
-      const result = await operation()
-      options.logger.info(
-        { event: `${event}.completed`, proposalId, durationMs: Date.now() - startedAt },
-        'Agent mutation IPC operation completed'
-      )
-      return result
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        { event: `${event}.failed`, err, proposalId, durationMs: Date.now() - startedAt },
-        'Agent mutation IPC operation failed'
-      )
-      throw err
+  /** Log one proposal operation, including session rejections from the endpoint boundary. */
+  const lifecycle =
+    (event: string, operationId: (input: { proposalId?: string; commandId?: string }) => string) =>
+    async <T>(input: { proposalId?: string; commandId?: string }, run: () => Promise<T>) => {
+      const proposalId = operationId(input)
+      const startedAt = Date.now()
+      try {
+        const result = await run()
+        options.logger.info(
+          { event: `${event}.completed`, proposalId, durationMs: Date.now() - startedAt },
+          'Agent mutation IPC operation completed'
+        )
+        return result
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          { event: `${event}.failed`, err, proposalId, durationMs: Date.now() - startedAt },
+          'Agent mutation IPC operation failed'
+        )
+        throw err
+      }
     }
-  }
+  const byProposal = (input: { proposalId?: string }) => input.proposalId ?? ''
+  const byCommand = (input: { commandId?: string }) => input.commandId ?? ''
 
-  handle(IPC_CHANNELS.agentProposalApprove, (_event, rawInput: unknown) => {
-    const input = approveMutationProposalInputSchema.parse(rawInput)
-    return lifecycle('agent.proposal.approve', input.proposalId, async () => {
-      assertWritableSession(input.projectSessionId, input.agentSessionId)
-      const result = approveMutationProposalResultSchema.parse(
-        await service(input.projectSessionId).approve(input)
-      )
+  handle(
+    agentIpcEndpoints.approveProposal,
+    async (input, context) => {
+      assertWritableSession(context, input.agentSessionId)
+      const result = await context.agentMutations.approve(input)
       options.manager.assertActiveSession(input.projectSessionId)
       await recordDecision({
         ...input,
@@ -124,15 +92,14 @@ export function registerAgentMutationIpc(options: {
         decision: 'approved'
       })
       return result
-    })
-  })
-  handle(IPC_CHANNELS.agentProposalReject, (_event, rawInput: unknown) => {
-    const input = rejectMutationProposalInputSchema.parse(rawInput)
-    return lifecycle('agent.proposal.reject', input.proposalId, async () => {
-      assertWritableSession(input.projectSessionId, input.agentSessionId)
-      const result = mutationProposalActionResultSchema.parse(
-        service(input.projectSessionId).reject(input)
-      )
+    },
+    { around: lifecycle('agent.proposal.approve', byProposal) }
+  )
+  handle(
+    agentIpcEndpoints.rejectProposal,
+    async (input, context) => {
+      assertWritableSession(context, input.agentSessionId)
+      const result = context.agentMutations.reject(input)
       await recordDecision({
         ...input,
         agentRunId: result.proposal.agentRunId,
@@ -140,46 +107,43 @@ export function registerAgentMutationIpc(options: {
         continueRequested: input.continueRequested
       })
       return result
-    })
-  })
-  handle(IPC_CHANNELS.agentProposalUndo, (_event, rawInput: unknown) => {
-    const input = undoMutationProposalInputSchema.parse(rawInput)
-    return lifecycle('agent.proposal.undo', input.proposalId, async () => {
-      assertWritableSession(input.projectSessionId, input.agentSessionId)
-      const result = mutationProposalActionResultSchema.parse(
-        await service(input.projectSessionId).undo(input)
-      )
+    },
+    { around: lifecycle('agent.proposal.reject', byProposal) }
+  )
+  handle(
+    agentIpcEndpoints.undoProposal,
+    async (input, context) => {
+      assertWritableSession(context, input.agentSessionId)
+      const result = await context.agentMutations.undo(input)
       options.manager.assertActiveSession(input.projectSessionId)
       return result
-    })
-  })
-  handle(IPC_CHANNELS.agentChangeSetBatch, (_event, rawInput: unknown) => {
-    const input = changeSetBatchInputSchema.parse(rawInput)
-    return lifecycle('agent.change_set.batch', input.commandId, async () => {
-      assertWritableSession(input.projectSessionId, input.agentSessionId)
-      const context = options.manager.assertActiveSession(input.projectSessionId)
-      return changeSetBatchResultSchema.parse(
-        await context.agentChangeSets.execute(input, async () => {
-          const state = await options.manager.versionHistoryState(input.projectSessionId)
-          if (state !== 'ready') return 'unavailable'
-          await options.manager.createCheckpoint(input.projectSessionId, {
-            name: `Before Agent change set ${new Date().toISOString()}`,
-            note: 'Automatic checkpoint before applying selected Agent proposals.'
-          })
-          return 'created'
+    },
+    { around: lifecycle('agent.proposal.undo', byProposal) }
+  )
+  handle(
+    agentIpcEndpoints.decideChangeSet,
+    async (input, context) => {
+      assertWritableSession(context, input.agentSessionId)
+      return context.agentChangeSets.execute(input, async () => {
+        const state = await options.manager.versionHistoryState(input.projectSessionId)
+        if (state !== 'ready') return 'unavailable'
+        await options.manager.createCheckpoint(input.projectSessionId, {
+          name: `Before Agent change set ${new Date().toISOString()}`,
+          note: 'Automatic checkpoint before applying selected Agent proposals.'
         })
-      )
-    })
-  })
-  handle(IPC_CHANNELS.agentCancelImageGeneration, (_event, rawInput: unknown) => {
-    const input = cancelImageGenerationInputSchema.parse(rawInput)
-    assertWritableSession(input.projectSessionId, input.agentSessionId)
-    return cancelImageGenerationResultSchema.parse({
-      cancelled: service(input.projectSessionId).cancelImageGeneration(
+        return 'created'
+      })
+    },
+    { around: lifecycle('agent.change_set.batch', byCommand) }
+  )
+  handle(agentIpcEndpoints.cancelImageGeneration, (input, context) => {
+    assertWritableSession(context, input.agentSessionId)
+    return {
+      cancelled: context.agentMutations.cancelImageGeneration(
         input.agentSessionId,
         input.proposalId
       )
-    })
+    }
   })
   ipc.handle(IPC_CHANNELS.agentSubscribeMutations, (event, rawInput: unknown) => {
     authorizeSender(event.senderFrame, options.developmentUrl)

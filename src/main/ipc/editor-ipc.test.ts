@@ -165,8 +165,8 @@ describe('editor IPC active-section final flush', () => {
 
   it('tracks and verifies the active non-first section revision', async () => {
     const { context, invoke, registration, sender } = harness()
-    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
-    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
     })
@@ -197,7 +197,7 @@ describe('editor IPC active-section final flush', () => {
     expect(() =>
       registration.authorizeLayoutFlush('stale', authorization.closingToken, sender.id)
     ).toThrow('not authorized')
-    invoke(IPC_CHANNELS.editorFlushAck, {
+    await invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,
       closingToken: authorization.closingToken,
       sectionId: 'section-2',
@@ -214,7 +214,7 @@ describe('editor IPC active-section final flush', () => {
 
   it('tracks an explicitly activated cached section without loading it again', async () => {
     const { context, editorPersistence, invoke, registration } = harness()
-    invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
     await expect(registration.closeParticipants.getCurrentRevision(context as never)).resolves.toBe(
       'revision-2'
     )
@@ -223,16 +223,16 @@ describe('editor IPC active-section final flush', () => {
 
   it('does not let an old subscription release remove a newer flush lease', async () => {
     const { context, invoke, registration, sender } = harness()
-    invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
-    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
     })
-    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '44444444-4444-4444-8444-444444444444'
     })
-    invoke(IPC_CHANNELS.editorUnsubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorUnsubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
     })
@@ -244,7 +244,7 @@ describe('editor IPC active-section final flush', () => {
 
     const flush = registration.closeParticipants.flushEditors(context as never, authorization)
     expect(sender.send).toHaveBeenCalledOnce()
-    invoke(IPC_CHANNELS.editorFlushAck, {
+    await invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,
       closingToken: authorization.closingToken,
       sectionId: 'section-2',
@@ -255,7 +255,7 @@ describe('editor IPC active-section final flush', () => {
 
   it('refuses to close an active editor when its final-flush subscriber is missing', async () => {
     const { context, invoke, registration } = harness()
-    invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
     await expect(
       registration.closeParticipants.flushEditors(context as never, {
         projectSessionId,
@@ -267,7 +267,7 @@ describe('editor IPC active-section final flush', () => {
 
   it('falls back safely when the previously active section was deleted', async () => {
     const { context, invoke, registration, sections } = harness()
-    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
     sections.pop()
     await expect(registration.closeParticipants.getCurrentRevision(context as never)).resolves.toBe(
       'revision-1'
@@ -300,8 +300,8 @@ describe('editor IPC active-section final flush', () => {
     const { context, invoke, logger, manager, registration, sender } = harness({
       snapshotFlushTimeoutMs: 10
     })
-    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
-    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
     })
@@ -332,8 +332,8 @@ describe('editor IPC active-section final flush', () => {
 
   it('labels whole-manuscript final flushes as export work', async () => {
     const { context, invoke, manager, registration, sender } = harness()
-    invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
-    invoke(IPC_CHANNELS.editorSubscribeFlush, {
+    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
     })
@@ -348,7 +348,7 @@ describe('editor IPC active-section final flush', () => {
         sectionRevisionId: 'revision-2'
       })
     )
-    invoke(IPC_CHANNELS.editorFlushAck, {
+    await invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,
       closingToken: snapshotClosingToken,
       purpose: 'export',

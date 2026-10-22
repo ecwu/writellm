@@ -2,66 +2,20 @@ import { reportIpcFailure } from '../observability/ipc-context'
 import { ipcMain, type IpcMain, type WebContents } from 'electron'
 import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import {
-  createSectionRequestSchema,
-  deleteSectionRequestSchema,
-  manuscriptAssemblySchema,
-  manuscriptReferenceIndexInputSchema,
-  manuscriptReferenceIndexSchema,
-  manuscriptWorkspaceInputSchema,
-  manuscriptWorkspaceSchema,
-  moveSectionRequestSchema,
-  updateManuscriptBriefRequestSchema,
-  updateSectionRequestSchema
-} from '../../shared/contracts/manuscript'
 import type { ProjectManager } from '../project/project-manager'
-import {
-  manuscriptSearchInputSchema,
-  manuscriptSearchNavigationInputSchema,
-  manuscriptSearchNavigationResultSchema,
-  manuscriptSearchResultSchema
-} from '../../shared/contracts/manuscript-search'
 import { ManuscriptSearchService } from '../manuscript/manuscript-search-service'
 import {
-  manuscriptReplacementApplyInputSchema,
-  manuscriptReplacementApplyResultSchema,
   manuscriptReplacementChangedEventSchema,
-  manuscriptReplacementDismissInputSchema,
-  manuscriptReplacementPageInputSchema,
-  manuscriptReplacementPageResultSchema,
-  manuscriptReplacementPlanInputSchema,
-  manuscriptReplacementPlanResultSchema,
-  manuscriptReplacementSubscriptionInputSchema,
-  manuscriptReplacementUndoInputSchema,
-  manuscriptReplacementUndoResultSchema,
   type ManuscriptReplacementChangedEvent
 } from '../../shared/contracts/manuscript-replacement'
 import { ManuscriptReplacementService } from '../manuscript/manuscript-replacement-service'
-import {
-  publicationPreviewInputSchema,
-  publicationPreviewSchema
-} from '../../shared/contracts/publication'
 import { PublicationService } from '../manuscript/publication-service'
-import type { IpcEndpointDefinition } from '../../shared/contracts/ipc-endpoints'
 import { manuscriptIpcEndpoints } from '../../shared/contracts/ipc-endpoints-manuscript'
-import { registerIpcEndpoint } from './endpoint'
+import { createEndpointRegistrar } from './endpoint'
+import type { ProjectContext } from '../project/project-context'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
 import { ManuscriptCommentService } from '../manuscript/comment-service'
-import {
-  changeCommentStatusInputSchema,
-  commentThreadSchema,
-  createCommentInputSchema,
-  delegateCommentsInputSchema,
-  delegateCommentsResultSchema,
-  deleteCommentInputSchema,
-  editCommentInputSchema,
-  listCommentsInputSchema,
-  listCommentsResultSchema,
-  readCommentInputSchema,
-  reanchorCommentInputSchema,
-  replyCommentInputSchema
-} from '../../shared/contracts/manuscript-comments'
 
 export interface ManuscriptIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'> {}
 
@@ -79,31 +33,18 @@ export function registerManuscriptIpc(options: {
   ): Promise<void>
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
   const ipc = options.ipc ?? ipcMain
-  const endpointByChannel = new Map<string, IpcEndpointDefinition>(
-    Object.values(manuscriptIpcEndpoints).map((endpoint) => [endpoint.channel, endpoint])
-  )
-  const handle = (
-    channel: string,
-    listener: (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => unknown
-  ): void => {
-    const endpoint = endpointByChannel.get(channel)
-    if (endpoint !== undefined) {
-      registerIpcEndpoint(ipc, endpoint, {
-        developmentUrl: options.developmentUrl,
-        manager: options.manager,
-        alwaysAsync: listener.constructor.name === 'AsyncFunction',
-        handle: (input, event) => listener(event, input)
-      })
-      return
-    }
-    ipc.handle(channel, listener)
-  }
+  const handle = createEndpointRegistrar(ipc, {
+    developmentUrl: options.developmentUrl,
+    manager: options.manager
+  })
   const replacementServices = new Map<string, ManuscriptReplacementService>()
   const commentServices = new Map<string, ManuscriptCommentService>()
   const publicationService = new PublicationService(options.logger, options.citationFormatting)
   const replacementSubscribers = new Map<string, Map<string, WebContents>>()
-  const replacementService = (projectSessionId: string): ManuscriptReplacementService => {
-    const context = options.manager.assertMutationSession(projectSessionId)
+  const replacementService = (
+    projectSessionId: string,
+    context: ProjectContext
+  ): ManuscriptReplacementService => {
     let service = replacementServices.get(projectSessionId)
     if (service === undefined) {
       service = new ManuscriptReplacementService({
@@ -115,8 +56,10 @@ export function registerManuscriptIpc(options: {
     }
     return service
   }
-  const commentService = (projectSessionId: string): ManuscriptCommentService => {
-    const context = options.manager.assertActiveSession(projectSessionId)
+  const commentService = (
+    projectSessionId: string,
+    context: ProjectContext
+  ): ManuscriptCommentService => {
     let service = commentServices.get(projectSessionId)
     if (service === undefined) {
       service = new ManuscriptCommentService({
@@ -149,10 +92,15 @@ export function registerManuscriptIpc(options: {
       }
     }
   }
-  const workspace = (projectSessionId: string) =>
-    manuscriptWorkspaceSchema.parse(
-      options.manager.assertActiveSession(projectSessionId).manuscript.getWorkspace()
-    )
+  // Endpoint output schemas validate the workspace returned by every outline operation.
+  const workspace = (context: ProjectContext) => context.manuscript.getWorkspace()
+  const lifecycle =
+    <Input extends { projectSessionId: string }>(
+      event: string,
+      details: (input: Input) => Record<string, unknown> = () => ({})
+    ) =>
+    <T>(input: Input, run: () => Promise<T>): Promise<T> =>
+      runLifecycle(event, input.projectSessionId, run, details(input))
   const runLifecycle = async <T>(
     event: string,
     projectSessionId: string,
@@ -195,11 +143,33 @@ export function registerManuscriptIpc(options: {
     }
   }
 
-  handle(IPC_CHANNELS.manuscriptGetWorkspace, (_event, input: unknown) => {
-    const parsed = manuscriptWorkspaceInputSchema.parse(input)
-    const startedAt = Date.now()
-    try {
-      const result = workspace(parsed.projectSessionId)
+  /** Log load failures, including session rejections, with the original error. */
+  const loadBoundary =
+    (event: string, message: string) =>
+    async <T>(parsed: { projectSessionId: string }, run: () => Promise<T>): Promise<T> => {
+      const startedAt = Date.now()
+      try {
+        return await run()
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          {
+            event,
+            err,
+            projectSessionId: parsed.projectSessionId,
+            durationMs: Date.now() - startedAt
+          },
+          message
+        )
+        throw err
+      }
+    }
+
+  handle(
+    manuscriptIpcEndpoints.workspace,
+    (parsed, context) => {
+      const startedAt = Date.now()
+      const result = workspace(context)
       options.logger.info(
         {
           event: 'manuscript.workspace.loaded',
@@ -211,28 +181,15 @@ export function registerManuscriptIpc(options: {
         'Manuscript workspace loaded'
       )
       return result
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        {
-          event: 'manuscript.workspace.load_failed',
-          err,
-          projectSessionId: parsed.projectSessionId,
-          durationMs: Date.now() - startedAt
-        },
-        'Manuscript workspace load failed'
-      )
-      throw err
-    }
-  })
+    },
+    { around: loadBoundary('manuscript.workspace.load_failed', 'Manuscript workspace load failed') }
+  )
 
-  handle(IPC_CHANNELS.manuscriptGetReferences, (_event, input: unknown) => {
-    const parsed = manuscriptReferenceIndexInputSchema.parse(input)
-    const startedAt = Date.now()
-    try {
-      const result = manuscriptReferenceIndexSchema.parse(
-        options.manager.assertActiveSession(parsed.projectSessionId).manuscript.getReferenceIndex()
-      )
+  handle(
+    manuscriptIpcEndpoints.references,
+    (parsed, context) => {
+      const startedAt = Date.now()
+      const result = context.manuscript.getReferenceIndex()
       options.logger.info(
         {
           event: 'manuscript.references.loaded',
@@ -244,157 +201,122 @@ export function registerManuscriptIpc(options: {
         'Manuscript reference index loaded'
       )
       return result
-    } catch (err) {
-      reportIpcFailure(
-        options.logger,
-        {
-          event: 'manuscript.references.load_failed',
-          err,
-          projectSessionId: parsed.projectSessionId,
-          durationMs: Date.now() - startedAt
-        },
+    },
+    {
+      around: loadBoundary(
+        'manuscript.references.load_failed',
         'Manuscript reference index load failed'
       )
-      throw err
     }
+  )
+
+  handle(manuscriptIpcEndpoints.preview, (_parsed, context) => context.manuscript.assemble(), {
+    around: lifecycle('manuscript.preview.load')
   })
 
-  handle(IPC_CHANNELS.manuscriptGetPreview, async (_event, input: unknown) => {
-    const parsed = manuscriptWorkspaceInputSchema.parse(input)
-    return runLifecycle('manuscript.preview.load', parsed.projectSessionId, () =>
-      manuscriptAssemblySchema.parse(
-        options.manager.assertActiveSession(parsed.projectSessionId).manuscript.assemble()
-      )
-    )
-  })
+  handle(manuscriptIpcEndpoints.publicationPreview, (parsed, context) =>
+    publicationService.preview(context, parsed.options ?? options.publicationPresets?.resolve())
+  )
 
-  handle(IPC_CHANNELS.manuscriptGetPublicationPreview, async (_event, input: unknown) => {
-    const parsed = publicationPreviewInputSchema.parse(input)
-    return publicationPreviewSchema.parse(
-      await publicationService.preview(
-        options.manager.assertActiveSession(parsed.projectSessionId),
-        parsed.options ?? options.publicationPresets?.resolve()
-      )
-    )
-  })
+  handle(
+    manuscriptIpcEndpoints.updateBrief,
+    (parsed, context) => {
+      context.manuscript.updateBrief(parsed.update)
+      return workspace(context)
+    },
+    {
+      around: lifecycle('manuscript.brief.update', (parsed) => ({
+        baseVersion: parsed.update.baseVersion
+      }))
+    }
+  )
 
-  handle(IPC_CHANNELS.manuscriptUpdateBrief, async (_event, input: unknown) => {
-    const parsed = updateManuscriptBriefRequestSchema.parse(input)
-    return runLifecycle(
-      'manuscript.brief.update',
-      parsed.projectSessionId,
-      () => {
-        options.manager
-          .assertMutationSession(parsed.projectSessionId)
-          .manuscript.updateBrief(parsed.update)
-        return workspace(parsed.projectSessionId)
-      },
-      { baseVersion: parsed.update.baseVersion }
-    )
-  })
+  handle(
+    manuscriptIpcEndpoints.createSection,
+    async (parsed, context) => {
+      const created = context.manuscript.createSection(parsed.create)
+      try {
+        await context.editorPersistence.materialize(
+          context.editorPersistence.loadSection(created.sectionId).revision
+        )
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          {
+            event: 'manuscript.section.initial_materialization_failed',
+            err,
+            projectSessionId: parsed.projectSessionId,
+            sectionId: created.sectionId
+          },
+          'New section canonical revision exists but its materialization is pending repair'
+        )
+      }
+      return workspace(options.manager.assertActiveSession(parsed.projectSessionId))
+    },
+    {
+      around: lifecycle('manuscript.section.create', (parsed) => ({
+        baseOutlineVersion: parsed.create.baseOutlineVersion
+      }))
+    }
+  )
 
-  handle(IPC_CHANNELS.manuscriptCreateSection, async (_event, input: unknown) => {
-    const parsed = createSectionRequestSchema.parse(input)
-    return runLifecycle(
-      'manuscript.section.create',
-      parsed.projectSessionId,
-      async () => {
-        const context = options.manager.assertMutationSession(parsed.projectSessionId)
-        const created = context.manuscript.createSection(parsed.create)
-        try {
-          await context.editorPersistence.materialize(
-            context.editorPersistence.loadSection(created.sectionId).revision
-          )
-        } catch (err) {
-          reportIpcFailure(
-            options.logger,
-            {
-              event: 'manuscript.section.initial_materialization_failed',
-              err,
-              projectSessionId: parsed.projectSessionId,
-              sectionId: created.sectionId
-            },
-            'New section canonical revision exists but its materialization is pending repair'
-          )
-        }
-        options.manager.assertActiveSession(parsed.projectSessionId)
-        return workspace(parsed.projectSessionId)
-      },
-      { baseOutlineVersion: parsed.create.baseOutlineVersion }
-    )
-  })
-
-  handle(IPC_CHANNELS.manuscriptUpdateSection, async (_event, input: unknown) => {
-    const parsed = updateSectionRequestSchema.parse(input)
-    return runLifecycle(
-      'manuscript.section.update',
-      parsed.projectSessionId,
-      () => {
-        options.manager
-          .assertMutationSession(parsed.projectSessionId)
-          .manuscript.updateSection(parsed.update)
-        return workspace(parsed.projectSessionId)
-      },
-      {
+  handle(
+    manuscriptIpcEndpoints.updateSection,
+    (parsed, context) => {
+      context.manuscript.updateSection(parsed.update)
+      return workspace(context)
+    },
+    {
+      around: lifecycle('manuscript.section.update', (parsed) => ({
         sectionId: parsed.update.sectionId,
         baseOutlineVersion: parsed.update.baseOutlineVersion
-      }
-    )
-  })
+      }))
+    }
+  )
 
-  handle(IPC_CHANNELS.manuscriptMoveSection, async (_event, input: unknown) => {
-    const parsed = moveSectionRequestSchema.parse(input)
-    return runLifecycle(
-      'manuscript.section.move',
-      parsed.projectSessionId,
-      () => {
-        options.manager
-          .assertMutationSession(parsed.projectSessionId)
-          .manuscript.moveSection(parsed.move)
-        return workspace(parsed.projectSessionId)
-      },
-      {
+  handle(
+    manuscriptIpcEndpoints.moveSection,
+    (parsed, context) => {
+      context.manuscript.moveSection(parsed.move)
+      return workspace(context)
+    },
+    {
+      around: lifecycle('manuscript.section.move', (parsed) => ({
         sectionId: parsed.move.sectionId,
         baseOutlineVersion: parsed.move.baseOutlineVersion
-      }
-    )
-  })
+      }))
+    }
+  )
 
-  handle(IPC_CHANNELS.manuscriptDeleteSection, async (_event, input: unknown) => {
-    const parsed = deleteSectionRequestSchema.parse(input)
-    return runLifecycle(
-      'manuscript.section.delete',
-      parsed.projectSessionId,
-      async () => {
-        const context = options.manager.assertMutationSession(parsed.projectSessionId)
-        context.manuscript.deleteSection(parsed.delete)
-        try {
-          await context.editorPersistence.removeMaterialization(parsed.delete.sectionId)
-        } catch (err) {
-          reportIpcFailure(
-            options.logger,
-            {
-              event: 'manuscript.section.materialization_delete_failed',
-              err,
-              projectSessionId: parsed.projectSessionId,
-              sectionId: parsed.delete.sectionId
-            },
-            'Deleted section materialization cleanup failed'
-          )
-        }
-        options.manager.assertActiveSession(parsed.projectSessionId)
-        return workspace(parsed.projectSessionId)
-      },
-      {
+  handle(
+    manuscriptIpcEndpoints.deleteSection,
+    async (parsed, context) => {
+      context.manuscript.deleteSection(parsed.delete)
+      try {
+        await context.editorPersistence.removeMaterialization(parsed.delete.sectionId)
+      } catch (err) {
+        reportIpcFailure(
+          options.logger,
+          {
+            event: 'manuscript.section.materialization_delete_failed',
+            err,
+            projectSessionId: parsed.projectSessionId,
+            sectionId: parsed.delete.sectionId
+          },
+          'Deleted section materialization cleanup failed'
+        )
+      }
+      return workspace(options.manager.assertActiveSession(parsed.projectSessionId))
+    },
+    {
+      around: lifecycle('manuscript.section.delete', (parsed) => ({
         sectionId: parsed.delete.sectionId,
         baseOutlineVersion: parsed.delete.baseOutlineVersion
-      }
-    )
-  })
+      }))
+    }
+  )
 
-  handle(IPC_CHANNELS.manuscriptSearch, async (_event, input: unknown) => {
-    const parsed = manuscriptSearchInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(manuscriptIpcEndpoints.search, async (parsed, context) => {
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     try {
@@ -405,15 +327,13 @@ export function registerManuscriptIpc(options: {
       const result = await service.search(parsed, controller.signal)
       options.manager.assertActiveSession(parsed.projectSessionId)
       const { metrics: _metrics, ...bounded } = result
-      return manuscriptSearchResultSchema.parse(bounded)
+      return bounded
     } finally {
       release?.()
     }
   })
 
-  handle(IPC_CHANNELS.manuscriptSearchRevalidate, async (_event, input: unknown) => {
-    const parsed = manuscriptSearchNavigationInputSchema.parse(input)
-    const context = options.manager.assertActiveSession(parsed.projectSessionId)
+  handle(manuscriptIpcEndpoints.revalidateSearch, async (parsed, context) => {
     const controller = new AbortController()
     const release = context.operations?.track(controller)
     try {
@@ -422,15 +342,14 @@ export function registerManuscriptIpc(options: {
         log: options.logger
       }).revalidate(parsed, controller.signal)
       options.manager.assertActiveSession(parsed.projectSessionId)
-      return manuscriptSearchNavigationResultSchema.parse(result)
+      return result
     } finally {
       release?.()
     }
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementPlan, async (_event, rawInput: unknown) => {
-    const input = manuscriptReplacementPlanInputSchema.parse(rawInput)
-    const service = replacementService(input.projectSessionId)
+  handle(manuscriptIpcEndpoints.createReplacementPlan, async (input, context) => {
+    const service = replacementService(input.projectSessionId, context)
     const sectionIds = service.scopeSectionIds(input)
     await options.flushForMutation?.(input.projectSessionId, sectionIds, true)
     options.manager.assertMutationSession(input.projectSessionId)
@@ -439,29 +358,22 @@ export function registerManuscriptIpc(options: {
       .assertActiveSession(input.projectSessionId)
       .operations?.track(controller)
     try {
-      return manuscriptReplacementPlanResultSchema.parse(
-        await service.createPlan(input, controller.signal)
-      )
+      return await service.createPlan(input, controller.signal)
     } finally {
       release?.()
     }
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementPage, (_event, rawInput: unknown) => {
-    const input = manuscriptReplacementPageInputSchema.parse(rawInput)
-    return manuscriptReplacementPageResultSchema.parse(
-      replacementService(input.projectSessionId).page(input)
-    )
+  handle(manuscriptIpcEndpoints.replacementPage, (input, context) => {
+    return replacementService(input.projectSessionId, context).page(input)
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementDismiss, (_event, rawInput: unknown) => {
-    const input = manuscriptReplacementDismissInputSchema.parse(rawInput)
-    replacementService(input.projectSessionId).dismiss(input.planId)
+  handle(manuscriptIpcEndpoints.dismissReplacementPlan, (input, context) => {
+    replacementService(input.projectSessionId, context).dismiss(input.planId)
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementApply, async (_event, rawInput: unknown) => {
-    const input = manuscriptReplacementApplyInputSchema.parse(rawInput)
-    const service = replacementService(input.projectSessionId)
+  handle(manuscriptIpcEndpoints.applyReplacement, async (input, context) => {
+    const service = replacementService(input.projectSessionId, context)
     const sectionIds = service.selectedSectionIds(input)
     if (sectionIds !== null)
       await options.flushForMutation?.(input.projectSessionId, sectionIds, true)
@@ -477,9 +389,7 @@ export function registerManuscriptIpc(options: {
       checkpointCreated = true
     }
     options.manager.assertMutationSession(input.projectSessionId)
-    const result = manuscriptReplacementApplyResultSchema.parse(
-      await service.apply(input, checkpointCreated)
-    )
+    const result = await service.apply(input, checkpointCreated)
     if (result.status === 'applied') {
       publishReplacementChanged({
         projectSessionId: input.projectSessionId,
@@ -493,16 +403,13 @@ export function registerManuscriptIpc(options: {
     return result
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementUndo, async (_event, rawInput: unknown) => {
-    const input = manuscriptReplacementUndoInputSchema.parse(rawInput)
-    const service = replacementService(input.projectSessionId)
+  handle(manuscriptIpcEndpoints.undoReplacement, async (input, context) => {
+    const service = replacementService(input.projectSessionId, context)
     const sectionId = service.undoSectionId(input.undoCapability)
     if (sectionId !== null)
       await options.flushForMutation?.(input.projectSessionId, [sectionId], true)
     options.manager.assertMutationSession(input.projectSessionId)
-    const result = manuscriptReplacementUndoResultSchema.parse(
-      await service.undo(input.undoCapability)
-    )
+    const result = await service.undo(input.undoCapability)
     if (result.status === 'undone') {
       publishReplacementChanged({
         projectSessionId: input.projectSessionId,
@@ -513,17 +420,14 @@ export function registerManuscriptIpc(options: {
     return result
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementSubscribe, (event, rawInput: unknown) => {
-    const input = manuscriptReplacementSubscriptionInputSchema.parse(rawInput)
-    options.manager.assertActiveSession(input.projectSessionId)
+  handle(manuscriptIpcEndpoints.replacementSubscribe, (input, _context, event) => {
     const subscriptions =
       replacementSubscribers.get(input.projectSessionId) ?? new Map<string, WebContents>()
     subscriptions.set(input.subscriptionId, event.sender)
     replacementSubscribers.set(input.projectSessionId, subscriptions)
   })
 
-  handle(IPC_CHANNELS.manuscriptReplacementUnsubscribe, (event, rawInput: unknown) => {
-    const input = manuscriptReplacementSubscriptionInputSchema.parse(rawInput)
+  handle(manuscriptIpcEndpoints.replacementUnsubscribe, (input, _context, event) => {
     const subscriptions = replacementSubscribers.get(input.projectSessionId)
     if (subscriptions?.get(input.subscriptionId)?.id === event.sender.id) {
       subscriptions.delete(input.subscriptionId)
@@ -531,56 +435,38 @@ export function registerManuscriptIpc(options: {
     }
   })
 
-  handle(IPC_CHANNELS.manuscriptCommentsList, (_event, rawInput: unknown) => {
-    const input = listCommentsInputSchema.parse(rawInput)
-    return listCommentsResultSchema.parse(commentService(input.projectSessionId).list(input))
+  handle(manuscriptIpcEndpoints.listComments, (input, context) => {
+    return commentService(input.projectSessionId, context).list(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsRead, (_event, rawInput: unknown) => {
-    const input = readCommentInputSchema.parse(rawInput)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).read(input.threadId))
+  handle(manuscriptIpcEndpoints.readComment, (input, context) => {
+    return commentService(input.projectSessionId, context).read(input.threadId)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsCreate, async (_event, rawInput: unknown) => {
-    const input = createCommentInputSchema.parse(rawInput)
+  handle(manuscriptIpcEndpoints.createComment, async (input) => {
     await options.flushForMutation?.(input.projectSessionId, [input.sectionId])
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).create(input))
+    // The editor flush awaits, so revalidate the mutation capability before writing.
+    const current = options.manager.assertMutationSession(input.projectSessionId)
+    return commentService(input.projectSessionId, current).create(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsReply, (_event, rawInput: unknown) => {
-    const input = replyCommentInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).reply(input))
+  handle(manuscriptIpcEndpoints.replyComment, (input, context) => {
+    return commentService(input.projectSessionId, context).reply(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsEdit, (_event, rawInput: unknown) => {
-    const input = editCommentInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).edit(input))
+  handle(manuscriptIpcEndpoints.editComment, (input, context) => {
+    return commentService(input.projectSessionId, context).edit(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsResolve, (_event, rawInput: unknown) => {
-    const input = changeCommentStatusInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).resolve(input))
+  handle(manuscriptIpcEndpoints.resolveComment, (input, context) => {
+    return commentService(input.projectSessionId, context).resolve(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsReopen, (_event, rawInput: unknown) => {
-    const input = changeCommentStatusInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).reopen(input))
+  handle(manuscriptIpcEndpoints.reopenComment, (input, context) => {
+    return commentService(input.projectSessionId, context).reopen(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsDelete, (_event, rawInput: unknown) => {
-    const input = deleteCommentInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    commentService(input.projectSessionId).delete(input)
+  handle(manuscriptIpcEndpoints.deleteComment, (input, context) => {
+    commentService(input.projectSessionId, context).delete(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsReanchor, (_event, rawInput: unknown) => {
-    const input = reanchorCommentInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return commentThreadSchema.parse(commentService(input.projectSessionId).reanchor(input))
+  handle(manuscriptIpcEndpoints.reanchorComment, (input, context) => {
+    return commentService(input.projectSessionId, context).reanchor(input)
   })
-  handle(IPC_CHANNELS.manuscriptCommentsDelegate, (_event, rawInput: unknown) => {
-    const input = delegateCommentsInputSchema.parse(rawInput)
-    options.manager.assertMutationSession(input.projectSessionId)
-    return delegateCommentsResultSchema.parse(
-      commentService(input.projectSessionId).delegate(input)
-    )
+  handle(manuscriptIpcEndpoints.delegateComments, (input, context) => {
+    return commentService(input.projectSessionId, context).delegate(input)
   })
 
   const channels = [

@@ -195,7 +195,7 @@ export class ProjectIndexService {
   }
 
   async handleRefresh(context: JobHandlerContext): Promise<void> {
-    if (context.signal.aborted) throw abortError()
+    if (context.signal.aborted) throw createAbortError('Index operation aborted')
     if (context.job.type === 'rebuild_index') await waitForGenerationBuildDebounce(context)
     const current = this.#currentGeneration()
     this.#enqueueBuild(current.generationId, context.job.jobId)
@@ -590,7 +590,7 @@ async function waitForGenerationBuildDebounce(context: JobHandlerContext): Promi
     const onAbort = (): void => {
       clearTimeout(timer)
       context.signal.removeEventListener('abort', onAbort)
-      reject(abortError())
+      reject(createAbortError('Index operation aborted'))
     }
     const timer = setTimeout(() => {
       context.signal.removeEventListener('abort', onAbort)
@@ -702,8 +702,4 @@ function hashSourceSet(sources: readonly IndexSource[]): string {
       })
     )
   )
-}
-
-function abortError(): Error {
-  return createAbortError('Index operation aborted')
 }

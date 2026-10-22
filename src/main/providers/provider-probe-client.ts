@@ -48,7 +48,7 @@ export class ProviderProbeClient {
     credential: string | undefined,
     signal: AbortSignal
   ): Promise<ConnectionProbeResult> {
-    if (signal.aborted) return Promise.reject(abortError())
+    if (signal.aborted) return Promise.reject(createAbortError('Provider probe aborted'))
     const request: ProviderProbeRequest = {
       requestId: randomUUID(),
       projectSessionId: null,
@@ -60,7 +60,7 @@ export class ProviderProbeClient {
         requestId: request.requestId,
         payload: request,
         signal,
-        rejectOnAbort: abortError(),
+        rejectOnAbort: createAbortError('Provider probe aborted'),
         cancelPayload: {
           type: 'cancel',
           requestId: request.requestId,
@@ -110,8 +110,4 @@ export class ProviderProbeClient {
     }
     return { kind: 'resolve', value: parsed.data }
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Provider probe aborted')
 }

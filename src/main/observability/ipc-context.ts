@@ -111,6 +111,7 @@ function isExpectedRejection(err: unknown): boolean {
   if (classify === undefined) return false
   try {
     return someInCauseChain(err, classify)
+    // error-handling: allow owner=ipc-logging reason=unclassifiable-error-logs-at-error-level
   } catch {
     // An object that cannot be classified is reported at error level rather than not at all.
     return false
@@ -125,6 +126,7 @@ function someInCauseChain(err: unknown, matches: (value: unknown) => boolean): b
     let descriptor: PropertyDescriptor | undefined
     try {
       descriptor = Object.getOwnPropertyDescriptor(current, 'cause')
+      // error-handling: allow owner=ipc-logging reason=hostile-cause-stops-classification
     } catch {
       // A hostile cause descriptor cannot suppress reporting the original thrown object.
       return false

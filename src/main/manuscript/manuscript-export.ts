@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import { randomUUID } from 'node:crypto'
 import { access, lstat, mkdir, readFile, realpath, rename, rm } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
@@ -543,13 +544,12 @@ async function captureAssets(options: {
     for (const revisionId of references.get(assetId) ?? []) {
       const registered = options.database.immediate(
         (database) =>
-          database
-            .prepare(
-              `SELECT 1 FROM section_revision_assets
-               WHERE section_revision_id = ? AND asset_id = ?`
-            )
-            .pluck()
-            .get(revisionId, assetId) === 1
+          cachedStatement(
+            database,
+            `SELECT 1 FROM section_revision_assets
+               WHERE section_revision_id = ? AND asset_id = ?`,
+            { pluck: true }
+          ).get(revisionId, assetId) === 1
       )
       if (!registered) throw new Error('Manuscript asset revision registration is missing')
     }
@@ -663,7 +663,10 @@ async function assertNoSymbolicSegments(root: string, relativePath: string): Pro
 }
 
 function canonicalJson(value: unknown): string {
+  // The historical export serializer enumerated object keys without a prototype check.
   const normalized = canonicalizeJson(value, {
+    enumerateNonPlainObjects: true,
+    ignoreSymbolKeys: true,
     onError: (error) => new Error(manuscriptCanonicalJsonErrorMessage(error), { cause: error })
   })
   const serialized = JSON.stringify(normalized)

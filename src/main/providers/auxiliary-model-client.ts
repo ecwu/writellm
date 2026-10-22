@@ -124,13 +124,13 @@ export class AuxiliaryModelClient
     signal: AbortSignal,
     projectSessionId?: string
   ): Promise<AuxiliarySuccessResponse> {
-    if (signal.aborted) return Promise.reject(abortError())
+    if (signal.aborted) return Promise.reject(createAbortError('Auxiliary model request aborted'))
     const requestWithSession = { ...request, projectSessionId: projectSessionId ?? null }
     return this.#worker.request({
       requestId: request.requestId,
       payload: requestWithSession,
       signal,
-      rejectOnAbort: abortError(),
+      rejectOnAbort: createAbortError('Auxiliary model request aborted'),
       cancelPayload: {
         type: 'cancel',
         requestId: request.requestId,
@@ -176,8 +176,4 @@ export class AuxiliaryModelClient
     }
     return { kind: 'resolve', value: response }
   }
-}
-
-function abortError(): Error {
-  return createAbortError('Auxiliary model request aborted')
 }

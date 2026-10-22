@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import type Database from 'better-sqlite3'
 import {
   briefUpdateSchema,
@@ -357,10 +358,9 @@ export function assertOutlineCreateIdsAvailable(
 ): void {
   for (const operation of mutation.operations) {
     if (operation.type !== 'createSection') continue
-    const exists = database
-      .prepare('SELECT 1 FROM sections WHERE section_id = ?')
-      .pluck()
-      .get(operation.sectionId)
+    const exists = cachedStatement(database, 'SELECT 1 FROM sections WHERE section_id = ?', {
+      pluck: true
+    }).get(operation.sectionId)
     if (exists === 1) {
       throw new MutationSimulationError('id_collision', 'Section ID already exists')
     }
@@ -532,10 +532,11 @@ export function validateMutationAssetReferences(
   }
   visit(mutation)
   for (const assetId of assetIds) {
-    const active = database
-      .prepare("SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'")
-      .pluck()
-      .get(assetId)
+    const active = cachedStatement(
+      database,
+      "SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'",
+      { pluck: true }
+    ).get(assetId)
     if (active !== 1) {
       throw new AgentToolDomainError(
         'invalid_arguments',

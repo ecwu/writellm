@@ -57,7 +57,7 @@ export class RetrievalService {
     options: { ftsMode?: 'phrase' | 'terms' } = {}
   ): Promise<KnowledgeSearchResult> {
     const input = knowledgeSearchInputSchema.parse(rawInput)
-    if (signal.aborted) throw abortError()
+    if (signal.aborted) throw createAbortError('Retrieval operation aborted')
     const operationId = randomUUID()
     const state = await this.options.client.retrievalState(signal)
     if (state.activeIndexGenerationId === null) {
@@ -325,8 +325,4 @@ function toSearchHit(entry: RankedCandidate): KnowledgeSearchHit {
 function snippet(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
   return normalized.length <= 1_200 ? normalized : `${normalized.slice(0, 1_199)}…`
-}
-
-function abortError(): Error {
-  return createAbortError('Retrieval operation aborted')
 }

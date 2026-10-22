@@ -103,7 +103,7 @@ export class CitationFormattingService {
         controller.signal
       )
       if (this.#active.get(context.manifest.projectId) !== controller) {
-        throw abortError()
+        throw createAbortError('Citation formatting was superseded')
       }
       const rawByClusterId = new Map(
         completeClusters.map((cluster) => [cluster.clusterId, cluster.raw])
@@ -196,20 +196,16 @@ function clustersFromOccurrences(
 }
 
 function debounce(signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.reject(abortError())
+  if (signal.aborted) return Promise.reject(createAbortError('Citation formatting was superseded'))
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, 300)
     signal.addEventListener(
       'abort',
       () => {
         clearTimeout(timer)
-        reject(abortError())
+        reject(createAbortError('Citation formatting was superseded'))
       },
       { once: true }
     )
   })
-}
-
-function abortError(): Error {
-  return createAbortError('Citation formatting was superseded')
 }

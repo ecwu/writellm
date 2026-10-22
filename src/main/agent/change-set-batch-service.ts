@@ -1,3 +1,4 @@
+import { cachedStatement } from '../db/statement-cache'
 import type Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
@@ -193,12 +194,11 @@ export class ChangeSetBatchService {
         throw new Error('Only currently pending proposals may begin a batch decision')
       }
       for (const proposal of proposals) {
-        const current = database
-          .prepare(
-            `SELECT status, writing_task_id FROM mutation_proposals
+        const current = cachedStatement(
+          database,
+          `SELECT status, writing_task_id FROM mutation_proposals
               WHERE mutation_proposal_id = ? AND agent_session_id = ?`
-          )
-          .get(proposal.proposalId, input.agentSessionId) as
+        ).get(proposal.proposalId, input.agentSessionId) as
           | { status: string; writing_task_id: string | null }
           | undefined
         if (current?.status !== 'pending' || current.writing_task_id !== input.taskId) {
