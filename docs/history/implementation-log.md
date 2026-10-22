@@ -6594,3 +6594,69 @@ This task creates no commit, push, or GitHub issue update.
 Evidence: [static gate](../../.cache/verification/1792616076721-85410-a8f33c7f/stages-1792616076721-85410-a8f33c7f.json),
 [complete Electron suite](../../.cache/verification/1792616085216-85696-ebb72f5d/vitest-1792616085603-85697-94513c9b.json), and
 [source E2E](../../.cache/verification/1792616139136-86906-39dbe92d/e2e-1792616139474-86907-0a8535a3.json).
+
+## 2026-10-21 Pi 1.3 and compatible dependency maintenance
+
+The user authorizes updating Pi to 1.3 and all compatible dependency updates.
+[ADR 056](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-10-21-pi-13-and-compatible-maintenance-amendment) records the decisions.
+
+Pi Agent Core and Pi AI advance from 1.0.0 to 1.3.0, and `AGENT_RUNTIME_VERSION` follows them.
+The installed tree no longer resolves any Pi 1.0 package.
+
+Pi 1.0.3 renamed the built-in Azure provider. The catalog keeps the stable `builtin:azure-openai-responses` key, so existing selections, preferences, provider records, and bound credentials remain valid.
+A catalog regression covers the stored key, credential binding, and resolution to Pi's `azure` provider.
+
+The Agent worker now streams Azure models through Pi's Azure provider.
+A routing regression shows the generic Chat Completions transport could not resolve an Azure endpoint.
+While confirming that regression on the generic path, one request with the fake test key `azure-test-key` reached `api.openai.com` and received a 401. The fixed path fails locally before any network request.
+
+Compatible updates:
+
+- `@ai-sdk/cohere` 4.0.65, `@ai-sdk/openai-compatible` 3.0.74, `ai` 7.0.147, and `openai` 7.39.0
+- `@tanstack/react-query` 5.104.5, `dockview-react` 8.6.1, and `docx` 9.13.0
+- `isomorphic-git` 1.44.3 and `kysely` 0.29.7
+- `lucide-react` ^1.60.0 and `react-resizable-panels` ^4.14.7
+- `vitest` ^5.0.5
+- `vite` ^7.3.7, which repairs five advisories against 7.3.6
+
+Each selected version is at least one day old under the release-age policy. Newer releases from the last day remain excluded.
+The excluded majors and coupled migrations in the ADR remain deferred.
+
+Verification on macOS arm64 with pnpm 11.28.3:
+
+- A frozen installation passes.
+- The production audit reports one low KaTeX advisory. The full audit adds the unresolved moderate sprintf-js advisory. This matches the documented baseline after the Vite repair.
+- The static gate passes.
+- The complete Electron-hosted suite passes 1,913 tests in 301 files, with three optional benchmarks skipped, in 23.4 seconds.
+
+Package gate:
+
+- The final run passes all ten stages in 257.3 seconds, with one App build.
+- It covers twelve runtime checks, 45 of 45 packaged scenarios with zero retries, the installers, and artifact checksums.
+- The same build then passes all 67 source E2E scenarios in 198.2 seconds, with zero retries.
+
+Earlier package gate attempts did not count as acceptance:
+
+- The first stopped before any stage because a stale `dist/macos-arm64/mac-arm64` directory could not be removed (`ENOTEMPTY`).
+- The second failed `agent.message-copy-edit` at a focus tooltip assertion. The scenario then passed three isolated reruns against the same App.
+- The third failed `workbench.tabs-docking-restore`.
+
+Repeated runs and a HEAD worktree bisect located the `workbench.tabs-docking-restore` failure:
+
+| Configuration | Failures |
+| --- | --- |
+| This change set | 1 of 10 |
+| This change set with Dockview 8.5.1 | 2 of 10 |
+| HEAD with the new dependencies | 2 of 10 |
+| HEAD with the new dependencies and react-resizable-panels 4.14.5 | 6 of 12 |
+| HEAD with the new dependencies and Vite 7.3.6 | 1 of 12 |
+| Unmodified HEAD `7b5e287` | 2 of 25 |
+
+The native-menu Knowledge toggle is therefore a pre-existing intermittent failure and not introduced here. It needs a separate fix.
+The host Node 26.12.0 exceeds the declared 24.x engine range. Windows, Linux, and macOS x64 remain unverified.
+This task creates no commit, push, release, or GitHub issue update.
+
+Evidence: [complete Electron suite](../../.cache/verification/1792617714359-16522-d85631cc/vitest-1792617714649-16523-99df7bd4.json),
+[package gate](../../.cache/verification/1792621763700-69655-904ebf72/stages-1792621763700-69655-904ebf72.json),
+[packaged scenarios](../../.cache/verification/1792621763700-69655-904ebf72/e2e-1792621845962-70417-62de8a2e.json), and
+[source E2E](../../.cache/verification/1792622033920-72377-b4c79069/e2e-1792622034248-72378-5647a7b3.json).

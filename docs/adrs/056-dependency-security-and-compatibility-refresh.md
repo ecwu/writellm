@@ -213,3 +213,45 @@ Acceptance requires frozen installation, both dependency audits, the complete El
 The package gate builds one App for runtime scenarios, packaged interaction scenarios, and installers.
 The existing build also covers source-only interaction scenarios when their compiled inputs match.
 This host establishes macOS arm64 acceptance only.
+
+## 2026-10-21 Pi 1.3 and compatible maintenance amendment
+
+The user authorizes updating Pi to 1.3 and all compatible dependency updates.
+This replaces the earlier deferral of the Pi 1.2 migration.
+
+Pi Agent Core and Pi AI advance together from 1.0.0 to 1.3.0, and `AGENT_RUNTIME_VERSION` follows them.
+WriteLLM uses none of the removed or retyped Pi APIs:
+
+- 1.3 removes the experimental assistant message frame helpers.
+- 1.1 requires `AssistantMessageEventStream` return values; WriteLLM's stream adapter already returns them.
+
+New sessions record runtime version 1.3.0. Existing sessions keep their recorded value, which is informational only.
+
+Pi 1.0.3 renamed the built-in `azure-openai-responses` provider to `azure`.
+WriteLLM keeps `builtin:azure-openai-responses` as the stable preset key and maps it to the Pi provider ID only at the catalog boundary.
+Existing model selections, provider preferences, provider records, and bound credentials remain valid without a migration.
+Credential bindings keep the original provider record.
+
+Pi's Azure provider also serves Chat Completions models. That transport needs Azure endpoint and deployment resolution.
+The Agent worker therefore streams Azure models through Pi's Azure provider.
+The generic transport would send the Azure credential to the default OpenAI endpoint.
+
+These dependencies also advance within their accepted major versions:
+
+- AI SDK Core, its Cohere and OpenAI-compatible adapters, and OpenAI
+- TanStack Query, Dockview, and DOCX
+- isomorphic-git and Kysely
+- Lucide and React Resizable Panels
+- Vitest
+- Vite, to 7.3.7, which repairs five advisories against 7.3.6
+
+Each selected version is at least one day old under the release-age policy, so no new exception is required.
+TypeBox remains on 1.3 because Pi pins its own 1.3 copy.
+Biome remains on 2.5 because no 2.6 release has reached the one-day release age.
+
+Electron 45, Node 26 type declarations, Vite 8 with plugin-react 6 and electron-vite 6, p-queue 10, BlockNote 0.56, Mermaid 12.2, and KaTeX 0.19 remain separate migrations.
+The production audit retains only the low KaTeX advisory. The full audit also retains the unresolved sprintf-js advisory.
+No database migration, content schema, provider capability, or process authority changes.
+
+Acceptance requires frozen installation, both dependency audits, the complete Electron-hosted suite, and the full package gate.
+This host establishes macOS arm64 acceptance only.

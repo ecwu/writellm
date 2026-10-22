@@ -26,7 +26,7 @@ import { agentQuickActionIdSchema, agentQuickActionSelectedTextSchema } from './
 export { agentRuntimeAuthSchema, type AgentRuntimeAuth } from './agent-auth'
 
 export const AGENT_EVENT_SCHEMA_VERSION = 4
-export const AGENT_RUNTIME_VERSION = '1.0.0'
+export const AGENT_RUNTIME_VERSION = '1.3.0'
 
 export const agentSessionIdSchema = z.uuid()
 export const agentRunIdSchema = z.uuid()

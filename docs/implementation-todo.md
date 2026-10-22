@@ -22,8 +22,11 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Pi 1.3 and compatible dependency maintenance pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md); changes are uncommitted.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance).
 - [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are uncommitted.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-19-follow-up-repairs).
+
 - [x] Issue 18 maintenance: targeted repairs pass local macOS arm64 acceptance under [ADR 086](adrs/086-issue-18-engineering-quality.md); changes are pushed and the issue is closed.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-issue-18-engineering-quality).
 

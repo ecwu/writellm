@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
+Status: Pi 1.3 dependency maintenance and Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
 Issue 18 maintenance is committed, pushed, and closed.
 Issue 2 compatible dependency maintenance passes local acceptance. Release 0.2026.10.2 is published.
 Recorded: 2026-10-21
@@ -11,6 +11,12 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+Pi Agent Core and Pi AI advance to 1.3.0, together with compatible provider, Renderer, data, test, and Vite repairs.
+The Azure preset key and credentials remain stable across Pi's provider rename. Azure models stream through Pi's Azure provider.
+The full package gate passes with 45 packaged scenarios and installers. All 67 source scenarios also pass with zero retries.
+`workbench.tabs-docking-restore` is a pre-existing intermittent failure: it also fails on unmodified HEAD.
+[Dependency evidence](history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance) records versions, audits, attempts, and the bisect.
 
 Issue 19 follow-up repairs pass local macOS arm64 acceptance and remain uncommitted.
 [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md) makes the endpoint registration the only Main-side IPC authority.
@@ -101,6 +107,7 @@ Earlier fixture failures and manual reruns remain in the evidence. Final accepte
 ## Current authorized work
 
 The user authorizes fixing the Issue 19 findings. The repairs are implemented and verified locally.
+The user authorizes the Pi 1.3 update and compatible dependency updates. They are implemented and verified locally.
 Committing, pushing, and updating Issue 19 are not yet authorized.
 
 The authorized Issue 18 maintenance passes local acceptance for the combined source.

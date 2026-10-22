@@ -340,7 +340,7 @@ export class AgentProviderCatalogService {
   async removePreset(presetId: string): Promise<void> {
     const parsed = agentPresetIdSchema.parse(presetId)
     if (parsed.startsWith('builtin:')) {
-      await this.#credentialStore.delete(parsed.slice('builtin:'.length))
+      await this.#credentialStore.delete(builtinProviderIdForKey(parsed.slice('builtin:'.length)))
     } else {
       await this.database.kysely.transaction().execute(async (transaction) => {
         await transaction
@@ -617,7 +617,9 @@ export class AgentProviderCatalogService {
       modelsStore: this.#modelsStore
     })
     for (const provider of builtinProviders()) {
-      models.setProvider(await this.#withManualModels(provider, `builtin:${provider.id}`))
+      models.setProvider(
+        await this.#withManualModels(provider, `builtin:${builtinPresetKey(provider.id)}`)
+      )
     }
     for (const preset of await this.#customPresets()) {
       models.setProvider(
@@ -632,7 +634,7 @@ export class AgentProviderCatalogService {
     models: Models
   ): Promise<AgentProviderPresetSummary> {
     const custom = await this.#customPresetByProviderId(provider.id)
-    const presetId = custom?.presetId ?? `builtin:${provider.id}`
+    const presetId = custom?.presetId ?? `builtin:${builtinPresetKey(provider.id)}`
     let authConfigured = false
     let authSource: string | null = null
     try {
@@ -768,7 +770,7 @@ export class AgentProviderCatalogService {
 
   async #provider(presetId: string): Promise<Provider> {
     if (presetId.startsWith('builtin:')) {
-      const providerId = presetId.slice('builtin:'.length)
+      const providerId = builtinProviderIdForKey(presetId.slice('builtin:'.length))
       const provider = builtinProviders().find((candidate) => candidate.id === providerId)
       if (provider === undefined) throw new Error('Agent provider preset does not exist')
       return provider
@@ -888,7 +890,9 @@ export class AgentProviderCatalogService {
   }
 
   async #runtimeProviderId(presetId: string): Promise<string> {
-    if (presetId.startsWith('builtin:')) return presetId.slice('builtin:'.length)
+    if (presetId.startsWith('builtin:')) {
+      return builtinProviderIdForKey(presetId.slice('builtin:'.length))
+    }
     const custom = await this.#customPreset(presetId)
     if (custom === null) throw new Error('Agent provider preset does not exist')
     return custom.providerId
@@ -896,7 +900,9 @@ export class AgentProviderCatalogService {
 
   async #providerConfigId(providerId: string): Promise<string> {
     const custom = await this.#customPresetByProviderId(providerId)
-    return custom === null ? `agent:builtin:${providerId}` : `agent:${custom.presetId}`
+    return custom === null
+      ? `agent:builtin:${builtinPresetKey(providerId)}`
+      : `agent:${custom.presetId}`
   }
 
   async #ensureProviderRecord(provider: Provider, presetId: string): Promise<void> {
@@ -1267,6 +1273,30 @@ function safeRefreshErrorCode(error: unknown): string {
   if (error instanceof DOMException && error.name === 'AbortError') return 'aborted'
   if (error instanceof Error && /HTTP \d{3}/.test(error.message)) return 'provider_rejected'
   return 'refresh_failed'
+}
+
+/**
+ * Pi 1.0.3 renamed its built-in `azure-openai-responses` provider to `azure`. WriteLLM keeps the
+ * original preset key, so persisted model selections, preferences, provider records, and bound
+ * credentials stay valid without a migration. Only Pi-facing provider IDs use the new name.
+ */
+const BUILTIN_PRESET_KEY_BY_PROVIDER_ID: Readonly<Record<string, string>> = Object.freeze({
+  azure: 'azure-openai-responses'
+})
+const BUILTIN_PROVIDER_ID_BY_PRESET_KEY: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(
+    Object.entries(BUILTIN_PRESET_KEY_BY_PROVIDER_ID).map(([providerId, key]) => [key, providerId])
+  )
+)
+
+/** Return the stable WriteLLM preset key for a Pi built-in provider ID. */
+export function builtinPresetKey(providerId: string): string {
+  return BUILTIN_PRESET_KEY_BY_PROVIDER_ID[providerId] ?? providerId
+}
+
+/** Return the current Pi built-in provider ID for a stable WriteLLM preset key. */
+export function builtinProviderIdForKey(presetKey: string): string {
+  return BUILTIN_PROVIDER_ID_BY_PRESET_KEY[presetKey] ?? presetKey
 }
 
 export function isBuiltinProviderId(value: string): value is BuiltinProvider {

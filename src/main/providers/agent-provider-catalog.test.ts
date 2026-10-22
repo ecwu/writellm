@@ -112,6 +112,39 @@ describe('AgentProviderCatalogService', () => {
       database.close()
     }
   })
+  it('keeps the persisted Azure preset key and credential across the Pi provider rename', async () => {
+    const { database, credentials, catalog } = await createHarness()
+    try {
+      const before = await catalog.snapshot()
+      expect(before.presets.some((preset) => preset.presetId === 'builtin:azure')).toBe(false)
+      expect(
+        before.presets.find((preset) => preset.presetId === 'builtin:azure-openai-responses')
+      ).toMatchObject({ kind: 'builtin', providerId: 'azure', authConfigured: false })
+
+      await catalog.setApiKey('builtin:azure-openai-responses', 'azure-test-key')
+      // The credential stays bound to the provider record that earlier releases created.
+      expect(
+        JSON.parse(
+          (await credentials.readPersistedValue('agent:builtin:azure-openai-responses')) ?? '{}'
+        )
+      ).toEqual({ type: 'api_key', key: 'azure-test-key' })
+      const azure = (await catalog.snapshot()).presets.find(
+        (preset) => preset.presetId === 'builtin:azure-openai-responses'
+      )
+      expect(azure?.authConfigured).toBe(true)
+      const modelId = azure?.models[0]?.id
+      if (modelId === undefined) throw new Error('Azure catalog fixture is empty')
+
+      const resolved = await catalog.resolve({
+        presetId: 'builtin:azure-openai-responses',
+        modelId
+      })
+      expect(resolved.model.provider).toBe('azure')
+    } finally {
+      database.close()
+    }
+  })
+
   it('exposes GPT-6 Astra for OpenAI API and Codex subscription presets', async () => {
     const { database, catalog } = await createHarness()
     try {

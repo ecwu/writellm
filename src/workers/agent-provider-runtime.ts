@@ -63,7 +63,17 @@ export function apiKeyForProvider(
   return providerId === configuredProviderId ? auth.apiKey : undefined
 }
 
-export async function loadAgentStreamSimple(api: Api): Promise<ProviderStreams['streamSimple']> {
+export async function loadAgentStreamSimple(
+  api: Api,
+  providerId?: string
+): Promise<ProviderStreams['streamSimple']> {
+  // Azure resolves its resource endpoint and deployment name in the provider wrapper. Its
+  // Chat Completions models would otherwise reach the generic transport without either.
+  if (providerId === 'azure') {
+    const { azureProvider } = await import('@earendil-works/pi-ai/providers/azure')
+    const provider = azureProvider()
+    return (model, context, options) => provider.streamSimple(model, context, options)
+  }
   switch (api) {
     case 'openai-completions':
       return (await import('@earendil-works/pi-ai/api/openai-completions')).streamSimple

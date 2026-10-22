@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ProviderConfig } from '../shared/contracts/providers'
-import { apiKeyForProvider, buildAgentProviderModel } from './agent-provider-runtime'
+import type { Api, Model } from '@earendil-works/pi-ai'
+import {
+  apiKeyForProvider,
+  buildAgentProviderModel,
+  loadAgentStreamSimple
+} from './agent-provider-runtime'
 
 const limits = {
   contextWindowTokens: 131_072,
@@ -95,3 +100,34 @@ function config(
     fileSizeLimitMb: null
   }
 }
+
+describe('Azure stream routing', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('routes Azure Chat Completions models through the Azure endpoint resolver', async () => {
+    vi.stubEnv('AZURE_OPENAI_BASE_URL', '')
+    vi.stubEnv('AZURE_OPENAI_RESOURCE_NAME', '')
+    const model = {
+      id: 'deepseek-v4-pro',
+      name: 'DeepSeek V4 Pro',
+      api: 'openai-completions',
+      provider: 'azure',
+      baseUrl: '',
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 131_072,
+      maxTokens: 8_192
+    } as Model<Api>
+    const streamSimple = await loadAgentStreamSimple('openai-completions', 'azure')
+    const result = await streamSimple(
+      model,
+      { messages: [{ role: 'user', content: 'hello', timestamp: 0 }] },
+      { apiKey: 'azure-test-key' }
+    ).result()
+
+    // The generic transport would send the request without resolving an Azure resource.
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toContain('Azure OpenAI base URL is required')
+  })
+})

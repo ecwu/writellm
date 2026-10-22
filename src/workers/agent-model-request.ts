@@ -34,7 +34,7 @@ export async function runAgentModelRequest(
 
   const [{ Agent }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
-    loadAgentStreamSimple(request.config.api ?? 'openai-completions')
+    loadAgentStreamSimple(request.config.api ?? 'openai-completions', request.config.providerId)
   ])
   const model = buildAgentProviderModel({
     config: request.config,

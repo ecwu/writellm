@@ -83,7 +83,10 @@ export async function runAgentSession(
   const { modelLimits, toolProfile, interactionMode } = request
   const [{ Agent: AgentClass }, streamSimple] = await Promise.all([
     import('@earendil-works/pi-agent-core'),
-    loadAgentStreamSimple(request.runtimeModel?.api ?? request.config.api ?? 'openai-completions')
+    loadAgentStreamSimple(
+      request.runtimeModel?.api ?? request.config.api ?? 'openai-completions',
+      request.config.providerId
+    )
   ])
   const runtime = prepareAgentSessionRuntime(request)
   const { model, contextBudget } = runtime
