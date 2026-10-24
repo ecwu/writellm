@@ -314,7 +314,7 @@ test(
 
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       const knowledge = launched.page.getByTestId('knowledge-workspace')
-      await expect(knowledge.getByRole('heading', { name: 'Search knowledge' })).toBeVisible()
+      await expect(knowledge.getByRole('textbox', { name: 'Knowledge search query' })).toBeVisible()
       await expect(knowledge.getByRole('heading', { name: 'Knowledge base' })).toHaveCount(0)
       // Background job notifications may refresh summaries; block details must remain lazy.
       await expect
@@ -444,6 +444,8 @@ test(
       await searchButton.click()
       const searchResults = knowledge.getByTestId('knowledge-search-results')
       await expect(searchResults.getByText(/Normalized body from MinerU/)).toBeVisible()
+      await expect(knowledge.getByText('rerank: not-configured', { exact: true })).toHaveCount(0)
+      await knowledge.getByRole('button', { name: 'Developer scores' }).click()
       await expect(knowledge.getByText('rerank: not-configured', { exact: true })).toBeVisible()
       await searchResults.getByRole('button', { name: 'Preview source', exact: true }).click()
       const citation = launched.page.getByRole('dialog', { name: 'parsed source.pdf' })
@@ -769,7 +771,7 @@ test(
 
       const checks = launched.page.getByTestId('checks-workspace')
       await expect(
-        checks.getByRole('heading', { name: 'Knowledge citation coverage' })
+        checks.getByRole('heading', { name: 'Citation coverage', exact: true })
       ).toBeVisible()
       const summary = checks.getByRole('region', { name: 'Coverage summary' })
       await expect(summary.getByText('25%', { exact: true }).first()).toBeVisible()

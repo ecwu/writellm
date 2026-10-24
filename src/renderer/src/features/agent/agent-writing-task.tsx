@@ -386,7 +386,8 @@ export function WritingTaskProgressDock(props: {
               {currentStep?.title ?? props.task.objective}
             </span>
             <span className='block truncate text-xs font-normal text-muted-foreground'>
-              {summary.label} · {props.task.objective}
+              {summary.label}
+              {!open ? ` · ${props.task.objective}` : ''}
             </span>
           </span>
           <ChevronDown className='shrink-0 transition-transform group-data-[state=open]/task:rotate-180 motion-reduce:transition-none' />

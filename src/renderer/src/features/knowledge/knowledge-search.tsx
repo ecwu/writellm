@@ -87,7 +87,6 @@ export function KnowledgeSearch(props: {
 
   return (
     <section className='grid gap-3' aria-label='Knowledge search'>
-      <h2 className='text-base font-semibold'>Search knowledge</h2>
       <form
         className='grid gap-3'
         onSubmit={(event) => {
@@ -100,7 +99,7 @@ export function KnowledgeSearch(props: {
             disabled={props.disabled}
             value={queryText}
             onChange={(event) => setQueryText(event.target.value)}
-            placeholder='Search parsed project knowledge…'
+            placeholder='Search source content…'
             aria-label='Knowledge search query'
           />
           <Button
@@ -179,9 +178,18 @@ export function KnowledgeSearch(props: {
       ) : null}
       {searchQuery.data ? (
         <div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
-          <Badge variant='outline'>{searchQuery.data.mode}</Badge>
-          <Badge variant='outline'>rerank: {searchQuery.data.rerankStatus}</Badge>
+          {debug ? (
+            <>
+              <Badge variant='outline'>{searchQuery.data.mode}</Badge>
+              <Badge variant='outline'>rerank: {searchQuery.data.rerankStatus}</Badge>
+            </>
+          ) : null}
           <span>{searchQuery.data.hits.length} results</span>
+          {searchQuery.data.rerankStatus === 'unavailable' ? (
+            <span role='status'>
+              Reranking is unavailable. Results use the original search order.
+            </span>
+          ) : null}
         </div>
       ) : null}
       <div className='divide-y border-y' data-testid='knowledge-search-results'>

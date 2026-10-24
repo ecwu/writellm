@@ -18,7 +18,6 @@ import type {
   ActiveProject,
   ProjectLifecycleEvent,
   ProjectLifecycleSnapshot,
-  ProjectLifecycleState,
   ProjectSelectionResult,
   RecentProjects,
   VersionHistoryState
@@ -29,7 +28,6 @@ import { LayoutControlsProvider, useLayoutControls } from '@/features/workbench/
 import { AppMenubar } from '@/components/app-menubar'
 import { SettingsCommand } from '@/components/settings-command'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -100,15 +98,6 @@ const actionErrorMessages: Record<
   export: 'WriteLLM could not export the manuscript. Choose another destination and try again.',
   history: 'WriteLLM could not complete the version history action. Please try again.',
   template: 'WriteLLM could not complete the project template action. Please try again.'
-}
-
-const stateLabels: Record<ProjectLifecycleState, string> = {
-  closed: 'Closed',
-  creating: 'Creating project',
-  opening: 'Opening project',
-  open: 'Open',
-  closing: 'Closing project',
-  'recovery-required': 'Recovery required'
 }
 
 function App(): React.JSX.Element {
@@ -720,7 +709,6 @@ function App(): React.JSX.Element {
               key={projectSessionId}
               projectSessionId={projectSessionId}
               projectName={activeProject.displayName}
-              lifecycleState={stateLabels[snapshot.state]}
               agentOpen={agentOpen}
               onAgentOpenChange={setAgentOpen}
               onOpenSettings={() => {
@@ -758,17 +746,8 @@ function App(): React.JSX.Element {
                     <h1 className='text-2xl font-semibold tracking-tight'>
                       {initialLoading ? 'Loading project' : 'Open a workspace'}
                     </h1>
-                    <p className='text-sm leading-relaxed text-muted-foreground'>
-                      {initialLoading
-                        ? 'Checking the current project state.'
-                        : 'Create a self-contained WriteLLM project or continue from a recent workspace.'}
-                    </p>
                   </div>
-                  {initialLoading ? (
-                    <Spinner className='mt-1 text-muted-foreground' />
-                  ) : (
-                    <Badge variant='secondary'>{stateLabels[snapshot.state]}</Badge>
-                  )}
+                  {initialLoading ? <Spinner className='mt-1 text-muted-foreground' /> : null}
                 </header>
 
                 {snapshot.state === 'recovery-required' && !initialLoading ? (
@@ -860,12 +839,6 @@ function App(): React.JSX.Element {
                     aria-label='Workspace launcher'
                   >
                     <aside className='flex flex-col border-r bg-muted/30 p-6'>
-                      <div className='mb-6 flex flex-col gap-1'>
-                        <h2 className='font-semibold'>Start</h2>
-                        <p className='text-sm leading-relaxed text-muted-foreground'>
-                          Begin a new manuscript or open a project from disk.
-                        </p>
-                      </div>
                       <div className='flex flex-col gap-2'>
                         <Button
                           className='h-auto justify-start py-3'
@@ -908,9 +881,6 @@ function App(): React.JSX.Element {
                       <div className='mb-5 flex items-end justify-between gap-6'>
                         <div className='flex flex-col gap-1'>
                           <h2 className='font-semibold'>Recent projects</h2>
-                          <p className='text-sm text-muted-foreground'>
-                            Continue from one of your most recently opened workspaces.
-                          </p>
                         </div>
                         {recentProjects.length > 0 ? (
                           <span className='shrink-0 text-xs tabular-nums text-muted-foreground'>
@@ -988,9 +958,6 @@ function App(): React.JSX.Element {
                             </ItemMedia>
                             <div className='flex flex-col gap-1'>
                               <p className='text-sm font-medium'>No recent projects</p>
-                              <p className='text-sm leading-relaxed text-muted-foreground'>
-                                Projects you create or open will appear here for quick access.
-                              </p>
                             </div>
                           </div>
                         </div>

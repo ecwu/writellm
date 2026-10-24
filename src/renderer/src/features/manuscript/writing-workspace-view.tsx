@@ -349,11 +349,52 @@ export function WritingWorkspaceView(input: {
   )
   const manuscript = (
     <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
-      <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
-        <SidebarTrigger className='-ml-1' />
-        <Badge className='ml-auto' variant='secondary'>
-          {props.lifecycleState}
-        </Badge>
+      <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-3'>
+        <SidebarTrigger className='mr-auto' />
+        {editorQuery.data && activeSummary ? (
+          <>
+            <Badge
+              variant={
+                editorSaveState === 'conflict' || editorSaveState === 'failed'
+                  ? 'destructive'
+                  : 'outline'
+              }
+              role='status'
+              aria-live='polite'
+            >
+              {editorSaveStateLabels[editorSaveState]}
+            </Badge>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant='outline' size='icon-sm' aria-label='Section actions'>
+                  <MoreHorizontal />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align='end'>
+                <DropdownMenuLabel>Section actions</DropdownMenuLabel>
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
+                    <FileCheck2 /> Publication preflight
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void manuscriptImport.openManuscriptImport()}>
+                    <Upload /> Import manuscript
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void manuscriptImport.openManuscriptImport('directory')}
+                  >
+                    <FolderOpen /> Import LaTeX project folder
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
+                    <Download /> Export Native JSON
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void exportMarkdownForActiveSection()}>
+                    <Download /> Export Markdown
+                  </DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
+        ) : null}
       </header>
       <main className='mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 p-4'>
         {workspaceQuery.isError ? (
@@ -394,42 +435,6 @@ export function WritingWorkspaceView(input: {
                 }}
                 className='h-auto min-h-0 min-w-0 flex-1 resize-none overflow-hidden border-0 bg-transparent px-0 py-0 text-3xl font-semibold tracking-tight shadow-none [field-sizing:content] focus-visible:ring-2 focus-visible:ring-ring md:text-3xl'
               />
-              <div className='order-first flex shrink-0 items-center justify-end gap-2'>
-                <Badge variant='outline' className='max-md:hidden'>
-                  {editorSaveStateLabels[editorSaveState]}
-                </Badge>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant='outline' size='icon-sm' aria-label='Section actions'>
-                      <MoreHorizontal />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align='end'>
-                    <DropdownMenuLabel>Section actions</DropdownMenuLabel>
-                    <DropdownMenuGroup>
-                      <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
-                        <FileCheck2 /> Publication preflight
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => void manuscriptImport.openManuscriptImport()}
-                      >
-                        <Upload /> Import manuscript
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => void manuscriptImport.openManuscriptImport('directory')}
-                      >
-                        <FolderOpen /> Import LaTeX project folder
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
-                        <Download /> Export Native JSON
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => void exportMarkdownForActiveSection()}>
-                        <Download /> Export Markdown
-                      </DropdownMenuItem>
-                    </DropdownMenuGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
             </div>
             {metadataError ? (
               <p className='text-sm text-destructive' role='alert'>
@@ -457,12 +462,6 @@ export function WritingWorkspaceView(input: {
         >
           {currentEditor}
         </RetainedEditors>
-        <div className='flex items-center justify-between text-xs text-muted-foreground'>
-          <span>
-            {shortcutLabel('save')} save · {shortcutLabel('quickActions')} quick actions ·{' '}
-            {shortcutLabel('previousSection')} / {shortcutLabel('nextSection')} navigate
-          </span>
-        </div>
       </main>
     </SidebarInset>
   )
@@ -672,8 +671,8 @@ export function WritingWorkspaceView(input: {
 }
 
 const editorSaveStateLabels: Record<SaveState, string> = {
-  clean: 'Unsaved body',
-  saving: 'Saving body',
+  clean: 'Unsaved',
+  saving: 'Saving',
   saved: 'Saved',
   'mirror-pending': 'Saved, mirror pending',
   conflict: 'Conflict',

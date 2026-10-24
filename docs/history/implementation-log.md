@@ -2023,3 +2023,29 @@ Verification is documentation-only, with no build or tests:
 
 The ADR index also gains a one-line-per-ADR decision table, with 91 rows, a one-sentence decision for each, and a status of current, partly replaced, or replaced. No ADR body changes.
 The user authorizes committing and pushing the change to `main`.
+
+## 2026-10-24 Interface label simplification
+
+The user authorizes all nine interface-audit simplifications. The changes remain uncommitted.
+The editor keeps one sticky save indicator and one compact toolbar.
+The launcher, settings, Knowledge, Notebook, Agent, Outline, References, and Assets remove repeated labels and descriptions.
+Checks removes its single-item navigation and puts matching rules behind an explicit disclosure.
+Knowledge keeps algorithm details behind its developer control and reports reranking failure separately.
+Notebook shows the extra source count only while its source panel is closed.
+Risk notices, permission choices, privacy disclosures, and error recovery remain available.
+
+Formatting, the error-handling guard, and all three typechecks pass across 946 files.
+Seven focused component tests pass in 0.7 seconds.
+Eleven existing Electron scenarios pass through focused reruns and retained results that still cover the final source.
+The final combined gate takes 32.6 seconds and passes three affected scenarios in 11.9 seconds.
+Two earlier runs stop at outdated selectors in one Knowledge scenario. The updated scenario passes without automatic retries.
+Three builds cover the initial changes, the sticky toolbar correction, and the final desktop layout correction.
+Desktop screenshot review covers the changed surfaces. The design detector reports zero findings.
+
+Runtime evidence covers macOS arm64 with Electron 44.7.2, ABI 149, and the bundled Node-API 10 database prebuild.
+The gate uses the declared pnpm 11.28.3 outside the sandbox.
+Host Node 26.12.1 exceeds the declared Node 24 range and emits an engine warning. The toolchain pins remain unchanged.
+Windows, Linux, macOS x64, and packaged runtime acceptance remain outside this maintenance gate.
+
+The user subsequently authorizes committing and pushing this interface maintenance to `main`.
+The delivery updates the current-plan status and retains the application source covered by the recorded acceptance results.

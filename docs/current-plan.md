@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.3 is published. The ADR 092 documentation evidence archive is pushed to `main`.
-Recorded: 2026-10-22
+Status: Release 0.2026.10.3 is published. Interface-label simplification is complete.
+Recorded: 2026-10-24
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -21,6 +21,10 @@ Local macOS arm64 acceptance passes the full package gate with 45 packaged and 6
 The documentation evidence archive under [ADR 092](adrs/092-documentation-evidence-archive.md) is committed and pushed to `main`.
 It summarizes long history-log entries and Phase evidence sections, with links to the full text at commit `493f02a`.
 [Archive evidence](history/implementation-log.md#2026-10-22-documentation-evidence-archive) records sizes and link checks.
+
+The interface now removes duplicate labels, normal-state badges, and repeated descriptions across the existing desktop views.
+Risk notices, permission choices, privacy disclosures, and error recovery remain visible.
+[Maintenance evidence](history/implementation-log.md#2026-10-24-interface-label-simplification) records the affected views and focused acceptance.
 
 Completed checkpoints, issues, and releases are listed in the tracker and the history log.
 Checkpoint 77 (Writing Task v2 and execution handoff) remains paused. [Phase 25](implementation-todo/phase-25.md) owns its planning record.
@@ -42,9 +46,9 @@ Known open defects:
 
 ## Current authorized work
 
-The user authorizes simplifying the documentation tree while keeping decision history.
-This covers ADR 092, the history-log and Phase-file evidence summaries, the architecture condensation, and the matching guidance updates.
-It also covers the one-line-per-ADR decision table in the ADR index, plus committing and pushing the result to `main`.
+The user authorizes implementing the interface audit's nine simplifications while preserving necessary risk, permission, privacy, and error information.
+This maintenance covers the editor, launcher, settings, Knowledge, Checks, Notebook, Agent, Outline, References, and Assets.
+The user also authorizes committing and pushing this maintenance to `main`.
 
 ## Deferred
 

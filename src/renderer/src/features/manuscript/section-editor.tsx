@@ -35,9 +35,7 @@ import {
 import { BlockNoteView } from '@blocknote/shadcn'
 import {
   AlignLeft,
-  AlertCircle,
   BookOpenText,
-  Check,
   FileSearch,
   ListMinus,
   ListPlus,
@@ -56,7 +54,6 @@ import {
   useRef,
   useState
 } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -1104,9 +1101,6 @@ const SectionEditorSession = forwardRef<
           onRetry={() => searchReferences(citationSearchQuery, 0)}
         />
       )}
-      <div className='flex justify-end px-1 py-2'>
-        <SaveStatus state={saveState} />
-      </div>
       {saveState === 'conflict' && (
         <div className='flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 text-sm text-destructive'>
           <p>
@@ -1425,25 +1419,6 @@ function fileToBase64(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
-}
-
-function SaveStatus({ state }: { state: SaveState }): React.JSX.Element {
-  const labels: Record<SaveState, string> = {
-    clean: 'Unsaved',
-    saving: 'Saving',
-    saved: 'Saved',
-    'mirror-pending': 'Saved, mirror pending',
-    conflict: 'Conflict',
-    failed: 'Save failed'
-  }
-  return (
-    <Badge variant={state === 'conflict' || state === 'failed' ? 'destructive' : 'outline'}>
-      {state === 'saving' ? <Spinner /> : null}
-      {state === 'saved' ? <Check /> : null}
-      {state === 'conflict' || state === 'failed' ? <AlertCircle /> : null}
-      {labels[state]}
-    </Badge>
-  )
 }
 
 function reportEditorError(source: string, error: unknown): void {

@@ -437,7 +437,6 @@ export function AgentProviderWorkspace({
             <div className='flex items-start gap-3'>
               <div className='min-w-0 flex-1'>
                 <h2 className='font-semibold'>Agent providers</h2>
-                <p className='text-xs text-muted-foreground'>Pi built-ins and custom endpoints.</p>
               </div>
               <div className='lg:hidden'>{closeAction}</div>
             </div>

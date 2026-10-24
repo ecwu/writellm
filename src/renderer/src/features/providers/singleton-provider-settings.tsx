@@ -142,9 +142,7 @@ export function SingletonProviderWorkspace({
           <header className='flex flex-wrap items-start justify-between gap-3'>
             <div>
               <h2 className='text-xl font-semibold'>{roleLabels[role]}</h2>
-              <p className='text-sm text-muted-foreground'>
-                Application-global configuration. Credentials stay encrypted in Electron Main.
-              </p>
+              <p className='text-sm text-muted-foreground'>Applies to all projects.</p>
             </div>
             <div className='flex shrink-0 items-center gap-2'>
               <Badge variant={status?.available ? 'default' : 'secondary'}>

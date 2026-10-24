@@ -172,7 +172,7 @@ export function AppSidebar({
           writingRulesPanel
         ) : (
           <SidebarGroup>
-            <SidebarGroupLabel>
+            <SidebarGroupLabel className='sr-only'>
               {activeWorkspace === 'references' ? 'References' : 'Outline'}
             </SidebarGroupLabel>
             <SidebarGroupContent>

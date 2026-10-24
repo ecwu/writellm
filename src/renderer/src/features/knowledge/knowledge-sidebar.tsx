@@ -178,7 +178,7 @@ export function KnowledgeSidebar(props: {
         <InputGroup>
           <InputGroupInput
             aria-label='Search references'
-            placeholder='Search title, author, year…'
+            placeholder='Filter references…'
             value={query}
             maxLength={512}
             onChange={(event) => setQuery(event.target.value)}

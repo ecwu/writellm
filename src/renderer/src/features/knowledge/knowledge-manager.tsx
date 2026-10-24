@@ -17,7 +17,6 @@ import {
   File,
   FileText,
   FolderOpen,
-  Library,
   Link2,
   MoreHorizontal,
   PanelLeft,
@@ -50,12 +49,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
-} from '@/components/ui/breadcrumb'
 import { Separator } from '@/components/ui/separator'
 import {
   Select,
@@ -656,21 +649,10 @@ export function KnowledgeManager(props: {
           onDrop={importDropped}
         />
       </Sidebar>
-      <SidebarInset className='min-h-0 overflow-auto'>
-        <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+      <SidebarInset className='min-h-0 min-w-0 overflow-auto'>
+        <header className='sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-2 border-b bg-background p-4'>
           <SidebarTrigger className='-ml-1' />
-          <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage>{props.projectName}</BreadcrumbPage>
-              </BreadcrumbItem>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Knowledge</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-          <div className='ml-auto flex min-w-0 items-center gap-2'>
+          <div className='ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2'>
             <KnowledgeHeaderStats
               stats={stats}
               indexStatus={indexStatusQuery.data}
@@ -754,7 +736,7 @@ export function KnowledgeManager(props: {
             </DropdownMenu>
           </div>
         </header>
-        <main className='mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col px-4 md:px-8'>
+        <main className='mx-auto flex min-h-0 min-w-0 w-full max-w-7xl flex-1 flex-col px-4 md:px-8'>
           {itemsQuery.isError ? (
             <div className='mt-6 flex items-center gap-2 border-y border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive'>
               <AlertCircle className='size-4' /> Knowledge files could not be loaded.
@@ -819,7 +801,6 @@ export function KnowledgeManager(props: {
             />
           ) : (
             <KnowledgeOverview
-              references={references}
               items={items}
               projectSessionId={props.projectSessionId}
               indexStatus={indexStatusQuery.data}
@@ -864,7 +845,6 @@ export function KnowledgeManager(props: {
 }
 
 function KnowledgeOverview(props: {
-  references: ReferenceItem[]
   items: KnowledgeItem[]
   projectSessionId: string
   indexStatus: KnowledgeIndexStatus | undefined
@@ -872,16 +852,8 @@ function KnowledgeOverview(props: {
   onError(message: string): void
 }): React.JSX.Element {
   return (
-    <section className='flex min-h-[calc(100dvh-6.5rem)] flex-1 justify-center py-12'>
+    <section className='flex flex-1 justify-center py-6'>
       <div className='w-full max-w-3xl'>
-        <div className='mb-6'>
-          <h1 className='flex items-center gap-2 text-xl font-semibold tracking-tight'>
-            <Library className='size-5' /> Reference library
-          </h1>
-          <p className='mt-1 text-sm text-muted-foreground'>
-            {props.references.length} references. Search evidence across attached, parsed sources.
-          </p>
-        </div>
         <KnowledgeSearch
           projectSessionId={props.projectSessionId}
           items={props.items}

@@ -4,7 +4,6 @@ import { useWritingWorkspaceController } from './use-writing-workspace-controlle
 export type WritingWorkspaceProps = {
   projectSessionId: string
   projectName: string
-  lifecycleState: string
   agentOpen: boolean
   onAgentOpenChange(open: boolean): void
   onOpenSettings(): void

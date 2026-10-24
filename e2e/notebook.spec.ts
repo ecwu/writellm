@@ -35,6 +35,13 @@ test(
         )
       ).toBeVisible()
 
+      const sourceCount = notebook.getByText('0 sources', { exact: true })
+      await expect(sourceCount).toHaveCount(0)
+      await notebook.getByRole('button', { name: 'Toggle Sidebar' }).click()
+      await expect(sourceCount).toBeVisible()
+      await notebook.getByRole('button', { name: 'Toggle Sidebar' }).click()
+      await expect(sourceCount).toHaveCount(0)
+
       await notebook.getByRole('button', { name: 'Manage sources' }).click()
       await expect(launched.page.getByTestId('knowledge-workspace')).toBeVisible()
       await launched.page.getByRole('button', { name: 'Notebook', exact: true }).click()

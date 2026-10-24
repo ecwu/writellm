@@ -25,12 +25,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkspaceRail } from '@/components/app-sidebar'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage
-} from '@/components/ui/breadcrumb'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -66,7 +60,6 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport
 } from '@/components/ui/message-scroller'
-import { Separator } from '@/components/ui/separator'
 import {
   Sidebar,
   SidebarContent,
@@ -74,7 +67,8 @@ import {
   SidebarHeader,
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger
+  SidebarTrigger,
+  useSidebar
 } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
 import { AgentMarkdown } from '@/features/agent/agent-markdown'
@@ -374,21 +368,8 @@ export function NotebookWorkspace(
       <SidebarInset className='flex min-h-0 min-w-0 flex-col overflow-hidden'>
         <header className='flex shrink-0 items-center gap-2 border-b bg-background p-4'>
           <SidebarTrigger className='-ml-1' />
-          <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
-          <Breadcrumb className='min-w-0'>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbPage className='max-w-40 truncate'>{props.projectName}</BreadcrumbPage>
-              </BreadcrumbItem>
-              <BreadcrumbItem>
-                <BreadcrumbPage>Notebook</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
           <div className='ml-auto flex min-w-0 items-center gap-2'>
-            <Badge variant='secondary' className='shrink-0 tabular-nums'>
-              {selectedIds.size} {selectedIds.size === 1 ? 'source' : 'sources'}
-            </Badge>
+            <NotebookSourceCount count={selectedIds.size} />
             <AgentModelEffortPicker
               presets={availableModelPresets}
               selection={snapshot?.modelSelection ?? null}
@@ -484,7 +465,6 @@ export function NotebookWorkspace(
                   }}
                 />
                 <InputGroupAddon align='block-end' className='justify-between'>
-                  <span className='text-xs font-normal'>Shift + Enter for a new line</span>
                   {active ? (
                     <InputGroupButton
                       size='icon-sm'
@@ -509,6 +489,8 @@ export function NotebookWorkspace(
                       size='icon-sm'
                       variant='default'
                       aria-label='Ask Notebook'
+                      title='Send · Enter. New line · Shift + Enter'
+                      className='ml-auto'
                       disabled={!canAsk}
                       onClick={() => void startTurn()}
                     >
@@ -622,7 +604,6 @@ function NotebookSourcesSidebar(props: {
           />
           <FieldContent>
             <FieldLabel htmlFor='notebook-select-all'>Select all indexed sources</FieldLabel>
-            <FieldDescription>Search across selected sources</FieldDescription>
           </FieldContent>
         </Field>
       </SidebarHeader>
@@ -638,7 +619,6 @@ function NotebookSourcesSidebar(props: {
                 <LibraryBig />
               </EmptyMedia>
               <EmptyTitle className='text-sm'>No Knowledge sources</EmptyTitle>
-              <EmptyDescription>Add and index sources in Knowledge first.</EmptyDescription>
             </EmptyHeader>
           </Empty>
         ) : (
@@ -713,30 +693,25 @@ function NotebookConversation(props: {
   }
   if (props.snapshot.messages.length === 0) {
     const noSources = props.snapshot.availableKnowledgeItemIds.length === 0
+    if (!noSources) return <div className='min-h-0 flex-1' />
     return (
       <Empty className='min-h-0 flex-1 border-0'>
         <EmptyHeader>
-          <EmptyMedia variant='icon'>{noSources ? <LibraryBig /> : <NotebookPen />}</EmptyMedia>
+          <EmptyMedia variant='icon'>
+            <LibraryBig />
+          </EmptyMedia>
           <EmptyTitle>
-            {noSources
-              ? props.hasKnowledge
-                ? 'Sources are not indexed yet'
-                : 'Add Knowledge sources first'
-              : 'Ask across your selected sources'}
+            {props.hasKnowledge ? 'Sources are not indexed yet' : 'Add Knowledge sources first'}
           </EmptyTitle>
           <EmptyDescription>
-            {noSources
-              ? 'Notebook can use sources after parsing and indexing finish.'
-              : 'Answers stay grounded in retrieved evidence and include clickable citations.'}
+            Notebook can use sources after parsing and indexing finish.
           </EmptyDescription>
         </EmptyHeader>
-        {noSources ? (
-          <EmptyContent>
-            <Button type='button' variant='outline' onClick={props.onOpenKnowledge}>
-              <LibraryBig /> Open Knowledge
-            </Button>
-          </EmptyContent>
-        ) : null}
+        <EmptyContent>
+          <Button type='button' variant='outline' onClick={props.onOpenKnowledge}>
+            <LibraryBig /> Open Knowledge
+          </Button>
+        </EmptyContent>
       </Empty>
     )
   }
@@ -813,6 +788,16 @@ function NotebookConversation(props: {
         <MessageScrollerButton />
       </MessageScroller>
     </MessageScrollerProvider>
+  )
+}
+
+function NotebookSourceCount(props: { count: number }): React.JSX.Element | null {
+  const { open } = useSidebar()
+  if (open) return null
+  return (
+    <Badge variant='secondary' className='shrink-0 tabular-nums'>
+      {props.count} {props.count === 1 ? 'source' : 'sources'}
+    </Badge>
   )
 }
 

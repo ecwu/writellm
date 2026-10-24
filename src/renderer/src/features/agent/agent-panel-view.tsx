@@ -270,11 +270,7 @@ export function AgentPanelView({
               </MarkerIcon>
               <MarkerContent>Loading conversation…</MarkerContent>
             </Marker>
-          ) : activeSession === null ? (
-            <div className='flex size-full items-center justify-center px-8 text-center text-sm text-muted-foreground'>
-              Start with a request below. A conversation is created only when you send it.
-            </div>
-          ) : (
+          ) : activeSession !== null ? (
             <EventTimeline
               key={activeSession.agentSessionId}
               presentation={presentation}
@@ -291,7 +287,7 @@ export function AgentPanelView({
               onNew={beginNewConversation}
               busy={busy || activeSessionArchived}
             />
-          )}
+          ) : null}
         </div>
 
         {activeSession?.writingTask ? (

@@ -36,6 +36,7 @@ import {
   BreadcrumbPage
 } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Dialog,
   DialogContent,
@@ -158,7 +159,6 @@ export function AssetWorkspace(props: {
               <Images className='size-4' />
               <span className='font-medium'>Images</span>
             </div>
-            <p className='text-xs text-muted-foreground'>Usage, provenance, and safe cleanup</p>
           </SidebarHeader>
           <SidebarContent>
             <FilterGroup
@@ -232,13 +232,10 @@ export function AssetWorkspace(props: {
             </Badge>
           ) : null}
         </header>
-        <main className='mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 md:p-6'>
-          <div>
-            <h1 className='text-xl font-semibold'>Manuscript images</h1>
-            <p className='mt-1 text-sm text-muted-foreground'>
-              Verified project images and every place the current manuscript uses them.
-            </p>
-          </div>
+        <main
+          aria-label='Manuscript images'
+          className='mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 md:p-6'
+        >
           {assets.isPending ? <AssetGridSkeleton /> : null}
           {assets.isError ? (
             <Empty className='border'>
@@ -385,10 +382,17 @@ function AssetItem(props: {
           </p>
         ) : null}
         {props.item.generation !== null ? (
-          <p className='text-xs text-muted-foreground'>
-            {props.item.generation.aspectRatio ?? 'Auto ratio'} ·{' '}
-            {props.item.generation.effectiveImageSize ?? 'Default size'} · Agent lineage recorded
-          </p>
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant='ghost' size='sm' className='justify-start px-0'>
+                Generation details
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className='text-xs text-muted-foreground'>
+              {props.item.generation.aspectRatio ?? 'Auto ratio'} ·{' '}
+              {props.item.generation.effectiveImageSize ?? 'Default size'} · Agent lineage recorded
+            </CollapsibleContent>
+          </Collapsible>
         ) : null}
         {related.length > 0 ? (
           <Dialog>

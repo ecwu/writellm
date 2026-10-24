@@ -476,9 +476,6 @@ export function GeneralSettings({
         <header className='flex items-start gap-3'>
           <div className='min-w-0 flex-1'>
             <h2 className='text-xl font-semibold'>General</h2>
-            <p className='text-sm text-muted-foreground'>
-              Appearance, writing presentation, and default Agent behavior.
-            </p>
           </div>
           {closeAction}
         </header>
@@ -489,10 +486,7 @@ export function GeneralSettings({
             <FieldGroup>
               <Field orientation='responsive'>
                 <FieldContent className='min-w-0'>
-                  <FieldTitle id='theme-mode'>Theme mode</FieldTitle>
-                  <FieldDescription>
-                    Follow the system or choose a fixed appearance.
-                  </FieldDescription>
+                  <FieldTitle id='theme-mode'>Theme</FieldTitle>
                 </FieldContent>
                 <ToggleGroup
                   type='single'
@@ -516,10 +510,7 @@ export function GeneralSettings({
               </Field>
 
               <Field>
-                <FieldTitle id='accent-color'>UI accent</FieldTitle>
-                <FieldDescription>
-                  A bounded semantic palette keeps light and dark contrast predictable.
-                </FieldDescription>
+                <FieldTitle id='accent-color'>Accent color</FieldTitle>
                 <ToggleGroup
                   type='single'
                   value={accent}
@@ -548,8 +539,7 @@ export function GeneralSettings({
               <Field>
                 <FieldTitle id='citation-display'>Citation display</FieldTitle>
                 <FieldDescription>
-                  Choose how canonical source citations appear while editing. Stored manuscript text
-                  remains unchanged.
+                  Changes the editor display only. Saved manuscript text stays unchanged.
                 </FieldDescription>
                 <ToggleGroup
                   type='single'
@@ -672,9 +662,6 @@ export function AboutDiagnosticsSettings({
         <header className='flex items-start gap-3'>
           <div className='min-w-0 flex-1'>
             <h2 className='text-xl font-semibold'>About & Diagnostics</h2>
-            <p className='text-sm text-muted-foreground'>
-              Application information, credential security, and sanitized support tools.
-            </p>
           </div>
           {closeAction}
         </header>
@@ -691,9 +678,7 @@ export function AboutDiagnosticsSettings({
           <Field orientation='responsive'>
             <FieldContent className='min-w-0'>
               <FieldTitle>Credential security</FieldTitle>
-              <FieldDescription>
-                Provider secrets remain in Electron Main and are never returned to Settings.
-              </FieldDescription>
+              <FieldDescription>WriteLLM stores credentials on this device.</FieldDescription>
             </FieldContent>
             <Badge variant={credentialBackend?.securePersistence ? 'outline' : 'destructive'}>
               <KeyRound />
