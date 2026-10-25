@@ -39,11 +39,8 @@ export function useAgentPanelSessionActions(input: {
   } = input
   const {
     activeSessionIdRef,
-    draftStateRef,
+    adoptNewConversationDraft,
     events,
-    promptRef,
-    reviewFeedbackRef,
-    scopePreferenceRef,
     sessions,
     setActiveSessionId,
     setBusy,
@@ -65,13 +62,11 @@ export function useAgentPanelSessionActions(input: {
     const created = await window.desktop.agent.createSession({
       projectSessionId: props.projectSessionId
     })
-    draftStateRef.current.set(created.agentSessionId, {
-      prompt: promptRef.current,
-      reviewFeedback: reviewFeedbackRef.current,
-      scopePreference: scopePreferenceRef.current
-    })
     setSessions((current) => [created, ...current])
-    if (activeSessionIdRef.current === origin) setActiveSessionId(created.agentSessionId)
+    if (activeSessionIdRef.current === origin) {
+      adoptNewConversationDraft(created.agentSessionId)
+      setActiveSessionId(created.agentSessionId)
+    }
     return created
   }
 

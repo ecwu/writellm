@@ -161,6 +161,13 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     previousDraftKeyRef.current = nextKey
   }, [activeSessionId])
 
+  // A session created from the new conversation takes over its composer draft. Clearing the
+  // 'new' slot keeps the next new conversation from restoring an already-sent prompt.
+  const adoptNewConversationDraft = useCallback((agentSessionId: string): void => {
+    draftStateRef.current.delete('new')
+    if (previousDraftKeyRef.current === 'new') previousDraftKeyRef.current = agentSessionId
+  }, [])
+
   useEffect(() => {
     skillRoutingPendingRef.current = new Set(
       runs
@@ -671,10 +678,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     composerTextareaRef,
     pendingComposerCaretRef,
     terminalRunIdsRef,
-    draftStateRef,
-    promptRef,
-    reviewFeedbackRef,
-    scopePreferenceRef,
+    adoptNewConversationDraft,
     refreshSessionTruth
   }
 }

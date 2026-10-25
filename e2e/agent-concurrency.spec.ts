@@ -229,6 +229,9 @@ test(
       await panel.getByLabel('Agent message').fill('Run the second conversation independently.')
       await panel.getByRole('button', { name: 'Send', exact: true }).click()
       await expect.poll(() => pendingAgentResponses.length).toBe(2)
+      await panel.getByTestId('agent-conversation-switcher').click()
+      await launched.page.getByRole('option', { name: 'New conversation', exact: true }).click()
+      await expect(panel.getByLabel('Agent message')).toHaveValue('')
       const status = launched.page.getByTestId('workbench-status-bar')
       await expect(
         status.getByRole('button', { name: 'AI tasks: 2 running', exact: true })
