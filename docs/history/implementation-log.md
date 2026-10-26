@@ -2049,3 +2049,32 @@ Windows, Linux, macOS x64, and packaged runtime acceptance remain outside this m
 
 The user subsequently authorizes committing and pushing this interface maintenance to `main`.
 The delivery updates the current-plan status and retains the application source covered by the recorded acceptance results.
+
+## 2026-10-26 Release 0.2026.10.4 preparation
+
+The user reports that a new Agent conversation restores the previous new conversation's prompt, and authorizes the fix, a local App build, pushing to `main`, and tag `v0.2026.10.4`.
+
+Root cause: sending from a new conversation creates the session and switches to it.
+The draft-swap effect then saved the outgoing prompt into the new-conversation slot, so the next new conversation restored it.
+The created session now takes over that draft, and the slot is removed.
+The concurrency scenario asserts an empty composer after another new conversation. It fails on the previous source and passes with the fix.
+
+The first package gate run fails two packaged scenarios that depend on text removed by `d050d23`.
+`agent-writing` asserted the removed empty-state hint. `workbench` scrolled the shorter section editor past its 171-pixel overflow.
+Both scenarios are updated in the test files only. They pass four scenarios with zero retries.
+
+- [`802a8b9`](https://github.com/ecwu/writellm/commit/802a8b9) contains the Agent draft fix.
+- [`d5ea6d0`](https://github.com/ecwu/writellm/commit/d5ea6d0) aligns the two packaged scenarios.
+
+`package.json#release.version` advances to 0.2026.10.4. The SemVer base remains 0.2026.10.
+The complete package gate passes all ten stages in 250.4 seconds with one App build.
+It covers twelve packaged runtime smoke scenarios, all 45 packaged interaction scenarios with zero retries or skips, the installers, and artifact checksums.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `WriteLLM-0.2026.10.4-arm64.dmg` | `ff18756fcfe5f6a063ba8e68047bb5e71ba837deff7b48e273be5f8067a45bc1` |
+| `WriteLLM-0.2026.10.4-arm64.zip` | `bf1cf13cbb73c9bb95c0173e3d039500222ab06f7f5b19f87ab399fe3d8324ba` |
+
+Local runtime acceptance covers macOS arm64 only. Distribution remains unsigned and unnotarized.
+
+Evidence: [package gate](../../.cache/verification/1792973884486-21043-bb732c20).

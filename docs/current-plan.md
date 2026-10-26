@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.3 is published. Interface-label simplification is complete.
-Recorded: 2026-10-24
+Status: Release 0.2026.10.4 passes local package acceptance. Tag publication is pending.
+Recorded: 2026-10-26
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -9,6 +9,12 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+Release 0.2026.10.4 includes the interface-label simplification ([d050d23](https://github.com/ecwu/writellm/commit/d050d23))
+and the Agent new-conversation draft fix ([802a8b9](https://github.com/ecwu/writellm/commit/802a8b9)).
+Local macOS arm64 acceptance passes the full package gate with twelve packaged runtime and 45 packaged interaction scenarios.
+The four-platform tag build and automatic publication remain pending.
+[Release preparation evidence](history/implementation-log.md#2026-10-26-release-02026104-preparation) records the commands, artifacts, and limits.
 
 [Release 0.2026.10.3](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.3) is published with four assets.
 Tag `v0.2026.10.3` is fixed at `167026d`.
@@ -46,9 +52,7 @@ Known open defects:
 
 ## Current authorized work
 
-The user authorizes implementing the interface audit's nine simplifications while preserving necessary risk, permission, privacy, and error information.
-This maintenance covers the editor, launcher, settings, Knowledge, Checks, Notebook, Agent, Outline, References, and Assets.
-The user also authorizes committing and pushing this maintenance to `main`.
+The user authorizes fixing the Agent new-conversation draft defect, building the App locally, pushing to `main`, and publishing tag `v0.2026.10.4`.
 
 ## Deferred
 
