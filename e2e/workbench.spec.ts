@@ -264,7 +264,7 @@ test(
       await page.getByLabel('Section title', { exact: true }).press('Tab')
       await sectionEditor(page).click()
       await page.keyboard.type('Retained first chapter')
-      for (let index = 0; index < 25; index++) {
+      for (let index = 0; index < 40; index++) {
         await page.keyboard.press('Enter')
         await page.keyboard.type(`Retained paragraph ${index}`)
       }

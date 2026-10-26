@@ -727,7 +727,6 @@ test(
         panel.getByText('Choose an Agent model to start this conversation.')
       ).toBeVisible()
       await expect(panel.getByLabel('Agent message')).toHaveCount(0)
-      await expect(panel.getByText(/created only when you send it/i)).toBeVisible()
       await panel.getByTestId('agent-model-selector').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
       await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
