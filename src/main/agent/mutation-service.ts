@@ -1047,6 +1047,19 @@ export class MutationProposalService {
         'Agent image generation started'
       )
       try {
+        // The conversation override, or the application default when null, is bound now (ADR 093).
+        const imageSelection = this.options.database.read((database) => {
+          const row = database
+            .prepare(
+              'SELECT image_source_id, image_model_id FROM agent_sessions WHERE agent_session_id = ?'
+            )
+            .get(agentSessionId) as
+            | { image_source_id: string | null; image_model_id: string | null }
+            | undefined
+          return row === undefined || row.image_source_id === null || row.image_model_id === null
+            ? null
+            : { sourceId: row.image_source_id, modelId: row.image_model_id }
+        })
         const generated = await execution.generateImage(
           this.options.database,
           {
@@ -1059,7 +1072,8 @@ export class MutationProposalService {
             agentRunId: prepared.row.agent_run_id,
             projectSessionId: this.options.projectSessionId
           },
-          controller.signal
+          controller.signal,
+          imageSelection
         )
         const asset = await assets.store({
           bytes: Buffer.from(generated.dataBase64, 'base64'),

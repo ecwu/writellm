@@ -19,9 +19,11 @@ const config: ProviderConfig = {
 const vertexConfig: ProviderConfig = {
   role: 'image',
   providerId: 'google-vertex',
+  sourceId: 'google-vertex',
   projectId: 'writellm-images-123',
   location: 'global',
   model: 'gemini-3.1-flash-image',
+  imageSizes: ['1K', '2K'],
   timeoutMs: 30_000,
   embeddingDimension: null,
   batchLimit: 1,

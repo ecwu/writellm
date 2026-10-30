@@ -1,6 +1,7 @@
 # ADR 052: Google Vertex AI Nano Banana Image Source
 
 Status: accepted for Checkpoint 59; implementation authorized
+Amended by [ADR 093](093-configurable-image-source-instances-and-models.md): source instances, endpoints, and model lists are configurable.
 Date: 2026-08-19
 
 ## Context

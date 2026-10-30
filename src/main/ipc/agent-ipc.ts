@@ -24,6 +24,7 @@ import {
   clampResolvedAgentThinkingLevel,
   type AgentProviderCatalogService
 } from '../providers/agent-provider-catalog'
+import type { ProviderService } from '../providers/provider-service'
 import { authorizeSender } from './authorize-sender'
 import { createEndpointRegistrar } from './endpoint'
 
@@ -37,6 +38,7 @@ export function registerAgentIpc(options: {
     AgentProviderCatalogService,
     'snapshot' | 'resolve' | 'setDefaultSelection' | 'getLastThinkingLevel' | 'setLastThinkingLevel'
   >
+  imageCatalog: Pick<ProviderService, 'resolveImageSelection'>
   developmentUrl?: string
   ipc?: AgentIpcMain
 }): { revokeSession(projectSessionId: string): void; unregister(): void } {
@@ -143,6 +145,18 @@ export function registerAgentIpc(options: {
       return result
     },
     { around: lifecycle('agent.session.set_model_selection') }
+  )
+  handle(
+    agentIpcEndpoints.setImageModelSelection,
+    async (input) => {
+      if (input.selection !== null)
+        await options.imageCatalog.resolveImageSelection(input.selection)
+      // The catalog read awaits, so revalidate the session before writing Agent state.
+      return options.manager
+        .assertMutationSession(input.projectSessionId)
+        .agentSessions.setImageModelSelection(input.agentSessionId, input.selection)
+    },
+    { around: lifecycle('agent.session.set_image_model_selection') }
   )
   handle(
     agentIpcEndpoints.setThinkingLevel,

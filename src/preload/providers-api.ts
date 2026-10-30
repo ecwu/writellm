@@ -14,7 +14,13 @@ import {
   agentPresetCredentialInputSchema,
   agentPresetLoginInputSchema,
   providerConnectionTestResultSchema,
-  imageProviderSelectionInputSchema,
+  imageManualModelInputSchema,
+  imageModelEnabledInputSchema,
+  imageModelInputSchema,
+  imageModelSelectionSchema,
+  imageSourceInputSchema,
+  imageSourceSaveInputSchema,
+  imageSourceTestInputSchema,
   providerRoleInputSchema,
   providerSaveInputSchema,
   providerSettingsSnapshotSchema
@@ -45,11 +51,59 @@ export const providersApi: DesktopApi['providers'] = {
       )
     )
   },
-  async setActiveImage(input) {
+  async saveImageSource(input) {
     return providerSettingsSnapshotSchema.parse(
       await ipcRenderer.invoke(
-        IPC_CHANNELS.providersSetActiveImage,
-        imageProviderSelectionInputSchema.parse(input)
+        IPC_CHANNELS.providersSaveImageSource,
+        imageSourceSaveInputSchema.parse(input)
+      )
+    )
+  },
+  async removeImageSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRemoveImageSource,
+        imageSourceInputSchema.parse(input)
+      )
+    )
+  },
+  async testImageSource(input) {
+    return providerConnectionTestResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersTestImageSource,
+        imageSourceTestInputSchema.parse(input)
+      )
+    )
+  },
+  async setImageDefault(selection) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSetImageDefault,
+        imageModelSelectionSchema.nullable().parse(selection)
+      )
+    )
+  },
+  async saveImageManualModel(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSaveImageManualModel,
+        imageManualModelInputSchema.parse(input)
+      )
+    )
+  },
+  async removeImageManualModel(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRemoveImageManualModel,
+        imageModelInputSchema.parse(input)
+      )
+    )
+  },
+  async setImageModelEnabled(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSetImageModelEnabled,
+        imageModelEnabledInputSchema.parse(input)
       )
     )
   },

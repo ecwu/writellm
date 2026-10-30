@@ -1,6 +1,7 @@
 # ADR 051: Fixed Multi-Provider Image Catalog
 
 Status: accepted for Checkpoint 57; implementation authorized
+Amended by [ADR 093](093-configurable-image-source-instances-and-models.md): source instances, endpoints, and model lists are configurable.
 Date: 2026-08-18
 
 ## Context

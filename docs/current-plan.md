@@ -45,6 +45,8 @@ Releases are unsigned, and macOS builds are not notarized. [Release policy](rele
 
 Known open defects:
 
+- Source E2E `project.create-conflict-preserves-data` still waits for the launcher `Closed` label removed in `d050d23`.
+
 - `workbench.tabs-docking-restore` fails intermittently at the native-menu Knowledge toggle.
   It also fails on unmodified `7b5e287`, so it predates the Pi 1.3 update. It needs a separate fix.
 - The full dependency audit retains one moderate sprintf-js advisory with no published repair.
@@ -52,7 +54,11 @@ Known open defects:
 
 ## Current authorized work
 
-The user authorizes fixing the Agent new-conversation draft defect, building the App locally, pushing to `main`, and publishing tag `v0.2026.10.4`.
+The user authorizes configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md):
+multiple source instances, OpenAI-compatible endpoints, built-in plus manual image models, a global default with a
+per-conversation override, and migration of existing image configuration.
+The implementation passes local macOS arm64 source acceptance and remains uncommitted.
+[Evidence](history/implementation-log.md#2026-10-30-configurable-image-source-instances) records the gates and limits.
 
 ## Deferred
 

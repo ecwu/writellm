@@ -26,6 +26,8 @@ const imageRequest: ProviderProbeRequest = {
   ...request,
   config: {
     role: 'image',
+    sourceId: 'test-source',
+    imageSizes: ['1K', '2K'],
     providerId: 'google-gemini',
     model: 'gemini-3.1-flash-image',
     timeoutMs: 30_000,
@@ -42,6 +44,8 @@ const vertexImageRequest: ProviderProbeRequest = {
   ...imageRequest,
   config: {
     role: 'image',
+    sourceId: 'test-source',
+    imageSizes: ['1K', '2K'],
     providerId: 'google-vertex',
     projectId: 'writellm-images-123',
     location: 'global',
@@ -318,6 +322,8 @@ describe('provider utility probe request', () => {
           ...imageRequest,
           config: {
             role: 'image',
+            sourceId: 'test-source',
+            imageSizes: ['1K', '2K'],
             providerId,
             model,
             timeoutMs: 30_000,

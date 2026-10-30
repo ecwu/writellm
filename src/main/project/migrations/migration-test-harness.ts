@@ -19,13 +19,19 @@ export type MigrationRecoveryFixture = {
   fromVersion: number
   teardownSql: string
   conflictingTable: string
+  /** Replaces the conflicting-table failure for migrations that only add columns. */
+  failureSql?: string
 }
+
+const dropImageModelSelection = `ALTER TABLE agent_sessions DROP COLUMN image_model_id;
+      ALTER TABLE agent_sessions DROP COLUMN image_source_id;`
 
 export const migrationRecoveryFixtures = {
   messageReplacements: {
     fromVersion: 45,
-    teardownSql: `DROP TABLE agent_attachments;
-DROP VIEW agent_conversation_history;
+    teardownSql: `${dropImageModelSelection}
+      DROP TABLE agent_attachments;
+      DROP VIEW agent_conversation_history;
       DROP TABLE agent_history_references;
       DROP TABLE agent_conversation_forks;
       DROP VIEW agent_effective_events;
@@ -37,16 +43,24 @@ DROP VIEW agent_conversation_history;
   },
   conversationFork: {
     fromVersion: 46,
-    teardownSql: `DROP TABLE agent_attachments;
-DROP VIEW agent_conversation_history;
+    teardownSql: `${dropImageModelSelection}
+      DROP TABLE agent_attachments;
+      DROP VIEW agent_conversation_history;
       DROP TABLE agent_history_references;
       DROP TABLE agent_conversation_forks;`,
     conflictingTable: 'agent_conversation_forks'
   },
   imageAttachments: {
     fromVersion: 47,
-    teardownSql: 'DROP TABLE agent_attachments;',
+    teardownSql: `${dropImageModelSelection}
+      DROP TABLE agent_attachments;`,
     conflictingTable: 'agent_attachments'
+  },
+  imageModelSelection: {
+    fromVersion: 48,
+    teardownSql: dropImageModelSelection,
+    conflictingTable: 'agent_sessions',
+    failureSql: 'ALTER TABLE agent_sessions ADD COLUMN image_model_id TEXT;'
   }
 } as const satisfies Record<string, MigrationRecoveryFixture>
 
@@ -58,7 +72,9 @@ export async function legacyProject(fixture: MigrationRecoveryFixture, fail = fa
       DELETE FROM schema_migrations WHERE version >= ${fixture.fromVersion + 1};
       UPDATE schema_manifest SET schema_version = ${fixture.fromVersion};
       PRAGMA user_version = ${fixture.fromVersion};`)
-    if (fail) db.exec(`CREATE TABLE ${fixture.conflictingTable} (fixture TEXT)`)
+    if (fail) {
+      db.exec(fixture.failureSql ?? `CREATE TABLE ${fixture.conflictingTable} (fixture TEXT)`)
+    }
     return dirname(dirname(db.name))
   })
   project.close()

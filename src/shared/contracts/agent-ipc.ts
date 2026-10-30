@@ -20,7 +20,12 @@ import { agentModelLimitsSchema } from './agent'
 import { mutationProposalRecordSchema } from './agent-mutations'
 import { modelUsageSchema } from './model-runtime'
 import { projectSessionIdSchema } from './projects'
-import { agentModelSelectionSchema, agentThinkingLevelSchema, piApiSchema } from './providers'
+import {
+  agentModelSelectionSchema,
+  agentThinkingLevelSchema,
+  imageModelSelectionSchema,
+  piApiSchema
+} from './providers'
 import { skillRunSnapshotSchema } from './skills'
 import { agentQuickActionRequestSchema } from './agent-quick-actions'
 import { writingTaskIdSchema, writingTaskStepIdSchema, writingTaskViewSchema } from './writing-task'
@@ -75,6 +80,7 @@ export const agentSessionRecordSchema = strictObject({
   interactionMode: agentInteractionModeSchema.default('write'),
   workflowState: agentSessionWorkflowStateSchema.default('idle'),
   modelSelection: agentModelSelectionSchema.nullable().default(null),
+  imageModelSelection: imageModelSelectionSchema.nullable().default(null),
   thinkingLevel: agentThinkingLevelSchema.default('off'),
   writingTask: writingTaskViewSchema.nullable().optional(),
   createdAt: z.iso.datetime(),
@@ -184,6 +190,10 @@ export const agentSetModelSelectionInputSchema = agentSessionInputSchema.extend(
   selection: agentModelSelectionSchema
 })
 export const agentSetModelSelectionResultSchema = agentSessionRecordSchema
+export const agentSetImageModelSelectionInputSchema = agentSessionInputSchema.extend({
+  selection: imageModelSelectionSchema.nullable()
+})
+export const agentSetImageModelSelectionResultSchema = agentSessionRecordSchema
 export const agentSetThinkingLevelInputSchema = agentSessionInputSchema.extend({
   level: agentThinkingLevelSchema
 })

@@ -3,11 +3,7 @@ import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import pino from 'pino'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
-import {
-  GOOGLE_GEMINI_IMAGE_MODELS,
-  GOOGLE_VERTEX_IMAGE_MODELS,
-  type ProviderSettingsSnapshot
-} from '../../shared/contracts/providers'
+import type { ProviderSettingsSnapshot } from '../../shared/contracts/providers'
 import { registerProviderIpc, type ProviderIpcMain } from './provider-ipc'
 
 function emptyStatus(
@@ -86,51 +82,7 @@ const snapshot: ProviderSettingsSnapshot = {
     },
     ...(['embedding', 'rerank', 'mineru', 'image'] as const).map(emptyStatus)
   ],
-  imageCatalog: {
-    activeProviderId: null,
-    sources: [
-      {
-        providerId: 'google-gemini',
-        label: 'Google Gemini',
-        models: [...GOOGLE_GEMINI_IMAGE_MODELS],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      },
-      {
-        providerId: 'google-vertex',
-        label: 'Google Vertex AI',
-        models: [...GOOGLE_VERTEX_IMAGE_MODELS],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      },
-      {
-        providerId: 'openai',
-        label: 'OpenAI',
-        models: ['gpt-image-2'],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      },
-      {
-        providerId: 'xai',
-        label: 'xAI',
-        models: ['grok-imagine-image-2.0'],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      }
-    ]
-  },
+  imageCatalog: { defaultSelection: null, sources: [] },
   agentCatalog: { presets: [], defaultSelection: null }
 }
 
@@ -144,7 +96,18 @@ function harness() {
     snapshot: vi.fn(async () => snapshot),
     save: vi.fn(async () => snapshot),
     remove: vi.fn(async () => snapshot),
-    setActiveImageProvider: vi.fn(async () => snapshot),
+    saveImageSource: vi.fn(async () => snapshot),
+    removeImageSource: vi.fn(async () => snapshot),
+    testImageSource: vi.fn(async () => ({
+      ok: true,
+      code: 'connected' as const,
+      message: 'Connection succeeded.',
+      durationMs: 4
+    })),
+    setImageDefaultSelection: vi.fn(async () => snapshot),
+    saveImageManualModel: vi.fn(async () => snapshot),
+    removeImageManualModel: vi.fn(async () => snapshot),
+    setImageModelEnabled: vi.fn(async () => snapshot),
     testConnection: vi.fn(async () => ({
       ok: true,
       code: 'connected' as const,
@@ -225,25 +188,82 @@ describe('provider IPC', () => {
     expect(providers.save).not.toHaveBeenCalled()
   })
 
-  it('requires an exact image source for remove/test and validates activation', async () => {
+  it('routes image sources only through validated image source channels', async () => {
     const { invoke, providers } = harness()
     await expect(invoke(IPC_CHANNELS.providersRemove, { role: 'image' })).rejects.toThrow()
     await expect(
-      invoke(IPC_CHANNELS.providersTestConnection, { role: 'image', providerId: 'custom' })
+      invoke(IPC_CHANNELS.providersTestConnection, { role: 'image', providerId: 'openai' })
     ).rejects.toThrow()
 
-    await invoke(IPC_CHANNELS.providersRemove, { role: 'image', providerId: 'openai' })
-    expect(providers.remove).toHaveBeenCalledWith('image', 'openai')
-    await invoke(IPC_CHANNELS.providersSetActiveImage, { providerId: 'xai' })
-    expect(providers.setActiveImageProvider).toHaveBeenCalledWith('xai')
-    await invoke(IPC_CHANNELS.providersSetActiveImage, { providerId: 'google-vertex' })
-    expect(providers.setActiveImageProvider).toHaveBeenCalledWith('google-vertex')
+    await invoke(IPC_CHANNELS.providersSaveImageSource, {
+      source: { providerId: 'openai', name: 'Gateway', baseUrl: 'https://gateway.example.test/v1' },
+      apiKey: 'gateway-secret'
+    })
+    expect(providers.saveImageSource).toHaveBeenCalledWith({
+      source: { providerId: 'openai', name: 'Gateway', baseUrl: 'https://gateway.example.test/v1' },
+      apiKey: 'gateway-secret'
+    })
     await expect(
-      invoke(IPC_CHANNELS.providersSetActiveImage, {
-        providerId: 'openai',
-        baseUrl: 'https://proxy.example.test'
+      invoke(IPC_CHANNELS.providersSaveImageSource, {
+        source: { providerId: 'google-gemini', name: 'Gemini', baseUrl: 'https://proxy.test' }
       })
     ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersSaveImageSource, {
+        source: { providerId: 'google-vertex', name: 'Vertex', projectId: 'writellm-images-1' },
+        apiKey: 'must-not-be-sent'
+      })
+    ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersSaveImageSource, {
+        source: { providerId: 'custom', name: 'Unknown' }
+      })
+    ).rejects.toThrow()
+
+    await invoke(IPC_CHANNELS.providersRemoveImageSource, { sourceId: 'img-1' })
+    expect(providers.removeImageSource).toHaveBeenCalledWith('img-1')
+    await invoke(IPC_CHANNELS.providersTestImageSource, { sourceId: 'img-1' })
+    expect(providers.testImageSource).toHaveBeenCalledWith('img-1', undefined)
+    await invoke(IPC_CHANNELS.providersSetImageDefault, {
+      sourceId: 'img-1',
+      modelId: 'gpt-image-2'
+    })
+    expect(providers.setImageDefaultSelection).toHaveBeenCalledWith({
+      sourceId: 'img-1',
+      modelId: 'gpt-image-2'
+    })
+    await invoke(IPC_CHANNELS.providersSetImageDefault, null)
+    expect(providers.setImageDefaultSelection).toHaveBeenLastCalledWith(null)
+    await expect(
+      invoke(IPC_CHANNELS.providersSetImageDefault, { sourceId: '../escape', modelId: 'x' })
+    ).rejects.toThrow()
+
+    await invoke(IPC_CHANNELS.providersSaveImageManualModel, {
+      sourceId: 'img-1',
+      model: { id: 'gpt-image-3', name: 'GPT Image 3', imageSizes: ['1K', '2K'] }
+    })
+    expect(providers.saveImageManualModel).toHaveBeenCalledWith('img-1', {
+      id: 'gpt-image-3',
+      name: 'GPT Image 3',
+      imageSizes: ['1K', '2K']
+    })
+    await expect(
+      invoke(IPC_CHANNELS.providersSaveImageManualModel, {
+        sourceId: 'img-1',
+        model: { id: 'gpt-image-3', name: 'No 1K', imageSizes: ['2K'] }
+      })
+    ).rejects.toThrow()
+    await invoke(IPC_CHANNELS.providersSetImageModelEnabled, {
+      sourceId: 'img-1',
+      modelId: 'gpt-image-2',
+      enabled: false
+    })
+    expect(providers.setImageModelEnabled).toHaveBeenCalledWith('img-1', 'gpt-image-2', false)
+    await invoke(IPC_CHANNELS.providersRemoveImageManualModel, {
+      sourceId: 'img-1',
+      modelId: 'gpt-image-3'
+    })
+    expect(providers.removeImageManualModel).toHaveBeenCalledWith('img-1', 'gpt-image-3')
   })
 
   it('validates and forwards Agent availability and manual model updates', async () => {

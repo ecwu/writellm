@@ -17,7 +17,13 @@ import {
   agentPresetInputSchema,
   agentPresetCredentialInputSchema,
   providerConnectionTestResultSchema,
-  imageProviderSelectionInputSchema,
+  imageManualModelInputSchema,
+  imageModelEnabledInputSchema,
+  imageModelInputSchema,
+  imageModelSelectionSchema,
+  imageSourceInputSchema,
+  imageSourceSaveInputSchema,
+  imageSourceTestInputSchema,
   providerRoleInputSchema,
   providerSaveInputSchema,
   providerSettingsSnapshotSchema
@@ -54,6 +60,7 @@ export function registerProviderIpc({
   const readOnlyChannels = new Set<string>([
     IPC_CHANNELS.providersSnapshot,
     IPC_CHANNELS.providersTestConnection,
+    IPC_CHANNELS.providersTestImageSource,
     IPC_CHANNELS.providersRespondAgentAuth,
     IPC_CHANNELS.providersCancelAgentAuth
   ])
@@ -97,24 +104,64 @@ export function registerProviderIpc({
   handle(IPC_CHANNELS.providersRemove, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = providerRoleInputSchema.parse(rawInput)
-    return providerSettingsSnapshotSchema.parse(
-      await providers.remove(input.role, input.role === 'image' ? input.providerId : undefined)
-    )
+    return providerSettingsSnapshotSchema.parse(await providers.remove(input.role))
   })
   handle(IPC_CHANNELS.providersTestConnection, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const input = providerRoleInputSchema.parse(rawInput)
+    return providerConnectionTestResultSchema.parse(await providers.testConnection(input.role))
+  })
+  handle(IPC_CHANNELS.providersSaveImageSource, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const input = imageSourceSaveInputSchema.parse(rawInput)
+    logger.info(
+      {
+        event: 'provider.ipc.save_image_source',
+        providerId: input.source.providerId,
+        created: input.sourceId === undefined,
+        hasCredential: input.apiKey !== undefined
+      },
+      'Saving image source'
+    )
+    return providerSettingsSnapshotSchema.parse(await providers.saveImageSource(input))
+  })
+  handle(IPC_CHANNELS.providersRemoveImageSource, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { sourceId } = imageSourceInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(await providers.removeImageSource(sourceId))
+  })
+  handle(IPC_CHANNELS.providersTestImageSource, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { sourceId, modelId } = imageSourceTestInputSchema.parse(rawInput)
     return providerConnectionTestResultSchema.parse(
-      await providers.testConnection(
-        input.role,
-        input.role === 'image' ? input.providerId : undefined
-      )
+      await providers.testImageSource(sourceId, modelId)
     )
   })
-  handle(IPC_CHANNELS.providersSetActiveImage, async (event, rawInput) => {
+  handle(IPC_CHANNELS.providersSetImageDefault, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
-    const { providerId } = imageProviderSelectionInputSchema.parse(rawInput)
-    return providerSettingsSnapshotSchema.parse(await providers.setActiveImageProvider(providerId))
+    const selection = imageModelSelectionSchema.nullable().parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(await providers.setImageDefaultSelection(selection))
+  })
+  handle(IPC_CHANNELS.providersSaveImageManualModel, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { sourceId, model } = imageManualModelInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.saveImageManualModel(sourceId, model)
+    )
+  })
+  handle(IPC_CHANNELS.providersRemoveImageManualModel, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { sourceId, modelId } = imageModelInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.removeImageManualModel(sourceId, modelId)
+    )
+  })
+  handle(IPC_CHANNELS.providersSetImageModelEnabled, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    const { sourceId, modelId, enabled } = imageModelEnabledInputSchema.parse(rawInput)
+    return providerSettingsSnapshotSchema.parse(
+      await providers.setImageModelEnabled(sourceId, modelId, enabled)
+    )
   })
   handle(IPC_CHANNELS.providersSaveAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
@@ -278,7 +325,13 @@ export function registerProviderIpc({
       IPC_CHANNELS.providersSave,
       IPC_CHANNELS.providersRemove,
       IPC_CHANNELS.providersTestConnection,
-      IPC_CHANNELS.providersSetActiveImage,
+      IPC_CHANNELS.providersSaveImageSource,
+      IPC_CHANNELS.providersRemoveImageSource,
+      IPC_CHANNELS.providersTestImageSource,
+      IPC_CHANNELS.providersSetImageDefault,
+      IPC_CHANNELS.providersSaveImageManualModel,
+      IPC_CHANNELS.providersRemoveImageManualModel,
+      IPC_CHANNELS.providersSetImageModelEnabled,
       IPC_CHANNELS.providersSaveAgentPreset,
       IPC_CHANNELS.providersRemoveAgentPreset,
       IPC_CHANNELS.providersRefreshAgentPreset,

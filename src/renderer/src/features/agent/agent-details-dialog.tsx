@@ -1,10 +1,14 @@
 import type { AgentRunRecord, AgentSessionRecord } from '../../../../shared/contracts/agent-ipc'
 import type { AgentApprovalMode } from '../../../../shared/contracts/agent'
+import { useEffect, useState } from 'react'
 import type {
   AgentModelSelection,
   AgentProviderCatalog,
-  AgentThinkingLevel
+  AgentThinkingLevel,
+  ImageModelSelection,
+  ImageProviderCatalog
 } from '../../../../shared/contracts/providers'
+import { reportRendererOperationError } from '../../diagnostics'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +18,22 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
 import { Progress } from '@/components/ui/progress'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select'
+import {
+  parseSelectionKey,
+  selectableImageModels,
+  selectionKey
+} from '../providers/image-provider-settings'
 import {
   AgentDiagnosticDetails,
   BoundedJsonDetails,
@@ -52,6 +71,7 @@ export function AgentDetailsDialog(props: {
   modelReady: boolean
   busy: boolean
   onModelSelect(selection: AgentModelSelection): Promise<void>
+  onImageModelSelect(selection: ImageModelSelection | null): Promise<void>
   onThinkingSelect(level: AgentThinkingLevel): Promise<void>
   onApprovalModeSelect(mode: AgentApprovalMode): Promise<void>
 }): React.JSX.Element {
@@ -85,6 +105,12 @@ export function AgentDetailsDialog(props: {
                 onSelect={props.onThinkingSelect}
               />
             </div>
+            <ConversationImageModel
+              open={props.open}
+              selection={props.session?.imageModelSelection ?? null}
+              disabled={props.session?.status === 'archived' || props.session?.compatible === false}
+              onSelect={props.onImageModelSelect}
+            />
             <div className='flex flex-wrap gap-2'>
               {(['manual', 'section_auto', 'yolo'] as const).map((mode) => (
                 <Button
@@ -252,5 +278,95 @@ function SkillsUsedDetails(props: { run: AgentRunRecord | null }): React.JSX.Ele
         </div>
       ) : null}
     </section>
+  )
+}
+
+const USE_DEFAULT_IMAGE_MODEL = 'default'
+
+/** Conversation override of the application default image model (ADR 093). */
+function ConversationImageModel(props: {
+  open: boolean
+  selection: ImageModelSelection | null
+  disabled: boolean
+  onSelect(selection: ImageModelSelection | null): Promise<void>
+}): React.JSX.Element {
+  const [catalog, setCatalog] = useState<ImageProviderCatalog | null>(null)
+  useEffect(() => {
+    if (!props.open) return
+    let cancelled = false
+    window.desktop.providers
+      .snapshot()
+      .then((snapshot) => {
+        if (!cancelled) setCatalog(snapshot.imageCatalog)
+      })
+      .catch((err: unknown) => {
+        reportRendererOperationError(err, 'agent.details.image-catalog')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [props.open])
+
+  const groups = catalog === null ? [] : selectableImageModels(catalog)
+  const defaultSelection = catalog?.defaultSelection ?? null
+  const label = (selection: ImageModelSelection | null): string | null => {
+    if (selection === null || catalog === null) return null
+    const source = catalog.sources.find((item) => item.sourceId === selection.sourceId)
+    const model = source?.models.find((item) => item.id === selection.modelId)
+    return source === undefined || model === undefined ? null : `${source.name} · ${model.name}`
+  }
+  const selectionAvailable =
+    props.selection === null ||
+    groups.some(
+      ({ source, models }) =>
+        source.sourceId === props.selection?.sourceId &&
+        models.some((model) => model.id === props.selection?.modelId)
+    )
+  return (
+    <Field>
+      <FieldLabel htmlFor='agent-image-model'>Image model</FieldLabel>
+      <Select
+        value={props.selection === null ? USE_DEFAULT_IMAGE_MODEL : selectionKey(props.selection)}
+        disabled={props.disabled || catalog === null}
+        onValueChange={(value) =>
+          void props.onSelect(value === USE_DEFAULT_IMAGE_MODEL ? null : parseSelectionKey(value))
+        }
+      >
+        <SelectTrigger id='agent-image-model'>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            <SelectItem value={USE_DEFAULT_IMAGE_MODEL}>
+              {`Use default${label(defaultSelection) === null ? '' : ` (${label(defaultSelection)})`}`}
+            </SelectItem>
+            {props.selection !== null && !selectionAvailable ? (
+              <SelectItem value={selectionKey(props.selection)} disabled>
+                {`${props.selection.modelId} (unavailable)`}
+              </SelectItem>
+            ) : null}
+          </SelectGroup>
+          {groups.map(({ source, models }) => (
+            <SelectGroup key={source.sourceId}>
+              <SelectLabel>{source.name}</SelectLabel>
+              {models.map((model) => (
+                <SelectItem
+                  key={model.id}
+                  value={selectionKey({ sourceId: source.sourceId, modelId: model.id })}
+                >
+                  {model.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          ))}
+        </SelectContent>
+      </Select>
+      {!selectionAvailable ? (
+        <FieldDescription>
+          The selected image model is unavailable. Image generation fails until you choose another
+          model or the default.
+        </FieldDescription>
+      ) : null}
+    </Field>
   )
 }

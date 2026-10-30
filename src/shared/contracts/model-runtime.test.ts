@@ -34,6 +34,8 @@ describe('model runtime response contracts', () => {
       projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc204',
       config: {
         role: 'image',
+        sourceId: 'test-source',
+        imageSizes: ['1K', '2K'],
         providerId: 'google-vertex',
         projectId: 'writellm-images-123',
         location: 'global',

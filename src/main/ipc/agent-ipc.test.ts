@@ -745,6 +745,7 @@ function harness() {
     manager: manager as never,
     broker: broker as never,
     catalog: catalog as never,
+    imageCatalog: { resolveImageSelection: vi.fn() } as never,
     logger,
     developmentUrl: 'http://localhost:5173',
     ipc

@@ -231,20 +231,19 @@ describe('AppSettingsRepository', () => {
     database.close()
   })
 
-  it('stores only a fixed active image provider and can clear the selection', async () => {
+  it('stores a validated default image source and model and can clear it', async () => {
     const database = await openTestDatabase()
     const repository = new AppSettingsRepository(database, log)
+    const selection = { sourceId: 'img-1234', modelId: 'gpt-image-2' }
 
-    await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
-    await expect(repository.setActiveImageProviderId('openai')).resolves.toBe('openai')
-    await expect(repository.getActiveImageProviderId()).resolves.toBe('openai')
-    await expect(repository.setActiveImageProviderId('google-vertex')).resolves.toBe(
-      'google-vertex'
-    )
-    await expect(repository.getActiveImageProviderId()).resolves.toBe('google-vertex')
-    await expect(repository.setActiveImageProviderId('custom' as 'openai')).rejects.toThrow()
-    await expect(repository.setActiveImageProviderId(null)).resolves.toBeNull()
-    await expect(repository.getActiveImageProviderId()).resolves.toBeNull()
+    await expect(repository.getImageDefaultSelection()).resolves.toBeNull()
+    await expect(repository.setImageDefaultSelection(selection)).resolves.toEqual(selection)
+    await expect(repository.getImageDefaultSelection()).resolves.toEqual(selection)
+    await expect(
+      repository.setImageDefaultSelection({ sourceId: 'Not Valid', modelId: 'x' })
+    ).rejects.toThrow()
+    await expect(repository.setImageDefaultSelection(null)).resolves.toBeNull()
+    await expect(repository.getImageDefaultSelection()).resolves.toBeNull()
     database.close()
   })
 })

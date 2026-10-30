@@ -92,8 +92,8 @@ No ADR 045 exists.
 | [048](048-existing-image-cross-section-relocation.md) | Copy an existing image across sections, then remove it only after the insertion applies. | Current |
 | [049](049-harness-style-writing-context-compaction.md) | Writing-specific compaction handoff. | Partly replaced by 064, 072, and 074. |
 | [050](050-agent-composer-context-usage-indicator.md) | Context-usage indicator shown only for usage matching the current model. | Current |
-| [051](051-fixed-multi-provider-image-catalog.md) | Fixed Gemini, OpenAI, and xAI image catalog with one explicit active source and no fallback. | Current |
-| [052](052-google-vertex-ai-nano-banana-image-source.md) | Google Vertex AI image source using local ADC. | Current |
+| [051](051-fixed-multi-provider-image-catalog.md) | Fixed Gemini, OpenAI, and xAI image catalog with one explicit active source and no fallback. | Amended by 093 |
+| [052](052-google-vertex-ai-nano-banana-image-source.md) | Google Vertex AI image source using local ADC. | Amended by 093 |
 | [053](053-composable-progressive-writing-skills.md) | Composable, progressive Writing Skills. | Partly replaced by 054, 073, and 074. |
 | [054](054-observable-per-run-writing-skill-loading.md) | Writing Skills load per run through visible tool reads. | Partly replaced by 073 and 074. |
 | [055](055-textual-writing-skill-mentions.md) | `$skill-name` mentions as ordinary prompt text. | Partly replaced by 073 and 074. |
@@ -134,6 +134,7 @@ No ADR 045 exists.
 | [090](090-document-navigation-and-dependency-boundaries.md) | Documentation navigation and retained library boundaries. | Current |
 | [091](091-issue-19-endpoint-authority-and-compatibility.md) | Endpoint registration as the single IPC authority, and canonical JSON compatibility. | Current |
 | [092](092-documentation-evidence-archive.md) | Summarize verification evidence and archive it at a pinned commit. | Current |
+| [093](093-configurable-image-source-instances-and-models.md) | Multiple image source instances, OpenAI-compatible endpoints, manual image models, and a per-conversation override. | Current |
 
 ## Dependency boundaries
 
@@ -142,7 +143,7 @@ rules:
 
 - Pi Agent Core and Pi AI own interactive Agent sessions and provider-neutral streaming.
 - AI SDK Core adapters own embedding and reranking requests.
-- Google GenAI and OpenAI adapters serve the fixed image, auxiliary, and probe paths that use them.
+- Google GenAI and OpenAI adapters serve the image, auxiliary, and probe paths that use them.
 - Citation.js and citeproc serve bibliography parsing and formatting.
 - JSZip owns DOCX publication. Yauzl owns bounded archive extraction. Yazl is a test fixture writer.
 

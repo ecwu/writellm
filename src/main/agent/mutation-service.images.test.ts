@@ -302,10 +302,22 @@ describe('MutationProposalService: images', () => {
       value.toolCall('generate_image')
     )
 
+    value.database.immediate((database) =>
+      database
+        .prepare(
+          `UPDATE agent_sessions SET image_source_id = 'img-gateway', image_model_id = 'gpt-image-3'
+            WHERE agent_session_id = ?`
+        )
+        .run(agentSessionId)
+    )
     const candidateReady = await service.approve({
       projectSessionId,
       agentSessionId,
       proposalId: proposed.proposalId
+    })
+    expect((generateImage.mock.calls[0] as unknown[] | undefined)?.[4]).toEqual({
+      sourceId: 'img-gateway',
+      modelId: 'gpt-image-3'
     })
     expect(candidateReady).toMatchObject({
       outcome: 'refresh_required',

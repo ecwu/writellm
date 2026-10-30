@@ -1,7 +1,8 @@
 import type { AgentApprovalMode, AgentInteractionMode } from '../../../../shared/contracts/agent'
 import type {
   AgentModelSelection,
-  AgentThinkingLevel
+  AgentThinkingLevel,
+  ImageModelSelection
 } from '../../../../shared/contracts/providers'
 import {
   errorMessage,
@@ -105,6 +106,26 @@ export function useAgentPanelSessionActions(input: {
       reportRendererOperationError(cause, 'agent.session.set-approval-mode')
       const message = errorMessage(cause)
       setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const setImageModelSelection = async (selection: ImageModelSelection | null): Promise<void> => {
+    if (activeSessionArchived) return
+    setBusy(true)
+    setError(null)
+    try {
+      const session = activeSession ?? (await createSession())
+      const updated = await window.desktop.agent.setImageModelSelection({
+        projectSessionId: props.projectSessionId,
+        agentSessionId: session.agentSessionId,
+        selection
+      })
+      setSessions((current) => upsertSession(current, updated))
+    } catch (cause) {
+      reportRendererOperationError(cause, 'agent.session.set-image-model-selection')
+      setError(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -311,6 +332,7 @@ export function useAgentPanelSessionActions(input: {
     createSession,
     beginNewConversation,
     setApprovalMode,
+    setImageModelSelection,
     setInteractionMode,
     setModelSelection,
     setThinkingLevel,

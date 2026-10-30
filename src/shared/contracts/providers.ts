@@ -108,19 +108,13 @@ export const GOOGLE_GEMINI_IMAGE_MODELS = [
   'gemini-3-pro-image',
   'gemini-2.5-flash-image'
 ] as const
-export const googleGeminiImageModelSchema = z.enum(GOOGLE_GEMINI_IMAGE_MODELS)
-export type GoogleGeminiImageModel = z.infer<typeof googleGeminiImageModelSchema>
-export const googleGeminiImageSizeSchema = z.enum(['1K', '2K'])
-export type GoogleGeminiImageSize = z.infer<typeof googleGeminiImageSizeSchema>
-export const imageSizeSchema = googleGeminiImageSizeSchema
+export const imageSizeSchema = z.enum(['1K', '2K'])
 export type ImageSize = z.infer<typeof imageSizeSchema>
 export const GOOGLE_VERTEX_IMAGE_MODELS = [
   'gemini-2.5-flash-image',
   'gemini-3-pro-image',
   'gemini-3.1-flash-image'
 ] as const
-export const googleVertexImageModelSchema = z.enum(GOOGLE_VERTEX_IMAGE_MODELS)
-export type GoogleVertexImageModel = z.infer<typeof googleVertexImageModelSchema>
 export const googleCloudProjectIdSchema = z
   .string()
   .trim()
@@ -132,34 +126,73 @@ export const IMAGE_PROVIDER_IDS = ['google-gemini', 'google-vertex', 'openai', '
 export const imageProviderIdSchema = z.enum(IMAGE_PROVIDER_IDS)
 export type ImageProviderId = z.infer<typeof imageProviderIdSchema>
 export const OPENAI_IMAGE_MODELS = ['gpt-image-2'] as const
-export const openAiImageModelSchema = z.enum(OPENAI_IMAGE_MODELS)
 export const XAI_IMAGE_MODELS = ['grok-imagine-image-2.0'] as const
-export const xAiImageModelSchema = z.enum(XAI_IMAGE_MODELS)
-export const GOOGLE_GEMINI_IMAGE_MODEL_SIZES = {
-  'gemini-3.1-flash-lite-image': ['1K'],
-  'gemini-3.1-flash-image': ['1K', '2K'],
-  'gemini-3-pro-image': ['1K', '2K'],
-  'gemini-2.5-flash-image': ['1K']
-} as const satisfies Record<GoogleGeminiImageModel, readonly GoogleGeminiImageSize[]>
-export const GOOGLE_VERTEX_IMAGE_MODEL_SIZES = {
-  'gemini-2.5-flash-image': ['1K'],
-  'gemini-3-pro-image': ['1K', '2K'],
-  'gemini-3.1-flash-image': ['1K', '2K']
-} as const satisfies Record<GoogleVertexImageModel, readonly GoogleGeminiImageSize[]>
 
-export function effectiveGoogleGeminiImageSize(
-  model: GoogleGeminiImageModel,
-  requested: GoogleGeminiImageSize
-): GoogleGeminiImageSize {
-  const supported: readonly GoogleGeminiImageSize[] = GOOGLE_GEMINI_IMAGE_MODEL_SIZES[model]
-  return supported.includes(requested) ? requested : '1K'
+export const imageSourceIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z0-9][a-z0-9-]*$/, 'Use lowercase letters, digits, and hyphens')
+export type ImageSourceId = z.infer<typeof imageSourceIdSchema>
+export const imageModelIdSchema = z.string().trim().min(1).max(200)
+
+export const imageModelSelectionSchema = z
+  .object({ sourceId: imageSourceIdSchema, modelId: imageModelIdSchema })
+  .strict()
+export type ImageModelSelection = z.infer<typeof imageModelSelectionSchema>
+
+const imageSizesSchema = z
+  .array(imageSizeSchema)
+  .min(1)
+  .max(2)
+  .refine(
+    (sizes) => sizes.includes('1K') && new Set(sizes).size === sizes.length,
+    'Image models must support 1K and list each size once'
+  )
+
+export const imageModelDefinitionSchema = z
+  .object({
+    id: imageModelIdSchema,
+    name: z.string().trim().min(1).max(200),
+    imageSizes: imageSizesSchema
+  })
+  .strict()
+export type ImageModelDefinition = z.infer<typeof imageModelDefinitionSchema>
+
+export const IMAGE_TRANSPORT_LABELS: Record<ImageProviderId, string> = {
+  'google-gemini': 'Google Gemini',
+  'google-vertex': 'Google Vertex AI',
+  openai: 'OpenAI Images',
+  xai: 'xAI'
 }
 
-export function effectiveGoogleVertexImageSize(
-  model: GoogleVertexImageModel,
-  requested: GoogleGeminiImageSize
-): GoogleGeminiImageSize {
-  const supported: readonly GoogleGeminiImageSize[] = GOOGLE_VERTEX_IMAGE_MODEL_SIZES[model]
+/** Previously reviewed built-in models; instances can add manual model IDs (ADR 093). */
+export const BUILTIN_IMAGE_MODELS: Record<ImageProviderId, readonly ImageModelDefinition[]> = {
+  'google-gemini': [
+    { id: 'gemini-3.1-flash-lite-image', name: 'gemini-3.1-flash-lite-image', imageSizes: ['1K'] },
+    { id: 'gemini-3.1-flash-image', name: 'gemini-3.1-flash-image', imageSizes: ['1K', '2K'] },
+    { id: 'gemini-3-pro-image', name: 'gemini-3-pro-image', imageSizes: ['1K', '2K'] },
+    { id: 'gemini-2.5-flash-image', name: 'gemini-2.5-flash-image', imageSizes: ['1K'] }
+  ],
+  'google-vertex': [
+    { id: 'gemini-2.5-flash-image', name: 'Nano Banana', imageSizes: ['1K'] },
+    { id: 'gemini-3-pro-image', name: 'Nano Banana Pro', imageSizes: ['1K', '2K'] },
+    { id: 'gemini-3.1-flash-image', name: 'Nano Banana 2', imageSizes: ['1K', '2K'] }
+  ],
+  openai: [{ id: 'gpt-image-2', name: 'gpt-image-2', imageSizes: ['1K', '2K'] }],
+  xai: [{ id: 'grok-imagine-image-2.0', name: 'grok-imagine-image-2.0', imageSizes: ['1K', '2K'] }]
+}
+
+export const OFFICIAL_IMAGE_BASE_URLS = {
+  openai: 'https://api.openai.com/v1',
+  xai: 'https://api.x.ai/v1'
+} as const
+
+export function effectiveImageSize(
+  supported: readonly ImageSize[],
+  requested: ImageSize
+): ImageSize {
   return supported.includes(requested) ? requested : '1K'
 }
 
@@ -339,48 +372,92 @@ const imageProviderCommonFields = {
   timeoutMs: providerCommonFields.timeoutMs,
   batchLimit: providerCommonFields.batchLimit,
   role: z.literal('image'),
+  sourceId: imageSourceIdSchema,
   embeddingDimension: z.null(),
   fileSizeLimitMb: z.null(),
   defaultAspectRatio: z.enum(['auto', '1:1', '16:9']),
   defaultImageSize: imageSizeSchema
 }
 
+const imageSourceCommonFields = {
+  ...imageProviderCommonFields,
+  name: z.string().trim().min(1).max(100),
+  manualModels: z.array(imageModelDefinitionSchema).max(100),
+  disabledModelIds: z.array(imageModelIdSchema).max(200)
+}
+
+/** One persisted image source instance (ADR 093). */
+export const imageSourceConfigSchema = z
+  .discriminatedUnion('providerId', [
+    z.object({ ...imageSourceCommonFields, providerId: z.literal('google-gemini') }).strict(),
+    z
+      .object({
+        ...imageSourceCommonFields,
+        providerId: z.literal('google-vertex'),
+        projectId: googleCloudProjectIdSchema,
+        location: googleVertexLocationSchema
+      })
+      .strict(),
+    z
+      .object({
+        ...imageSourceCommonFields,
+        providerId: z.literal('openai'),
+        baseUrl: providerBaseUrlSchema.optional()
+      })
+      .strict(),
+    z
+      .object({
+        ...imageSourceCommonFields,
+        providerId: z.literal('xai'),
+        baseUrl: providerBaseUrlSchema.optional()
+      })
+      .strict()
+  ])
+  .superRefine((config, context) => {
+    const builtins = new Set(BUILTIN_IMAGE_MODELS[config.providerId].map((model) => model.id))
+    const seen = new Set<string>()
+    for (const [index, model] of config.manualModels.entries()) {
+      if (builtins.has(model.id) || seen.has(model.id)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['manualModels', index, 'id'],
+          message: 'Image model IDs must be unique within a source'
+        })
+      }
+      seen.add(model.id)
+    }
+  })
+export type ImageSourceConfig = z.infer<typeof imageSourceConfigSchema>
+
+const imageRuntimeCommonFields = {
+  ...imageProviderCommonFields,
+  model: imageModelIdSchema,
+  imageSizes: imageSizesSchema
+}
+
+/** The resolved source and model sent to the worker for one request. */
 export const imageProviderConfigSchema = z.discriminatedUnion('providerId', [
+  z.object({ ...imageRuntimeCommonFields, providerId: z.literal('google-gemini') }).strict(),
   z
     .object({
-      ...imageProviderCommonFields,
-      baseUrl: z
-        .enum([
-          'https://generativelanguage.googleapis.com',
-          'https://generativelanguage.googleapis.com/v1beta'
-        ])
-        .optional(),
-      model: googleGeminiImageModelSchema,
-      providerId: z.literal('google-gemini')
-    })
-    .strict()
-    .transform(({ baseUrl: _legacyBaseUrl, ...current }) => current),
-  z
-    .object({
-      ...imageProviderCommonFields,
+      ...imageRuntimeCommonFields,
       providerId: z.literal('google-vertex'),
       projectId: googleCloudProjectIdSchema,
-      location: googleVertexLocationSchema,
-      model: googleVertexImageModelSchema
+      location: googleVertexLocationSchema
     })
     .strict(),
   z
     .object({
-      ...imageProviderCommonFields,
+      ...imageRuntimeCommonFields,
       providerId: z.literal('openai'),
-      model: openAiImageModelSchema
+      baseUrl: providerBaseUrlSchema.optional()
     })
     .strict(),
   z
     .object({
-      ...imageProviderCommonFields,
+      ...imageRuntimeCommonFields,
       providerId: z.literal('xai'),
-      model: xAiImageModelSchema
+      baseUrl: providerBaseUrlSchema.optional()
     })
     .strict()
 ])
@@ -445,77 +522,57 @@ export const providerStatusSchema = z.object({
 })
 export type ProviderStatus = z.infer<typeof providerStatusSchema>
 
-export const imageProviderStatusSchema = z.object({
+export const imageModelSummarySchema = imageModelDefinitionSchema.extend({
+  source: z.enum(['builtin', 'manual']),
+  enabled: z.boolean()
+})
+export type ImageModelSummary = z.infer<typeof imageModelSummarySchema>
+
+export const imageSourceStatusSchema = z.object({
+  sourceId: imageSourceIdSchema,
   providerId: imageProviderIdSchema,
+  name: z.string().trim().min(1).max(100),
   label: z.string().min(1).max(100),
-  models: z.array(z.string().min(1).max(200)).min(1).max(4),
-  config: imageProviderConfigSchema.nullable(),
+  config: imageSourceConfigSchema.nullable(),
+  models: z.array(imageModelSummarySchema).max(300),
   configured: z.boolean(),
   available: z.boolean(),
-  active: z.boolean(),
   issues: z.array(z.string().max(500))
 })
-export type ImageProviderStatus = z.infer<typeof imageProviderStatusSchema>
-
-const fixedImageCatalog = [
-  {
-    providerId: 'google-gemini',
-    label: 'Google Gemini',
-    models: GOOGLE_GEMINI_IMAGE_MODELS
-  },
-  {
-    providerId: 'google-vertex',
-    label: 'Google Vertex AI',
-    models: GOOGLE_VERTEX_IMAGE_MODELS
-  },
-  { providerId: 'openai', label: 'OpenAI', models: OPENAI_IMAGE_MODELS },
-  { providerId: 'xai', label: 'xAI', models: XAI_IMAGE_MODELS }
-] as const
+export type ImageSourceStatus = z.infer<typeof imageSourceStatusSchema>
 
 export const imageProviderCatalogSchema = z
   .object({
-    activeProviderId: imageProviderIdSchema.nullable(),
-    sources: z.tuple([
-      imageProviderStatusSchema,
-      imageProviderStatusSchema,
-      imageProviderStatusSchema,
-      imageProviderStatusSchema
-    ])
+    defaultSelection: imageModelSelectionSchema.nullable(),
+    sources: z.array(imageSourceStatusSchema).max(50)
   })
   .superRefine((catalog, context) => {
-    for (const [index, expected] of fixedImageCatalog.entries()) {
-      const source = catalog.sources[index]
+    const seen = new Set<string>()
+    for (const [index, source] of catalog.sources.entries()) {
+      if (seen.has(source.sourceId)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['sources', index, 'sourceId'],
+          message: 'Image source IDs must be unique'
+        })
+      }
+      seen.add(source.sourceId)
       if (
-        source.providerId !== expected.providerId ||
-        source.label !== expected.label ||
-        source.models.length !== expected.models.length ||
-        source.models.some((model, modelIndex) => model !== expected.models[modelIndex])
+        source.config !== null &&
+        (source.config.providerId !== source.providerId ||
+          source.config.sourceId !== source.sourceId)
       ) {
         context.addIssue({
           code: 'custom',
-          path: ['sources', index],
-          message: 'Image provider catalog entry does not match the fixed directory'
-        })
-      }
-      if (source.config !== null && source.config.providerId !== source.providerId) {
-        context.addIssue({
-          code: 'custom',
           path: ['sources', index, 'config'],
-          message: 'Image provider configuration does not match its catalog entry'
-        })
-      }
-      if (source.active !== (catalog.activeProviderId === source.providerId)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['sources', index, 'active'],
-          message: 'Image provider active state does not match the catalog selection'
+          message: 'Image source configuration does not match its catalog entry'
         })
       }
       if (source.available && (source.config === null || !source.configured)) {
         context.addIssue({
           code: 'custom',
           path: ['sources', index, 'available'],
-          message: 'An available image provider must have configuration and authentication'
+          message: 'An available image source must have configuration and authentication'
         })
       }
     }
@@ -532,15 +589,57 @@ export type ProviderSettingsSnapshot = z.infer<typeof providerSettingsSnapshotSc
 
 export const providerSaveInputSchema = z
   .object({
-    config: providerConfigSchema,
+    config: providerConfigSchema.refine(
+      (config) => config.role !== 'image',
+      'Image sources are saved through the image source catalog'
+    ),
     apiKey: z.string().trim().min(1).max(16_384).optional()
   })
+  .strict()
+export type ProviderSaveInput = z.infer<typeof providerSaveInputSchema>
+
+export const providerRoleInputSchema = z
+  .object({ role: z.enum(['agent', 'embedding', 'rerank', 'mineru']) })
+  .strict()
+export type ProviderRoleInput = z.infer<typeof providerRoleInputSchema>
+
+const imageSourceNameSchema = z.string().trim().min(1).max(100)
+
+export const imageSourceDraftSchema = z.discriminatedUnion('providerId', [
+  z.object({ providerId: z.literal('google-gemini'), name: imageSourceNameSchema }).strict(),
+  z
+    .object({
+      providerId: z.literal('google-vertex'),
+      name: imageSourceNameSchema,
+      projectId: googleCloudProjectIdSchema
+    })
+    .strict(),
+  z
+    .object({
+      providerId: z.literal('openai'),
+      name: imageSourceNameSchema,
+      baseUrl: providerBaseUrlSchema.optional()
+    })
+    .strict(),
+  z
+    .object({
+      providerId: z.literal('xai'),
+      name: imageSourceNameSchema,
+      baseUrl: providerBaseUrlSchema.optional()
+    })
+    .strict()
+])
+export type ImageSourceDraft = z.infer<typeof imageSourceDraftSchema>
+
+export const imageSourceSaveInputSchema = z
+  .object({
+    sourceId: imageSourceIdSchema.optional(),
+    source: imageSourceDraftSchema,
+    apiKey: z.string().trim().min(1).max(16_384).optional()
+  })
+  .strict()
   .superRefine((input, context) => {
-    if (
-      input.config.role === 'image' &&
-      input.config.providerId === 'google-vertex' &&
-      input.apiKey !== undefined
-    ) {
+    if (input.source.providerId === 'google-vertex' && input.apiKey !== undefined) {
       context.addIssue({
         code: 'custom',
         path: ['apiKey'],
@@ -548,18 +647,30 @@ export const providerSaveInputSchema = z
       })
     }
   })
-export type ProviderSaveInput = z.infer<typeof providerSaveInputSchema>
+export type ImageSourceSaveInput = z.infer<typeof imageSourceSaveInputSchema>
 
-export const providerRoleInputSchema = z.union([
-  z.object({ role: z.enum(['agent', 'embedding', 'rerank', 'mineru']) }).strict(),
-  z.object({ role: z.literal('image'), providerId: imageProviderIdSchema }).strict()
-])
-export type ProviderRoleInput = z.infer<typeof providerRoleInputSchema>
+export const imageSourceInputSchema = z.object({ sourceId: imageSourceIdSchema }).strict()
+export type ImageSourceInput = z.infer<typeof imageSourceInputSchema>
 
-export const imageProviderSelectionInputSchema = z
-  .object({ providerId: imageProviderIdSchema })
+export const imageSourceTestInputSchema = z
+  .object({ sourceId: imageSourceIdSchema, modelId: imageModelIdSchema.optional() })
   .strict()
-export type ImageProviderSelectionInput = z.infer<typeof imageProviderSelectionInputSchema>
+export type ImageSourceTestInput = z.infer<typeof imageSourceTestInputSchema>
+
+export const imageManualModelInputSchema = z
+  .object({ sourceId: imageSourceIdSchema, model: imageModelDefinitionSchema })
+  .strict()
+export type ImageManualModelInput = z.infer<typeof imageManualModelInputSchema>
+
+export const imageModelInputSchema = z
+  .object({ sourceId: imageSourceIdSchema, modelId: imageModelIdSchema })
+  .strict()
+export type ImageModelInput = z.infer<typeof imageModelInputSchema>
+
+export const imageModelEnabledInputSchema = z
+  .object({ sourceId: imageSourceIdSchema, modelId: imageModelIdSchema, enabled: z.boolean() })
+  .strict()
+export type ImageModelEnabledInput = z.infer<typeof imageModelEnabledInputSchema>
 
 export const providerConnectionTestResultSchema = z.object({
   ok: z.boolean(),

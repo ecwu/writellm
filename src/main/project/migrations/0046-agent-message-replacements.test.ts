@@ -13,7 +13,7 @@ describe('migration 0046 message replacements', () => {
   it('creates a verified pre-migration backup and keeps existing conversation evidence', async () => {
     const root = await legacyProject(migrationRecoveryFixtures.messageReplacements)
     const database = await openMigrationDatabase(root)
-    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(48)
+    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(49)
     expect(database.immediate((db) => db.pragma('integrity_check', { simple: true }))).toBe('ok')
     expect(database.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
     expect(createService(database, new FakeAgentRuntime()).listSessions()[0].title).toBe(

@@ -27,38 +27,6 @@ const agentConfig: ProviderConfig = {
   fileSizeLimitMb: null
 }
 
-const imageConfig: ProviderConfig = {
-  role: 'image',
-  providerId: 'google-gemini',
-  model: 'gemini-3.1-flash-image',
-  timeoutMs: 120_000,
-  embeddingDimension: null,
-  batchLimit: 1,
-  fileSizeLimitMb: null,
-  defaultAspectRatio: 'auto',
-  defaultImageSize: '1K'
-}
-
-const openAiImageConfig: ProviderConfig = {
-  ...imageConfig,
-  providerId: 'openai',
-  model: 'gpt-image-2'
-}
-
-const vertexImageConfig: ProviderConfig = {
-  ...imageConfig,
-  providerId: 'google-vertex',
-  projectId: 'writellm-images-123',
-  location: 'global',
-  model: 'gemini-3.1-flash-image'
-}
-
-const xAiImageConfig: ProviderConfig = {
-  ...imageConfig,
-  providerId: 'xai',
-  model: 'grok-imagine-image-2.0'
-}
-
 class FakeSafeStorage implements SafeStorageAdapter {
   constructor(
     private readonly available = true,
@@ -97,12 +65,15 @@ function providerService(
   credentials: CredentialService,
   probe: ConnectionProbe = noProbe
 ): ProviderService {
+  let nextSourceId = 0
   return new ProviderService(
     appDatabase,
     credentials,
     new AppSettingsRepository(appDatabase, log),
     log,
-    probe
+    probe,
+    () => new Date().toISOString(),
+    () => `img-${++nextSourceId}`
   )
 }
 
@@ -351,7 +322,8 @@ describe('ProviderService', () => {
     const probe = vi.fn<ConnectionProbe>(async (config, credential) => {
       expect(config).toMatchObject({
         providerId: 'google-vertex',
-        projectId: 'writellm-images-123'
+        projectId: 'writellm-images-123',
+        model: 'gemini-2.5-flash-image'
       })
       expect(credential).toBeUndefined()
       return { status: 403 }
@@ -361,12 +333,21 @@ describe('ProviderService', () => {
       new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
       probe
     )
+    const source = {
+      providerId: 'google-vertex' as const,
+      name: 'Vertex',
+      projectId: 'writellm-images-123'
+    }
 
-    await expect(service.save(vertexImageConfig, 'must-not-be-stored')).rejects.toThrow(
+    await expect(service.saveImageSource({ source, apiKey: 'must-not-be-stored' })).rejects.toThrow(
       'Application Default Credentials'
     )
-    await service.save(vertexImageConfig)
-    await expect(service.testConnection('image', 'google-vertex')).resolves.toMatchObject({
+    const snapshot = await service.saveImageSource({ source })
+    expect(snapshot.imageCatalog.defaultSelection).toEqual({
+      sourceId: 'img-1',
+      modelId: 'gemini-2.5-flash-image'
+    })
+    await expect(service.testImageSource('img-1')).resolves.toMatchObject({
       ok: false,
       code: 'invalid_auth',
       message: expect.stringContaining('local ADC')
@@ -446,115 +427,149 @@ describe('ProviderService', () => {
     appDatabase.close()
   })
 
-  it('persists Gemini without an endpoint and reads only the legacy official marker', async () => {
-    const appDatabase = await database()
-    const service = providerService(
-      appDatabase,
-      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
-    )
-
-    let snapshot = await service.save(imageConfig, 'gemini-secret')
-    expect(snapshot.providers.find((provider) => provider.role === 'image')?.config).toEqual(
-      imageConfig
-    )
-    let stored = await appDatabase.kysely
-      .selectFrom('provider_configs')
-      .select('config_json')
-      .where('id', '=', 'image:google-gemini')
-      .executeTakeFirstOrThrow()
-    expect(stored.config_json).not.toContain('baseUrl')
-    await appDatabase.kysely
-      .updateTable('provider_configs')
-      .set({
-        config_json: JSON.stringify({
-          ...imageConfig,
-          baseUrl: 'https://generativelanguage.googleapis.com/v1beta'
-        })
-      })
-      .where('id', '=', 'image:google-gemini')
-      .execute()
-    snapshot = await service.snapshot()
-    expect(snapshot.providers.find((provider) => provider.role === 'image')?.config).toEqual(
-      imageConfig
-    )
-    await expect(
-      service.save(
-        {
-          ...imageConfig,
-          baseUrl: 'https://gemini-proxy.example.test'
-        } as ProviderConfig,
-        'gemini-secret'
-      )
-    ).rejects.toThrow()
-    await expect(
-      service.save(
-        {
-          ...imageConfig,
-          model: 'gemini-custom-image'
-        } as ProviderConfig,
-        'gemini-secret'
-      )
-    ).rejects.toThrow()
-    await service.save(imageConfig)
-    stored = await appDatabase.kysely
-      .selectFrom('provider_configs')
-      .select('config_json')
-      .where('id', '=', 'image:google-gemini')
-      .executeTakeFirstOrThrow()
-    expect(stored.config_json).not.toContain('baseUrl')
-    appDatabase.close()
-  })
-
-  it('keeps Vertex ambient ADC independent from three image credentials and clears an explicitly removed active source', async () => {
+  it('keeps several instances of one transport independently bound to their endpoints', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
     const service = providerService(appDatabase, credentials)
 
-    let snapshot = await service.save(imageConfig, 'gemini-secret')
-    expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
-    await service.save(vertexImageConfig)
-    await service.save(openAiImageConfig, 'openai-secret')
-    snapshot = await service.save(xAiImageConfig, 'xai-secret')
-    expect(snapshot.imageCatalog.activeProviderId).toBe('google-gemini')
-    expect(snapshot.imageCatalog.sources.map((source) => source.configured)).toEqual([
-      true,
-      true,
-      true,
-      true
+    let snapshot = await service.saveImageSource({
+      source: { providerId: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
+      apiKey: 'official-secret'
+    })
+    expect(snapshot.imageCatalog.defaultSelection).toEqual({
+      sourceId: 'img-1',
+      modelId: 'gpt-image-2'
+    })
+    const official = snapshot.imageCatalog.sources[0]
+    expect(official).toMatchObject({ sourceId: 'img-1', name: 'OpenAI', available: true })
+    expect(official?.config).not.toHaveProperty('baseUrl')
+
+    snapshot = await service.saveImageSource({
+      source: { providerId: 'openai', name: 'Gateway', baseUrl: 'https://gateway.example.test/v1' },
+      apiKey: 'gateway-secret'
+    })
+    expect(snapshot.imageCatalog.sources.map((source) => source.sourceId)).toEqual([
+      'img-1',
+      'img-2'
+    ])
+    expect(snapshot.imageCatalog.defaultSelection?.sourceId).toBe('img-1')
+    await expect(credentials.withCredential('image:img-1', async (value) => value)).resolves.toBe(
+      'official-secret'
+    )
+    await expect(credentials.withCredential('image:img-2', async (value) => value)).resolves.toBe(
+      'gateway-secret'
+    )
+
+    snapshot = await service.saveImageSource({
+      sourceId: 'img-2',
+      source: {
+        providerId: 'openai',
+        name: 'Renamed gateway',
+        baseUrl: 'https://gateway.example.test/v1'
+      }
+    })
+    expect(snapshot.imageCatalog.sources[1]).toMatchObject({
+      name: 'Renamed gateway',
+      available: true
+    })
+    snapshot = await service.saveImageSource({
+      sourceId: 'img-2',
+      source: {
+        providerId: 'openai',
+        name: 'Renamed gateway',
+        baseUrl: 'https://other.example.test/v1'
+      }
+    })
+    expect(snapshot.imageCatalog.sources[1]).toMatchObject({ configured: false, available: false })
+    await expect(
+      service.saveImageSource({ sourceId: 'img-2', source: { providerId: 'xai', name: 'Changed' } })
+    ).rejects.toThrow('transport')
+
+    await expect(
+      service.withImageProvider(
+        { sourceId: 'img-1', modelId: 'gpt-image-2' },
+        async (config, key) => ({
+          config,
+          key
+        })
+      )
+    ).resolves.toEqual({
+      config: expect.objectContaining({
+        providerId: 'openai',
+        sourceId: 'img-1',
+        model: 'gpt-image-2',
+        imageSizes: ['1K', '2K']
+      }),
+      key: 'official-secret'
+    })
+    await expect(
+      service.resolveImageSelection({ sourceId: 'img-2', modelId: 'gpt-image-2' })
+    ).rejects.toThrow('not authenticated')
+
+    snapshot = await service.removeImageSource('img-1')
+    expect(snapshot.imageCatalog.defaultSelection).toBeNull()
+    await expect(service.getConfiguredProvider('image')).rejects.toThrow('No image model')
+    appDatabase.close()
+  })
+
+  it('combines built-in and manual models and never substitutes a disabled selection', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const service = providerService(appDatabase, credentials)
+    await service.saveImageSource({
+      source: { providerId: 'google-gemini', name: 'Gemini' },
+      apiKey: 'gemini-secret'
+    })
+
+    let snapshot = await service.saveImageManualModel('img-1', {
+      id: 'gemini-next-image',
+      name: 'Gemini Next',
+      imageSizes: ['1K', '2K']
+    })
+    expect(
+      snapshot.imageCatalog.sources[0]?.models.map((model) => [model.id, model.source])
+    ).toEqual([
+      ['gemini-3.1-flash-lite-image', 'builtin'],
+      ['gemini-3.1-flash-image', 'builtin'],
+      ['gemini-3-pro-image', 'builtin'],
+      ['gemini-2.5-flash-image', 'builtin'],
+      ['gemini-next-image', 'manual']
     ])
     await expect(
-      credentials.withCredential('image:google-vertex', async (value) => value)
-    ).rejects.toThrow('credential')
-    await expect(
-      credentials.withCredential('image:google-gemini', async (value) => value)
-    ).resolves.toBe('gemini-secret')
-    await expect(credentials.withCredential('image:openai', async (value) => value)).resolves.toBe(
-      'openai-secret'
-    )
-    await expect(credentials.withCredential('image:xai', async (value) => value)).resolves.toBe(
-      'xai-secret'
-    )
+      service.saveImageManualModel('img-1', {
+        id: 'gemini-3-pro-image',
+        name: 'Duplicate',
+        imageSizes: ['1K']
+      })
+    ).rejects.toThrow('Built-in')
 
-    await service.setActiveImageProvider('google-vertex')
-    await expect(
-      service.withConfiguredProvider('image', async (config, credential) => ({
-        providerId: config.providerId,
-        credential
-      }))
-    ).resolves.toEqual({ providerId: 'google-vertex', credential: undefined })
-
-    snapshot = await service.setActiveImageProvider('xai')
-    expect(snapshot.imageCatalog.activeProviderId).toBe('xai')
-    await expect(service.getConfiguredProvider('image')).resolves.toMatchObject({
-      providerId: 'xai',
-      model: 'grok-imagine-image-2.0'
+    snapshot = await service.setImageDefaultSelection({
+      sourceId: 'img-1',
+      modelId: 'gemini-next-image'
     })
-    snapshot = await service.remove('image', 'xai')
-    expect(snapshot.imageCatalog.activeProviderId).toBeNull()
-    expect(
-      snapshot.imageCatalog.sources.find((source) => source.providerId === 'openai')
-    ).toMatchObject({ configured: true, available: true })
-    await expect(service.getConfiguredProvider('image')).rejects.toThrow('not active')
+    expect(snapshot.providers.find((provider) => provider.role === 'image')).toMatchObject({
+      available: true,
+      config: expect.objectContaining({ model: 'gemini-next-image', imageSizes: ['1K', '2K'] })
+    })
+    snapshot = await service.setImageModelEnabled('img-1', 'gemini-next-image', false)
+    expect(snapshot.imageCatalog.defaultSelection).toBeNull()
+    await expect(
+      service.resolveImageSelection({ sourceId: 'img-1', modelId: 'gemini-next-image' })
+    ).rejects.toThrow('disabled')
+    await expect(
+      service.setImageDefaultSelection({ sourceId: 'img-1', modelId: 'gemini-next-image' })
+    ).rejects.toThrow('disabled')
+
+    await service.setImageDefaultSelection({ sourceId: 'img-1', modelId: 'gemini-3-pro-image' })
+    await expect(
+      service.resolveImageSelection({ sourceId: 'img-1', modelId: 'gemini-2.5-flash-image' })
+    ).resolves.toMatchObject({ model: 'gemini-2.5-flash-image', imageSizes: ['1K'] })
+    snapshot = await service.removeImageManualModel('img-1', 'gemini-next-image')
+    expect(snapshot.imageCatalog.sources[0]?.config?.disabledModelIds).toEqual([])
+    expect(snapshot.imageCatalog.defaultSelection).toEqual({
+      sourceId: 'img-1',
+      modelId: 'gemini-3-pro-image'
+    })
     appDatabase.close()
   })
 })

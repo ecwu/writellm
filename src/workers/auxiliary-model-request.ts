@@ -4,11 +4,9 @@ import type {
   AuxiliaryUtilityRequest,
   AuxiliaryUtilityResponse
 } from '../shared/contracts/model-runtime'
-import {
-  effectiveGoogleGeminiImageSize,
-  effectiveGoogleVertexImageSize
-} from '../shared/contracts/providers'
+import { OFFICIAL_IMAGE_BASE_URLS, effectiveImageSize } from '../shared/contracts/providers'
 import { createGoogleVertexClient, type GoogleVertexClientFactory } from './google-vertex-client'
+import { fetchConfiguredEndpoint } from './outbound-http'
 import { linkAbortSignal } from './shared/linked-abort-signal'
 
 export async function runAuxiliaryModelRequest(
@@ -38,10 +36,7 @@ async function runImageGeneration(
   const controller = new AbortController()
   const unlink = linkAbortSignal(externalSignal, controller)
   const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
-  const effectiveImageSize = effectiveGoogleGeminiImageSize(
-    request.config.model,
-    request.input.imageSize
-  )
+  const imageSize = effectiveImageSize(request.config.imageSizes, request.input.imageSize)
   try {
     const ai = new GoogleGenAI({
       apiKey: request.credential
@@ -61,7 +56,7 @@ async function runImageGeneration(
               ...(request.input.aspectRatio === 'auto'
                 ? {}
                 : { aspect_ratio: request.input.aspectRatio }),
-              image_size: effectiveImageSize
+              image_size: imageSize
             }
           },
           {
@@ -98,7 +93,7 @@ async function runImageGeneration(
       result: {
         dataBase64: image.data,
         mimeType,
-        effectiveImageSize,
+        effectiveImageSize: imageSize,
         metadata: {
           usage: {
             inputTokens: numberField(usage, [
@@ -138,10 +133,7 @@ async function runGoogleVertexImageGeneration(
   const controller = new AbortController()
   const unlink = linkAbortSignal(externalSignal, controller)
   const timeout = setTimeout(() => controller.abort(), request.config.timeoutMs)
-  const effectiveImageSize = effectiveGoogleVertexImageSize(
-    request.config.model,
-    request.input.imageSize
-  )
+  const imageSize = effectiveImageSize(request.config.imageSizes, request.input.imageSize)
   try {
     let payload: unknown
     try {
@@ -161,7 +153,7 @@ async function runGoogleVertexImageGeneration(
               ...(request.input.aspectRatio === 'auto'
                 ? {}
                 : { aspectRatio: request.input.aspectRatio }),
-              imageSize: effectiveImageSize
+              imageSize
             }
           }
         }),
@@ -218,7 +210,7 @@ async function runGoogleVertexImageGeneration(
       result: {
         dataBase64,
         mimeType,
-        effectiveImageSize,
+        effectiveImageSize: imageSize,
         metadata: {
           usage: {
             inputTokens: numberField(usage, ['promptTokenCount']),
@@ -258,15 +250,15 @@ async function runOpenAiCompatibleImageGeneration(
   try {
     const client = new OpenAI({
       apiKey: request.credential,
-      baseURL:
-        request.config.providerId === 'xai' ? 'https://api.x.ai/v1' : 'https://api.openai.com/v1',
+      baseURL: request.config.baseUrl ?? OFFICIAL_IMAGE_BASE_URLS[request.config.providerId],
       maxRetries: 0,
-      fetch: fetchImplementation
+      fetch: configuredImageFetch(request.config.baseUrl, fetchImplementation)
     })
-    const effectiveImageSize =
+    const imageSize = effectiveImageSize(request.config.imageSizes, request.input.imageSize)
+    const effectiveSize =
       request.config.providerId === 'openai' && request.input.aspectRatio === 'auto'
         ? null
-        : request.input.imageSize
+        : imageSize
     const params =
       request.config.providerId === 'openai'
         ? {
@@ -275,7 +267,7 @@ async function runOpenAiCompatibleImageGeneration(
             n: 1,
             quality: 'auto' as const,
             output_format: 'png' as const,
-            size: openAiImageSize(request.input.aspectRatio, request.input.imageSize)
+            size: openAiImageSize(request.input.aspectRatio, imageSize)
           }
         : {
             model: request.config.model,
@@ -283,7 +275,7 @@ async function runOpenAiCompatibleImageGeneration(
             n: 1,
             response_format: 'b64_json' as const,
             aspect_ratio: request.input.aspectRatio,
-            resolution: request.input.imageSize.toLowerCase()
+            resolution: imageSize.toLowerCase()
           }
     let result: Awaited<ReturnType<ReturnType<typeof client.images.generate>['withResponse']>>
     try {
@@ -315,7 +307,11 @@ async function runOpenAiCompatibleImageGeneration(
     }
     const detectedMime = detectImageMime(dataBase64)
     if (detectedMime === null) throw new Error(`${providerLabel} returned unsupported image data`)
-    if (request.config.providerId === 'openai' && detectedMime !== 'image/png') {
+    if (
+      request.config.providerId === 'openai' &&
+      request.config.baseUrl === undefined &&
+      detectedMime !== 'image/png'
+    ) {
       throw new Error('OpenAI returned a non-PNG image')
     }
     const usage = objectField(result.data, 'usage')
@@ -326,7 +322,7 @@ async function runOpenAiCompatibleImageGeneration(
       result: {
         dataBase64,
         mimeType: detectedMime,
-        effectiveImageSize,
+        effectiveImageSize: effectiveSize,
         metadata: {
           usage: {
             inputTokens: numberField(usage, ['input_tokens']),
@@ -346,6 +342,24 @@ async function runOpenAiCompatibleImageGeneration(
     clearTimeout(timeout)
     unlink()
   }
+}
+
+/**
+ * A configured OpenAI-compatible endpoint uses the shared configured-endpoint policy, which
+ * rejects redirects and embedded credentials. Official endpoints keep the direct transport.
+ */
+export function configuredImageFetch(
+  baseUrl: string | undefined,
+  fetchImplementation: typeof fetch
+): typeof fetch {
+  if (baseUrl === undefined) return fetchImplementation
+  return (input, init) =>
+    fetchConfiguredEndpoint(
+      input instanceof Request ? input.url : input,
+      init ?? {},
+      fetchImplementation,
+      'model-service'
+    )
 }
 
 function openAiImageSize(aspectRatio: 'auto' | '1:1' | '16:9', imageSize: '1K' | '2K'): string {

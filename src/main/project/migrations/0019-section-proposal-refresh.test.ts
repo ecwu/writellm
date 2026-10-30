@@ -45,6 +45,8 @@ describe('migration 0019 section proposal refresh', () => {
     const legacy = new Database(databasePath)
     legacy.pragma('foreign_keys = OFF')
     legacy.exec(`
+      ALTER TABLE agent_sessions DROP COLUMN image_model_id;
+      ALTER TABLE agent_sessions DROP COLUMN image_source_id;
       DROP TRIGGER manuscript_comments_orphan_on_section_revision;
       DROP TRIGGER manuscript_comments_reopen_on_proposal_undo;
       DROP TABLE manuscript_comment_changes;

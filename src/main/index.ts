@@ -454,6 +454,7 @@ if (!hasSingleInstanceLock) {
         broker: agentEvents,
         logger: loggerSystem.createModuleLogger('ipc', 'agent'),
         catalog: agentProviderCatalog,
+        imageCatalog: providers,
         developmentUrl,
         ipc
       })

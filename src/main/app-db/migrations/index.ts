@@ -8,6 +8,7 @@ import { migration0007 } from './0007-publication-presets'
 import { migration0008 } from './0008-project-templates'
 import { migration0009 } from './0009-multi-provider-images'
 import { migration0010 } from './0010-bibliography-connectors'
+import { migration0011 } from './0011-image-source-instances'
 
 export const appMigrations = [
   migration0001,
@@ -19,5 +20,6 @@ export const appMigrations = [
   migration0007,
   migration0008,
   migration0009,
-  migration0010
+  migration0010,
+  migration0011
 ] as const

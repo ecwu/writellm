@@ -8,6 +8,8 @@ import type {
 } from '../shared/contracts/provider-probe'
 import { fetchConfiguredEndpoint, readBoundedText } from './outbound-http'
 import { createGoogleVertexClient, type GoogleVertexClientFactory } from './google-vertex-client'
+import { configuredImageFetch } from './auxiliary-model-request'
+import { OFFICIAL_IMAGE_BASE_URLS } from '../shared/contracts/providers'
 
 export async function runProviderProbeRequest(
   request: ProviderProbeRequest,
@@ -121,10 +123,9 @@ async function runOpenAiProviderProbe(
   }
   const client = new OpenAI({
     apiKey: request.credential,
-    baseURL:
-      request.config.providerId === 'xai' ? 'https://api.x.ai/v1' : 'https://api.openai.com/v1',
+    baseURL: request.config.baseUrl ?? OFFICIAL_IMAGE_BASE_URLS[request.config.providerId],
     maxRetries: 0,
-    fetch: fetchImplementation
+    fetch: configuredImageFetch(request.config.baseUrl, fetchImplementation)
   })
   return probeWith(
     request,

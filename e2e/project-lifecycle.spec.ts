@@ -279,119 +279,89 @@ test(
         await first.page.getByRole('button', { name: 'Settings', exact: true }).click()
         const imageDialog = first.page.getByRole('dialog', { name: 'Settings' })
         await imageDialog.getByRole('option', { name: /^Image API/ }).click()
-        await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
-        await expect(imageDialog.getByLabel('Request timeout (milliseconds)')).toHaveCount(0)
-        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
-        await expect(imageDialog.getByRole('button', { name: /^Google Gemini/ })).toBeVisible()
-        await expect(imageDialog.getByRole('button', { name: /^Google Vertex AI/ })).toBeVisible()
-        await expect(imageDialog.getByRole('button', { name: /^OpenAI/ })).toBeVisible()
-        await expect(imageDialog.getByRole('button', { name: /^xAI/ })).toBeVisible()
-        await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3.1-flash-image')
-        await imageDialog.getByLabel('Model ID').click()
-        await expect(
-          first.page.getByRole('option', { name: 'gemini-3.1-flash-lite-image' })
-        ).toBeVisible()
-        await first.page.getByRole('option', { name: 'gemini-3-pro-image' }).click()
-        await imageDialog.getByLabel('Gemini API key').fill('e2e-gemini-secret')
-        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-        await expect(imageDialog.getByLabel('Gemini API key')).toHaveAttribute(
-          'placeholder',
-          /Stored/
-        )
-        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
+        await expect(imageDialog.getByText('No image source selected')).toBeVisible()
+        const addImageSource = async (name: string, type: RegExp): Promise<void> => {
+          await imageDialog.getByRole('button', { name: 'Add source' }).first().click()
+          const addDialog = first.page.getByRole('dialog', { name: 'Add image source' })
+          await addDialog.getByLabel('Source name').fill(name)
+          await addDialog.getByLabel('Source type').click()
+          await first.page.getByRole('option', { name: type }).click()
+          await addDialog.getByRole('button', { name: 'Continue' }).click()
+        }
+        const imageSourceList = imageDialog.getByTestId('image-source-list')
 
-        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
-        await expect(imageDialog.getByLabel('Vertex location')).toHaveValue('global')
+        await addImageSource('Gemini', /^Google Gemini$/)
+        await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
+        await imageDialog.getByLabel('API key').fill('e2e-gemini-secret')
+        await imageDialog.getByRole('button', { name: 'Save source' }).click()
+        await expect(imageDialog.getByLabel('API key')).toHaveAttribute('placeholder', /Stored/)
+        await expect(
+          imageSourceList.getByRole('button', { name: /^Gemini/ }).getByLabel('Default source')
+        ).toBeVisible()
+        await expect(imageDialog.getByText('gemini-3.1-flash-lite-image').first()).toBeVisible()
+
+        await addImageSource('Image gateway', /^OpenAI Images$/)
+        await expect(imageDialog.getByLabel('Base URL')).toHaveAttribute(
+          'placeholder',
+          'https://api.openai.com/v1'
+        )
+        await imageDialog.getByLabel('Base URL').fill('https://gateway.example.test/v1')
+        await imageDialog.getByLabel('API key').fill('e2e-gateway-secret')
+        await imageDialog.getByRole('button', { name: 'Save source' }).click()
+        await expect(imageDialog.getByText('Connected', { exact: true })).toBeVisible()
+        await imageDialog.getByRole('button', { name: 'Add model' }).click()
+        const modelDialog = first.page.getByRole('dialog', { name: 'Add image model' })
+        await modelDialog.getByLabel('Model ID').fill('gpt-image-3')
+        await modelDialog.getByLabel('Display name').fill('GPT Image 3')
+        await modelDialog.getByLabel('Supports 2K output').click()
+        await modelDialog.getByRole('button', { name: 'Save model' }).click()
+        await expect(imageDialog.getByText('gpt-image-3 · 1K, 2K')).toBeVisible()
+        await imageDialog.getByRole('button', { name: 'Set GPT Image 3 as default' }).click()
+        await expect(
+          imageSourceList
+            .getByRole('button', { name: /^Image gateway/ })
+            .getByLabel('Default source')
+        ).toBeVisible()
+
+        await addImageSource('Vertex', /^Google Vertex AI$/)
         await imageDialog.getByLabel('Google Cloud Project ID').fill('e2e-vertex-project')
-        await imageDialog.getByLabel('Model ID').click()
-        await first.page
-          .getByRole('option', { name: /Nano Banana Pro.*gemini-3-pro-image/ })
-          .click()
         await expect(imageDialog.getByText('Application Default Credentials')).toBeVisible()
         await expect(imageDialog.getByText(/gcloud auth application-default login/)).toBeVisible()
         await expect(imageDialog.locator('input[type="password"]')).toHaveCount(0)
-        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
+        await imageDialog.getByRole('button', { name: 'Save source' }).click()
+        await expect(imageDialog.getByText('Nano Banana Pro')).toBeVisible()
 
-        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
-        await expect(imageDialog.locator('input[readonly]')).toHaveValue('gpt-image-2')
-        await imageDialog.getByLabel('OpenAI API key').fill('e2e-openai-secret')
-        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-        await expect(imageDialog.getByLabel('OpenAI API key')).toHaveAttribute(
-          'placeholder',
-          /Stored/
-        )
-        await expect(imageDialog.getByText('Active: Google Gemini', { exact: true })).toBeVisible()
-
-        await imageDialog.getByRole('button', { name: /^xAI/ }).click()
-        await expect(imageDialog.locator('input[readonly]')).toHaveValue('grok-imagine-image-2.0')
-        await imageDialog.getByLabel('xAI API key').fill('e2e-xai-secret')
-        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-
-        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
-        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
-        await expect(
-          imageDialog.getByText('Active: Google Vertex AI', { exact: true })
-        ).toBeVisible()
-        await imageDialog.getByRole('button', { name: 'Remove', exact: true }).click()
-        const removeVertexProvider = first.page.getByRole('alertdialog', {
-          name: 'Remove Google Vertex AI image configuration?'
-        })
-        await expect(
-          removeVertexProvider.getByText(/Local ADC files are not changed/)
-        ).toBeVisible()
-        await removeVertexProvider.getByRole('button', { name: 'Remove provider' }).click()
-        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
-        await expect(
-          imageDialog.getByRole('button', { name: /^Google Gemini.*gemini-3-pro-image/ })
-        ).toBeVisible()
-
-        await imageDialog.getByLabel('Google Cloud Project ID').fill('e2e-vertex-project')
-        await imageDialog.getByLabel('Model ID').click()
+        await imageSourceList.getByRole('button', { name: /^Image gateway/ }).click()
+        await imageDialog.getByRole('button', { name: 'Remove source' }).click()
         await first.page
-          .getByRole('option', { name: /Nano Banana Pro.*gemini-3-pro-image/ })
+          .getByRole('alertdialog', { name: 'Remove Image gateway?' })
+          .getByRole('button', { name: 'Remove source' })
           .click()
-        await imageDialog.getByRole('button', { name: 'Save', exact: true }).click()
-
-        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
-        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
-        await expect(imageDialog.getByText('Active: OpenAI', { exact: true })).toBeVisible()
-
-        await imageDialog.getByRole('button', { name: 'Remove', exact: true }).click()
-        const removeImageProvider = first.page.getByRole('alertdialog', {
-          name: 'Remove OpenAI image configuration?'
-        })
-        await removeImageProvider.getByRole('button', { name: 'Remove provider' }).click()
-        await expect(imageDialog.getByText('No active source', { exact: true })).toBeVisible()
+        await expect(imageSourceList.getByRole('button', { name: /^Image gateway/ })).toHaveCount(0)
         await expect
           .poll(async () => {
             const catalog = (await first.page.evaluate(() => window.desktop.providers.snapshot()))
               .imageCatalog
             return {
-              activeProviderId: catalog.activeProviderId,
-              available: Object.fromEntries(
-                catalog.sources.map((source) => {
-                  const imageSource = source as { providerId: string; available: boolean }
-                  return [imageSource.providerId, imageSource.available]
-                })
-              ),
-              leakedSecret: /e2e-(?:gemini|vertex|openai|xai)-secret/.test(JSON.stringify(catalog))
+              defaultSelection: catalog.defaultSelection,
+              sources: catalog.sources.map((source) => [source.name, source.available]),
+              leakedSecret: /e2e-(?:gemini|gateway)-secret/.test(JSON.stringify(catalog))
             }
           })
           .toEqual({
-            activeProviderId: null,
-            available: {
-              'google-gemini': true,
-              'google-vertex': true,
-              openai: false,
-              xai: true
-            },
+            defaultSelection: null,
+            sources: [
+              ['Gemini', true],
+              ['Vertex', true]
+            ],
             leakedSecret: false
           })
 
-        await imageDialog.getByRole('button', { name: /^xAI/ }).click()
-        await imageDialog.getByRole('button', { name: 'Make active', exact: true }).click()
-        await expect(imageDialog.getByText('Active: xAI', { exact: true })).toBeVisible()
+        await imageSourceList.getByRole('button', { name: /^Gemini/ }).click()
+        await imageDialog.getByRole('button', { name: 'Set gemini-3-pro-image as default' }).click()
+        await expect(
+          imageSourceList.getByRole('button', { name: /^Gemini/ }).getByLabel('Default source')
+        ).toBeVisible()
         await first.page.keyboard.press('Escape')
 
         await clickAndExpectProject(
@@ -406,6 +376,12 @@ test(
         await panel.getByTestId('agent-conversation-menu').click()
         await first.page.getByRole('menuitem', { name: 'Details', exact: true }).click()
         const agentDetails = first.page.getByRole('dialog', { name: 'Agent details' })
+        await expect(agentDetails.getByLabel('Image model')).toContainText(
+          'Use default (Gemini · gemini-3-pro-image)'
+        )
+        await agentDetails.getByLabel('Image model').click()
+        await first.page.getByRole('option', { name: 'Nano Banana Pro' }).click()
+        await expect(agentDetails.getByLabel('Image model')).toContainText('Nano Banana Pro')
         await expect(agentDetails.getByLabel('Agent model')).toContainText('Manual Writer')
         await expect(
           agentDetails.getByLabel('Agent model').locator('[data-provider-logo-id="deepseek"]')
@@ -491,30 +467,25 @@ test(
         await restarted.page.getByRole('button', { name: 'Settings', exact: true }).click()
         const imageDialog = restarted.page.getByRole('dialog', { name: 'Settings' })
         await imageDialog.getByRole('option', { name: /^Image API/ }).click()
-        await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
-        await expect(imageDialog.getByText('Active: xAI', { exact: true })).toBeVisible()
-        await expect(imageDialog.locator('input[readonly]')).toHaveValue('grok-imagine-image-2.0')
-        await expect(imageDialog.getByLabel('xAI API key')).toHaveValue('')
-        await expect(imageDialog.getByLabel('xAI API key')).toHaveAttribute('placeholder', /Stored/)
-        await imageDialog.getByRole('button', { name: /^Google Gemini/ }).click()
-        await expect(imageDialog.getByLabel('Model ID')).toHaveText('gemini-3-pro-image')
-        await expect(imageDialog.getByLabel('Gemini API key')).toHaveValue('')
-        await expect(imageDialog.getByLabel('Gemini API key')).toHaveAttribute(
-          'placeholder',
-          /Stored/
+        const restartedSources = imageDialog.getByTestId('image-source-list')
+        await expect(
+          restartedSources.getByRole('button', { name: /^Gemini/ }).getByLabel('Default source')
+        ).toBeVisible()
+        await expect(restartedSources.getByRole('button', { name: /^Image gateway/ })).toHaveCount(
+          0
         )
-        await imageDialog.getByRole('button', { name: /^Google Vertex AI/ }).click()
+        await expect(imageDialog.getByLabel('Base URL')).toHaveCount(0)
+        await expect(imageDialog.getByLabel('API key')).toHaveValue('')
+        await expect(imageDialog.getByLabel('API key')).toHaveAttribute('placeholder', /Stored/)
+        await expect(
+          imageDialog.getByRole('button', { name: 'Set gemini-3-pro-image as default' })
+        ).toBeVisible()
+        await restartedSources.getByRole('button', { name: /^Vertex/ }).click()
         await expect(imageDialog.getByLabel('Google Cloud Project ID')).toHaveValue(
           'e2e-vertex-project'
         )
-        await expect(imageDialog.getByLabel('Model ID')).toContainText('Nano Banana Pro')
         await expect(imageDialog.getByText('Application Default Credentials')).toBeVisible()
         await expect(imageDialog.locator('input[type="password"]')).toHaveCount(0)
-        await imageDialog.getByRole('button', { name: /^OpenAI/ }).click()
-        await expect(imageDialog.getByLabel('OpenAI API key')).toHaveAttribute(
-          'placeholder',
-          'Required'
-        )
       } finally {
         await closeApp(restarted.app)
       }
@@ -786,7 +757,7 @@ test(
       await expect(
         errorToast(launched.page, 'WriteLLM could not create the project')
       ).toContainText('Action failed')
-      await expect(launched.page.getByText('Closed', { exact: true })).toBeVisible()
+      await expect(launched.page.getByRole('heading', { name: 'Open a workspace' })).toBeVisible()
       await expect(readFile(join(conflict, 'existing.txt'), 'utf8')).resolves.toBe(existingContent)
 
       await clickAndExpectProject(launched.page, 'Create project', 'New project', 'New project')

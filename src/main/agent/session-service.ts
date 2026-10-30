@@ -91,6 +91,7 @@ import {
 import {
   agentThinkingLevelSchema,
   type AgentModelSelection,
+  type ImageModelSelection,
   type AgentThinkingLevel,
   type ProviderConfig
 } from '../../shared/contracts/providers'
@@ -433,9 +434,9 @@ export class AgentSessionService {
         .prepare(`INSERT INTO agent_sessions (
         agent_session_id, title, pi_runtime_version, event_schema_version, status,
         approval_mode, interaction_mode, provider_preset_id, selected_model_id, thinking_level,
-        skill_mode, skill_id, created_at, updated_at, archived_at)
+        image_source_id, image_model_id, skill_mode, skill_id, created_at, updated_at, archived_at)
         SELECT ?, ?, ?, ?, 'active', approval_mode, interaction_mode, provider_preset_id,
-          selected_model_id, thinking_level, 'auto', NULL, ?, ?, NULL
+          selected_model_id, thinking_level, image_source_id, image_model_id, 'auto', NULL, ?, ?, NULL
         FROM agent_sessions WHERE agent_session_id = ?`)
         .run(
           created.agentSessionId,
@@ -516,7 +517,7 @@ export class AgentSessionService {
           .prepare(
             `SELECT agent_session_id, title, event_schema_version,
                     status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
-                    thinking_level,
+                    thinking_level, image_source_id, image_model_id,
                     created_at, updated_at, archived_at,
                     CASE
                       WHEN EXISTS (
@@ -551,6 +552,8 @@ export class AgentSessionService {
           provider_preset_id: string | null
           selected_model_id: string | null
           thinking_level: AgentThinkingLevel
+          image_source_id: string | null
+          image_model_id: string | null
           workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
           created_at: string
           updated_at: string
@@ -585,6 +588,10 @@ export class AgentSessionService {
               ? null
               : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
           thinkingLevel: row.thinking_level,
+          imageModelSelection:
+            row.image_source_id === null || row.image_model_id === null
+              ? null
+              : { sourceId: row.image_source_id, modelId: row.image_model_id },
           writingTask: this.options.writingTasks.getView(row.agent_session_id, database) ?? null,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -749,6 +756,56 @@ export class AgentSessionService {
       'Agent session model selection updated'
     )
     return session
+  }
+
+  /**
+   * Stores this conversation's image model override, or clears it to use the application default.
+   * Generation resolves the selection when it starts, so an active run does not block this change.
+   */
+  setImageModelSelection(
+    agentSessionId: string,
+    selection: ImageModelSelection | null
+  ): AgentSessionRecord {
+    this.#assertCompatibleSession(agentSessionId)
+    const now = this.#now().toISOString()
+    this.options.database.immediate((database) => {
+      const result = database
+        .prepare(
+          `UPDATE agent_sessions
+              SET image_source_id = ?, image_model_id = ?, updated_at = ?
+            WHERE agent_session_id = ?`
+        )
+        .run(selection?.sourceId ?? null, selection?.modelId ?? null, now, agentSessionId)
+      if (result.changes !== 1) throw new Error('Agent session does not exist')
+    })
+    const session = this.#requireSessionRecord(agentSessionId)
+    this.options.log.info(
+      {
+        event: 'agent.session.image_model_selection_updated',
+        agentSessionId,
+        sourceId: selection?.sourceId ?? null,
+        modelId: selection?.modelId ?? null
+      },
+      'Agent session image model selection updated'
+    )
+    void this.#publishSession(session, false)
+    return session
+  }
+
+  imageModelSelection(agentSessionId: string): ImageModelSelection | null {
+    const row = this.options.database.read(
+      (database) =>
+        database
+          .prepare(
+            'SELECT image_source_id, image_model_id FROM agent_sessions WHERE agent_session_id = ?'
+          )
+          .get(agentSessionId) as
+          | { image_source_id: string | null; image_model_id: string | null }
+          | undefined
+    )
+    if (row === undefined) throw new Error('Agent session does not exist')
+    if (row.image_source_id === null || row.image_model_id === null) return null
+    return { sourceId: row.image_source_id, modelId: row.image_model_id }
   }
 
   setThinkingLevel(agentSessionId: string, level: AgentThinkingLevel): AgentSessionRecord {

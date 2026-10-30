@@ -319,9 +319,24 @@ describe('application database', () => {
       upgraded.kysely
         .selectFrom('app_settings')
         .select('value_json')
-        .where('key', '=', 'image.active-provider.v1')
+        .where('key', '=', 'image.default-selection.v1')
         .executeTakeFirstOrThrow()
-    ).resolves.toEqual({ value_json: '"google-gemini"' })
+    ).resolves.toEqual({
+      value_json: JSON.stringify({ sourceId: 'google-gemini', modelId: 'gemini-3.1-flash-image' })
+    })
+    await expect(
+      upgraded.kysely
+        .selectFrom('provider_configs')
+        .select('config_json')
+        .where('id', '=', 'image:google-gemini')
+        .executeTakeFirstOrThrow()
+        .then((row) => JSON.parse(row.config_json))
+    ).resolves.toMatchObject({
+      sourceId: 'google-gemini',
+      name: 'Google Gemini',
+      manualModels: [],
+      disabledModelIds: []
+    })
     await expect(
       upgraded.kysely
         .insertInto('encrypted_credentials')

@@ -2078,3 +2078,25 @@ It covers twelve packaged runtime smoke scenarios, all 45 packaged interaction s
 Local runtime acceptance covers macOS arm64 only. Distribution remains unsigned and unnotarized.
 
 Evidence: [package gate](../../.cache/verification/1792973884486-21043-bb732c20).
+
+## 2026-10-30 Configurable image source instances
+
+The user authorizes Cherry Studio-style image sources under ADR 093. The changes remain uncommitted.
+Image sources become instances over the four reviewed transports. OpenAI and xAI instances accept an optional endpoint
+bound into the credential identity, and configured endpoints reject redirects. Each source offers built-in models plus
+manual model IDs with declared 1K/2K support, and any model can be disabled. A global default source and model replaces
+the active source. Agent details gains a per-conversation override that forks inherit. Generation binds the selection
+when it starts and fails closed without fallback.
+
+App migration 0011 rewrites the four legacy rows in place, keeps their credentials, and moves the active source's model
+into the default. Project migration 0049 adds two nullable override columns to `agent_sessions` with a verified backup
+and failure-recovery coverage.
+
+`check:fast` passes across 950 files in 3.8 seconds. Complete Vitest passes 1,918 tests in 303 files in 22 seconds,
+with 3 skipped. One fresh build runs `project-lifecycle`: six of seven scenarios pass after the provider scenario update,
+and the rerun of `app.provider-settings-persist-without-secret` passes in 11.1 seconds without retries.
+`project.create-conflict-preserves-data` fails on the launcher `Closed` label removed in `d050d23`; it is unrelated.
+
+Runtime evidence covers macOS arm64 source E2E only. Packaged runtime, Windows, Linux, and macOS x64 acceptance remain
+outstanding. Live provider generation through a real custom endpoint is not exercised.
+

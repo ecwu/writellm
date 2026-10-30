@@ -32,10 +32,7 @@ import type { ProviderService } from './provider-service'
 import type { ModelMetadataService } from './model-metadata-service'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
 import { AgentTraceRepository } from '../agent/trace-repository'
-import {
-  effectiveGoogleGeminiImageSize,
-  effectiveGoogleVertexImageSize
-} from '../../shared/contracts/providers'
+import { effectiveImageSize, type ImageModelSelection } from '../../shared/contracts/providers'
 
 export interface ModelExecutionServiceOptions {
   providers: ProviderService
@@ -308,14 +305,15 @@ export class ModelExecutionService {
     database: ProjectDatabase,
     rawInput: ImageGenerationInput,
     correlation: ModelRequestCorrelation & { projectSessionId: string },
-    signal: AbortSignal
+    signal: AbortSignal,
+    selection: ImageModelSelection | null = null
   ): Promise<ImageGenerationResult & { modelRequestId: string }> {
     if (this.options.images === undefined)
       throw new Error('Image generation gateway is unavailable')
     const images = this.options.images
     const input = imageGenerationInputSchema.parse(rawInput)
     const repository = new ModelRequestRepository(database, this.options.log)
-    return this.options.providers.withConfiguredProvider('image', async (config, credential) => {
+    return this.options.providers.withImageProvider(selection, async (config, credential) => {
       const record = await repository.start({
         operation: 'image',
         provider: config,
@@ -478,7 +476,7 @@ function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInpu
         type: 'image',
         mime_type: 'image/jpeg',
         ...(input.aspectRatio === 'auto' ? {} : { aspect_ratio: input.aspectRatio }),
-        image_size: effectiveGoogleGeminiImageSize(config.model, input.imageSize)
+        image_size: effectiveImageSize(config.imageSizes, input.imageSize)
       }
     }
   }
@@ -491,11 +489,12 @@ function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInpu
         responseModalities: ['TEXT', 'IMAGE'],
         imageConfig: {
           ...(input.aspectRatio === 'auto' ? {} : { aspectRatio: input.aspectRatio }),
-          imageSize: effectiveGoogleVertexImageSize(config.model, input.imageSize)
+          imageSize: effectiveImageSize(config.imageSizes, input.imageSize)
         }
       }
     }
   }
+  const imageSize = effectiveImageSize(config.imageSizes, input.imageSize)
   if (config.providerId === 'openai') {
     return {
       model: config.model,
@@ -507,10 +506,10 @@ function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInpu
         input.aspectRatio === 'auto'
           ? 'auto'
           : input.aspectRatio === '1:1'
-            ? input.imageSize === '1K'
+            ? imageSize === '1K'
               ? '1024x1024'
               : '2048x2048'
-            : input.imageSize === '1K'
+            : imageSize === '1K'
               ? '1280x720'
               : '2048x1152'
     }
@@ -521,7 +520,7 @@ function imageProviderPayload(config: ProviderConfig, input: ImageGenerationInpu
     n: 1,
     response_format: 'b64_json',
     aspect_ratio: input.aspectRatio,
-    resolution: input.imageSize.toLowerCase()
+    resolution: imageSize.toLowerCase()
   }
 }
 

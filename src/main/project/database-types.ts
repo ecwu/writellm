@@ -269,6 +269,8 @@ export interface AgentSessionTable {
   interaction_mode: 'ask' | 'plan' | 'write'
   provider_preset_id: string | null
   selected_model_id: string | null
+  image_source_id: string | null
+  image_model_id: string | null
   thinking_level: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   skill_mode: 'auto' | 'explicit' | 'none'
   skill_id: string | null

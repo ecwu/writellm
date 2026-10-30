@@ -276,6 +276,12 @@ describe('Conversation fork', () => {
       thinking_level = 'high' WHERE agent_session_id = ?`)
         .run(f.source.agentSessionId)
     )
+    expect(
+      f.service.setImageModelSelection(f.source.agentSessionId, {
+        sourceId: 'img-gateway',
+        modelId: 'gpt-image-3'
+      }).imageModelSelection
+    ).toEqual({ sourceId: 'img-gateway', modelId: 'gpt-image-3' })
     const child = f.service.forkConversation({
       sourceSessionId: f.source.agentSessionId,
       targetEventId: target.agentEventId,
@@ -285,7 +291,15 @@ describe('Conversation fork', () => {
       approvalMode: 'section_auto',
       interactionMode: 'ask',
       thinkingLevel: 'high',
+      imageModelSelection: { sourceId: 'img-gateway', modelId: 'gpt-image-3' },
       workflowState: 'idle'
+    })
+    expect(
+      f.service.setImageModelSelection(child.agentSessionId, null).imageModelSelection
+    ).toBeNull()
+    expect(f.service.imageModelSelection(f.source.agentSessionId)).toEqual({
+      sourceId: 'img-gateway',
+      modelId: 'gpt-image-3'
     })
     expect(child.modelSelection).toEqual(
       f.service.getSession(f.source.agentSessionId).modelSelection

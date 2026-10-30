@@ -45,6 +45,8 @@ const imageRequest: Extract<AuxiliaryUtilityRequest, { operation: 'image' }> = {
   projectSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc204',
   config: {
     role: 'image',
+    sourceId: 'test-source',
+    imageSizes: ['1K', '2K'],
     providerId: 'google-gemini',
     model: 'gemini-3.1-flash-image',
     timeoutMs: 5_000,
@@ -62,6 +64,8 @@ const vertexImageRequest: Extract<AuxiliaryUtilityRequest, { operation: 'image' 
   ...imageRequest,
   config: {
     role: 'image',
+    sourceId: 'test-source',
+    imageSizes: ['1K', '2K'],
     providerId: 'google-vertex',
     projectId: 'writellm-images-123',
     location: 'global',
@@ -355,7 +359,11 @@ describe('runAuxiliaryModelRequest', () => {
       runAuxiliaryModelRequest(
         {
           ...vertexImageRequest,
-          config: { ...vertexImageRequest.config, model: 'gemini-2.5-flash-image' },
+          config: {
+            ...vertexImageRequest.config,
+            model: 'gemini-2.5-flash-image',
+            imageSizes: ['1K']
+          },
           input: { ...vertexImageRequest.input, aspectRatio: 'auto', imageSize: '2K' }
         },
         vi.fn<typeof fetch>(),
@@ -463,7 +471,7 @@ describe('runAuxiliaryModelRequest', () => {
         withSdkFetch(fetchMock, () =>
           runAuxiliaryModelRequest({
             ...imageRequest,
-            config: { ...imageRequest.config, model, modelRevision: model },
+            config: { ...imageRequest.config, model, modelRevision: model, imageSizes: ['1K'] },
             input: { ...imageRequest.input, aspectRatio: 'auto', imageSize: '1K' }
           })
         )
@@ -503,7 +511,7 @@ describe('runAuxiliaryModelRequest', () => {
         withSdkFetch(fetchMock, () =>
           runAuxiliaryModelRequest({
             ...imageRequest,
-            config: { ...imageRequest.config, model, modelRevision: model },
+            config: { ...imageRequest.config, model, modelRevision: model, imageSizes: ['1K'] },
             input: { ...imageRequest.input, aspectRatio: '1:1', imageSize: '2K' }
           })
         )
@@ -580,6 +588,8 @@ describe('runAuxiliaryModelRequest', () => {
           ...imageRequest,
           config: {
             role: 'image',
+            sourceId: 'test-source',
+            imageSizes: ['1K', '2K'],
             providerId: 'openai',
             model: 'gpt-image-2',
             timeoutMs: 5_000,
@@ -611,6 +621,65 @@ describe('runAuxiliaryModelRequest', () => {
     }
   )
 
+  it('routes a configured OpenAI-compatible endpoint, clamps sizes, and rejects redirects', async () => {
+    const data = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('fixture')]).toString(
+      'base64'
+    )
+    const config = {
+      role: 'image' as const,
+      sourceId: 'img-gateway',
+      imageSizes: ['1K' as const],
+      providerId: 'openai' as const,
+      baseUrl: 'https://gateway.example.test/v1',
+      model: 'gateway-image-model',
+      timeoutMs: 5_000,
+      embeddingDimension: null,
+      batchLimit: 1,
+      fileSizeLimitMb: null,
+      defaultAspectRatio: 'auto' as const,
+      defaultImageSize: '1K' as const
+    }
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const sdkRequest = input instanceof Request ? input : new Request(input, init)
+      expect(sdkRequest.url).toBe('https://gateway.example.test/v1/images/generations')
+      expect(init?.redirect).toBe('error')
+      expect(sdkRequest.headers.get('authorization')).toBe('Bearer gateway-secret')
+      expect(JSON.parse(await sdkRequest.clone().text())).toMatchObject({
+        model: 'gateway-image-model',
+        size: '1024x1024'
+      })
+      return new Response(JSON.stringify({ created: 1, data: [{ b64_json: data }] }), {
+        headers: { 'content-type': 'application/json' }
+      })
+    })
+    await expect(
+      runAuxiliaryModelRequest(
+        {
+          ...imageRequest,
+          config,
+          credential: 'gateway-secret',
+          input: { ...imageRequest.input, aspectRatio: '1:1', imageSize: '2K' }
+        },
+        fetchMock
+      )
+    ).resolves.toMatchObject({
+      type: 'image-result',
+      result: { dataBase64: data, mimeType: 'image/jpeg', effectiveImageSize: '1K' }
+    })
+
+    const redirecting = vi.fn<typeof fetch>(
+      async () =>
+        new Response(null, { status: 302, headers: { location: 'https://elsewhere.test/' } })
+    )
+    await expect(
+      runAuxiliaryModelRequest(
+        { ...imageRequest, config, credential: 'gateway-secret' },
+        redirecting
+      )
+    ).rejects.toThrow()
+    expect(redirecting).toHaveBeenCalledTimes(1)
+  })
+
   it('serializes xAI image generation with base64, aspect ratio, and lowercase resolution', async () => {
     const data = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from('fixture')]).toString(
       'base64'
@@ -638,6 +707,8 @@ describe('runAuxiliaryModelRequest', () => {
           ...imageRequest,
           config: {
             role: 'image',
+            sourceId: 'test-source',
+            imageSizes: ['1K', '2K'],
             providerId: 'xai',
             model: 'grok-imagine-image-2.0',
             timeoutMs: 5_000,
@@ -693,6 +764,8 @@ describe('runAuxiliaryModelRequest', () => {
           ...imageRequest,
           config: {
             role: 'image',
+            sourceId: 'test-source',
+            imageSizes: ['1K', '2K'],
             providerId,
             model,
             timeoutMs: 5_000,
@@ -725,6 +798,8 @@ describe('runAuxiliaryModelRequest', () => {
           ...imageRequest,
           config: {
             role: 'image',
+            sourceId: 'test-source',
+            imageSizes: ['1K', '2K'],
             providerId: 'xai',
             model: 'grok-imagine-image-2.0',
             timeoutMs: 5_000,
@@ -761,6 +836,8 @@ describe('runAuxiliaryModelRequest', () => {
         ...imageRequest,
         config: {
           role: 'image',
+          sourceId: 'test-source',
+          imageSizes: ['1K', '2K'],
           providerId: 'openai',
           model: 'gpt-image-2',
           timeoutMs: 5_000,

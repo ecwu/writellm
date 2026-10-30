@@ -35,7 +35,13 @@ import type { UpdateWritingRulesIpcInput } from '../shared/contracts/writing-rul
 import type { ManuscriptWorkspace } from '../shared/contracts/manuscript'
 import type {
   ProviderConnectionTestResult,
-  ImageProviderSelectionInput,
+  ImageManualModelInput,
+  ImageModelEnabledInput,
+  ImageModelInput,
+  ImageModelSelection,
+  ImageSourceInput,
+  ImageSourceSaveInput,
+  ImageSourceTestInput,
   AgentAuthFlowInput,
   AgentAuthInteractionEvent,
   AgentAuthPromptResponse,
@@ -128,7 +134,13 @@ export interface DesktopApi {
     save(input: ProviderSaveInput): Promise<ProviderSettingsSnapshot>
     remove(input: ProviderRoleInput): Promise<ProviderSettingsSnapshot>
     testConnection(input: ProviderRoleInput): Promise<ProviderConnectionTestResult>
-    setActiveImage(input: ImageProviderSelectionInput): Promise<ProviderSettingsSnapshot>
+    saveImageSource(input: ImageSourceSaveInput): Promise<ProviderSettingsSnapshot>
+    removeImageSource(input: ImageSourceInput): Promise<ProviderSettingsSnapshot>
+    testImageSource(input: ImageSourceTestInput): Promise<ProviderConnectionTestResult>
+    setImageDefault(selection: ImageModelSelection | null): Promise<ProviderSettingsSnapshot>
+    saveImageManualModel(input: ImageManualModelInput): Promise<ProviderSettingsSnapshot>
+    removeImageManualModel(input: ImageModelInput): Promise<ProviderSettingsSnapshot>
+    setImageModelEnabled(input: ImageModelEnabledInput): Promise<ProviderSettingsSnapshot>
     saveAgentPreset(input: AgentCustomPresetInput): Promise<ProviderSettingsSnapshot>
     removeAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
     refreshAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>

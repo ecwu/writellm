@@ -509,6 +509,7 @@ function session(
     interactionMode: 'write',
     workflowState,
     modelSelection: null,
+    imageModelSelection: null,
     thinkingLevel: 'off',
     createdAt: '2026-08-12T00:00:00.000Z',
     updatedAt: '2026-08-12T00:00:00.000Z',

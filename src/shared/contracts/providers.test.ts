@@ -5,11 +5,11 @@ import {
   agentCustomPresetInputSchema,
   agentModelSummarySchema,
   agentThinkingLevelSchema,
-  effectiveGoogleGeminiImageSize,
-  effectiveGoogleVertexImageSize,
-  GOOGLE_GEMINI_IMAGE_MODELS,
-  GOOGLE_VERTEX_IMAGE_MODELS,
+  BUILTIN_IMAGE_MODELS,
+  effectiveImageSize,
   imageProviderCatalogSchema,
+  imageSourceConfigSchema,
+  imageSourceSaveInputSchema,
   providerBaseUrlSchema,
   providerConfigSchema,
   providerSaveInputSchema
@@ -44,13 +44,16 @@ describe('provider contracts', () => {
     ).toEqual(['off', 'medium', 'max'])
   })
 
-  it('accepts only the fixed global Google Vertex Nano Banana configuration', () => {
+  it('keeps Vertex on the global location with local ADC only', () => {
     const vertex = {
       role: 'image' as const,
       providerId: 'google-vertex' as const,
+      sourceId: 'vertex',
+      name: 'Vertex',
       projectId: 'writellm-images-123',
       location: 'global' as const,
-      model: 'gemini-3.1-flash-image' as const,
+      manualModels: [],
+      disabledModelIds: [],
       timeoutMs: 120_000,
       embeddingDimension: null,
       batchLimit: 1,
@@ -58,31 +61,30 @@ describe('provider contracts', () => {
       defaultAspectRatio: 'auto' as const,
       defaultImageSize: '1K' as const
     }
-    for (const model of GOOGLE_VERTEX_IMAGE_MODELS) {
-      expect(providerConfigSchema.safeParse({ ...vertex, model }).success).toBe(true)
-    }
+    expect(imageSourceConfigSchema.safeParse(vertex).success).toBe(true)
     expect(
-      providerConfigSchema.safeParse({ ...vertex, projectId: 'Invalid Project' }).success
+      imageSourceConfigSchema.safeParse({ ...vertex, projectId: 'Invalid Project' }).success
     ).toBe(false)
-    expect(providerConfigSchema.safeParse({ ...vertex, location: 'us-central1' }).success).toBe(
+    expect(imageSourceConfigSchema.safeParse({ ...vertex, location: 'us-central1' }).success).toBe(
       false
     )
     expect(
-      providerConfigSchema.safeParse({ ...vertex, model: 'gemini-3.1-flash-lite-image' }).success
+      imageSourceConfigSchema.safeParse({ ...vertex, baseUrl: 'https://vertex-proxy.example.test' })
+        .success
+    ).toBe(false)
+    const draft = { providerId: 'google-vertex', name: 'Vertex', projectId: 'writellm-images-123' }
+    expect(imageSourceSaveInputSchema.safeParse({ source: draft }).success).toBe(true)
+    expect(
+      imageSourceSaveInputSchema.safeParse({ source: draft, apiKey: 'must-not-be-accepted' })
+        .success
     ).toBe(false)
     expect(
-      providerConfigSchema.safeParse({
-        ...vertex,
-        baseUrl: 'https://vertex-proxy.example.test'
-      }).success
-    ).toBe(false)
-    expect(effectiveGoogleVertexImageSize('gemini-2.5-flash-image', '2K')).toBe('1K')
-    expect(effectiveGoogleVertexImageSize('gemini-3-pro-image', '2K')).toBe('2K')
-    expect(effectiveGoogleVertexImageSize('gemini-3.1-flash-image', '2K')).toBe('2K')
-    expect(providerSaveInputSchema.safeParse({ config: vertex }).success).toBe(true)
-    expect(
-      providerSaveInputSchema.safeParse({ config: vertex, apiKey: 'must-not-be-accepted' }).success
-    ).toBe(false)
+      BUILTIN_IMAGE_MODELS['google-vertex'].map((model) => [model.id, model.imageSizes])
+    ).toEqual([
+      ['gemini-2.5-flash-image', ['1K']],
+      ['gemini-3-pro-image', ['1K', '2K']],
+      ['gemini-3.1-flash-image', ['1K', '2K']]
+    ])
   })
 
   it('accepts custom Agent Providers without the legacy generation timeout', () => {
@@ -243,12 +245,60 @@ describe('provider contracts', () => {
     ).toBe(true)
   })
 
-  it('accepts fixed Gemini image models and strips only a legacy official URL', () => {
-    const image = {
+  it('accepts endpoints only for OpenAI-compatible image source instances', () => {
+    expect(
+      imageSourceSaveInputSchema.safeParse({
+        source: {
+          providerId: 'openai',
+          name: 'Gateway',
+          baseUrl: 'https://gateway.example.test/v1/'
+        }
+      })
+    ).toMatchObject({
+      success: true,
+      data: { source: { baseUrl: 'https://gateway.example.test/v1' } }
+    })
+    expect(
+      imageSourceSaveInputSchema.safeParse({
+        source: { providerId: 'xai', name: 'xAI', baseUrl: 'https://user:pass@x.example.test' }
+      }).success
+    ).toBe(false)
+    expect(
+      imageSourceSaveInputSchema.safeParse({
+        source: { providerId: 'google-gemini', name: 'Gemini', baseUrl: 'https://proxy.test' }
+      }).success
+    ).toBe(false)
+    expect(
+      imageSourceSaveInputSchema.safeParse({ source: { providerId: 'custom', name: 'Other' } })
+        .success
+    ).toBe(false)
+    expect(
+      providerSaveInputSchema.safeParse({
+        config: {
+          role: 'image',
+          providerId: 'openai',
+          sourceId: 'openai',
+          model: 'gpt-image-2',
+          imageSizes: ['1K'],
+          timeoutMs: 120_000,
+          embeddingDimension: null,
+          batchLimit: 1,
+          fileSizeLimitMb: null,
+          defaultAspectRatio: 'auto',
+          defaultImageSize: '1K'
+        }
+      }).success
+    ).toBe(false)
+  })
+
+  it('validates manual image models and clamps unsupported sizes to 1K', () => {
+    const source = {
       role: 'image' as const,
       providerId: 'google-gemini' as const,
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-3.1-flash-image',
+      sourceId: 'gemini',
+      name: 'Gemini',
+      manualModels: [{ id: 'gemini-next-image', name: 'Next', imageSizes: ['1K', '2K'] }],
+      disabledModelIds: ['gemini-2.5-flash-image'],
       timeoutMs: 120_000,
       embeddingDimension: null,
       batchLimit: 1,
@@ -256,138 +306,60 @@ describe('provider contracts', () => {
       defaultAspectRatio: 'auto' as const,
       defaultImageSize: '1K' as const
     }
-    const parsed = providerConfigSchema.parse(image)
-    const { baseUrl: _legacyBaseUrl, ...currentImage } = image
-    expect(parsed).toEqual(currentImage)
-    expect('baseUrl' in parsed).toBe(false)
-    for (const model of GOOGLE_GEMINI_IMAGE_MODELS) {
-      expect(providerConfigSchema.safeParse({ ...image, model }).success).toBe(true)
+    expect(imageSourceConfigSchema.safeParse(source).success).toBe(true)
+    for (const manualModels of [
+      [{ id: 'gemini-3-pro-image', name: 'Built-in clash', imageSizes: ['1K'] }],
+      [
+        { id: 'dup', name: 'One', imageSizes: ['1K'] },
+        { id: 'dup', name: 'Two', imageSizes: ['1K'] }
+      ],
+      [{ id: 'only-2k', name: 'Only 2K', imageSizes: ['2K'] }],
+      [{ id: 'four-k', name: '4K', imageSizes: ['1K', '4K'] }]
+    ]) {
+      expect(imageSourceConfigSchema.safeParse({ ...source, manualModels }).success).toBe(false)
     }
+    expect(imageSourceConfigSchema.safeParse({ ...source, model: 'legacy' }).success).toBe(false)
+    expect(effectiveImageSize(['1K', '2K'], '2K')).toBe('2K')
+    expect(effectiveImageSize(['1K'], '2K')).toBe('1K')
     expect(
       providerConfigSchema.safeParse({
-        ...image,
-        baseUrl: 'https://gemini-proxy.example.test'
-      }).success
-    ).toBe(false)
-    expect(providerConfigSchema.safeParse({ ...image, model: 'gemini-custom-image' }).success).toBe(
-      false
-    )
-    expect(
-      providerConfigSchema.safeParse({ ...image, providerId: 'openai-compatible' }).success
-    ).toBe(false)
-    expect(providerConfigSchema.safeParse({ ...image, defaultImageSize: '4K' }).success).toBe(false)
-    expect(effectiveGoogleGeminiImageSize('gemini-3.1-flash-image', '2K')).toBe('2K')
-    expect(effectiveGoogleGeminiImageSize('gemini-3-pro-image', '2K')).toBe('2K')
-    expect(effectiveGoogleGeminiImageSize('gemini-3.1-flash-lite-image', '2K')).toBe('1K')
-    expect(effectiveGoogleGeminiImageSize('gemini-2.5-flash-image', '2K')).toBe('1K')
-  })
-
-  it('accepts only fixed OpenAI and xAI image models without custom endpoints', () => {
-    const common = {
-      role: 'image' as const,
-      timeoutMs: 120_000,
-      embeddingDimension: null,
-      batchLimit: 1,
-      fileSizeLimitMb: null,
-      defaultAspectRatio: 'auto' as const,
-      defaultImageSize: '1K' as const
-    }
-    expect(
-      providerConfigSchema.parse({
-        ...common,
-        providerId: 'openai',
-        model: 'gpt-image-2'
-      })
-    ).toMatchObject({ providerId: 'openai', model: 'gpt-image-2' })
-    expect(
-      providerConfigSchema.parse({
-        ...common,
+        role: 'image',
         providerId: 'xai',
-        model: 'grok-imagine-image-2.0'
-      })
-    ).toMatchObject({ providerId: 'xai', model: 'grok-imagine-image-2.0' })
-    for (const invalid of [
-      { ...common, providerId: 'openai', model: 'gpt-image-1' },
-      { ...common, providerId: 'xai', model: 'grok-imagine-image-quality' },
-      {
-        ...common,
-        providerId: 'openai',
-        model: 'gpt-image-2',
-        baseUrl: 'https://proxy.example.test/v1'
-      }
-    ]) {
-      expect(providerConfigSchema.safeParse(invalid).success).toBe(false)
-    }
+        sourceId: 'xai',
+        model: 'grok-imagine-image-next',
+        imageSizes: ['1K', '2K'],
+        baseUrl: 'https://xai-proxy.example.test/v1',
+        timeoutMs: 120_000,
+        embeddingDimension: null,
+        batchLimit: 1,
+        fileSizeLimitMb: null,
+        defaultAspectRatio: 'auto',
+        defaultImageSize: '1K'
+      }).success
+    ).toBe(true)
   })
 
-  it('rejects image catalog snapshots that alter the fixed directory or active selection', () => {
-    const catalog = {
-      activeProviderId: 'openai' as const,
-      sources: [
-        {
-          providerId: 'google-gemini' as const,
-          label: 'Google Gemini',
-          models: [...GOOGLE_GEMINI_IMAGE_MODELS],
-          config: null,
-          configured: false,
-          available: false,
-          active: false,
-          issues: []
-        },
-        {
-          providerId: 'google-vertex' as const,
-          label: 'Google Vertex AI',
-          models: [...GOOGLE_VERTEX_IMAGE_MODELS],
-          config: null,
-          configured: false,
-          available: false,
-          active: false,
-          issues: []
-        },
-        {
-          providerId: 'openai' as const,
-          label: 'OpenAI',
-          models: ['gpt-image-2'],
-          config: null,
-          configured: false,
-          available: false,
-          active: true,
-          issues: []
-        },
-        {
-          providerId: 'xai' as const,
-          label: 'xAI',
-          models: ['grok-imagine-image-2.0'],
-          config: null,
-          configured: false,
-          available: false,
-          active: false,
-          issues: []
-        }
-      ]
+  it('rejects image catalog snapshots with duplicate or mismatched sources', () => {
+    const source = {
+      sourceId: 'img-1',
+      providerId: 'openai' as const,
+      name: 'OpenAI',
+      label: 'OpenAI Images',
+      config: null,
+      models: [],
+      configured: false,
+      available: false,
+      issues: []
     }
+    const catalog = { defaultSelection: null, sources: [source, { ...source, sourceId: 'img-2' }] }
     expect(imageProviderCatalogSchema.safeParse(catalog).success).toBe(true)
     expect(
-      imageProviderCatalogSchema.safeParse({
-        ...catalog,
-        sources: [catalog.sources[1], catalog.sources[0], catalog.sources[2], catalog.sources[3]]
-      }).success
+      imageProviderCatalogSchema.safeParse({ ...catalog, sources: [source, source] }).success
     ).toBe(false)
     expect(
       imageProviderCatalogSchema.safeParse({
         ...catalog,
-        sources: catalog.sources.map((source) => ({ ...source, active: false }))
-      }).success
-    ).toBe(false)
-    expect(
-      imageProviderCatalogSchema.safeParse({
-        ...catalog,
-        sources: [
-          catalog.sources[0],
-          catalog.sources[1],
-          { ...catalog.sources[2], models: ['gpt-image-proxy'] },
-          catalog.sources[3]
-        ]
+        sources: [{ ...source, available: true }]
       }).success
     ).toBe(false)
   })

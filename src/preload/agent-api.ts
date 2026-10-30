@@ -64,6 +64,9 @@ export const agentApi: DesktopApi['agent'] = {
   async setModelSelection(input) {
     return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setModelSelection, input)
   },
+  async setImageModelSelection(input) {
+    return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setImageModelSelection, input)
+  },
   async setThinkingLevel(input) {
     return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.setThinkingLevel, input)
   },

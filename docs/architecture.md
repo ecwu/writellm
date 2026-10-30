@@ -226,7 +226,7 @@ search becomes available.
 | Agent runtime           | `@earendil-works/pi-agent-core`                                               |
 | Agent model transport   | `@earendil-works/pi-ai`                                                       |
 | Embedding and reranking | AI SDK Core behind separate `EmbeddingGateway` and `RerankGateway` interfaces |
-| Image generation        | Fixed Gemini/OpenAI/xAI catalog in the background-worker                       |
+| Image generation        | Gemini/Vertex/OpenAI/xAI source instances in the background-worker             |
 | MinerU                  | independent HTTP adapter and one durable parse workflow; URLs stay ephemeral  |
 | Secrets                 | Electron `safeStorage` with an application credential-store adapter           |
 | Tests                   | Vitest and Playwright Electron E2E                                            |
@@ -1367,10 +1367,11 @@ revision and proposal lineage remains authoritative. Outline-delete undo and sec
 remain deferred.
 
 `generate_image` accepts one bounded prompt, output specification, and section placement. Main binds
-the active image provider, source revision, block ID, and asset ID. The background worker performs
-one typed request through the fixed catalog in ADRs 051 and 052; provider SDKs stay confined to
-that worker gateway. No image source accepts a configurable endpoint, SDK retries are disabled, and
-providers must return bytes rather than temporary URLs. Only Main validates image magic,
+the conversation's image source and model (or the global default), source revision, block ID, and
+asset ID. The background worker performs one typed request through the reviewed transports in
+ADRs 051, 052, and 093; provider SDKs stay confined to that worker gateway. Only OpenAI and xAI
+instances accept a configured endpoint, SDK retries are disabled, and providers must return bytes
+rather than temporary URLs. Only Main validates image magic,
 dimensions, hash, and bytes and atomically publishes the asset before a `writellm-asset:<assetId>`
 reference can be committed. The tool never yields a reusable network or filesystem capability.
 
@@ -1535,12 +1536,14 @@ Write-type agent tools remain sequential even when Pi permits parallel tool exec
 
 Provider configuration is application-global because credentials are device/user concerns, not portable project content.
 
-- The application-global image role uses the fixed four-source catalog in ADRs 051 and 052. Gemini,
-  Vertex AI, OpenAI, and xAI configurations are independently bound and can coexist; Gemini,
+- The application-global image role is a list of source instances over the four reviewed
+  transports (ADRs 051, 052, and 093). Instances are independently bound and can coexist; Gemini,
   OpenAI, and xAI credentials use safeStorage while Vertex uses local ADC without persisting a
-  credential. One explicit app setting selects zero or one active source. Saving the first usable
-  source can initialize that selection; removing the active source clears it. Generation never
-  falls back, rotates, retries through another source, or accepts an arbitrary endpoint.
+  credential. OpenAI and xAI instances can set an endpoint, which is part of the credential binding.
+  Each instance offers its transport's built-in models plus manual model IDs, any of which can be
+  disabled. One app setting stores the default source and model; each Agent conversation can store an
+  override. Removing the selected source or model clears the default. Generation never falls back,
+  rotates, or retries through another source or model.
 
 - Agent configuration is an application-global Pi provider catalog rather than one singleton
   endpoint. The pinned Pi built-in providers define their static model metadata, wire protocol,

@@ -36,36 +36,32 @@ const snapshot: ProviderSettingsSnapshot = {
     issues: []
   })) as ProviderSettingsSnapshot['providers'],
   imageCatalog: {
-    activeProviderId: 'openai',
+    defaultSelection: { sourceId: 'img-gateway', modelId: 'gpt-image-2' },
     sources: [
       {
-        providerId: 'google-gemini',
-        label: 'Google Gemini',
-        models: ['gemini-3.1-flash-image'],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      },
-      {
-        providerId: 'google-vertex',
-        label: 'Google Vertex AI',
-        models: ['gemini-2.5-flash-image', 'gemini-3-pro-image', 'gemini-3.1-flash-image'],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
-        issues: []
-      },
-      {
+        sourceId: 'openai',
         providerId: 'openai',
-        label: 'OpenAI',
-        models: ['gpt-image-2'],
+        name: 'OpenAI',
+        label: 'OpenAI Images',
+        config: null,
+        models: [],
+        configured: false,
+        available: false,
+        issues: ['Provider credential is missing.']
+      },
+      {
+        sourceId: 'img-gateway',
+        providerId: 'openai',
+        name: 'Image gateway',
+        label: 'OpenAI Images',
         config: {
           role: 'image',
           providerId: 'openai',
-          model: 'gpt-image-2',
+          sourceId: 'img-gateway',
+          name: 'Image gateway',
+          baseUrl: 'https://gateway.example.test/v1',
+          manualModels: [{ id: 'gpt-image-3', name: 'GPT Image 3', imageSizes: ['1K', '2K'] }],
+          disabledModelIds: [],
           timeoutMs: 120_000,
           embeddingDimension: null,
           batchLimit: 1,
@@ -73,19 +69,24 @@ const snapshot: ProviderSettingsSnapshot = {
           defaultAspectRatio: 'auto',
           defaultImageSize: '1K'
         },
+        models: [
+          {
+            id: 'gpt-image-2',
+            name: 'gpt-image-2',
+            imageSizes: ['1K', '2K'],
+            source: 'builtin',
+            enabled: true
+          },
+          {
+            id: 'gpt-image-3',
+            name: 'GPT Image 3',
+            imageSizes: ['1K', '2K'],
+            source: 'manual',
+            enabled: true
+          }
+        ],
         configured: true,
         available: true,
-        active: true,
-        issues: []
-      },
-      {
-        providerId: 'xai',
-        label: 'xAI',
-        models: ['grok-imagine-image-2.0'],
-        config: null,
-        configured: false,
-        available: false,
-        active: false,
         issues: []
       }
     ]
@@ -94,7 +95,7 @@ const snapshot: ProviderSettingsSnapshot = {
 }
 
 describe('ProviderSettingsWorkspace image catalog', () => {
-  it('renders all fixed sources, the active choice, and provider-neutral billing behavior', () => {
+  it('renders every source instance, the default source, endpoint, and manual models', () => {
     const html = renderToStaticMarkup(
       <ProviderSettingsWorkspace
         role='image'
@@ -105,44 +106,57 @@ describe('ProviderSettingsWorkspace image catalog', () => {
       />
     )
 
-    expect(html).toContain('Google Gemini')
-    expect(html).toContain('Google Vertex AI')
     expect(html).toContain('OpenAI')
-    expect(html).toContain('xAI')
-    expect(html).toContain('Active: OpenAI')
-    expect(html).toContain('gpt-image-2')
-    expect(html).toContain('Requests never fall back or rotate')
-    expect(html).not.toContain('Gemini-generated')
+    expect(html).toContain('Image gateway')
+    expect(html).toContain('not connected')
+    expect(html).toContain('Default source')
+    expect(html).toContain('https://gateway.example.test/v1')
+    expect(html).toContain('GPT Image 3')
+    expect(html).toContain('manual')
+    expect(html).toContain('Requests never fall back to another model')
   })
 
-  it('renders the independent Vertex project, global location, and local ADC guidance', () => {
+  it('renders the Vertex project and local ADC guidance without an API key field', () => {
     const vertexSnapshot: ProviderSettingsSnapshot = {
       ...snapshot,
       imageCatalog: {
-        activeProviderId: 'google-vertex',
-        sources: snapshot.imageCatalog.sources.map((source) =>
-          source.providerId === 'google-vertex'
-            ? {
-                ...source,
-                config: {
-                  role: 'image',
-                  providerId: 'google-vertex',
-                  projectId: 'writellm-images-123',
-                  location: 'global',
-                  model: 'gemini-3-pro-image',
-                  timeoutMs: 120_000,
-                  embeddingDimension: null,
-                  batchLimit: 1,
-                  fileSizeLimitMb: null,
-                  defaultAspectRatio: 'auto',
-                  defaultImageSize: '1K'
-                },
-                configured: true,
-                available: true,
-                active: true
+        defaultSelection: { sourceId: 'vertex', modelId: 'gemini-3-pro-image' },
+        sources: [
+          {
+            sourceId: 'vertex',
+            providerId: 'google-vertex',
+            name: 'Vertex',
+            label: 'Google Vertex AI',
+            config: {
+              role: 'image',
+              providerId: 'google-vertex',
+              sourceId: 'vertex',
+              name: 'Vertex',
+              projectId: 'writellm-images-123',
+              location: 'global',
+              manualModels: [],
+              disabledModelIds: [],
+              timeoutMs: 120_000,
+              embeddingDimension: null,
+              batchLimit: 1,
+              fileSizeLimitMb: null,
+              defaultAspectRatio: 'auto',
+              defaultImageSize: '1K'
+            },
+            models: [
+              {
+                id: 'gemini-3-pro-image',
+                name: 'Nano Banana Pro',
+                imageSizes: ['1K', '2K'],
+                source: 'builtin',
+                enabled: true
               }
-            : { ...source, active: false }
-        ) as ProviderSettingsSnapshot['imageCatalog']['sources']
+            ],
+            configured: true,
+            available: true,
+            issues: []
+          }
+        ]
       }
     }
     const html = renderToStaticMarkup(
@@ -155,11 +169,9 @@ describe('ProviderSettingsWorkspace image catalog', () => {
       />
     )
 
-    expect(html).toContain('Active: Google Vertex AI')
     expect(html).toContain('Google Cloud Project ID')
     expect(html).toContain('writellm-images-123')
-    expect(html).toContain('Vertex location')
-    expect(html).toContain('global')
+    expect(html).toContain('Nano Banana Pro')
     expect(html).toContain('Application Default Credentials')
     expect(html).toContain('gcloud auth application-default login')
     expect(html).toContain('No Google credential is saved by WriteLLM')

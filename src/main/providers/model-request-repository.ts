@@ -76,7 +76,12 @@ export class ModelRequestRepository {
     const now = this.now().toISOString()
     const providerFingerprint = fingerprint({
       providerId: input.provider.providerId,
-      ...(input.provider.role === 'image' ? {} : { baseUrl: input.provider.baseUrl }),
+      // Official image endpoints keep their historical fingerprint shape (ADR 093).
+      ...(input.provider.role !== 'image'
+        ? { baseUrl: input.provider.baseUrl }
+        : 'baseUrl' in input.provider && input.provider.baseUrl !== undefined
+          ? { baseUrl: input.provider.baseUrl }
+          : {}),
       model: input.provider.model,
       role: input.provider.role
     })

@@ -39,6 +39,8 @@ import {
   agentSetInteractionModeInputSchema,
   agentSetInteractionModeResultSchema,
   agentSetModelSelectionInputSchema,
+  agentSetImageModelSelectionInputSchema,
+  agentSetImageModelSelectionResultSchema,
   agentSetModelSelectionResultSchema,
   agentSetThinkingLevelInputSchema,
   agentSetThinkingLevelResultSchema,
@@ -166,6 +168,12 @@ export const agentIpcEndpoints = {
     channel: IPC_CHANNELS.agentSetModelSelection,
     input: agentSetModelSelectionInputSchema,
     output: agentSetModelSelectionResultSchema,
+    session: 'mutation'
+  }),
+  setImageModelSelection: defineIpcEndpoint({
+    channel: IPC_CHANNELS.agentSetImageModelSelection,
+    input: agentSetImageModelSelectionInputSchema,
+    output: agentSetImageModelSelectionResultSchema,
     session: 'mutation'
   }),
   setThinkingLevel: defineIpcEndpoint({

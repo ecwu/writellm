@@ -139,6 +139,7 @@ export function AgentPanelView({
     beginNewConversation,
     setApprovalMode,
     setInteractionMode,
+    setImageModelSelection,
     setModelSelection,
     setThinkingLevel,
     openSession,
@@ -841,6 +842,7 @@ export function AgentPanelView({
         modelReady={modelReady}
         busy={busy || conversationLocked || activeRun !== null}
         onModelSelect={setModelSelection}
+        onImageModelSelect={setImageModelSelection}
         onThinkingSelect={setThinkingLevel}
         onApprovalModeSelect={setApprovalMode}
       />

@@ -21,6 +21,8 @@ Status markers:
 
 ## Active and paused work
 
+- [x] Configurable image source instances and models under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md) pass local macOS arm64 source acceptance; changes are uncommitted.
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-30-configurable-image-source-instances).
 - [x] Agent new-conversation draft fix passes local macOS arm64 package acceptance; committed in `802a8b9`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-26-release-02026104-preparation).
 - [x] Documentation evidence archive under [ADR 092](adrs/092-documentation-evidence-archive.md): committed and pushed to `main`.

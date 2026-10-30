@@ -81,7 +81,9 @@ function service(options?: {
     image: options?.imageConfig ?? {
       role: 'image',
       providerId: 'google-gemini',
+      sourceId: 'google-gemini',
       model: 'gemini-3.1-flash-image',
+      imageSizes: ['1K', '2K'],
       timeoutMs: 120_000,
       embeddingDimension: null,
       batchLimit: 1,
@@ -100,6 +102,14 @@ function service(options?: {
         role === 'image' && configs.image.providerId === 'google-vertex'
           ? undefined
           : 'runtime-secret'
+      ),
+    withImageProvider: async <T>(
+      _selection: unknown,
+      operation: (config: ProviderConfig, credential: string | undefined) => Promise<T>
+    ) =>
+      operation(
+        configs.image,
+        configs.image.providerId === 'google-vertex' ? undefined : 'runtime-secret'
       )
   } as unknown as ProviderService
   const agent: AgentModelRuntime =
@@ -347,9 +357,11 @@ describe('ModelExecutionService', () => {
       imageConfig: {
         role: 'image',
         providerId: 'google-vertex',
+        sourceId: 'vertex',
         projectId: 'writellm-images-123',
         location: 'global',
         model: 'gemini-3.1-flash-image',
+        imageSizes: ['1K', '2K'],
         timeoutMs: 120_000,
         embeddingDimension: null,
         batchLimit: 1,
