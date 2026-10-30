@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.4 passes local package acceptance. Tag publication is pending.
-Recorded: 2026-10-26
+Status: Release 0.2026.10.5 passes local package acceptance. Tag publication is pending.
+Recorded: 2026-10-30
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -10,11 +10,16 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
-Release 0.2026.10.4 includes the interface-label simplification ([d050d23](https://github.com/ecwu/writellm/commit/d050d23))
-and the Agent new-conversation draft fix ([802a8b9](https://github.com/ecwu/writellm/commit/802a8b9)).
+Release 0.2026.10.5 includes configurable image source instances and models
+([b085618](https://github.com/ecwu/writellm/commit/b085618), [ADR 093](adrs/093-configurable-image-source-instances-and-models.md)).
 Local macOS arm64 acceptance passes the full package gate with twelve packaged runtime and 45 packaged interaction scenarios.
 The four-platform tag build and automatic publication remain pending.
-[Release preparation evidence](history/implementation-log.md#2026-10-26-release-02026104-preparation) records the commands, artifacts, and limits.
+[Release preparation evidence](history/implementation-log.md#2026-10-30-release-02026105-preparation) records the commands, artifacts, and limits.
+
+[Release 0.2026.10.4](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.4) is published with four assets.
+Tag `v0.2026.10.4` is fixed at `29a9660`. It includes the interface-label simplification
+([d050d23](https://github.com/ecwu/writellm/commit/d050d23)) and the Agent new-conversation draft fix
+([802a8b9](https://github.com/ecwu/writellm/commit/802a8b9)).
 
 [Release 0.2026.10.3](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.3) is published with four assets.
 Tag `v0.2026.10.3` is fixed at `167026d`.
@@ -45,20 +50,18 @@ Releases are unsigned, and macOS builds are not notarized. [Release policy](rele
 
 Known open defects:
 
-- Source E2E `project.create-conflict-preserves-data` still waits for the launcher `Closed` label removed in `d050d23`.
 
 - `workbench.tabs-docking-restore` fails intermittently at the native-menu Knowledge toggle.
   It also fails on unmodified `7b5e287`, so it predates the Pi 1.3 update. It needs a separate fix.
+  It recurred once in the first 0.2026.10.5 package gate run.
 - The full dependency audit retains one moderate sprintf-js advisory with no published repair.
   Both audits retain one low KaTeX advisory, because rehype-katex requires the 0.16 series.
 
 ## Current authorized work
 
-The user authorizes configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md):
-multiple source instances, OpenAI-compatible endpoints, built-in plus manual image models, a global default with a
-per-conversation override, and migration of existing image configuration.
-The implementation passes local macOS arm64 source acceptance and remains uncommitted.
-[Evidence](history/implementation-log.md#2026-10-30-configurable-image-source-instances) records the gates and limits.
+The user authorizes configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md),
+migration of existing image configuration, testing, a local build, a commit, and tag `v0.2026.10.5`.
+Pushing `main` and the tag awaits the user's confirmation.
 
 ## Deferred
 

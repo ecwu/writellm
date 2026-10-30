@@ -2081,7 +2081,7 @@ Evidence: [package gate](../../.cache/verification/1792973884486-21043-bb732c20)
 
 ## 2026-10-30 Configurable image source instances
 
-The user authorizes Cherry Studio-style image sources under ADR 093. The changes remain uncommitted.
+The user authorizes Cherry Studio-style image sources under ADR 093.
 Image sources become instances over the four reviewed transports. OpenAI and xAI instances accept an optional endpoint
 bound into the credential identity, and configured endpoints reject redirects. Each source offers built-in models plus
 manual model IDs with declared 1K/2K support, and any model can be disabled. A global default source and model replaces
@@ -2099,4 +2099,29 @@ and the rerun of `app.provider-settings-persist-without-secret` passes in 11.1 s
 
 Runtime evidence covers macOS arm64 source E2E only. Packaged runtime, Windows, Linux, and macOS x64 acceptance remain
 outstanding. Live provider generation through a real custom endpoint is not exercised.
+
+The user subsequently authorizes testing, a build, a commit, and tag `v0.2026.10.5`.
+The source E2E `project.create-conflict-preserves-data` now asserts the launcher heading instead of the `Closed` label,
+and all seven `project-lifecycle` scenarios pass without retries.
+A runtime check rewinds an isolated `app.sqlite` to v10 with a legacy Gemini row and active setting.
+The built App migrates it to v11 with the expected source row and default selection, integrity `ok`, and no foreign-key errors.
+[`b085618`](https://github.com/ecwu/writellm/commit/b085618) contains the feature, migrations, tests, and records.
+
+## 2026-10-30 Release 0.2026.10.5 preparation
+
+`package.json#release.version` advances to 0.2026.10.5. The SemVer base remains 0.2026.10.
+The first package gate run fails one packaged scenario, `workbench.tabs-docking-restore`, at the known intermittent
+native-menu Knowledge toggle; 44 scenarios pass. It stops before installers.
+The second complete run passes all ten stages in 261.3 seconds with one App build.
+It covers twelve packaged runtime smoke scenarios, all 45 packaged interaction scenarios with zero retries or skips, the installers, and artifact checksums.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `WriteLLM-0.2026.10.5-arm64.dmg` | `488d08e252bfcd1978de051058a31d9fa5f979af7f4c5ced72bf49ce669c0a27` |
+| `WriteLLM-0.2026.10.5-arm64.zip` | `dd485bfca34d403ce57d69335ef314cc6965dc63128e620295482dfef98ee9e0` |
+
+Local runtime acceptance covers macOS arm64 only with Electron 44.7.2, ABI 149, and the bundled Node-API 10 database prebuild.
+Distribution remains unsigned and unnotarized.
+
+Evidence: [package gate](../../.cache/verification/1793373331533-21919-ad09889a).
 
