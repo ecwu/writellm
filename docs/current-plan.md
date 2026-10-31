@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.5 passes local package acceptance. Tag publication is pending.
-Recorded: 2026-10-30
+Status: Release 0.2026.10.5 is published.
+Recorded: 2026-10-31
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -10,10 +10,11 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
-Release 0.2026.10.5 includes configurable image source instances and models
+[Release 0.2026.10.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.5) is published with four assets.
+Tag `v0.2026.10.5` is fixed at `7cdfcfc`. It includes configurable image source instances and models
 ([b085618](https://github.com/ecwu/writellm/commit/b085618), [ADR 093](adrs/093-configurable-image-source-instances-and-models.md)).
+Its [four-platform build](https://github.com/ecwu/writellm/actions/runs/41139328676) and [automatic publication](https://github.com/ecwu/writellm/actions/runs/41140703627) succeed on their first attempts.
 Local macOS arm64 acceptance passes the full package gate with twelve packaged runtime and 45 packaged interaction scenarios.
-The four-platform tag build and automatic publication remain pending.
 [Release preparation evidence](history/implementation-log.md#2026-10-30-release-02026105-preparation) records the commands, artifacts, and limits.
 
 [Release 0.2026.10.4](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.4) is published with four assets.
@@ -60,8 +61,8 @@ Known open defects:
 ## Current authorized work
 
 The user authorizes configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md),
-migration of existing image configuration, testing, a local build, a commit, and tag `v0.2026.10.5`.
-Pushing `main` and the tag awaits the user's confirmation.
+migration of existing image configuration, testing, a local build, a commit, pushing `main`, and publishing tag `v0.2026.10.5`.
+The user also authorizes committing and pushing this publication record.
 
 ## Deferred
 

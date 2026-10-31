@@ -2125,3 +2125,23 @@ Distribution remains unsigned and unnotarized.
 
 Evidence: [package gate](../../.cache/verification/1793373331533-21919-ad09889a).
 
+## 2026-10-30 Release 0.2026.10.5 publication
+
+Release commit `7cdfcfc` is pushed to `origin/main`. The annotated tag `v0.2026.10.5` points to it.
+The [cross-platform tag build](https://github.com/ecwu/writellm/actions/runs/41139328676) passes the static and fixture gate and all four platform builds on its first attempt:
+
+- Windows x64
+- macOS arm64
+- macOS x64
+- Linux x64
+
+The [automatic publication run](https://github.com/ecwu/writellm/actions/runs/41140703627) succeeds in 3 minutes 36 seconds and publishes the non-prerelease [WriteLLM 0.2026.10.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.5) at 22:53:44 UTC.
+The release attaches exactly four assets:
+
+- the Windows x64 setup EXE
+- the macOS arm64 and macOS x64 DMGs
+- the Linux x64 AppImage
+
+Hosted rows build and inspect packages without runtime tests. Runtime acceptance remains macOS arm64 only.
+This record changes no application source, and the tag does not move.
+

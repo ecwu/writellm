@@ -1,8 +1,8 @@
 # WriteLLM Implementation Tracker
 
-Status: Release 0.2026.10.5 is prepared. The ADR 092 documentation evidence archive is pushed to `main`.
+Status: Release 0.2026.10.5 is published. The ADR 092 documentation evidence archive is pushed to `main`.
 Checkpoint 77 remains paused.
-Recorded: 2026-10-30
+Recorded: 2026-10-31
 
 This file lists checkpoint status and links to detailed evidence.
 
@@ -21,7 +21,7 @@ Status markers:
 
 ## Active and paused work
 
-- [x] Configurable image source instances and models under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md) pass local macOS arm64 package acceptance; committed in `b085618`.
+- [x] Configurable image source instances and models under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md) pass local macOS arm64 package acceptance; committed in `b085618` and released in 0.2026.10.5.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-30-release-02026105-preparation).
 - [x] Agent new-conversation draft fix passes local macOS arm64 package acceptance; committed in `802a8b9`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-26-release-02026104-preparation).
