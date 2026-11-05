@@ -119,7 +119,10 @@ export class ChangeSetBatchService {
         const proposal = this.#requireProposal(row.agent_session_id, proposalId)
         const item = await this.#decide(row, proposal)
         row = this.#appendResult(row.command_id, row.next_index, item)
-        if (isStop(item.status)) {
+        // Another execution finished or stopped this command; its receipt is authoritative.
+        if (row.status !== 'running') break
+        // A stop on the final item leaves nothing to skip, so the batch completes below.
+        if (isStop(item.status) && row.next_index < orderedIds.length) {
           this.options.log.warn(
             {
               event: 'agent.change_set.batch_stopped',
@@ -413,7 +416,7 @@ export class ChangeSetBatchService {
         .prepare(
           `UPDATE agent_change_set_commands
               SET results_json = ?, next_index = ?, status = 'running', updated_at = ?
-            WHERE command_id = ? AND next_index = ?`
+            WHERE command_id = ? AND next_index = ? AND status IN ('prepared', 'running')`
         )
         .run(JSON.stringify(results), expectedIndex + 1, now, commandId, expectedIndex)
     })
@@ -424,7 +427,7 @@ export class ChangeSetBatchService {
       database
         .prepare(
           `UPDATE agent_change_set_commands SET status = 'stopped', updated_at = ?
-            WHERE command_id = ? AND status != 'completed'`
+            WHERE command_id = ? AND status IN ('prepared', 'running')`
         )
         .run(now, commandId)
     })
@@ -435,7 +438,7 @@ export class ChangeSetBatchService {
       database
         .prepare(
           `UPDATE agent_change_set_commands SET status = 'completed', updated_at = ?
-            WHERE command_id = ?`
+            WHERE command_id = ? AND status IN ('prepared', 'running')`
         )
         .run(now, commandId)
     })

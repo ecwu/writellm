@@ -119,6 +119,88 @@ describe('ChangeSetBatchService', () => {
     expect(approve).toHaveBeenCalledTimes(2)
   })
 
+  it('completes with an adverse receipt when only the final item conflicts', async () => {
+    const database = await createProject()
+    seedActor(database)
+    const task = new WritingTaskService({ database, log }).create(
+      { objective: 'Revise the manuscript', steps: [{ clientRef: stepRef, title: 'Revise' }] },
+      { agentSessionId: sessionId, agentRunId: runId }
+    ).task
+    const section = proposal(
+      '019d0000-0000-7000-8000-000000000506',
+      'section_patch',
+      task.taskId,
+      0
+    )
+    const brief = proposal('019d0000-0000-7000-8000-000000000508', 'brief_update', task.taskId, 2)
+    const proposals = [section, brief]
+    seedProposalRows(database, proposals)
+    const approve = vi.fn(async (input: { proposalId: string }) => {
+      const current = proposals.find((item) => item.proposalId === input.proposalId)
+      if (current === undefined) throw new Error('missing')
+      if (current.kind === 'section_patch') {
+        current.status = 'conflicted'
+        return {
+          outcome: 'conflict',
+          proposal: current,
+          conflict: { code: 'target_changed', message: 'Section changed.' },
+          sectionChanged: null,
+          warnings: []
+        } satisfies ApproveMutationProposalResult
+      }
+      current.status = 'applied'
+      return {
+        outcome: 'applied',
+        proposal: current,
+        sectionChanged: null,
+        warnings: []
+      } satisfies ApproveMutationProposalResult
+    })
+    const createService = () =>
+      new ChangeSetBatchService({
+        projectSessionId,
+        database,
+        mutations: { list: () => proposals, approve } as never,
+        recordDecision: vi.fn(async () => undefined),
+        log
+      })
+    const input = {
+      projectSessionId,
+      agentSessionId: sessionId,
+      taskId: task.taskId,
+      commandId,
+      action: 'apply' as const,
+      proposalIds: proposals.map((item) => item.proposalId),
+      rejectReason: null,
+      createCheckpoint: false
+    }
+    const first = await createService().execute(input, async () => 'unavailable')
+
+    expect(first).toMatchObject({
+      status: 'completed',
+      completedCount: 2,
+      remainingCount: 0,
+      items: [
+        { proposalId: brief.proposalId, status: 'applied' },
+        { proposalId: section.proposalId, status: 'conflicted' }
+      ],
+      review: { reconciled: false, appliedCount: 1, adverseCount: 1 }
+    })
+    expect(
+      database.immediate((connection) =>
+        connection
+          .prepare('SELECT status FROM agent_change_set_commands WHERE command_id = ?')
+          .pluck()
+          .get(commandId)
+      )
+    ).toBe('completed')
+    const repeated = await createService().execute(input, async () => {
+      throw new Error('A completed command must not repeat its checkpoint')
+    })
+    expect(repeated).toEqual(first)
+    expect(approve).toHaveBeenCalledTimes(2)
+  })
+
   it('reconciles an applied effect after a crash and resumes without applying it twice', async () => {
     const database = await createProject()
     seedActor(database)

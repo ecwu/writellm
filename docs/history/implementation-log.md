@@ -2204,3 +2204,23 @@ The find hook already guarded find and review results with request sequences, so
 Gates: a new panel test fails on the previous panel and passes after the change; the panel suite passes 6 of 6 tests.
 `check:e2e e2e/writing-workspace.spec.ts --grep "atomically applies a safe manuscript replacement"` passes static
 checks, one build, and 1 of 1 scenario in 24 seconds with no retries. Runtime coverage is macOS arm64 only.
+
+## 2026-11-05 Remaining persisted transition guards
+
+The remaining persisted state writes that did not check their source state now do. Three were real defects,
+and each has a regression test that fails on the previous source:
+
+- A knowledge import whose post-store follow-up threw was marked `failed` after its original was committed.
+  Follow-up failures are now logged as `knowledge.import.stored_follow_up_failed` and the item stays `stored`.
+- A normalization run cancelled while the worker was past its last abort check was still published and
+  activated. Activation now requires `staging` or `published`, removes the unreachable output, and does not revive a cancelled run.
+- Agent attachment cleanup could delete a released draft image that was re-sent while earlier candidates were
+  being removed. The marking write now re-checks release age and references in its transaction.
+
+Change-set commands no longer move `stopped` to `completed` when only the final item stops. All their status writes require
+`prepared` or `running`, and the loop ends if another execution finished the command. Receipts are unchanged.
+Artifact cleanup request writes now require their source state.
+
+Gates: focused Vitest passes 69 of 69 tests across 8 files. `check:e2e` for `parsed-knowledge`, `agent-images`, and
+`agent-writing-task` passes static checks, one build, and 7 of 7 scenarios in 72 seconds with no retries.
+Runtime coverage is macOS arm64 only.
