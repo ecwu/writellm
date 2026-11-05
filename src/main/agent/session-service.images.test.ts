@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { readFile, rename, symlink, writeFile } from 'node:fs/promises'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { openProjectDatabase } from '../project/project-database'
+import { ProjectFilesystem } from '../project/project-filesystem'
 import { AgentAttachmentService } from './attachment-service'
 import {
   createDatabase,
@@ -258,6 +259,52 @@ describe('Agent attachment ownership, history and recovery', () => {
     await expect(f.start([], 'Next')).rejects.toThrow('does not support image')
     f.database.close()
   })
+  it('keeps an attachment referenced while orphan cleanup is removing earlier candidates', async () => {
+    const f = await fixture()
+    const first = await f.importImage()
+    const second = await f.importImage()
+    f.attachments.release(`draft:${f.session.agentSessionId}`, [
+      first.attachment_id,
+      second.attachment_id
+    ])
+    f.advance()
+    const removeTree = ProjectFilesystem.prototype.removeTree
+    let reused: string | undefined
+    const spy = vi
+      .spyOn(ProjectFilesystem.prototype, 'removeTree')
+      .mockImplementationOnce(async function (this: ProjectFilesystem, relativePath) {
+        // A message references the other candidate while this one is being removed.
+        reused = relativePath.includes(first.attachment_id)
+          ? second.attachment_id
+          : first.attachment_id
+        f.database.immediate((db) =>
+          db
+            .prepare(
+              `INSERT INTO agent_events (
+                 agent_event_id, agent_session_id, agent_run_id, sequence, type, payload_json, created_at
+               ) VALUES (?, ?, NULL, 9999, 'user_message', ?, ?)`
+            )
+            .run(
+              randomUUID(),
+              f.session.agentSessionId,
+              JSON.stringify({ content: 'Reuse', attachmentIds: [reused] }),
+              new Date().toISOString()
+            )
+        )
+        return removeTree.call(this, relativePath)
+      })
+    try {
+      expect(await f.attachments.cleanupOrphans()).toBe(1)
+    } finally {
+      spy.mockRestore()
+    }
+    if (reused === undefined) throw new Error('Cleanup did not remove a candidate')
+    const removed = reused === first.attachment_id ? second.attachment_id : first.attachment_id
+    expect(() => f.attachments.get(f.session.agentSessionId, removed)).toThrow('does not exist')
+    expect(f.attachments.get(f.session.agentSessionId, reused).deletion_state).toBe('active')
+    f.database.close()
+  })
+
   it('retains queued images, releases canceled drafts and protects all raw references', async () => {
     const f = await fixture()
     const first = await f.start([], 'Hold')

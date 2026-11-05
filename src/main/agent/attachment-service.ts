@@ -234,13 +234,19 @@ export class AgentAttachmentService {
     let removed = 0
     for (const row of rows) {
       if ([...this.#temporary.values()].some((ids) => ids.has(row.attachment_id))) continue
-      this.options.database.immediate((db) =>
-        db
-          .prepare(
-            "UPDATE agent_attachments SET deletion_state = 'deleting' WHERE attachment_id = ?"
-          )
-          .run(row.attachment_id)
+      // Re-check eligibility while marking: earlier removals await, and a message may have
+      // referenced this attachment since the candidates were selected.
+      const marked = this.options.database.immediate(
+        (db) =>
+          db
+            .prepare(`UPDATE agent_attachments SET deletion_state = 'deleting'
+      WHERE attachment_id = ? AND (released_at < ? OR deletion_state = 'deleting') AND NOT EXISTS (
+        SELECT 1 FROM agent_events e, json_each(e.payload_json, '$.attachmentIds') r
+        WHERE e.type = 'user_message' AND r.value = agent_attachments.attachment_id
+      )`)
+            .run(row.attachment_id, cutoff).changes
       )
+      if (marked === 0) continue
       this.#assertPaths(row)
       await this.#filesystem.removeTree(`${DIRECTORY}/${row.attachment_id}`)
       this.options.database.immediate((db) =>
