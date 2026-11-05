@@ -465,6 +465,8 @@ export class KnowledgeNormalizationService {
       throw new Error('Raw parse manifest provenance does not match the revision')
     }
     const run = this.#ensureRun(revision, rawManifestHash)
+    // A cancelled run stays failed; a later parse creates a new revision and run.
+    if (run.state === 'failed') return run.normalization_run_id
     const finalRelativePath = run.relative_path
     if (await this.#reconcile(finalRelativePath, run, revision)) {
       this.#requestIndex(revision.knowledge_item_id, run.normalization_run_id)
@@ -512,7 +514,11 @@ export class KnowledgeNormalizationService {
       )
       await this.#filesystem.ensureDirectory(dirname(finalRelativePath))
       await this.#filesystem.publish(stagingRelativePath, finalRelativePath)
-      this.#activate(run, revision, manifest, hashSha256(manifestBytes))
+      if (!this.#activate(run, revision, manifest, hashSha256(manifestBytes))) {
+        // Cancellation won the race after publication; the inactive output is unreachable.
+        await this.#filesystem.removeTree(finalRelativePath)
+        return run.normalization_run_id
+      }
       this.#requestIndex(revision.knowledge_item_id, run.normalization_run_id)
       this.#log.info(
         {
@@ -595,7 +601,7 @@ export class KnowledgeNormalizationService {
         if (existing.source_manifest_sha256 !== sourceManifestHash) {
           throw new Error('Normalization input manifest changed unexpectedly')
         }
-        if (existing.state === 'failed') {
+        if (existing.state === 'failed' && existing.error_code !== 'cancelled') {
           database
             .prepare(
               "UPDATE normalization_runs SET state = 'staging', error_code = NULL, updated_at = ? WHERE normalization_run_id = ?"
@@ -670,16 +676,16 @@ export class KnowledgeNormalizationService {
     revision: ParseRevisionTable,
     manifest: NormalizedKnowledgeManifest,
     manifestHash: string
-  ): void {
+  ): boolean {
     this.#verificationCache.clear()
     const now = this.#now().toISOString()
-    this.#database.immediate((database) => {
-      database
+    return this.#database.immediate((database) => {
+      const published = database
         .prepare(
           `UPDATE normalization_runs SET state = 'published', blocks_sha256 = ?,
                   document_sha256 = ?, manifest_sha256 = ?, block_count = ?, asset_count = ?,
                   error_code = NULL, published_at = COALESCE(published_at, ?), updated_at = ?
-            WHERE normalization_run_id = ?`
+            WHERE normalization_run_id = ? AND state IN ('staging', 'published')`
         )
         .run(
           manifest.blocks.sha256,
@@ -690,7 +696,20 @@ export class KnowledgeNormalizationService {
           now,
           now,
           run.normalization_run_id
+        ).changes
+      if (published === 0) {
+        this.#log.info(
+          {
+            event: 'knowledge.normalization.activation_skipped',
+            projectId: this.#projectId,
+            knowledgeItemId: revision.knowledge_item_id,
+            parseRevisionId: revision.parse_revision_id,
+            normalizationRunId: run.normalization_run_id
+          },
+          'Normalization run was cancelled before activation'
         )
+        return false
+      }
       const active = database
         .prepare(
           `SELECT parse_revisions.revision_number
@@ -699,7 +718,7 @@ export class KnowledgeNormalizationService {
             WHERE active_parse_revisions.knowledge_item_id = ?`
         )
         .get(revision.knowledge_item_id) as { revision_number: number } | undefined
-      if (active !== undefined && active.revision_number > revision.revision_number) return
+      if (active !== undefined && active.revision_number > revision.revision_number) return true
       database
         .prepare(
           `INSERT INTO active_parse_revisions (
@@ -718,6 +737,7 @@ export class KnowledgeNormalizationService {
           now,
           now
         )
+      return true
     })
   }
 

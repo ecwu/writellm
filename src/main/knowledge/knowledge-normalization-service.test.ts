@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  access,
   mkdir,
   mkdtemp,
   open,
@@ -364,6 +365,72 @@ describe('KnowledgeNormalizationService', () => {
       )
     expect(runState(parseRevisionId)).toBe('published')
     expect(runState(nextRevision)).toBe('published')
+    fixture.database.close()
+  })
+
+  it('does not activate a run cancelled while its normalization was in flight', async () => {
+    const fixture = await createFixture()
+    await publishRaw(fixture, {
+      contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Cancelled' }]))
+    })
+    const started = deferred()
+    const release = deferred()
+    const service = new KnowledgeNormalizationService({
+      ...fixture,
+      log,
+      normalizeInUtility: async (input) => {
+        started.resolve()
+        await release.promise
+        // The utility already passed its last abort check, so it still returns output.
+        return fixture.normalizeInUtility(input, new AbortController().signal)
+      }
+    })
+
+    const pending = service.normalize(parseRevisionId, new AbortController().signal)
+    await started.promise
+    // Same write as MineruWorkflowService.cancelForKnowledgeItem.
+    fixture.database.immediate((database) => {
+      database
+        .prepare(
+          `UPDATE normalization_runs SET state = 'failed', error_code = 'cancelled'
+            WHERE knowledge_item_id = ? AND state = 'staging'`
+        )
+        .run(knowledgeItemId)
+    })
+    release.resolve()
+    const normalizationRunId = await pending
+
+    const readState = () =>
+      fixture.database.immediate((database) => ({
+        run: database
+          .prepare(
+            'SELECT state, error_code FROM normalization_runs WHERE normalization_run_id = ?'
+          )
+          .get(normalizationRunId),
+        active: database
+          .prepare('SELECT 1 FROM active_parse_revisions WHERE knowledge_item_id = ?')
+          .get(knowledgeItemId)
+      }))
+    expect(readState()).toEqual({
+      run: { state: 'failed', error_code: 'cancelled' },
+      active: undefined
+    })
+    const finalRelativePath = fixture.database.immediate((database) =>
+      database
+        .prepare('SELECT relative_path FROM normalization_runs WHERE normalization_run_id = ?')
+        .pluck()
+        .get(normalizationRunId)
+    ) as string
+    await expect(access(join(fixture.projectRoot, finalRelativePath))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+
+    // A retried delivery does not revive the cancelled run.
+    await service.normalize(parseRevisionId, new AbortController().signal)
+    expect(readState()).toEqual({
+      run: { state: 'failed', error_code: 'cancelled' },
+      active: undefined
+    })
     fixture.database.close()
   })
 

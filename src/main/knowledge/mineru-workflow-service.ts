@@ -305,7 +305,7 @@ export class MineruWorkflowService {
         .prepare(
           `UPDATE artifact_cleanup_requests
               SET state = 'running', error_code = NULL, updated_at = ?
-            WHERE cleanup_id = ?`
+            WHERE cleanup_id = ? AND state IN ('queued', 'running')`
         )
         .run(this.#now().toISOString(), cleanupId)
     })
@@ -334,7 +334,7 @@ export class MineruWorkflowService {
           .prepare(
             `UPDATE artifact_cleanup_requests
                 SET state = 'succeeded', completed_at = ?, updated_at = ?
-              WHERE cleanup_id = ?`
+              WHERE cleanup_id = ? AND state = 'running'`
           )
           .run(this.#now().toISOString(), this.#now().toISOString(), cleanupId)
       })
@@ -344,7 +344,7 @@ export class MineruWorkflowService {
           .prepare(
             `UPDATE artifact_cleanup_requests
                 SET state = 'queued', error_code = 'cleanup_failed', updated_at = ?
-              WHERE cleanup_id = ?`
+              WHERE cleanup_id = ? AND state = 'running'`
           )
           .run(this.#now().toISOString(), cleanupId)
       })
