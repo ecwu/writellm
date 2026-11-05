@@ -6,7 +6,7 @@ Date: 2026-10-21
 ## Context
 
 [Issue 18](https://github.com/ecwu/writellm/issues/18) identifies repeated code, missing error reports, and unclear implementation ownership.
-The user authorizes maintenance that resolves these findings and preserves application behavior.
+Approved maintenance resolves these findings and preserves application behavior.
 The working tree also contains earlier dependency and DOCX maintenance.
 Those changes remain part of the local acceptance baseline.
 

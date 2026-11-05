@@ -13,7 +13,7 @@ does not reveal its individual human-readable steps. The writing policy also dis
 narration broadly, so capable models often execute several tool phases without a concise visible
 statement of intent or findings.
 
-The user supplied the Codex task surface as the interaction reference: a composer with frequently
+The Codex task surface is the interaction reference: a composer with frequently
 changed controls in its footer, assistant progress prose alternating with tool activity, and a
 compact activity summary that expands to individual operations.
 

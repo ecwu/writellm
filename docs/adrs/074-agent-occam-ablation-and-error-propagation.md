@@ -9,7 +9,7 @@ Current rule: ADR 083 replaces only the removal of the admission cap. Main now p
 
 Separate limits for events, concurrency, Skills, recovery, and diagnostics interrupt useful model work.
 They add runtime states and hide specific errors behind general error labels.
-The user approved removing these extra limits, summarizing older history with some loss, and recording traces when possible.
+The accepted change removes these extra limits, summarizes older history with some loss, and records traces when possible.
 The user also approved showing specific errors after removing sensitive data.
 No live-provider benchmark, new setting, dependency, or migration is required.
 

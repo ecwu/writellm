@@ -12,7 +12,7 @@ rows of similarly weighted configuration, provider identity repeats information 
 from recognizable model names, and model choice is visually separated from the Thinking level it
 constrains.
 
-The user supplied the current Codex composer as the interaction reference. Its useful pattern is
+The current Codex composer is the interaction reference. Its useful pattern is
 not its computer-wide permission model. It is a restrained default surface with progressive
 disclosure, a combined model/effort summary, and the same secondary actions reachable from an Add
 menu or a leading slash. WriteLLM must preserve its narrower local-first authority and must not

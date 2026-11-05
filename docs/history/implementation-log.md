@@ -508,7 +508,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-03 Local build 0.2026.9.1
 
-- Authorization: the user requested an App build followed by a commit of the current code and
+- Authorization: an App build was approved, followed by a commit of the current code and
   a `0.2026.9.1` tag. The tag uses the existing `v0.2026.9.1` canonical spelling required by
   `verify-release-source.mjs`. Package SemVer is `0.2026.9`; release metadata and artifact names
   carry `0.2026.9.1`; the macOS bundle build is `2026.9.1`.
@@ -549,7 +549,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-03 Pi App rebuild
 
-- At the user's request, `pnpm build:unpack` rebuilt the current Pi 0.84.4 working tree with
+- `pnpm build:unpack` rebuilt the current Pi 0.84.4 working tree with
   task-local Node 24.15.0 and pnpm 11.17.0. The macOS arm64 build passed all four build stages
   in 33.3 seconds without retries: production build/native preparation (11.8 seconds), App
   assembly (21.3 seconds), no-Team-ID signature policy, and inventory of 33,383 ASAR entries.
@@ -574,8 +574,8 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-03 Release 0.2026.9.2
 
-- Authorization: the user requested a build, the `9.2` tag, and publication of the
-  GitHub Actions-built release as `0.2026.9.2`.
+- Authorization: a build, the `9.2` tag, and publication of the GitHub Actions-built release as
+  `0.2026.9.2` were approved.
 - Release source is commit `975d88b0f4e5497770ee4ea79b7320bc51a852fe`, whose release metadata
   resolves to package version `0.2026.9`, release version `0.2026.9.2`, build number `2`, and
   macOS build version `2026.9.2`. The annotated tag `v0.2026.9.2` was created and pushed.
@@ -604,7 +604,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 - Added caret-local `/cite`: one read-only, session-authorized Reference search IPC returning at
   most three ranked candidates (citekey, title, authors, year). Selection inserts the
   authoritative `[@key]` as an independently undoable edit.
-- A macOS arm64 App was built, and the user authorized committing and pushing the source.
+- A macOS arm64 App was built, and committing and pushing the source was approved.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-03-cite-reference-search-maintenance).
 
@@ -623,7 +623,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-03 Candidate 0.2026.9.3 build and tag
 
-- Authorization: after the Review fixture and annotation removal, the user requested an App build
+- Authorization: after the Review fixture and annotation removal, an App build was approved
   and, on success, a new `9.3` tag pushed to GitHub. The repository's existing version convention
   resolved this to release version `0.2026.9.3` and annotated tag `v0.2026.9.3`.
 - Release metadata was advanced from `0.2026.9.2` to `0.2026.9.3`. Release commit
@@ -725,7 +725,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-04 Manual feature trial App
 
-The user requested a current App build for manual feature trials after pnpm command consolidation.
+A current App build was made for manual feature trials after pnpm command consolidation.
 `pnpm package:unpack` used the existing Node 24.15.0 and pnpm 11.17.0 toolchain to build the
 macOS arm64 App from revision `809621e39bb11f10efd0b2894682b5444fad7e8d` with a documentation-only
 tracker change. Release metadata remains `0.2026.9.3`.
@@ -756,7 +756,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-04 Pi 0.85.0 App build
 
-The user requested a fresh App after the Pi dependency update. `pnpm package:unpack` used the
+A fresh App was built after the Pi dependency update. `pnpm package:unpack` used the
 existing Node 24.15.0 and pnpm 11.17.0 toolchain and passed four build-only stages in 32.3s,
 without retries: production build with Electron 43.4.1 / ABI 148 native preparation, App assembly,
 no-Team-ID ad-hoc/linker signature policy, and a 33,981-entry resource inventory.
@@ -805,7 +805,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-05 Notebook repeated citations
 
-- The user authorized rendering every valid Notebook citation occurrence after repeated references
+- Rendering every valid Notebook citation occurrence was approved after repeated references
   were shown as raw `[[cite:n]]` text. The architecture amendment supersedes only ADR 058's
   duplicate-marker rejection; the completed ADR remains historical evidence.
 - Removed Renderer occurrence deduplication and Main's duplicate-marker security warnings.
@@ -835,7 +835,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-05 Sidebar App build
 
-- The user requested a runnable App containing the latest sidebar changes. Ran
+- Built a runnable App containing the latest sidebar changes. Ran
   `pnpm package:unpack` for macOS arm64 from clean source revision
   `47f82687802b9a0575e673c9b84a7641ffed0587`.
 - The first sandbox run compiled successfully but electron-builder failed to resolve github.com
@@ -852,7 +852,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-06 Pi 0.85.1 Astra update
 
-- The user requested the latest Pi update for Astra. Registry metadata and the
+- Updated Pi to its latest release for Astra. Registry metadata and the
   [0.85.1 release changelog](https://github.com/earendil-works/pi/blob/v0.85.1/packages/ai/CHANGELOG.md)
   confirm its September 5 release adds GPT-6 Astra for OpenAI API keys and Codex subscriptions,
   plus a Responses prompt-cache TTL fix. Context7's unreleased label was stale; the official
@@ -885,7 +885,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-06 Writing Skill App build
 
-- The user requested packaging after the curated Writing Skill refresh. Ran
+- Packaged the App after the curated Writing Skill refresh. Ran
   `pnpm package:unpack` for macOS arm64, preserving the existing working-tree Pi 0.85.1 changes
   and release metadata `0.2026.9.3`.
 - The first invocation passed compilation and native loading but failed at electron-builder's
@@ -924,8 +924,8 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ### 2026-09-08 — Release 0.2026.9.4 preparation
 
-- The user authorized complete tests, a local build, and publication of `0.2026.9.4` after the hosted
-  build. Fork and message-edit scenarios joined packaged acceptance. Stale fixtures and races found by
+- Complete tests, a local build, and publication of `0.2026.9.4` after the hosted build were
+  approved. Fork and message-edit scenarios joined packaged acceptance. Stale fixtures and races found by
   the package gate were corrected without weakening product assertions.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-09-08-conversation-fork).
@@ -953,7 +953,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-09 Release 0.2026.9.5 preparation
 
-- The user requested an App rebuild and publication of the next September sequence. Remote
+- Approved scope: an App rebuild and publication of the next September sequence. Remote
   releases/tags confirm `0.2026.9.4` as latest and `v0.2026.9.5` as unused. Advanced
   `release.version` to `0.2026.9.5`, retaining SemVer base `0.2026.9`, and promoted the three
   editor continuity/composition/race scenarios to packaged acceptance.
@@ -1025,7 +1025,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-10 Candidate 0.2026.9.6 source tag
 
-The user requested the next 9.x version tag. The existing highest local tag was
+Scope: the next 9.x version tag. The existing highest local tag was
 `v0.2026.9.5`; the next candidate is `v0.2026.9.6`, with `package.json` release.version
 updated to `0.2026.9.6` and the three-component package version retained as `0.2026.9`.
 The candidate commit includes the previously verified DeepSeek autocomplete PoC,
@@ -1051,7 +1051,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-13 Brief and Outline preview App build
 
-The user requested a local App to use the new previews. `pnpm package:unpack` built
+A local App was built to use the new previews. `pnpm package:unpack` built
 `dist/macos-arm64/mac-arm64/WriteLLM.app` with release metadata `0.2026.9.6`, including
 the current uncommitted preview changes. The first sandbox invocation failed after 55.5s
 when electron-builder could not resolve GitHub. The same command outside the sandbox
@@ -1076,8 +1076,8 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-14 Release 0.2026.9.7 preparation
 
-The user authorized building the App, tagging the next September version and publishing
-a release. Version 0.2026.9.7 follows local candidate .6 and published .5; it includes
+Building the App, tagging the next September version and publishing a release were
+approved. Version 0.2026.9.7 follows local candidate .6 and published .5; it includes
 DeepSeek autocomplete, application defaults/temporary overrides and Brief/Outline previews.
 The existing unsigned four-platform tag build and explicit GitHub Release publication
 remain the distribution path. Signing and notarization are not introduced.
@@ -1131,9 +1131,9 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-17 HTTP endpoint App build
 
-- User requested an App build after the endpoint change. `pnpm package:unpack` produced
+- Built an App after the endpoint change. `pnpm package:unpack` produced
   `dist/macos-arm64/mac-arm64/WriteLLM.app` with the HTTP endpoint implementation, retaining
-  release metadata `0.2026.9.7`. No installers, publication, or version change were requested.
+  release metadata `0.2026.9.7`. No installers, publication, or version change were in scope.
 - The first sandboxed packaging attempt encountered `github.com` DNS denial and was stopped.
   The same command outside the sandbox passed in 30.0s: production build, App packaging,
   no-Team-ID ad-hoc/linker signature policy, and ASAR/resource/native inventory (arm64
@@ -1231,7 +1231,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-19 Status-bar App rebuild
 
-- The user requested a runnable App containing the status bar. `pnpm package:unpack` produced
+- Built a runnable App containing the status bar. `pnpm package:unpack` produced
   `dist/macos-arm64/mac-arm64/WriteLLM.app` with release metadata 0.2026.9.7 from the current
   dirty working tree. The no-Team-ID signature policy and ASAR/resource/native inventory passed
   (34,023 ASAR entries, arm64 better-sqlite3/sqlite-vec, Electron 43.4.1 / ABI 148).
@@ -1311,7 +1311,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-19 Tag-only 0.2026.9.9
 
-- The user requested a new version tag without a Release. Recorded current sidebar-layout and
+- Scope: a new version tag without a Release. Recorded current sidebar-layout and
   empty-workbench navigation changes in source, advanced only `package.json#release.version`
   to 0.2026.9.9 (package base stays 0.2026.9), and created local annotated tag `v0.2026.9.9`.
   No remote push, hosted build, installer publication or GitHub Release is included.
@@ -1373,7 +1373,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-09-25 Anti-Defensive Writing App build
 
-- At the user's request, rebuilt the macOS arm64 unpacked App at
+- Rebuilt the macOS arm64 unpacked App at
   `dist/macos-arm64/mac-arm64/WriteLLM.app` using `pnpm check:package:smoke`. The completed gate
   passed static checks, native preparation, production compilation, unpacked packaging,
   permitted no-Team-ID ad-hoc/linker signature verification, resource/native inventory and all
@@ -1506,7 +1506,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-10-02 Pi 1.0 integration authorization
 
-- The user authorized committing and pushing the accepted Pi 1.0 change to remote `main`, then closing Issue 1.
+- Approved scope: commit and push the accepted Pi 1.0 change to remote `main`, then close Issue 1.
   Local `main` and fetched `origin/main` share the same starting commit, `a7450ac`.
   The final source retains the full and package acceptance results recorded above.
   Only documentation changed after those gates, and final Biome, diff, and local evidence-link checks passed.
@@ -1675,7 +1675,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-10-05 Tool tabs App rebuild
 
-The user requests a code push followed by a new local App build.
+Scope: a code push followed by a new local App build.
 Commit `715f687563a3ce128983c845344a4f8168c91c64` includes default tool tabs and the existing conversation timestamp presentation.
 The push to `origin/main` succeeds before the build. The source tree is clean at build time.
 
@@ -1700,7 +1700,7 @@ No version increment, installer, tag, hosted build, or release publication runs.
   - Session authorization is rechecked during publication.
   - Retention cleanup is shared through `pruneRevisionBodies`.
 - Renderer messages distinguish partial conversion from expiry.
-- Claude review accepted the change. It was committed and pushed, and Issue 16 was closed.
+- Review accepted the change. It was committed and pushed, and Issue 16 was closed.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 
@@ -1711,7 +1711,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
   the commented registry, and the `AgentReadToolBridge` alias. `agent-tools.ts` went from 1,066 to 215 lines,
   and the active bridge is byte-for-byte unchanged.
 - Tests now inspect the authoritative shared Zod schemas, including minimum argument fixtures for all 22 tools.
-- Claude review accepted the change. It was committed and pushed, and Issue 5 was closed.
+- Review accepted the change. It was committed and pushed, and Issue 5 was closed.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
 
@@ -1733,7 +1733,7 @@ Issue 5 was pushed as `1fe7e7a`. Issues 8, 10, and 11 were implemented and revie
   - Added `ProjectRuntime.cancel()` as the IPC entrypoint.
   - JobStore is unchanged.
 
-`check:package:smoke` and six packaged E2E scenarios passed. Claude review accepted the batch. Each
+`check:package:smoke` and six packaged E2E scenarios passed. Review accepted the batch. Each
 issue was committed separately, pushed, and closed.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-first-batch-simplification).
@@ -1754,7 +1754,7 @@ were implemented and reviewed as one batch.
     reservation. This relies on Main being the sole writer of `project.sqlite`.
   - The manuscript repository, assembly, workspace, and Agent session projections use it. Advisory guards stay advisory.
 
-Claude review accepted the batch. Each issue was committed separately, pushed, and closed.
+Review accepted the batch. Each issue was committed separately, pushed, and closed.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-second-batch-simplification).
 
@@ -1768,7 +1768,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
     `withConfiguredProvider('agent')` branch and `legacyModelLimits()` were removed.
 - [Issue 11](https://github.com/ecwu/writellm/issues/11)'s lifecycle boundary was already complete in
   `df3d1f89`, and its tests were repeated.
-- Claude review found a regression, and the user approved the correction: sessions with a NULL selection adopt
+- Review found a regression, and the correction was approved: sessions with a NULL selection adopt
   and persist the catalog default (`agent.session.model_selection_defaulted`). ADR 008 records the rule.
 - The quick-action floating-menu E2E failure also reproduced on the baseline App and was left open.
   It was later resolved by the 2026-10-15 test-suite audit.
@@ -1788,7 +1788,7 @@ Issues [12](https://github.com/ecwu/writellm/issues/12), [13](https://github.com
 - **Issue 14**: `AgentSessionQueries`, `AgentSessionTitles`, `AgentSessionCompactor`, and
   `AgentRunCoordinator` were extracted. The full record contains the Map-entry and ActiveRun field writer tables.
 
-Claude review accepted the batch. Each issue was committed separately, pushed, and closed.
+Review accepted the batch. Each issue was committed separately, pushed, and closed.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-fourth-batch-simplification).
 
@@ -1803,7 +1803,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
   - The retained unique result text.
   - Additional checks, such as the 22-tool list, the Notebook retrieval wording, and job-close alternatives.
   The existing history was left byte-for-byte intact.
-- Claude review accepted the change. It was committed, pushed, and closed together with Issue 17.
+- Review accepted the change. It was committed, pushed, and closed together with Issue 17.
 
 Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/history/implementation-log.md#2026-10-14-document-consolidation).
 
@@ -1815,7 +1815,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
   - `withIpcLogging` reports otherwise-unowned original errors before rethrowing.
   - 84 Renderer operational catches now use `reportRendererOperationError`.
   - `ProjectManager.isSessionActive` replaces exception-based capability lookups.
-- Claude review accepted it. Two non-blocking follow-ups, IPC rejection log levels and private-text
+- Review accepted it. Two non-blocking follow-ups, IPC rejection log levels and private-text
   treatment of short strings, were later resolved on 2026-10-15.
 - Issues 15 and 17 were committed, pushed, and closed. Issue 4 was closed.
 
@@ -1823,7 +1823,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-10-15 Test-Suite Audit
 
-- Test-suite audit, with Claude diagnosing and reviewing and Codex implementing. The baseline was 64 of 67 source E2E scenarios.
+- Test-suite audit. The baseline was 64 of 67 source E2E scenarios.
 - Fixed four product defects found by the suite:
   - The quick-action menu now renders into BlockNote's toolbar portal.
   - Outline drafts save against the version they were edited from, which fixes a lost update.
@@ -1897,7 +1897,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-10-21 Issue 18 delivery
 
-The user authorizes committing and pushing the verified combined changes, then updating and closing Issue 18.
+Approved scope: commit and push the verified combined changes, then update and close Issue 18.
 [Implementation commit 7da0fc8](https://github.com/ecwu/writellm/commit/7da0fc8a4417932553c49233ea9f72a8caf01d19) is pushed to `origin/main`.
 It includes the Issue 18 maintenance and the earlier verified dependency and DOCX changes.
 
@@ -1949,7 +1949,7 @@ Full record: [original entry](https://github.com/ecwu/writellm/blob/493f02a26ccb
 
 ## 2026-10-22 Release 0.2026.10.3 preparation
 
-The user authorizes committing and pushing the verified changes to `main`, building the App locally, and tagging and releasing the next 0.2026.10.x version after a successful build.
+Approved scope: commit and push the verified changes to `main`, build the App locally, and tag and release the next 0.2026.10.x version after a successful build.
 
 The Issue 19 repairs and the dependency update are committed separately, so each can be reviewed and reverted on its own:
 
@@ -2022,11 +2022,11 @@ Verification is documentation-only, with no build or tests:
 - `git diff --check` passes.
 
 The ADR index also gains a one-line-per-ADR decision table, with 91 rows, a one-sentence decision for each, and a status of current, partly replaced, or replaced. No ADR body changes.
-The user authorizes committing and pushing the change to `main`.
+Approved scope: commit and push the change to `main`.
 
 ## 2026-10-24 Interface label simplification
 
-The user authorizes all nine interface-audit simplifications. The changes remain uncommitted.
+All nine interface-audit simplifications are approved. The changes remain uncommitted.
 The editor keeps one sticky save indicator and one compact toolbar.
 The launcher, settings, Knowledge, Notebook, Agent, Outline, References, and Assets remove repeated labels and descriptions.
 Checks removes its single-item navigation and puts matching rules behind an explicit disclosure.
@@ -2081,7 +2081,7 @@ Evidence: [package gate](../../.cache/verification/1792973884486-21043-bb732c20)
 
 ## 2026-10-30 Configurable image source instances
 
-The user authorizes Cherry Studio-style image sources under ADR 093.
+Cherry Studio-style image sources are approved under ADR 093.
 Image sources become instances over the four reviewed transports. OpenAI and xAI instances accept an optional endpoint
 bound into the credential identity, and configured endpoints reject redirects. Each source offers built-in models plus
 manual model IDs with declared 1K/2K support, and any model can be disabled. A global default source and model replaces

@@ -77,7 +77,7 @@ persistence decisions.
 
 ## 2026-09-19 Source capacity amendment
 
-The user authorized removing the fifty-source product limit. All currently indexed project
+The fifty-source product limit is removed. All currently indexed project
 Knowledge sources are selectable. Source count is independent of retrieval-result, evidence,
 citation, and model-context budgets, which remain bounded under ADR 062. Main freezes the
 selected source IDs for each turn and enforces that scope on search and citation expansion.

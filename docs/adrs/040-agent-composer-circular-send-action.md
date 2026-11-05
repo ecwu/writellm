@@ -6,7 +6,7 @@ Date: 2026-08-13
 ## Context
 
 The Checkpoint 48 composer still presents its primary idle Send action as a paper-plane icon plus
-the word `Send`. Hands-on comparison with the supplied Codex reference shows that this occupies
+the word `Send`. Hands-on comparison with the Codex composer reference shows that this occupies
 more of the constrained footer than necessary and gives the primary action the same horizontal
 shape as configuration controls.
 

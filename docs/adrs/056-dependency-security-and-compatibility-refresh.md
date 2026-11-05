@@ -60,7 +60,7 @@ outside this decision.
 
 ## 2026-10-02 maintenance amendment
 
-The user authorized security fixes and routine maintenance after the dependency review.
+Security fixes and routine maintenance were approved after the dependency review.
 This maintenance keeps Electron 43, Pi 1.0, BlockNote 0.54, and the existing database and content formats.
 It updates compatible provider, Renderer, data, formatting, and test dependencies.
 Exact declarations remain exact, and caret declarations retain their range policy.
@@ -107,7 +107,7 @@ Current evidence belongs in the current plan and implementation history, rather 
 
 ## 2026-10-02 Issue 2 first-stage amendment
 
-The user authorized the first stage of [Issue 2](https://github.com/ecwu/writellm/issues/2).
+The first stage of [Issue 2](https://github.com/ecwu/writellm/issues/2) was approved.
 This stage updates Citation.js core, plugin-bibtex, and plugin-csl together to 0.9.0.
 It updates thinking-orbs to 0.3.2 and better-sqlite3 type declarations to 9.6.0.
 Exact declarations remain exact, and the type declaration retains its caret range.
@@ -131,7 +131,7 @@ All later Issue 2 stages remain deferred.
 
 ## 2026-10-02 Issue 2 second-stage amendment
 
-The user approved the second-stage migration after the compatibility review.
+The second-stage migration was approved after the compatibility review.
 This stage accepts Kysely 0.29.6, all four BlockNote packages at 0.55.0, and Vitest 5.0.3.
 Exact declarations remain exact, and Vitest retains its caret range.
 Kysely now publishes ESM only.
@@ -158,7 +158,7 @@ Other Issue 2 migrations remain deferred.
 
 ## 2026-10-02 Issue 2 independent migrations amendment
 
-The user authorized all four independent migrations in Issue 2.
+All four independent migrations in Issue 2 were approved.
 Each migration retains its own implementation and acceptance evidence.
 TypeScript advances to 7.0.2, Mermaid to 12.1.0, better-sqlite3 to 13.0.3, and Electron to 44.5.1.
 Existing exact and caret declaration policies remain in place.
@@ -187,7 +187,7 @@ No release metadata change, hosted workflow, tag, push, or publication is part o
 
 ## 2026-10-15 compatible maintenance amendment
 
-The user authorizes all safe updates after the Issue 2 dependency review.
+All safe updates are approved after the Issue 2 dependency review.
 This batch updates 24 direct dependencies within their accepted major versions.
 DOCX normalization stabilizes bookmarks for the table of contents and their hyperlinks and page references.
 Manuscript text remains unchanged.
@@ -216,7 +216,7 @@ This host establishes macOS arm64 acceptance only.
 
 ## 2026-10-21 Pi 1.3 and compatible maintenance amendment
 
-The user authorizes updating Pi to 1.3 and all compatible dependency updates.
+Updating Pi to 1.3 and all compatible dependencies is approved.
 This replaces the earlier deferral of the Pi 1.2 migration.
 
 Pi Agent Core and Pi AI advance together from 1.0.0 to 1.3.0, and `AGENT_RUNTIME_VERSION` follows them.

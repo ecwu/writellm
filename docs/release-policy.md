@@ -5,7 +5,7 @@
 The current distribution path is the unsigned four-platform tag build defined in
 [the workflow policy](../.github/workflows/README.md) and recorded in the
 [0.2026.9.8 publication evidence](history/implementation-log.md#2026-09-19-release-0202698-publication).
-The user authorized server-side automatic publication on 2026-09-26. This supersedes the older
+Server-side automatic publication was approved on 2026-09-26. This supersedes the older
 macOS-only promotion, manual upload and workflow-trigger provisions below.
 
 - Keep the four-component release identifier and platform metadata mapping described below.

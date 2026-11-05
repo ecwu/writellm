@@ -50,7 +50,7 @@ introduced.
 Date: 2026-07-23
 
 Runtime evidence showed that the initial handwritten Interactions REST transport consistently
-received HTTP 400 from real Gemini requests. The user approved replacing that transport with
+received HTTP 400 from real Gemini requests. That transport was replaced with
 `@google/genai@2.12.0`, using `GoogleGenAI.interactions.create`, so request serialization and response
 projection track Google's official client. This is a transport-only revision: the existing
 request-scoped cancellation, concurrency-one gateway, no-retry billing policy, safe diagnostics,
@@ -60,7 +60,7 @@ asset authority, proposal approval, and Agent capability boundaries remain uncha
 
 Date: 2026-07-23
 
-After the SDK transport still received HTTP 400 in field use, the user approved removing the image
+After the SDK transport still received HTTP 400 in field use, the image settings dropped the image
 provider's endpoint and free-form model configuration. The image settings surface now accepts only
 an application-encrypted Gemini API key and one of these fixed model IDs:
 

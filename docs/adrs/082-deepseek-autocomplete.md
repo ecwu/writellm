@@ -7,7 +7,7 @@ Current rule: The amendments below replace the initial session-disabled toolbar 
 
 ## Decision
 
-The user authorized a DeepSeek FIM/Chat Prefix proof of concept. Autocomplete is an
+This is a DeepSeek FIM/Chat Prefix proof of concept. Autocomplete is an
 ephemeral editor capability, independent of Agent conversations, tools, jobs and traces.
 The current project session starts disabled. A fixed editor toolbar toggle enables it.
 The application-global Default Models settings section stores an explicit autocomplete
@@ -57,7 +57,7 @@ closeHistory API before and after acceptance. No new resolved package version is
 
 ## 2026-09-10 amendment: completion style
 
-The user authorized replacing the toolbar toggle with one shadcn dropdown containing
+The toolbar toggle is replaced with one shadcn dropdown containing
 an enable checkbox, word/sentence/paragraph radio choices and the model settings entry.
 The trigger always identifies both enablement and the selected style, including when off.
 Style is an independent global app_settings preference, defaulting to word; enablement
@@ -79,7 +79,7 @@ prompt-only length guidance were rejected because a single line can contain many
 
 ## 2026-09-10 amendment: continuous completion and composition
 
-The user authorized continuous completion after Tab with a 200ms debounce; subsequent
+Completion continues after Tab with a 200ms debounce; subsequent
 ordinary input replaces it with the normal 600ms debounce. Matching pure text insertion
 consumes the suggestion prefix locally and retains the remainder. Each Tab insertion is
 one separate undo event. Repeated held Tab events never accept subsequent suggestions.
@@ -99,7 +99,7 @@ reason enums enrich existing safe lifecycle logs without document or preedit con
 
 ## 2026-09-14 amendment: application defaults and temporary overrides
 
-The user authorized application-global default enablement (initially false) and the
+Default enablement is application-global (initially false), alongside the
 existing word/sentence/paragraph default style in Default Models. The existing style
 key retains its value. A boolean app_settings key adds default enablement without a
 schema migration. This supersedes project-session-only enablement and toolbar style

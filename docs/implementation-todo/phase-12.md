@@ -206,7 +206,7 @@ Decision: accepted ADR 038; implementation and hands-on refinements complete.
 
 ### User outcome
 
-The Agent composer is calmer and closer to the supplied Codex reference while continuing to state
+The Agent composer is calmer and closer to the Codex composer reference while continuing to state
 WriteLLM's real, narrower authority. Approval policy is understandable, model plus effort is one
 choice with a concise label such as `GPT 5.6 Sol xhigh`, and context/Writing Skill actions are
 available from both Add and a leading slash.

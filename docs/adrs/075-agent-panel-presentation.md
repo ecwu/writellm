@@ -5,7 +5,7 @@ Date: 2026-09-02
 
 ## Context
 
-The user approved a single typed presentation projection for the existing Agent sidebar.
+The existing Agent sidebar uses a single typed presentation projection.
 Timeline rendering, live text, tool labels, status, disclosure, and Details previously interpreted
 the same records independently.
 

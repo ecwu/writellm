@@ -19,8 +19,8 @@ state remains in [`../current-plan.md`](../current-plan.md), and cross-phase chr
 - [x] Add the missing focused Main reference-index, whole-export loss, and section-export coverage;
   then run the approved Electron, E2E, recovery, Impeccable, and diff gates.
 
-Authorization: on 2026-08-12 the user approved the decision-complete Checkpoint 28.x audit
-remediation plan and explicitly requested implementation. This maintenance does not reopen
+Authorization: on 2026-08-12 the decision-complete Checkpoint 28.x audit remediation plan was
+approved for implementation. This maintenance does not reopen
 Checkpoint 28.6 or authorize new IPC, migrations, Renderer authority, package/release, hosted CI,
 commit, tag, push, or publication work.
 
@@ -37,8 +37,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Add focused shared/Main/IPC/Renderer/migration/export coverage and run the applicable local
   Electron, E2E, recovery, Impeccable, and diff verification gates.
 
-Authorization: on 2026-08-12 the user supplied and explicitly requested implementation of the
-decision-complete Checkpoint 28.6 plan. The work is additive to the completed Checkpoint 28.5
+Authorization: on 2026-08-12 the decision-complete Checkpoint 28.6 plan was approved for
+implementation. The work is additive to the completed Checkpoint 28.5
 worktree and does not authorize package/release, hosted CI, commit, push, or publication work.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-286-configurable-citation-presentation-and-references).
@@ -58,8 +58,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Run the approved focused gates, `check:fast`, `check:electron`, fresh E2E, recovery fixtures,
   package verification, the scoped Impeccable detector, and `git diff --check`.
 
-Authorization: on 2026-08-12 the user supplied the decision-complete Checkpoint 28.5 plan and
-explicitly requested implementation. The checkpoint adds no compaction or long-term-memory table,
+Authorization: on 2026-08-12 the decision-complete Checkpoint 28.5 plan was approved for
+implementation. The checkpoint adds no compaction or long-term-memory table,
 durable job, worker, auxiliary model, cross-session memory, editable prompt/token setting, release,
 hosted CI, commit, push, or publication work.
 
@@ -73,8 +73,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Add focused parser and Real-Electron coverage, then run the applicable Renderer, Electron,
   E2E, Impeccable, and diff verification gates.
 
-Authorization: on 2026-08-12 the user approved the decision-complete plan and explicitly requested
-implementation. This maintenance is Renderer-only and adds no IPC, persistence, Agent protocol,
+Authorization: on 2026-08-12 the decision-complete plan was approved for implementation. This maintenance is Renderer-only and adds no IPC, persistence, Agent protocol,
 mutation authority, package, release, hosted CI, commit, push, or promotion work.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-follow-active-agent-section-edits).
@@ -91,8 +90,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Add focused Main, Worker, IPC, Renderer, conflict, and Real-Electron coverage; run the full
   local Electron, E2E, package, Impeccable, recovery, and diff verification gates.
 
-Authorization: on 2026-08-12 the user approved the decision-complete concurrency plan and
-explicitly requested implementation. The accepted scope adds no database migration, durable job,
+Authorization: on 2026-08-12 the decision-complete concurrency plan was approved for
+implementation. The accepted scope adds no database migration, durable job,
 worker type, extra worker process, configurable limit, queue, release, hosted CI, commit, push, or
 promotion.
 
@@ -109,8 +108,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Refine concise progress, autonomy, response, and checkpoint-handoff instructions; run the
   applicable local verification gates and record exact evidence.
 
-Authorization: on 2026-08-12 the user asked to audit WriteLLM's prompts against OpenAI Codex and
-improve the project's currently scattered prompt management. ADR 017 is accepted for this bounded
+Authorization: on 2026-08-12 an audit of WriteLLM's prompts against OpenAI Codex and an
+improvement of the project's scattered prompt management were approved. ADR 017 is accepted for this bounded
 internal checkpoint. No tool, authority, provider-specific prompt fork, persistence, migration,
 background job, packaging, release, hosted CI, commit, push, or promotion is authorized.
 
@@ -118,7 +117,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 
 ### Maintenance: Reviewed Writing Skill catalog expansion
 
-- [x] Review the user-supplied CCFA and Nature repositories against WriteLLM's text-only,
+- [x] Review the CCFA and Nature repositories against WriteLLM's text-only,
   no-shell, no-network Writing Skill authority; add only compatible, commit- and blob-pinned
   catalog entries; and verify the focused catalog/service boundary plus the applicable local
   gates.
@@ -130,8 +129,8 @@ passed, `check:electron` passed (137 files and 723 tests, with 1 benchmark skipp
 production build), and the focused Real-Electron `agent.global-writing-skill` scenario passed.
 No package, release, hosted CI, commit, push, or promotion was performed as part of this task.
 
-Authorization: on 2026-08-12 the user explicitly asked to supplement WriteLLM's existing Writing
-Skill registry from `mikubaka88/CCFA-Skills` and `Yuan1z0825/nature-skills`. This maintenance does
+Authorization: on 2026-08-12 supplementing WriteLLM's existing Writing Skill registry was approved
+from `mikubaka88/CCFA-Skills` and `Yuan1z0825/nature-skills`. This maintenance does
 not authorize new tools, executable Skill content, arbitrary file/network access, packaging,
 release, hosted CI, commit, push, or promotion.
 
@@ -146,9 +145,8 @@ release, hosted CI, commit, push, or promotion.
 - [x] Add focused policy, view-model, Renderer, keyboard, desktop, and Real-Electron coverage;
   run the applicable local verification and Impeccable gates.
 
-Authorization: on 2026-08-12 the user explicitly requested this redesign using the supplied Codex
-screenshots as the reference and later authorized a local unsigned macOS App build from the current
-CP28.2 worktree. ADR 016 is accepted. Commit, tag, push, hosted CI, signed release, and promotion
+Authorization: on 2026-08-12 this redesign was approved with Codex screenshots as the interaction
+reference, followed by a local unsigned macOS App build from the CP28.2 worktree. ADR 016 is accepted. Commit, tag, push, hosted CI, signed release, and promotion
 remain unauthorized.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-282-agent-progress-visibility).
@@ -159,7 +157,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   local release-candidate commit and annotated `v0.2026.8.12` tag, then build and verify the
   unsigned macOS arm64 App with the no-identity unpacked package gate.
 
-Authorization: on 2026-08-12 the user explicitly requested the `v0.2026.8.12` tag and App build.
+Authorization: on 2026-08-12 the `v0.2026.8.12` tag and App build were approved.
 This authorizes the necessary local commit and tag plus an unsigned macOS arm64 App. Push, hosted
 CI, signing/notarization, GitHub Release, and promotion remain out of scope.
 
@@ -178,8 +176,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Add focused contracts, Main/IPC, Renderer, accessibility, and Real-Electron coverage, then
   pass the applicable local verification gates.
 
-Authorization: on 2026-08-12 the user approved the decision-complete CP28.1 plan and explicitly
-requested implementation. ADR 015 is accepted. The later `v0.2026.8.12` request authorizes the
+Authorization: on 2026-08-12 the decision-complete CP28.1 plan was approved for implementation.
+ADR 015 is accepted. The later `v0.2026.8.12` approval covers the
 local candidate commit, tag, and unsigned macOS arm64 App build; push, hosted CI, signed release,
 and promotion remain unauthorized.
 
@@ -192,8 +190,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   Enter-triggered save, and keep sidebar and outline navigation compact. Add focused desktop
   Real-Electron coverage plus the applicable local verification gates.
 
-Authorization: on 2026-08-11 the user approved the decision-complete adaptive-title plan and
-explicitly requested implementation. This checkpoint is Renderer-only; manuscript persistence,
+Authorization: on 2026-08-11 the decision-complete adaptive-title plan was approved for
+implementation. This checkpoint is Renderer-only; manuscript persistence,
 IPC, export, Agent behavior, packaging, release, hosted CI, commit, push, and promotion remain out
 of scope.
 
@@ -205,9 +203,9 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   assembled reading surface, and resolve project images through the existing session-bound asset
   capability without widening Renderer authority.
 
-Authorization: on 2026-08-11 the user reported viewport overflow, section objectives appearing as
-manuscript content, and broken project images in the whole-manuscript preview, then approved the
-decision-complete local Renderer repair plan. Package, release, hosted CI, commit, push, and
+Authorization: on 2026-08-11 a decision-complete local Renderer repair plan was approved for
+viewport overflow, section objectives appearing as manuscript content, and broken project images in
+the whole-manuscript preview. Package, release, hosted CI, commit, push, and
 promotion remain out of scope.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#maintenance-whole-manuscript-preview-hardening).
@@ -217,8 +215,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Distinguish a partially failed Agent activity group from a wholly failed group, show the
   failed-operation count without obscuring successful work, and add focused Renderer coverage.
 
-Authorization: on 2026-08-11 the user reported that one failed operation makes the aggregate Agent
-activity summary look wholly failed and explicitly requested a display improvement. This is a
+Authorization: on 2026-08-11 a display improvement was approved because one failed operation made
+the aggregate Agent activity summary look wholly failed. This is a
 Renderer-only presentation repair; it does not change Agent tools, execution, persistence, or
 authority. Hosted CI, package, release, commit, push, and promotion remain out of scope.
 
@@ -230,7 +228,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   no-identity package gate, and verify runtime evidence, DMG layout, signature state, sizes, and
   checksums.
 
-Authorization: on 2026-08-11 the user explicitly requested a fresh App and DMG after the MinerU
+Authorization: on 2026-08-11 a fresh App and DMG were approved after the MinerU
 capability-invariant false-positive repair. This authorizes only the local unsigned macOS arm64
 package; commit, push, hosted CI, signing/notarization, release, and promotion remain out of scope.
 
@@ -242,8 +240,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   user-authored content from the value scan; add focused regression coverage and verify that the
   affected project opens without rewriting its content.
 
-Authorization: on 2026-08-11 the user reported that a forced quit left a project in the generic
-recovery-required state and explicitly requested the repair. Runtime evidence showed an
+Authorization: on 2026-08-11 a repair was approved for a forced quit that left a project in the
+generic recovery-required state. Runtime evidence showed an
 integrity-valid database whose `sections.objective` contained the ordinary text
 `recovery_capability`; the global text-column scan misclassified that manuscript text as a
 persisted MinerU capability. No hosted CI, package, release, commit, push, or promotion work is
@@ -257,7 +255,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   macOS DMG app/Applications layout, build the local arm64 artifacts, and verify the mounted DMG,
   packaged icon, runtime gates, checksums, and intentionally unsigned distribution status.
 
-Authorization: on 2026-08-11 the user requested a friend-distributable macOS DMG with a
+Authorization: on 2026-08-11 a friend-distributable macOS DMG was approved with a
 drag-to-Applications Finder window and a new application icon. Hosted CI, workflow restoration,
 commit, push, signing/notarization credential enrollment, and production promotion remain out of
 scope.
@@ -274,9 +272,9 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Add Active/Archived Agent views, accessible row/header menus, local title progress, archived
   read-only behavior, focused coverage, Real-Electron evidence, and the applicable local gates.
 
-Authorization: on 2026-08-11 the user approved the decision-complete plan, confirmed Checkpoint
-27.7 acceptance, and explicitly requested Checkpoint 27.8 implementation. The user later authorized
-a fresh local App build after reporting a packaged-runtime title failure. Release, hosted CI,
+Authorization: on 2026-08-11 Checkpoint 27.7 was accepted and the decision-complete Checkpoint 27.8
+plan was approved for implementation. A fresh local App build was later approved after a
+packaged-runtime title failure. Release, hosted CI,
 commit, push, and promotion work remain unauthorized.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-278-agent-conversation-titles-and-archive-lifecycle).
@@ -288,9 +286,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   without giving every datum equal visual weight. Remove redundant ordinary-state badges and keep
   the visible usage summary limited to input/output tokens.
 
-Authorization: on 2026-08-11 the user reported that the Agent sidebar run summary had become
-visually confusing as model, Thinking, and Writing Skill metadata accumulated, and explicitly
-requested the simplification. This is a Renderer-only presentation repair; Agent execution,
+Authorization: on 2026-08-11 a simplification was approved because the Agent sidebar run summary
+had become visually confusing as model, Thinking, and Writing Skill metadata accumulated. This is a Renderer-only presentation repair; Agent execution,
 persistence, selection, and provenance remain unchanged. Hosted CI, package, release, commit,
 push, and promotion remain out of scope.
 
@@ -305,8 +302,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   the applicable local verification gates. Manuscript schema, citation policy, whole-manuscript
   preview, hosted CI, packaging, release, commit, push, and promotion remain out of scope.
 
-Authorization: on 2026-08-11 the user approved the decision-complete Checkpoint 27.7 plan and
-explicitly requested implementation.
+Authorization: on 2026-08-11 the decision-complete Checkpoint 27.7 plan was approved for
+implementation.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-277-editor-citation-highlighting-and-source-preview).
 
@@ -346,8 +343,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   (2 files / 9 tests), `check:fast`, `check:electron` (129 passing files / 666 passing tests and one
   opt-in benchmark skipped), the production build, and `git diff --check` pass.
 
-Authorization: on 2026-08-10 the user explicitly approved and requested implementation of the
-decision-complete Checkpoint 27.6 plan. On 2026-08-11 the user authorized the local
+Authorization: on 2026-08-10 the decision-complete Checkpoint 27.6 plan was approved for
+implementation. On 2026-08-11 approval covered the local
 `v0.2026.8.11` commit, tag, and macOS arm64 package build. Push, hosted CI, release, workflow
 restoration, and promotion remain unauthorized.
 
@@ -365,8 +362,8 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Pass focused tests, `check:fast`, `check:electron`, production build, relevant Real-Electron
   E2E, the Impeccable detector, and `git diff --check`.
 
-Authorization: on 2026-08-10 the user approved the decision-complete Checkpoint 27.5 plan and
-explicitly requested implementation. Hosted CI, package, release, commit, push, and promotion are
+Authorization: on 2026-08-10 the decision-complete Checkpoint 27.5 plan was approved for
+implementation. Hosted CI, package, release, commit, push, and promotion are
 not authorized.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-275-agent-thinking-level).
@@ -402,11 +399,11 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   value is removed. The 0019 migration test now derives the backup suffix from
   `PROJECT_SCHEMA_VERSION` instead of a hardcoded version.
 
-Authorization: on 2026-08-10 the user accepted ADR 013, reviewed the revised implementation plan,
-and explicitly requested Checkpoint 27.4 implementation. No hosted CI, package, release, commit,
+Authorization: on 2026-08-10 ADR 013 and the revised implementation plan were accepted, and
+Checkpoint 27.4 was approved for implementation. No hosted CI, package, release, commit,
 push, or promotion work is authorized.
 
-Packaging addendum: the user subsequently authorized one local macOS arm64 package for hands-on
+Packaging addendum: one local macOS arm64 package was subsequently approved for hands-on
 evaluation. `check:package` passed the 12 packaged-smoke scenarios, all 15 packaged Electron E2E
 scenarios, native inventory, and DMG/ZIP structural inspection. Commit, push, hosted CI, release,
 and promotion remain unauthorized.
@@ -423,8 +420,8 @@ and promotion remain unauthorized.
 - [x] Record the bounded downloadable-skill design in proposed ADR 013 without implementing it
   before explicit approval.
 
-Authorization: on 2026-08-10 the user explicitly requested improving the writing/citation prompt
-with the referenced Nature/CCFA methods and asked to consider bundled Pi Agent skills. The prompt
+Authorization: on 2026-08-10 improving the writing/citation prompt with the referenced Nature/CCFA
+methods was approved, with bundled Pi Agent skills to be considered. The prompt
 work is authorized. ADR 013 records the architecture change required for on-demand, user-installed
 skills; its implementation is not yet approved. No new Agent tools, generic plugin/skill loading,
 hosted CI, package, release, push, or promotion work is authorized.
@@ -440,7 +437,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [x] Pass focused Main/Renderer coverage, `check:fast`, the applicable Electron gate, the Impeccable
   detector, and `git diff --check`.
 
-Authorization: on 2026-08-10 the user explicitly requested these three approval-experience repairs.
+Authorization: on 2026-08-10 these three approval-experience repairs were approved.
 No provider, protocol, release, hosted CI, package, push, or promotion work is authorized.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-272-agent-approval-experience-repair).
@@ -457,7 +454,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
   credential-bound stored configuration without a migration.
 - [x] Pass focused runtime/Main/Renderer coverage plus local static, Electron, E2E, and diff gates.
 
-Authorization: on 2026-08-10 the user explicitly approved executing this checkpoint. Tool
+Authorization: on 2026-08-10 this checkpoint was approved for execution. Tool
 deadlines and non-Agent provider timeouts remain out of scope. No hosted CI, package, release, push,
 or promotion work is authorized.
 
@@ -477,7 +474,7 @@ Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/4
 - [!] Hosted Ubuntu pull-request critical and four-target tagged evidence was transferred to the
   paused Checkpoint 26.9 delivery gate and does not prevent local Checkpoint 27 completion.
 
-Authorization: on 2026-08-09 the user explicitly approved starting this checkpoint before 26.9.
+Authorization: on 2026-08-09 this checkpoint was approved to start before 26.9.
 Checkpoint 26.9 is now paused and is not represented as complete.
 
 Verification evidence: [archived record](https://github.com/ecwu/writellm/blob/493f02a26ccb18172de7390f5b3c5df9f2026905/docs/implementation-todo/phase-agent-writing.md#checkpoint-27-electron-e2e-evolution).

@@ -7,7 +7,7 @@ Current rule: ADR 084 replaces the in-window macOS Menubar with the native appli
 
 ## Decision
 
-The user authorized replacing the fixed sidebar-09 composition.
+This decision replaces the fixed sidebar-09 composition.
 The shell uses a persistent Menubar, activity rail, one central content tab group, and movable tool groups.
 Dockview React 8.3.1 (MIT only) manages docking. shadcn new-york provides controls and themes.
 Create each section editor when first opened. Retain one editor instance per section.

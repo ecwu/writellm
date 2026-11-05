@@ -5,7 +5,7 @@ Date: 2026-09-21
 
 ## Decision
 
-The user authorized moving macOS global commands into Electron's native application menu.
+macOS global commands move into Electron's native application menu.
 Windows and Linux retain the shadcn Menubar.
 This replaces only ADR 083's requirement for an in-window Menubar on macOS.
 Keep the native window frame.

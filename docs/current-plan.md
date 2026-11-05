@@ -60,7 +60,7 @@ Known open defects:
 
 ## Current authorized work
 
-The user authorizes configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md),
+Approved scope: configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md),
 migration of existing image configuration, testing, a local build, a commit, pushing `main`, and publishing tag `v0.2026.10.5`.
 The user also authorizes committing and pushing this publication record.
 

@@ -13,7 +13,7 @@ more than twenty blocks or carry styled content, and outline patches pause on an
 beyond ten operations. The review panel gives no hint that these prompts are policy ceilings
 rather than manual-mode behavior, so the automatic modes are not trusted.
 
-The user asked for a simpler contract: `manual` stays unchanged. The middle mode becomes Write
+The accepted contract is simpler: `manual` stays unchanged. The middle mode becomes Write
 Auto and applies all writing changes without counting blocks or characters; `yolo` keeps its name
 and applies every operation, including Brief, Writing Rules, and outline changes.
 

@@ -60,5 +60,5 @@ registry item is not currently published.
   state, while the existing tool events already provide durable audit history.
 - Allow Renderer-supplied prompts or approvals through the answer endpoint. This would widen the
   endpoint beyond the exact question and option contract.
-- Add a timeout or restore an active waiter after restart. The user selected indefinite in-run
-  waiting and existing interrupted restart recovery.
+- Add a timeout or restore an active waiter after restart. The accepted design uses indefinite
+  in-run waiting and existing interrupted restart recovery.

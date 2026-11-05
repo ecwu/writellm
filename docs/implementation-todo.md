@@ -38,37 +38,37 @@ Status markers:
 - [x] Issue 2 compatible maintenance: update 24 direct dependencies and repair three dependency advisories.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-15-compatible-dependency-maintenance).
 
-- [x] Issue 15: consolidate current rules and delivery evidence. Local acceptance and Claude review pass.
+- [x] Issue 15: consolidate current rules and delivery evidence. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-document-consolidation).
-- [x] Issue 17: classify error recovery and logging ownership. Local acceptance and Claude review pass.
+- [x] Issue 17: classify error recovery and logging ownership. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-error-handling-ownership).
 
-- [x] Issue 12: separate the Notebook registry from individual conversations. Local acceptance and Claude review pass.
+- [x] Issue 12: separate the Notebook registry from individual conversations. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
-- [x] Issue 13: separate workspace find, import, and reference state. Local acceptance and Claude review pass.
+- [x] Issue 13: separate workspace find, import, and reference state. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
-- [x] Issue 14: separate Agent queries, titles, compaction, and run registrations. Local acceptance and Claude review pass.
+- [x] Issue 14: separate Agent queries, titles, compaction, and run registrations. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-fourth-batch-simplification).
 
-- [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and Claude review pass; the test-suite audit resolves the earlier quick-action UI failure.
+- [x] Issue 7: require production services and selected-model catalog execution. Local acceptance and review pass; the test-suite audit resolves the earlier quick-action UI failure.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-third-batch-simplification).
 
-- [x] Issue 6: consolidate save normalization and reuse prepared revision content. Local acceptance and Claude review pass.
+- [x] Issue 6: consolidate save normalization and reuse prepared revision content. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-second-batch-simplification).
-- [x] Issue 9: separate ordinary reads from immediate write transactions. Local acceptance and Claude review pass.
+- [x] Issue 9: separate ordinary reads from immediate write transactions. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-second-batch-simplification).
 
-- [x] Issue 8: remove duplicate catalog snapshots. Local acceptance and Claude review pass.
+- [x] Issue 8: remove duplicate catalog snapshots. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
-- [x] Issue 10: share matching error, fingerprint, search, and table algorithms. Local acceptance and Claude review pass.
+- [x] Issue 10: share matching error, fingerprint, search, and table algorithms. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
-- [x] Issue 11: remove unused close policies and route cancellation through ProjectRuntime. Local acceptance and Claude review pass.
+- [x] Issue 11: remove unused close policies and route cancellation through ProjectRuntime. Local acceptance and review pass.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-first-batch-simplification).
 
-- [x] Issue 5: Agent tool definition cleanup passes local acceptance and Claude review.
+- [x] Issue 5: Agent tool definition cleanup passes local acceptance and review.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-5-agent-tool-definition-cleanup).
 
-- [x] Issue 16: legacy citation conversion passes local acceptance and Claude review.
+- [x] Issue 16: legacy citation conversion passes local acceptance and review.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-14-issue-16-legacy-citation-conversion).
 
 - [x] Maintenance: consolidate Agent UTF-8 truncation and verify Unicode-safe previews.
