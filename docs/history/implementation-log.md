@@ -2193,3 +2193,14 @@ Gates: a new table-driven unit test; focused Vitest passes 183 of 183 tests acro
 `check:e2e e2e/agent-writing.spec.ts` passes static checks, one build, and 2 of 2 scenarios in 47 seconds with no retries.
 No E2E drives a provider-overflow compaction inside a run, so that renderer path is covered by unit precedence only.
 Runtime coverage is macOS arm64 only.
+
+## 2026-11-05 Replacement review and apply race
+
+The find panel left Review enabled while a replacement was applying. A review created during an apply was then
+cleared when the apply result arrived. Review is now disabled while applying. `applyReplacements` records its
+review sequence and clears only the review it applied. Applied results still record their undo capabilities.
+The find hook already guarded find and review results with request sequences, so it keeps its existing state shape.
+
+Gates: a new panel test fails on the previous panel and passes after the change; the panel suite passes 6 of 6 tests.
+`check:e2e e2e/writing-workspace.spec.ts --grep "atomically applies a safe manuscript replacement"` passes static
+checks, one build, and 1 of 1 scenario in 24 seconds with no retries. Runtime coverage is macOS arm64 only.

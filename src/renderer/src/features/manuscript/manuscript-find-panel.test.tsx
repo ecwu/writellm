@@ -285,4 +285,39 @@ describe('ManuscriptFindPanel', () => {
     expect(html).toContain('Loading…')
     expect(html).not.toContain('Load more candidates')
   })
+
+  it('disables a new replacement review while a replacement is applying', () => {
+    const reviewButton = (applying: boolean): string => {
+      const html = renderPanel(
+        <ManuscriptFindPanel
+          {...replacementProps}
+          replaceOpen
+          replacementApplying={applying}
+          replacementPlan={replacementPlan}
+          replacementCandidates={replacementCandidates}
+          query='Alpha'
+          onQueryChange={vi.fn()}
+          caseSensitive={false}
+          onCaseSensitiveChange={vi.fn()}
+          scope='manuscript'
+          onScopeChange={vi.fn()}
+          statuses={[]}
+          onStatusesChange={vi.fn()}
+          result={result}
+          loading={false}
+          loadingMore={false}
+          error={null}
+          selectedMatchId={null}
+          onActivate={vi.fn()}
+          onLoadMore={vi.fn()}
+        />
+      )
+      const button = html.match(/<button[^>]*aria-label="Review replacements"[^>]*>/)?.[0]
+      if (button === undefined) throw new Error('Review replacements button was not rendered')
+      return button
+    }
+
+    expect(reviewButton(false)).not.toContain(' disabled=""')
+    expect(reviewButton(true)).toContain(' disabled=""')
+  })
 })

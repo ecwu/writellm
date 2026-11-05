@@ -277,7 +277,11 @@ export function ManuscriptFindPanel(props: ManuscriptFindPanelProps): React.JSX.
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <InputGroupButton
-                      disabled={props.query.length === 0 || props.replacementLoading}
+                      disabled={
+                        props.query.length === 0 ||
+                        props.replacementLoading ||
+                        props.replacementApplying
+                      }
                       aria-label='Review replacements'
                       onClick={props.onReviewReplacements}
                     >

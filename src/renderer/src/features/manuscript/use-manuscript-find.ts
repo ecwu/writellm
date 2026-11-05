@@ -223,6 +223,7 @@ export function useManuscriptFind(options: {
     if (replacementPlan?.status !== 'ready' || selectedReplacementIds.size === 0) return
     replacementPageRequestRef.current += 1
     replacementPagePendingRef.current = false
+    const reviewSequence = replacementRequestRef.current
     setReplacementLoadingMore(false)
     setReplacementApplying(true)
     setReplacementMessage(null)
@@ -234,7 +235,10 @@ export function useManuscriptFind(options: {
         commandId: crypto.randomUUID(),
         createCheckpoint: createReplacementCheckpoint
       })
+      // A newer review may have replaced the applied one; only clear the review this apply used.
+      const reviewCurrent = replacementRequestRef.current === reviewSequence
       if (result.status === 'applied' || result.status === 'already_applied') {
+        // Undo stays available even when the review was replaced during the apply.
         setReplacementUndoCapabilities(
           result.affectedSections.map((section) => section.undoCapability)
         )
@@ -243,9 +247,13 @@ export function useManuscriptFind(options: {
             ? `Applied ${result.selectedCount} replacements. ${result.pendingRepairSectionIds.length} section mirrors will be repaired automatically.`
             : `Applied ${result.selectedCount} replacements in ${result.affectedSections.length} sections.`
         )
-        setReplacementPlan(null)
-        setReplacementCandidates([])
-        setSelectedReplacementIds(new Set())
+        if (reviewCurrent) {
+          setReplacementPlan(null)
+          setReplacementCandidates([])
+          setSelectedReplacementIds(new Set())
+        }
+      } else if (!reviewCurrent) {
+        return
       } else if (result.status === 'conflict') {
         setReplacementMessage(
           'Manuscript changed — review refreshed. Create a new review before applying.'
