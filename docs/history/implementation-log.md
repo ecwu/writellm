@@ -2166,3 +2166,15 @@ Gates: three new regression tests fail on the previous source and pass after the
 Focused Vitest passes 22 of 22 tests across the MinerU workflow and knowledge import suites.
 `check:fast` passes in 3.5 seconds. `check:e2e e2e/parsed-knowledge.spec.ts` passes 5 of 5 scenarios in 64 seconds with no retries.
 Runtime coverage is macOS arm64 only.
+
+## 2026-11-05 Checked project lifecycle transitions
+
+`ProjectManager` now changes its lifecycle state only through `#setState`. It rejects any transition missing from a
+declared `PROJECT_LIFECYCLE_TRANSITIONS` table, which uses the shared `StateTransitions` type.
+The table records every existing path, including stale-lock recovery from `closed` and
+`open -> recovery-required` when open fails after the context becomes active. Behavior is unchanged.
+A comment now explains why `close()` enters `closing` before it queues: new session checks are rejected at once.
+
+Gates: focused Vitest passes 37 of 37 tests across the project manager, clone, and snapshot suites.
+`check:e2e e2e/project-lifecycle.spec.ts` passes static checks, one build, and 7 of 7 scenarios in 42 seconds with no retries.
+Runtime coverage is macOS arm64 only.

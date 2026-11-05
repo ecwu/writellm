@@ -12,6 +12,7 @@ import {
   type ProjectSessionId
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
+import { canTransition, type StateTransitions } from '../db/state-transitions'
 import { JobStore } from '../jobs/job-store'
 import { KnowledgeImportService } from '../knowledge/knowledge-import-service'
 import { ReferenceLibraryService } from '../references/reference-library-service'
@@ -222,6 +223,21 @@ export class ProjectSessionError extends Error {
   }
 }
 
+/**
+ * Legal lifecycle transitions. `#setState` rejects anything else. Every failure path
+ * reaches `recovery-required`, and only explicit recovery actions leave it.
+ */
+const PROJECT_LIFECYCLE_TRANSITIONS: StateTransitions<ProjectLifecycleState> = {
+  // closed -> closed and closed -> recovery-required come from explicit stale-lock recovery.
+  closed: ['creating', 'opening', 'closed', 'recovery-required'],
+  creating: ['opening', 'closed', 'recovery-required'],
+  opening: ['open', 'recovery-required'],
+  // open -> recovery-required covers a failure after the context became active during open.
+  open: ['closing', 'recovery-required'],
+  closing: ['closed', 'recovery-required'],
+  'recovery-required': ['opening', 'closed', 'recovery-required']
+}
+
 export class ProjectManager {
   readonly #applicationVersion: string
   readonly #logger: ProjectManagerOptions['logger']
@@ -314,7 +330,7 @@ export class ProjectManager {
       const name = projectNameSchema.parse(options.name)
       const projectRoot = join(options.parentDirectory, `${name}.writellm`)
       this.#requireState('closed')
-      this.#state = 'creating'
+      this.#setState('creating')
       this.#recovery = { kind: 'create', projectRoot }
       this.#logger.info(
         { event: 'project_manager.create.started' },
@@ -332,7 +348,7 @@ export class ProjectManager {
           lockOptions: this.#lockOptions
         })
         projectPublished = true
-        this.#state = 'opening'
+        this.#setState('opening')
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(created.projectRoot)
         if (canonicalRoot !== created.projectRoot) {
           throw new Error('Created project root identity changed before open')
@@ -381,11 +397,12 @@ export class ProjectManager {
           'Project create transition failed'
         )
         this.#context = null
-        this.#state =
+        const failedState =
           !projectPublished && err instanceof ProjectCreateError && err.disposition === 'clean'
             ? 'closed'
             : 'recovery-required'
-        if (this.#state === 'closed') this.#recovery = null
+        this.#setState(failedState)
+        if (failedState === 'closed') this.#recovery = null
         throw new Error('Failed to create and open project', { cause: err })
       }
       return this.snapshot()
@@ -395,7 +412,7 @@ export class ProjectManager {
   open(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
     return this.#serialize(async () => {
       this.#requireState('closed')
-      this.#state = 'opening'
+      this.#setState('opening')
       this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#logger.info(
         { event: 'project_manager.open.started' },
@@ -413,7 +430,7 @@ export class ProjectManager {
           'Project open transition failed'
         )
         this.#context = null
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#recovery.reason =
           err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         throw new Error('Failed to open project', { cause: err })
@@ -436,7 +453,9 @@ export class ProjectManager {
       return Promise.reject(new Error(`Cannot close project while state is ${this.#state}`))
     }
     const context = this.#context
-    this.#state = 'closing'
+    // Enter closing before queueing so session checks reject new work at once; queued
+    // operations then fail their session assertion instead of running against a closing project.
+    this.#setState('closing')
     this.#snapshotFlushAuthorization = null
     this.#snapshotFlushConsumed = false
 
@@ -529,7 +548,7 @@ export class ProjectManager {
       this.#context = null
       this.#recovery = { kind: 'close', context, completed }
       if (firstError !== undefined) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#logger.error(
           {
             event: 'project_manager.close.failed',
@@ -542,7 +561,7 @@ export class ProjectManager {
         throw new Error('Failed to close project cleanly', { cause: firstError })
       }
 
-      this.#state = 'closed'
+      this.#setState('closed')
       this.#recovery = null
       this.#logger.info(
         {
@@ -561,7 +580,7 @@ export class ProjectManager {
     return this.#serialize(async () => {
       await closing
       this.#requireState('closed')
-      this.#state = 'opening'
+      this.#setState('opening')
       this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#logger.info(
         { event: 'project_manager.open.started' },
@@ -577,7 +596,7 @@ export class ProjectManager {
           'Project open transition failed'
         )
         this.#context = null
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#recovery.reason =
           err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         throw new Error('Failed to open project', { cause: err })
@@ -706,14 +725,14 @@ export class ProjectManager {
           expectedOwnerToken: options.observedOwnerToken,
           staleBefore: options.staleBefore
         })
-        this.#state = 'closed'
+        this.#setState('closed')
         return recovered
       } catch (err) {
         this.#logger.error(
           { event: 'project_manager.stale_lock_recovery.failed', err },
           'Explicit stale lock recovery failed'
         )
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         throw new Error('Failed to recover stale project lock', { cause: err })
       }
     })
@@ -727,7 +746,7 @@ export class ProjectManager {
       if (this.#state !== 'closed' && this.#state !== 'recovery-required') {
         throw new Error(`Cannot restore a project database while state is ${this.#state}`)
       }
-      this.#state = 'opening'
+      this.#setState('opening')
       let writeLock: ProjectWriteLock | undefined
       let projectId: string | undefined
       try {
@@ -761,7 +780,7 @@ export class ProjectManager {
           }
         }
         this.#context = null
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#logger.error(
           { event: 'project_manager.restore.failed', err, projectId },
           'Project database restore transition failed'
@@ -778,7 +797,7 @@ export class ProjectManager {
       }
       const recovery = this.#recovery
       const selectedRoot = recovery.selectedRoot
-      this.#state = 'opening'
+      this.#setState('opening')
       try {
         await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
@@ -786,7 +805,7 @@ export class ProjectManager {
         this.#recovery = null
         return this.snapshot()
       } catch (err) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         recovery.reason =
           err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         this.#logger.error(
@@ -808,7 +827,7 @@ export class ProjectManager {
         throw new Error('No contended project lock is available to recover')
       }
       const recovery = this.#recovery
-      this.#state = 'opening'
+      this.#setState('opening')
       try {
         await recoverIncompleteHistoryRestore(recovery.selectedRoot, this.#logger)
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(recovery.selectedRoot)
@@ -832,7 +851,7 @@ export class ProjectManager {
         )
         return this.snapshot()
       } catch (err) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         recovery.reason =
           err instanceof ProjectLockContendedError ? 'lock-contended' : recovery.reason
         this.#logger.error(
@@ -871,7 +890,7 @@ export class ProjectManager {
           recovery.completed.add('subscriptions')
         }
         this.#recovery = null
-        this.#state = 'closed'
+        this.#setState('closed')
         this.#logger.info(
           {
             event: 'project_manager.retry_close.completed',
@@ -881,7 +900,7 @@ export class ProjectManager {
         )
         return this.snapshot()
       } catch (err) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#logger.error(
           {
             event: 'project_manager.retry_close.failed',
@@ -910,7 +929,7 @@ export class ProjectManager {
         }
         await rm(projectRoot, { recursive: true, force: true })
         this.#recovery = null
-        this.#state = 'closed'
+        this.#setState('closed')
         this.#logger.info(
           { event: 'project_manager.create.discarded' },
           'Incomplete project discarded'
@@ -930,7 +949,7 @@ export class ProjectManager {
     return this.#serialize(async () => {
       if (this.#state !== 'recovery-required')
         throw new Error('Project location recovery is unavailable')
-      this.#state = 'opening'
+      this.#setState('opening')
       const recovery: {
         kind: 'open'
         selectedRoot: string
@@ -944,7 +963,7 @@ export class ProjectManager {
         this.#recovery = null
         return this.snapshot()
       } catch (err) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         recovery.reason =
           err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
         this.#logger.error(
@@ -987,7 +1006,7 @@ export class ProjectManager {
       }
       this.#recovery = null
       this.#context = null
-      this.#state = 'closed'
+      this.#setState('closed')
       this.#logger.info(
         { event: 'project_manager.recovery.returned_to_closed' },
         'Recovery state returned to closed'
@@ -1463,7 +1482,7 @@ export class ProjectManager {
       if (this.#state !== 'closed' && this.#state !== 'recovery-required') {
         throw new Error(`Cannot restore a snapshot while state is ${this.#state}`)
       }
-      this.#state = 'opening'
+      this.#setState('opening')
       try {
         const restored = await restoreProjectSnapshot({
           snapshotRoot: options.snapshotRoot,
@@ -1475,7 +1494,7 @@ export class ProjectManager {
         this.#recovery = null
         return this.snapshot()
       } catch (err) {
-        this.#state = 'recovery-required'
+        this.#setState('recovery-required')
         this.#logger.error(
           { event: 'project_manager.snapshot_restore.failed', err },
           'Project snapshot restore failed'
@@ -1632,7 +1651,7 @@ export class ProjectManager {
       }
       runtime.start()
       this.#context = context
-      this.#state = 'open'
+      this.#setState('open')
       projectIndex.startInitialization()
       try {
         await this.#recentProjects.upsert({
@@ -1706,6 +1725,13 @@ export class ProjectManager {
       }
       throw err
     }
+  }
+
+  #setState(next: ProjectLifecycleState): void {
+    if (!canTransition(PROJECT_LIFECYCLE_TRANSITIONS, this.#state, next)) {
+      throw new Error(`Project manager cannot move from ${this.#state} to ${next}`)
+    }
+    this.#state = next
   }
 
   #requireState(expected: ProjectLifecycleState): void {
