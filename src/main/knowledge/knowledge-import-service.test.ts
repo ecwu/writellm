@@ -55,6 +55,47 @@ afterEach(async () => {
 })
 
 describe('KnowledgeImportService', () => {
+  it('keeps a committed original stored when its follow-up work fails', async () => {
+    const { root, projectRoot, database } = await fixture()
+    const errorLog = vi.fn()
+    const followUpFailure = new Error('reference placeholder failed')
+    const service = new KnowledgeImportService({
+      projectRoot,
+      projectId: crypto.randomUUID(),
+      database,
+      log: { info: vi.fn(), error: errorLog },
+      onStored: async () => {
+        throw followUpFailure
+      }
+    })
+    const source = join(root, 'follow-up.pdf')
+    await writeFile(source, '%PDF-1.7\nfollow-up source')
+
+    const [stored] = await service.importPaths([source])
+    expect(stored).toMatchObject({ state: 'stored', errorCode: null })
+    const states = database.immediate((connection) =>
+      connection
+        .prepare(
+          `SELECT knowledge_items.state AS item_state, imports.state AS import_state
+             FROM knowledge_items JOIN imports USING (knowledge_item_id)`
+        )
+        .get()
+    )
+    expect(states).toEqual({ item_state: 'stored', import_state: 'stored' })
+    expect(errorLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'knowledge.import.stored_follow_up_failed',
+        err: followUpFailure
+      }),
+      expect.any(String)
+    )
+    expect(errorLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: 'knowledge.import.failed' }),
+      expect.any(String)
+    )
+    database.close()
+  })
+
   it('accepts and completes batches larger than 50 files', async () => {
     const { root, database, service } = await fixture()
     const paths = await Promise.all(

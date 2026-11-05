@@ -480,14 +480,14 @@ export class KnowledgeImportService {
             .prepare(
               `UPDATE knowledge_items
                   SET file_record_id = ?, state = 'stored', error_code = NULL, updated_at = ?
-                WHERE knowledge_item_id = ?`
+                WHERE knowledge_item_id = ? AND state = 'importing'`
             )
             .run(fileRecordId, completedAt, input.knowledgeItemId)
           database
             .prepare(
               `UPDATE imports
                   SET state = 'stored', bytes_copied = ?, error_code = NULL, updated_at = ?
-                WHERE import_id = ?`
+                WHERE import_id = ? AND state = 'copying'`
             )
             .run(copied, completedAt, input.importId)
         })
@@ -501,9 +501,22 @@ export class KnowledgeImportService {
       })
       if (publication.duplicate) return publication.item
       const stored = publication.item
-      await this.#onStored?.(stored, {
-        ensureIncompleteReference: input.ensureIncompleteReference
-      })
+      try {
+        await this.#onStored?.(stored, {
+          ensureIncompleteReference: input.ensureIncompleteReference
+        })
+      } catch (err) {
+        // The original is committed as stored; a follow-up failure must not mark it failed.
+        this.#log.error(
+          {
+            event: 'knowledge.import.stored_follow_up_failed',
+            err,
+            projectId: this.#projectId,
+            knowledgeItemId: input.knowledgeItemId
+          },
+          'Knowledge original was stored, but its follow-up work failed'
+        )
+      }
       this.#log.info(
         {
           event: 'knowledge.import.stored',
@@ -557,12 +570,14 @@ export class KnowledgeImportService {
         this.#database.immediate((database) => {
           database
             .prepare(
-              'UPDATE knowledge_items SET state = ?, error_code = ?, updated_at = ? WHERE knowledge_item_id = ?'
+              `UPDATE knowledge_items SET state = ?, error_code = ?, updated_at = ?
+                WHERE knowledge_item_id = ? AND state = 'importing'`
             )
             .run(cancelled ? 'cancelled' : 'failed', code, failedAt, input.knowledgeItemId)
           database
             .prepare(
-              'UPDATE imports SET state = ?, error_code = ?, updated_at = ? WHERE import_id = ?'
+              `UPDATE imports SET state = ?, error_code = ?, updated_at = ?
+                WHERE import_id = ? AND state = 'copying'`
             )
             .run(cancelled ? 'cancelled' : 'failed', code, failedAt, input.importId)
         })
