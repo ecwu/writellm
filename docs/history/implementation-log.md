@@ -2178,3 +2178,18 @@ A comment now explains why `close()` enters `closing` before it queues: new sess
 Gates: focused Vitest passes 37 of 37 tests across the project manager, clone, and snapshot suites.
 `check:e2e e2e/project-lifecycle.spec.ts` passes static checks, one build, and 7 of 7 scenarios in 42 seconds with no retries.
 Runtime coverage is macOS arm64 only.
+
+## 2026-11-05 Shared Agent workflow state derivation
+
+Agent session `workflowState` is derived, never stored. Main and the Agent panel now derive it with one pure
+`deriveAgentWorkflowState` function in `src/shared/agent-workflow-state.ts`. Its precedence is
+`awaiting_input`, `compacting`, `running`, `generating`, `awaiting_review`, then `idle`.
+Main's session query now returns existence signals instead of a SQL `CASE`.
+Previously the panel reported `running` while a live run compacted its history, which left the composer
+open to queued messages that Main refuses during compaction. The session switcher already showed `compacting`.
+The panel now reads the live run's compacting phase and matches Main.
+
+Gates: a new table-driven unit test; focused Vitest passes 183 of 183 tests across 10 Agent session, IPC, and panel files.
+`check:e2e e2e/agent-writing.spec.ts` passes static checks, one build, and 2 of 2 scenarios in 47 seconds with no retries.
+No E2E drives a provider-overflow compaction inside a run, so that renderer path is covered by unit precedence only.
+Runtime coverage is macOS arm64 only.

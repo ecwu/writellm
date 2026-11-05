@@ -61,6 +61,7 @@ import {
   estimateAgentTokens
 } from '../../shared/agent-context-budget'
 import { agentModelVisibleToolSpecs, agentToolEnvelope } from '../../shared/agent-tool-specs'
+import { deriveAgentWorkflowState } from '../../shared/agent-workflow-state'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
@@ -519,24 +520,21 @@ export class AgentSessionService {
                     status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
                     thinking_level, image_source_id, image_model_id,
                     created_at, updated_at, archived_at,
-                    CASE
-                      WHEN EXISTS (
-                        SELECT 1 FROM agent_runs
-                         WHERE agent_runs.agent_session_id = agent_sessions.agent_session_id
-                           AND agent_runs.status = 'running'
-                      ) THEN 'running'
-                      WHEN EXISTS (
-                        SELECT 1 FROM mutation_proposals
-                         WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
-                           AND mutation_proposals.status = 'generating'
-                      ) THEN 'generating'
-                      WHEN EXISTS (
-                        SELECT 1 FROM mutation_proposals
-                         WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
-                           AND mutation_proposals.status = 'pending'
-                      ) THEN 'awaiting_review'
-                      ELSE 'idle'
-                    END AS workflow_state
+                    EXISTS (
+                      SELECT 1 FROM agent_runs
+                       WHERE agent_runs.agent_session_id = agent_sessions.agent_session_id
+                         AND agent_runs.status = 'running'
+                    ) AS has_running_run,
+                    EXISTS (
+                      SELECT 1 FROM mutation_proposals
+                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                         AND mutation_proposals.status = 'generating'
+                    ) AS has_generating_proposal,
+                    EXISTS (
+                      SELECT 1 FROM mutation_proposals
+                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                         AND mutation_proposals.status = 'pending'
+                    ) AS has_pending_proposal
                FROM agent_sessions
               ${whereSql}
               ORDER BY updated_at DESC, agent_session_id DESC
@@ -554,7 +552,9 @@ export class AgentSessionService {
           thinking_level: AgentThinkingLevel
           image_source_id: string | null
           image_model_id: string | null
-          workflow_state: 'idle' | 'running' | 'awaiting_review' | 'generating'
+          has_running_run: 0 | 1
+          has_generating_proposal: 0 | 1
+          has_pending_proposal: 0 | 1
           created_at: string
           updated_at: string
           archived_at: string | null
@@ -578,11 +578,13 @@ export class AgentSessionService {
           compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
           approvalMode: row.approval_mode,
           interactionMode: row.interaction_mode,
-          workflowState: this.#sessionIsAwaitingInput(row.agent_session_id)
-            ? 'awaiting_input'
-            : this.#sessionIsCompacting(row.agent_session_id)
-              ? 'compacting'
-              : row.workflow_state,
+          workflowState: deriveAgentWorkflowState({
+            awaitingInput: this.#sessionIsAwaitingInput(row.agent_session_id),
+            compacting: this.#sessionIsCompacting(row.agent_session_id),
+            running: row.has_running_run === 1,
+            generating: row.has_generating_proposal === 1,
+            awaitingReview: row.has_pending_proposal === 1
+          }),
           modelSelection:
             row.provider_preset_id === null || row.selected_model_id === null
               ? null

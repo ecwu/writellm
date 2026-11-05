@@ -2,6 +2,7 @@ import { useAgentImageDraft } from './use-agent-image-draft'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AskUserAnswer } from '../../../../shared/contracts/agent-tools'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
+import { deriveAgentWorkflowState } from '../../../../shared/agent-workflow-state'
 import { parseLeadingSkillMentions, skillMentionQueryAt } from '../../../../shared/skill-mentions'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { approveProposalAfterEditorFlush } from '../manuscript/agent-proposal-actions'
@@ -142,18 +143,15 @@ export function useAgentPanelController(props: AgentPanelProps) {
   )
   const waitingProposal = proposals.find((proposal) => proposal.status === 'pending')
   const generatingProposal = proposals.find((proposal) => proposal.status === 'generating')
+  const localWorkflowState = deriveAgentWorkflowState({
+    awaitingInput: activeRun !== null && pendingQuestion !== null,
+    compacting: activeCompaction !== null || liveRun?.phase === 'compacting',
+    running: activeRun !== null,
+    generating: generatingProposal !== undefined,
+    awaitingReview: waitingProposal !== undefined
+  })
   const workflowState =
-    activeRun !== null
-      ? pendingQuestion === null
-        ? 'running'
-        : 'awaiting_input'
-      : activeCompaction !== null
-        ? 'compacting'
-        : generatingProposal !== undefined
-          ? 'generating'
-          : waitingProposal !== undefined
-            ? 'awaiting_review'
-            : (activeSession?.workflowState ?? 'idle')
+    localWorkflowState === 'idle' ? (activeSession?.workflowState ?? 'idle') : localWorkflowState
   const conversationLocked =
     workflowState === 'awaiting_review' ||
     workflowState === 'awaiting_input' ||
