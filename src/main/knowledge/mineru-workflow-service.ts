@@ -1,4 +1,5 @@
 import { cachedStatement } from '../db/statement-cache'
+import { canTransition, isTerminalState, type StateTransitions } from '../db/state-transitions'
 import { createHash, randomUUID } from 'node:crypto'
 import { copyFile, open, readFile } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
@@ -24,6 +25,37 @@ import type { MineruGateway } from './mineru-gateway'
 
 const DOWNLOAD_LIMIT_BYTES = 512 * 1024 * 1024
 const POLL_DELAY_MS = 2_000
+
+/**
+ * Legal `parse_tasks.state` transitions. Every state write goes through `#advance`, which
+ * rejects anything not listed here so that a duplicate, stale, or out-of-order job cannot
+ * reopen a terminal task or skip a stage.
+ */
+const PARSE_TASK_TRANSITIONS: StateTransitions<ParseTaskState> = {
+  queued: ['allocating', 'failed', 'cancelled'],
+  allocating: ['awaiting_upload', 'failed', 'cancelled'],
+  awaiting_upload: ['polling', 'failed', 'cancelled'],
+  // polling -> polling records a remote progress observation.
+  polling: ['polling', 'downloading', 'failed', 'cancelled'],
+  // downloading -> polling refreshes an expired download capability; downloading and
+  // extracting -> succeeded reconcile a revision published before a crash.
+  downloading: ['polling', 'extracting', 'succeeded', 'failed', 'cancelled'],
+  extracting: ['publishing', 'succeeded', 'failed', 'cancelled'],
+  publishing: ['succeeded', 'failed', 'cancelled'],
+  succeeded: [],
+  failed: [],
+  cancelled: []
+}
+
+interface ParseTaskAdvance {
+  /** Extra `, column = ?` assignments, as constant SQL text. */
+  assignments?: string
+  values?: readonly unknown[]
+  /** Remote state recorded on the audit event. Defaults to the current remote state. */
+  remoteState?: MineruRemoteState | null
+  errorCode?: string | null
+  now: string
+}
 
 export interface MineruProviderAccess {
   getConfiguredProvider(): Promise<MineruProviderConfig>
@@ -170,22 +202,11 @@ export class MineruWorkflowService {
         )
         .all(knowledgeItemId) as ParseTaskTable[]
       for (const task of tasks) {
-        cachedStatement(
-          database,
-          `UPDATE parse_tasks
-                SET state = 'cancelled', completed_at = ?, updated_at = ?
-              WHERE parse_task_id = ? AND state NOT IN ('succeeded', 'failed', 'cancelled')`
-        ).run(now, now, task.parse_task_id)
-        insertEvent(
-          database,
-          task.parse_task_id,
-          task.state,
-          'cancelled',
-          'parse.cancelled',
-          task.remote_state,
-          null,
+        this.#advance(database, task.parse_task_id, 'cancelled', 'parse.cancelled', {
+          assignments: ', completed_at = ?',
+          values: [now],
           now
-        )
+        })
       }
       database
         .prepare(
@@ -336,23 +357,11 @@ export class MineruWorkflowService {
     this.#database.immediate((database) => {
       const task = readTask(database, parseTaskId)
       if (task === undefined || terminal(task.state)) return
-      database
-        .prepare(
-          `UPDATE parse_tasks
-              SET state = 'cancelled', completed_at = ?, updated_at = ?
-            WHERE parse_task_id = ?`
-        )
-        .run(now, now, parseTaskId)
-      insertEvent(
-        database,
-        parseTaskId,
-        task.state,
-        'cancelled',
-        'parse.cancelled',
-        task.remote_state,
-        null,
+      this.#advance(database, parseTaskId, 'cancelled', 'parse.cancelled', {
+        assignments: ', completed_at = ?',
+        values: [now],
         now
-      )
+      })
     })
   }
 
@@ -486,23 +495,13 @@ export class MineruWorkflowService {
     const errorCode = safeOperationErrorCode(error)
     this.#database.immediate((database) => {
       const task = readTask(database, parseTaskId)
-      if (task === undefined || terminal(task.state) || task.state === 'cancelled') return
-      database
-        .prepare(
-          `UPDATE parse_tasks SET state = 'failed', error_code = ?, completed_at = ?, updated_at = ?
-             WHERE parse_task_id = ? AND state NOT IN ('succeeded', 'failed', 'cancelled')`
-        )
-        .run(errorCode, now, now, parseTaskId)
-      insertEvent(
-        database,
-        parseTaskId,
-        task.state,
-        'failed',
-        'operation.failed_permanently',
-        task.remote_state,
+      if (task === undefined || terminal(task.state)) return
+      this.#advance(database, parseTaskId, 'failed', 'operation.failed_permanently', {
+        assignments: ', error_code = ?, completed_at = ?',
+        values: [errorCode, now],
         errorCode,
         now
-      )
+      })
     })
     this.#log.error(
       {
@@ -542,7 +541,14 @@ export class MineruWorkflowService {
     let uploadUrl: string | undefined
 
     if (task.remote_task_id === null) {
-      this.#transition(task, 'allocating', 'remote.allocate.started')
+      const allocating = this.#database.immediate((database) => {
+        const current = requireTask(database, parseTaskId)
+        if (current.state === 'allocating') return true
+        return this.#advance(database, parseTaskId, 'allocating', 'remote.allocate.started', {
+          now: this.#now().toISOString()
+        })
+      })
+      if (!allocating) return
       const allocated = await this.#providers.withConfiguredProvider((config, credential) =>
         this.#gateway.allocate(
           config,
@@ -553,32 +559,18 @@ export class MineruWorkflowService {
       )
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
-        const current = requireTask(database, parseTaskId)
-        if (current.state === 'cancelled') return
-        database
-          .prepare(
-            `UPDATE parse_tasks
-                SET state = 'awaiting_upload', remote_task_id = ?,
-                    trace_id = ?, submitted_at = ?, updated_at = ?
-              WHERE parse_task_id = ? AND remote_task_id IS NULL`
-          )
-          .run(allocated.remoteTaskId, allocated.traceId, now, now, parseTaskId)
-        insertEvent(
-          database,
-          parseTaskId,
-          current.state,
-          'awaiting_upload',
-          'remote.id.persisted',
-          null,
-          null,
+        if (requireTask(database, parseTaskId).remote_task_id !== null) return
+        this.#advance(database, parseTaskId, 'awaiting_upload', 'remote.id.persisted', {
+          assignments: ', remote_task_id = ?, trace_id = ?, submitted_at = ?',
+          values: [allocated.remoteTaskId, allocated.traceId, now],
+          remoteState: null,
           now
-        )
+        })
       })
       uploadUrl = allocated.uploadUrl
       await this.#faults.afterRemoteIdPersisted?.()
       task = this.#requireTask(parseTaskId)
     }
-    if (task.state === 'cancelled' || terminal(task.state)) return
     if (task.state !== 'awaiting_upload') return
     if (uploadUrl === undefined) {
       const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
@@ -604,28 +596,15 @@ export class MineruWorkflowService {
     )
     await this.#faults.afterUpload?.()
     const now = this.#now().toISOString()
-    this.#database.immediate((database) => {
-      const current = requireTask(database, parseTaskId)
-      if (current.state === 'cancelled') return
-      database
-        .prepare(
-          `UPDATE parse_tasks
-              SET state = 'polling', remote_state = 'pending', uploaded_at = ?, updated_at = ?
-            WHERE parse_task_id = ?`
-        )
-        .run(now, now, parseTaskId)
-      insertEvent(
-        database,
-        parseTaskId,
-        current.state,
-        'polling',
-        'source.uploaded',
-        'pending',
-        null,
+    const uploaded = this.#database.immediate((database) =>
+      this.#advance(database, parseTaskId, 'polling', 'source.uploaded', {
+        assignments: ", remote_state = 'pending', uploaded_at = ?",
+        values: [now],
+        remoteState: 'pending',
         now
-      )
-    })
-    this.#enqueuePoll(parseTaskId, 0)
+      })
+    )
+    if (uploaded) this.#enqueuePoll(parseTaskId, 0)
   }
 
   async handlePoll(context: JobHandlerContext): Promise<void> {
@@ -641,63 +620,33 @@ export class MineruWorkflowService {
         context.signal
       )
     )
-    if (this.#requireTask(parseTaskId).state === 'cancelled') return
     const now = this.#now().toISOString()
     const nextPollCount = task.poll_count + 1
     if (result.remoteState === 'failed') {
-      this.#database.immediate((database) => {
-        const current = requireTask(database, parseTaskId)
-        if (current.state === 'cancelled') return
-        database
-          .prepare(
-            `UPDATE parse_tasks SET state = 'failed', remote_state = 'failed',
-                    trace_id = COALESCE(?, trace_id), poll_count = ?, error_code = ?,
-                    completed_at = ?, updated_at = ? WHERE parse_task_id = ?`
-          )
-          .run(
-            result.traceId,
-            nextPollCount,
-            result.remoteErrorCode ?? 'remote_parse_failed',
-            now,
-            now,
-            parseTaskId
-          )
-        insertEvent(
-          database,
-          parseTaskId,
-          current.state,
-          'failed',
-          'remote.parse.failed',
-          'failed',
-          result.remoteErrorCode ?? 'remote_parse_failed',
+      const errorCode = result.remoteErrorCode ?? 'remote_parse_failed'
+      this.#database.immediate((database) =>
+        this.#advance(database, parseTaskId, 'failed', 'remote.parse.failed', {
+          assignments: `, remote_state = 'failed', trace_id = COALESCE(?, trace_id),
+                        poll_count = ?, error_code = ?, completed_at = ?`,
+          values: [result.traceId, nextPollCount, errorCode, now],
+          remoteState: 'failed',
+          errorCode,
           now
-        )
-      })
+        })
+      )
       return
     }
     if (result.remoteState === 'done') {
       if (result.downloadUrl === undefined) throw new Error('MinerU result URL is missing')
-      this.#database.immediate((database) => {
-        const current = requireTask(database, parseTaskId)
-        if (current.state === 'cancelled') return
-        database
-          .prepare(
-            `UPDATE parse_tasks SET state = 'downloading', remote_state = 'done',
-                    trace_id = COALESCE(?, trace_id), poll_count = ?, updated_at = ?
-             WHERE parse_task_id = ?`
-          )
-          .run(result.traceId, nextPollCount, now, parseTaskId)
-        insertEvent(
-          database,
-          parseTaskId,
-          current.state,
-          'downloading',
-          'remote.parse.completed',
-          'done',
-          null,
+      const completed = this.#database.immediate((database) =>
+        this.#advance(database, parseTaskId, 'downloading', 'remote.parse.completed', {
+          assignments: `, remote_state = 'done', trace_id = COALESCE(?, trace_id), poll_count = ?`,
+          values: [result.traceId, nextPollCount],
+          remoteState: 'done',
           now
-        )
-      })
+        })
+      )
+      if (!completed) return
       this.#jobs.enqueue({
         type: 'mineru_parse',
         payload: { parseTaskId },
@@ -706,26 +655,15 @@ export class MineruWorkflowService {
       })
       return
     }
-    this.#database.immediate((database) => {
-      const current = requireTask(database, parseTaskId)
-      if (current.state === 'cancelled') return
-      database
-        .prepare(
-          `UPDATE parse_tasks SET remote_state = ?, trace_id = COALESCE(?, trace_id),
-                  poll_count = ?, updated_at = ? WHERE parse_task_id = ?`
-        )
-        .run(result.remoteState, result.traceId, nextPollCount, now, parseTaskId)
-      insertEvent(
-        database,
-        parseTaskId,
-        current.state,
-        'polling',
-        'remote.poll.observed',
-        result.remoteState,
-        null,
+    const observed = this.#database.immediate((database) =>
+      this.#advance(database, parseTaskId, 'polling', 'remote.poll.observed', {
+        assignments: ', remote_state = ?, trace_id = COALESCE(?, trace_id), poll_count = ?',
+        values: [result.remoteState, result.traceId, nextPollCount],
+        remoteState: result.remoteState,
         now
-      )
-    })
+      })
+    )
+    if (!observed) return
     context.reportProgress({
       stage: result.remoteState,
       ...(result.extractedPages === null ? {} : { completed: result.extractedPages }),
@@ -761,7 +699,7 @@ export class MineruWorkflowService {
           context.signal
         )
       )
-      if (this.#requireTask(parseTaskId).state === 'cancelled') return
+      if (this.#requireTask(parseTaskId).state !== 'downloading') return
       if (refreshed.remoteState !== 'done' || refreshed.downloadUrl === undefined) {
         throw new Error('MinerU download URL was not available during recovery polling')
       }
@@ -783,25 +721,18 @@ export class MineruWorkflowService {
             'MinerU download capability expired; refreshing through the existing remote task'
           )
           const now = this.#now().toISOString()
-          this.#database.immediate((database) => {
-            const current = requireTask(database, parseTaskId)
-            database
-              .prepare(
-                `UPDATE parse_tasks SET state = 'polling', updated_at = ? WHERE parse_task_id = ?`
-              )
-              .run(now, parseTaskId)
-            insertEvent(
+          const refreshing = this.#database.immediate((database) =>
+            this.#advance(
               database,
               parseTaskId,
-              current.state,
               'polling',
               'download.capability.refresh_requested',
-              current.remote_state,
-              null,
-              now
+              {
+                now
+              }
             )
-          })
-          this.#enqueuePoll(parseTaskId, task.poll_count)
+          )
+          if (refreshing) this.#enqueuePoll(parseTaskId, task.poll_count)
           return
         }
         throw err
@@ -813,30 +744,14 @@ export class MineruWorkflowService {
       await syncFile(archivePath)
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
-        const current = requireTask(database, parseTaskId)
-        if (current.state === 'cancelled') return
+        if (!this.#advance(database, parseTaskId, 'extracting', 'archive.persisted', { now }))
+          return
         database
           .prepare(
             `UPDATE parse_revisions SET archive_sha256 = ?, archive_byte_size = ?, updated_at = ?
               WHERE parse_revision_id = ?`
           )
           .run(downloaded.sha256, downloaded.byteSize, now, revision.parse_revision_id)
-        database
-          .prepare(
-            `UPDATE parse_tasks SET state = 'extracting',
-                    updated_at = ? WHERE parse_task_id = ?`
-          )
-          .run(now, parseTaskId)
-        insertEvent(
-          database,
-          parseTaskId,
-          current.state,
-          'extracting',
-          'archive.persisted',
-          current.remote_state,
-          null,
-          now
-        )
       })
       await this.#faults.afterArchivePersisted?.()
       task = this.#requireTask(parseTaskId)
@@ -883,8 +798,8 @@ export class MineruWorkflowService {
       const manifestSha256 = hashSha256(bytes)
       const now = this.#now().toISOString()
       this.#database.immediate((database) => {
-        const current = requireTask(database, parseTaskId)
-        if (current.state === 'cancelled') return
+        if (!this.#advance(database, parseTaskId, 'publishing', 'archive.extracted', { now }))
+          return
         database
           .prepare(
             `UPDATE parse_revisions SET expanded_byte_size = ?, file_count = ?,
@@ -897,21 +812,6 @@ export class MineruWorkflowService {
             now,
             revision.parse_revision_id
           )
-        database
-          .prepare(
-            "UPDATE parse_tasks SET state = 'publishing', updated_at = ? WHERE parse_task_id = ?"
-          )
-          .run(now, parseTaskId)
-        insertEvent(
-          database,
-          parseTaskId,
-          current.state,
-          'publishing',
-          'archive.extracted',
-          current.remote_state,
-          null,
-          now
-        )
       })
       await this.#faults.afterExtraction?.()
       task = this.#requireTask(parseTaskId)
@@ -956,24 +856,50 @@ export class MineruWorkflowService {
     return this.#database.immediate((database) => requireTask(database, parseTaskId))
   }
 
-  #transition(task: ParseTaskTable, state: ParseTaskState, event: string): void {
-    if (task.state === state) return
-    const now = this.#now().toISOString()
-    this.#database.immediate((database) => {
-      database
-        .prepare('UPDATE parse_tasks SET state = ?, updated_at = ? WHERE parse_task_id = ?')
-        .run(state, now, task.parse_task_id)
-      insertEvent(
-        database,
-        task.parse_task_id,
-        task.state,
-        state,
-        event,
-        task.remote_state,
-        null,
-        now
+  /**
+   * Move a parse task to `to` and audit the transition. Must run inside an immediate
+   * transaction. Returns false without writing when the current state does not permit the
+   * transition, for example after cancellation or when a duplicate job arrives late.
+   */
+  #advance(
+    database: import('better-sqlite3').Database,
+    parseTaskId: string,
+    to: ParseTaskState,
+    event: string,
+    options: ParseTaskAdvance
+  ): boolean {
+    const current = requireTask(database, parseTaskId)
+    if (!canTransition(PARSE_TASK_TRANSITIONS, current.state, to)) {
+      this.#log.info(
+        {
+          event: 'mineru.parse.transition_skipped',
+          projectId: this.#projectId,
+          parseTaskId,
+          fromState: current.state,
+          toState: to,
+          transitionEvent: event
+        },
+        'MinerU parse transition is not permitted from the current state'
       )
-    })
+      return false
+    }
+    const changes = cachedStatement(
+      database,
+      `UPDATE parse_tasks SET state = ?, updated_at = ?${options.assignments ?? ''}
+        WHERE parse_task_id = ? AND state = ?`
+    ).run(to, options.now, ...(options.values ?? []), parseTaskId, current.state).changes
+    if (changes !== 1) throw new Error('MinerU parse task changed during its transition')
+    insertEvent(
+      database,
+      parseTaskId,
+      current.state,
+      to,
+      event,
+      options.remoteState === undefined ? current.remote_state : options.remoteState,
+      options.errorCode ?? null,
+      options.now
+    )
+    return true
   }
 
   #ensureRevision(task: ParseTaskTable, sourceSha256: string): ParseRevisionTable {
@@ -1094,37 +1020,33 @@ export class MineruWorkflowService {
 
   async #commitPublished(task: ParseTaskTable, revision: ParseRevisionTable): Promise<boolean> {
     const now = this.#now().toISOString()
-    const cancelled = this.#database.immediate((database) => {
-      const current = requireTask(database, task.parse_task_id)
-      if (current.state === 'cancelled') return true
+    const outcome = this.#database.immediate((database) => {
+      const advanced = this.#advance(
+        database,
+        task.parse_task_id,
+        'succeeded',
+        'raw_revision.published',
+        { assignments: ', completed_at = ?', values: [now], now }
+      )
+      if (!advanced) {
+        return requireTask(database, task.parse_task_id).state === 'cancelled'
+          ? 'cancelled'
+          : 'skipped'
+      }
       database
         .prepare(
           `UPDATE parse_revisions SET state = 'raw_published', published_at = ?, updated_at = ?
             WHERE parse_revision_id = ?`
         )
         .run(now, now, revision.parse_revision_id)
-      database
-        .prepare(
-          `UPDATE parse_tasks SET state = 'succeeded', completed_at = ?, updated_at = ?
-            WHERE parse_task_id = ?`
-        )
-        .run(now, now, task.parse_task_id)
-      insertEvent(
-        database,
-        task.parse_task_id,
-        current.state,
-        'succeeded',
-        'raw_revision.published',
-        current.remote_state,
-        null,
-        now
-      )
-      return false
+      return 'published'
     })
-    if (cancelled) {
+    if (outcome === 'cancelled') {
       await this.#filesystem.removeTree(revision.relative_path)
       return false
     }
+    // Another delivery already finished or failed this task; leave its revision in place.
+    if (outcome === 'skipped') return false
     this.#log.info(
       {
         event: 'mineru.parse.completed',
@@ -1233,7 +1155,7 @@ function payloadTaskId(context: JobHandlerContext): string {
 }
 
 function terminal(state: ParseTaskState): boolean {
-  return state === 'succeeded' || state === 'failed' || state === 'cancelled'
+  return isTerminalState(PARSE_TASK_TRANSITIONS, state)
 }
 
 function readTask(

@@ -466,6 +466,125 @@ describe('MineruWorkflowService', () => {
     expect(events.some((event) => event.event === 'operation.retry_scheduled')).toBe(false)
     fixture.database.close()
   })
+
+  it('does not reopen a task that failed permanently while a poll was in flight', async () => {
+    const fixture = await createFixture()
+    const pollStarted = deferred()
+    const releasePoll = deferred()
+    const gateway = createGateway({
+      poll: vi.fn(async () => {
+        pollStarted.resolve()
+        await releasePoll.promise
+        return {
+          remoteState: 'done' as const,
+          downloadUrl: 'https://download.example/result?signature=private',
+          traceId: 'trace-late',
+          extractedPages: null,
+          totalPages: null,
+          remoteErrorCode: null
+        }
+      })
+    })
+    const service = createService(fixture, gateway)
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+    await service.handleSubmit(context(submit))
+
+    const pending = service.handlePoll(context(fakeJob('mineru_parse', parseTaskId)))
+    await pollStarted.promise
+    // A duplicate delivery exhausts its attempts while this poll is still in flight.
+    service.recordPermanentFailure(parseTaskId, new Error('duplicate delivery failed'))
+    releasePoll.resolve()
+    await pending
+
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({
+      state: 'failed',
+      remote_state: 'pending',
+      error_code: 'operation_failed'
+    })
+    expect(
+      fixture.jobs
+        .list({ limit: 20 })
+        .some((job) => job.deduplicationKey === `mineru-download:${parseTaskId}`)
+    ).toBe(false)
+    expect(taskEvents(fixture, parseTaskId).some((event) => event.to_state === 'downloading')).toBe(
+      false
+    )
+    fixture.database.close()
+  })
+
+  it('does not start polling when the task fails during upload', async () => {
+    const fixture = await createFixture()
+    const uploadStarted = deferred()
+    const releaseUpload = deferred()
+    const gateway = createGateway({
+      upload: vi.fn(async () => {
+        uploadStarted.resolve()
+        await releaseUpload.promise
+      })
+    })
+    const service = createService(fixture, gateway)
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+
+    const pending = service.handleSubmit(context(submit))
+    await uploadStarted.promise
+    service.recordPermanentFailure(parseTaskId, new Error('duplicate delivery failed'))
+    releaseUpload.resolve()
+    await pending
+
+    expect(taskRow(fixture, parseTaskId).state).toBe('failed')
+    expect(
+      fixture.jobs
+        .list({ limit: 20 })
+        .some((job) => job.deduplicationKey === `mineru-poll:${parseTaskId}:0`)
+    ).toBe(false)
+    expect(
+      taskEvents(fixture, parseTaskId).some((event) => event.event === 'source.uploaded')
+    ).toBe(false)
+    fixture.database.close()
+  })
+
+  it('does not resume polling when cancellation races an expired download capability', async () => {
+    const fixture = await createFixture()
+    const downloadStarted = deferred()
+    const releaseDownload = deferred()
+    const gateway = createGateway({
+      download: vi.fn(async () => {
+        downloadStarted.resolve()
+        await releaseDownload.promise
+        throw Object.assign(new Error('download capability expired'), { httpStatus: 403 })
+      })
+    })
+    const service = createService(fixture, gateway)
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    const submit = fixture.jobs.list({ limit: 10 }).find((job) => job.type === 'mineru_parse')
+    if (submit === undefined) throw new Error('Submit job was not enqueued')
+    await service.handleSubmit(context(submit))
+    await service.handlePoll(context(fakeJob('mineru_parse', parseTaskId)))
+    expect(taskRow(fixture, parseTaskId).state).toBe('downloading')
+
+    const pending = service.handleDownload(context(fakeJob('mineru_parse', parseTaskId)))
+    await downloadStarted.promise
+    service.cancel(parseTaskId)
+    releaseDownload.resolve()
+    await pending
+
+    expect(taskRow(fixture, parseTaskId).state).toBe('cancelled')
+    expect(
+      fixture.jobs
+        .list({ limit: 20 })
+        .some((job) => job.deduplicationKey === `mineru-poll:${parseTaskId}:1`)
+    ).toBe(false)
+    expect(
+      taskEvents(fixture, parseTaskId).some(
+        (event) => event.event === 'download.capability.refresh_requested'
+      )
+    ).toBe(false)
+    fixture.database.close()
+  })
 })
 
 async function createFixture() {

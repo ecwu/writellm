@@ -2145,3 +2145,24 @@ The release attaches exactly four assets:
 Hosted rows build and inspect packages without runtime tests. Runtime acceptance remains macOS arm64 only.
 This record changes no application source, and the tag does not move.
 
+
+## 2026-11-05 Guarded MinerU parse task transitions
+
+Every `parse_tasks.state` write in `MineruWorkflowService` now goes through one `#advance` step.
+It re-reads the task inside the immediate transaction, checks a declared transition table, writes with a
+compare-and-set on the read state, and audits the event only when the write happens.
+The shared table type and checks live in `src/main/db/state-transitions.ts`.
+Previously most stage writes checked only for cancellation, so a stale or duplicate delivery could reopen a terminal task:
+
+- a late `done` poll moved a permanently failed task to `downloading` and enqueued a download;
+- a finished upload moved a failed task to `polling` and enqueued a poll;
+- an expired download capability moved a cancelled task back to `polling`;
+- the allocation write audited `remote.id.persisted` even when its `remote_task_id IS NULL` guard matched no row.
+
+A skipped transition is logged as `mineru.parse.transition_skipped`. A publish that loses to a finished task keeps that task's revision.
+`artifact_cleanup_requests` and `normalization_runs` transitions are unchanged.
+
+Gates: three new regression tests fail on the previous source and pass after the change.
+Focused Vitest passes 22 of 22 tests across the MinerU workflow and knowledge import suites.
+`check:fast` passes in 3.5 seconds. `check:e2e e2e/parsed-knowledge.spec.ts` passes 5 of 5 scenarios in 64 seconds with no retries.
+Runtime coverage is macOS arm64 only.
