@@ -2224,3 +2224,22 @@ Artifact cleanup request writes now require their source state.
 Gates: focused Vitest passes 69 of 69 tests across 8 files. `check:e2e` for `parsed-knowledge`, `agent-images`, and
 `agent-writing-task` passes static checks, one build, and 7 of 7 scenarios in 72 seconds with no retries.
 Runtime coverage is macOS arm64 only.
+
+## 2026-11-06 Release 0.2026.11.1 preparation
+
+`package.json#release.version` advances to 0.2026.11.1, and the SemVer base advances to 0.2026.11 for the new calendar month.
+The release contains the 2026-11-05 state-transition maintenance in `c934f26` through `9fae0cd`.
+The complete Vitest suite passes 1,932 tests in 304 files with 3 skipped, in 23.2 seconds.
+The first complete package gate run passes all ten stages in 254.2 seconds with one App build.
+It covers twelve packaged runtime smoke scenarios, all 45 packaged interaction scenarios with zero retries or skips, the installers, and artifact checksums.
+The intermittent `workbench.tabs-docking-restore` scenario passes in this run.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `WriteLLM-0.2026.11.1-arm64.dmg` | `ee7a2a6e7e9d7df3e6fa832093212def79a919c2bef275b943d44c3e94cdb1e1` |
+| `WriteLLM-0.2026.11.1-arm64.zip` | `357d450021e533c9e3e77007204efb0dc803fe75cfb5a91f57de1ed343d665a6` |
+
+Local runtime acceptance covers macOS arm64 only with Electron 44.7.2, ABI 149, and the bundled Node-API 10 database prebuild.
+Distribution remains unsigned and unnotarized.
+
+Evidence: [package gate](../../.cache/verification/1793959281529-54789-473b69b0).

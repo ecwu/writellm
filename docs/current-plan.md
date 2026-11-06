@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.10.5 is published.
-Recorded: 2026-10-31
+Status: Release 0.2026.11.1 passes local package acceptance. Tag publication is pending.
+Recorded: 2026-11-06
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -9,6 +9,13 @@ The [tracker](implementation-todo.md) links checkpoints. The [history log](histo
 Historical authorization records do not authorize new work.
 
 ## Current state
+
+Release 0.2026.11.1 includes the state-transition guards for parsing, normalization, imports, attachments,
+change-set batches, and the project lifecycle, the shared Agent workflow state derivation, and the replacement review race fix
+([c934f26](https://github.com/ecwu/writellm/commit/c934f26) through [9fae0cd](https://github.com/ecwu/writellm/commit/9fae0cd)).
+Local macOS arm64 acceptance passes the complete Vitest suite and the full package gate with twelve packaged runtime and 45 packaged interaction scenarios.
+The four-platform tag build and automatic publication remain pending.
+[Release preparation evidence](history/implementation-log.md#2026-11-06-release-02026111-preparation) records the commands, artifacts, and limits.
 
 [Release 0.2026.10.5](https://github.com/ecwu/writellm/releases/tag/v0.2026.10.5) is published with four assets.
 Tag `v0.2026.10.5` is fixed at `7cdfcfc`. It includes configurable image source instances and models
@@ -54,15 +61,14 @@ Known open defects:
 
 - `workbench.tabs-docking-restore` fails intermittently at the native-menu Knowledge toggle.
   It also fails on unmodified `7b5e287`, so it predates the Pi 1.3 update. It needs a separate fix.
-  It recurred once in the first 0.2026.10.5 package gate run.
+  It recurred once in the first 0.2026.10.5 package gate run. It passed in the 0.2026.11.1 package gate.
 - The full dependency audit retains one moderate sprintf-js advisory with no published repair.
   Both audits retain one low KaTeX advisory, because rehype-katex requires the 0.16 series.
 
 ## Current authorized work
 
-Approved scope: configurable image sources under [ADR 093](adrs/093-configurable-image-source-instances-and-models.md),
-migration of existing image configuration, testing, a local build, a commit, pushing `main`, and publishing tag `v0.2026.10.5`.
-The user also authorizes committing and pushing this publication record.
+Approved scope: build release 0.2026.11.1 and, when local acceptance passes, commit it and create tag `v0.2026.11.1`.
+Pushing the tag starts the four-platform build and automatic publication, and awaits the user's confirmation.
 
 ## Deferred
 
