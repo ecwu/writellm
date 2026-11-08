@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, realpath, rename, rm } from 'node:fs/promises'
+import { realpath, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
   projectLifecycleSnapshotSchema,
@@ -9,6 +8,7 @@ import {
   type CheckpointEntry,
   type ProjectLifecycleSnapshot,
   type ProjectLifecycleState,
+  type ProjectOpenRecoveryReason,
   type ProjectSessionId
 } from '../../shared/contracts/projects'
 import type { RecentProjectsRepository } from '../app-db/repositories/recent-projects'
@@ -30,13 +30,16 @@ import {
 import { type ProjectContext, toActiveProject } from './project-context'
 import {
   createProject,
-  INDEX_DATABASE_APPLICATION_ID,
   type CreateProjectOptions,
   type CreatedProject,
   ProjectCreateError
 } from './project-lifecycle'
 import { openProjectDatabase, type ProjectDatabase } from './project-database'
-import { readProjectManifest, type ProjectManifest } from './project-manifest'
+import { ProjectManifestError, readProjectManifest, type ProjectManifest } from './project-manifest'
+import {
+  createManifestRecoveryCopy,
+  rebuildMissingProjectManifest
+} from './project-manifest-recovery'
 import {
   inspectProjectWriteLock,
   PROJECT_LOCK_STALE_AFTER_MS,
@@ -46,24 +49,23 @@ import {
   type ProjectLockOptions
 } from './project-lock'
 import {
-  INDEX_DATABASE_RELATIVE_PATH,
+  MANUSCRIPT_IMPORT_STAGING_DIRECTORY,
   PROJECT_DATABASE_RELATIVE_PATH,
   PROJECT_TEMP_DIRECTORY,
   PROJECT_HISTORY_IGNORE_RELATIVE_PATH,
   PROJECT_HISTORY_RELATIVE_PATH,
-  resolveProjectPath,
-  WRITELLM_INTERNAL_DIRECTORY
+  resolveProjectPath
 } from './project-paths'
 import {
   createProjectSnapshot,
   inventoryProjectFiles,
   restoreProjectDatabase,
   restoreProjectSnapshot,
-  type ProjectSnapshotManifest
+  type ProjectSnapshotManifest,
+  type SnapshotBarrier
 } from './project-snapshot'
 import type { ProjectIndexService } from '../search/index-service'
 import type { RetrievalService } from '../search/retrieval-service'
-import { INDEX_SCHEMA_VERSION } from '../../shared/contracts/indexing'
 import { ProjectOperationRegistry } from './project-operations'
 import type { AgentSessionService } from '../agent/session-service'
 import type { MutationProposalService } from '../agent/mutation-service'
@@ -91,11 +93,10 @@ import {
   previewProjectTemplateExtraction
 } from './project-template-service'
 import {
+  historyRestorePaths,
   recoverIncompleteHistoryRestore,
   type HistoryRestoreJournal
 } from './history-restore-recovery'
-
-export { recoverIncompleteHistoryRestore } from './history-restore-recovery'
 
 export interface ProjectCloseParticipants {
   getCurrentRevision(context: ProjectContext): Promise<string | null>
@@ -111,6 +112,51 @@ export interface ProjectCloseParticipants {
   parkWorkers(context: ProjectContext): Promise<void>
   stopWorkersAndIndex(context: ProjectContext): Promise<void>
   revokeSubscriptions(projectSessionId: ProjectSessionId): Promise<void>
+}
+
+type CloseResource = 'claims' | 'park' | 'workers' | 'database' | 'lock' | 'subscriptions'
+
+type CloseStep = {
+  resource: CloseResource
+  failureEvent: string
+  run: () => void | Promise<void>
+}
+
+type PartialOpenResources = {
+  projectId?: string
+  database?: ProjectDatabase
+  writeLock: ProjectWriteLock
+}
+
+type CloseRecovery = {
+  kind: 'close'
+  projectId?: string
+  writeLock: ProjectWriteLock
+  steps: CloseStep[]
+  completed: Set<CloseResource>
+}
+
+type OpenRecovery = {
+  kind: 'open'
+  selectedRoot: string
+  reason: ProjectOpenRecoveryReason
+}
+
+class ProjectOpenIssue extends Error {
+  constructor(
+    readonly reason: ProjectOpenRecoveryReason,
+    message: string,
+    cause: unknown
+  ) {
+    super(message, { cause })
+  }
+}
+
+function openRecoveryReason(error: unknown): ProjectOpenRecoveryReason {
+  if (error instanceof ProjectLockContendedError) return 'lock-contended'
+  if (error instanceof ProjectOpenIssue || error instanceof ProjectManifestError)
+    return error.reason
+  return 'open-failed'
 }
 
 export interface ProjectSnapshotParticipants {
@@ -263,22 +309,10 @@ export class ProjectManager {
   #finalFlushConsumed = false
   #snapshotFlushAuthorization: ProjectFinalFlushAuthorization | null = null
   #snapshotFlushConsumed = false
-  #historyRestoreRecoverySuppressed = false
   #activeManuscriptExport: { projectSessionId: string; controller: AbortController } | null = null
   #activeClone: { projectSessionId: string; controller: AbortController } | null = null
-  #recovery:
-    | {
-        kind: 'open'
-        selectedRoot: string
-        reason: 'lock-contended' | 'open-failed'
-      }
-    | { kind: 'create'; projectRoot: string }
-    | {
-        kind: 'close'
-        context: ProjectContext
-        completed: Set<'claims' | 'park' | 'workers' | 'database' | 'lock' | 'subscriptions'>
-      }
-    | null = null
+  #restoringCheckpoint = false
+  #recovery: OpenRecovery | { kind: 'create'; projectRoot: string } | CloseRecovery | null = null
 
   constructor(options: ProjectManagerOptions) {
     if (typeof options.createKnowledgeRuntime !== 'function') {
@@ -337,9 +371,9 @@ export class ProjectManager {
         'Project create transition started'
       )
       let projectPublished = false
-      let created: CreatedProject | undefined
+      let unopened: PartialOpenResources | undefined
       try {
-        created = await this.#dependencies.createProject({
+        const created = await this.#dependencies.createProject({
           destination: projectRoot,
           forbiddenApplicationDirectories: this.#forbiddenApplicationDirectories,
           applicationVersion: this.#applicationVersion,
@@ -347,12 +381,14 @@ export class ProjectManager {
           initialTitle: name,
           lockOptions: this.#lockOptions
         })
+        unopened = { projectId: created.manifest.projectId, writeLock: created.writeLock }
         projectPublished = true
         this.#setState('opening')
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(created.projectRoot)
         if (canonicalRoot !== created.projectRoot) {
           throw new Error('Created project root identity changed before open')
         }
+        unopened = undefined
         await this.#openCanonicalRoot(canonicalRoot, created.writeLock)
         try {
           const context = this.#context
@@ -378,20 +414,7 @@ export class ProjectManager {
           'Project create transition completed'
         )
       } catch (err) {
-        if (created !== undefined && this.#context === null) {
-          try {
-            await created.writeLock.release()
-          } catch (cleanupErr) {
-            this.#logger.error(
-              {
-                event: 'project_manager.create.lock_cleanup_failed',
-                err: cleanupErr,
-                projectId: created.manifest.projectId
-              },
-              'Failed to release project lock after create transition failure'
-            )
-          }
-        }
+        if (unopened !== undefined) await this.#cleanupFailedOpen(unopened)
         this.#logger.error(
           { event: 'project_manager.create.failed', err },
           'Project create transition failed'
@@ -403,6 +426,9 @@ export class ProjectManager {
             : 'recovery-required'
         this.#setState(failedState)
         if (failedState === 'closed') this.#recovery = null
+        else if (projectPublished && this.#recovery?.kind === 'create') {
+          this.#recovery = { kind: 'open', selectedRoot: projectRoot, reason: 'open-failed' }
+        }
         throw new Error('Failed to create and open project', { cause: err })
       }
       return this.snapshot()
@@ -410,198 +436,168 @@ export class ProjectManager {
   }
 
   open(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
-    return this.#serialize(async () => {
-      this.#requireState('closed')
-      this.#setState('opening')
-      this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
-      this.#logger.info(
-        { event: 'project_manager.open.started' },
-        'Project open transition started'
-      )
-      try {
-        if (!this.#historyRestoreRecoverySuppressed) {
-          await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
-        }
-        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
-        await this.#openCanonicalRoot(canonicalRoot)
-      } catch (err) {
-        this.#logger.error(
-          { event: 'project_manager.open.failed', err },
-          'Project open transition failed'
-        )
-        this.#context = null
-        this.#setState('recovery-required')
-        this.#recovery.reason =
-          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
-        throw new Error('Failed to open project', { cause: err })
-      }
-      return this.snapshot()
-    })
+    return this.#serialize(() => this.#openClosedProject(selectedRoot))
   }
 
-  async #openDuringHistoryRestore(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
-    this.#historyRestoreRecoverySuppressed = true
+  async #openClosedProject(
+    selectedRoot: string,
+    restoreLock?: ProjectWriteLock
+  ): Promise<ProjectLifecycleSnapshot> {
+    this.#requireState('closed')
+    this.#setState('opening')
+    const recovery: OpenRecovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
+    this.#recovery = recovery
+    this.#logger.info({ event: 'project_manager.open.started' }, 'Project open transition started')
     try {
-      return await this.open(selectedRoot)
-    } finally {
-      this.#historyRestoreRecoverySuppressed = false
+      const canonicalRoot = restoreLock?.projectRoot ?? (await this.#resolveOpenRoot(selectedRoot))
+      await this.#openCanonicalRoot(canonicalRoot, restoreLock, restoreLock !== undefined)
+      this.#recovery = null
+    } catch (err) {
+      this.#logger.error(
+        { event: 'project_manager.open.failed', err },
+        'Project open transition failed'
+      )
+      this.#context = null
+      this.#setState('recovery-required')
+      recovery.reason = openRecoveryReason(err)
+      throw new Error('Failed to open project', { cause: err })
     }
+    return this.snapshot()
+  }
+
+  async #resolveOpenRoot(selectedRoot: string): Promise<string> {
+    const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot).catch((err) => {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw err
+    })
+    await recoverIncompleteHistoryRestore(
+      canonicalRoot ?? selectedRoot,
+      this.#logger,
+      this.#lockOptions
+    )
+    return (
+      canonicalRoot ??
+      this.#dependencies.canonicalizeRoot(selectedRoot).catch((err) => {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new ProjectOpenIssue('folder-missing', 'Project folder does not exist', err)
+        }
+        throw err
+      })
+    )
   }
 
   close(): Promise<ProjectLifecycleSnapshot> {
+    if (this.#restoringCheckpoint) {
+      return Promise.reject(new Error('Cannot close a project during checkpoint restore'))
+    }
     if (this.#state !== 'open' || this.#context === null) {
       return Promise.reject(new Error(`Cannot close project while state is ${this.#state}`))
     }
     const context = this.#context
+    this.#beginClose()
+    return this.#serialize(() => this.#finishClose(context))
+  }
+
+  #beginClose(): void {
     // Enter closing before queueing so session checks reject new work at once; queued
     // operations then fail their session assertion instead of running against a closing project.
     this.#setState('closing')
     this.#snapshotFlushAuthorization = null
     this.#snapshotFlushConsumed = false
+  }
 
-    return this.#serialize(async () => {
-      const startedAt = Date.now()
-      this.#logger.info(
-        { event: 'project_manager.close.started', projectId: context.manifest.projectId },
-        'Project close transition started'
-      )
-      let firstError: unknown
-      const completed = new Set<
-        'claims' | 'park' | 'workers' | 'database' | 'lock' | 'subscriptions'
-      >()
-      const attempt = async (
-        event: string,
-        operation: () => void | Promise<void>
-      ): Promise<boolean> => {
-        try {
-          await operation()
-          return true
-        } catch (err) {
-          firstError ??= err
-          this.#logger.error(
-            { event, err, projectId: context.manifest.projectId },
-            'Project close step failed'
-          )
-          return false
-        }
-      }
-
-      let currentRevision: string | null = null
-      await attempt('project_manager.close.editor_revision_read_failed', async () => {
-        currentRevision = await this.#closeParticipants.getCurrentRevision(context)
-      })
-      const finalFlushAuthorization: ProjectFinalFlushAuthorization = {
-        projectSessionId: context.projectSessionId,
-        currentRevision,
-        closingToken: this.#dependencies.randomUUID()
-      }
-      this.#finalFlushAuthorization = finalFlushAuthorization
-      this.#finalFlushConsumed = false
-      await attempt('project_manager.close.editor_flush_failed', () =>
-        withTimeout(
-          this.#closeParticipants.flushEditors(context, finalFlushAuthorization),
-          this.#finalFlushTimeoutMs,
-          'Final editor flush timed out'
-        )
-      )
-      await attempt('project_manager.close.editor_flush_verify_failed', () =>
-        this.#closeParticipants.verifyFinalEditorFlush(context, finalFlushAuthorization)
-      )
-      this.#finalFlushAuthorization = null
-      if (
-        await attempt('project_manager.close.stop_claims_failed', () =>
-          Promise.resolve(context.runtime.stopClaims()).then(() =>
-            this.#closeParticipants.stopJobClaims(context)
-          )
-        )
-      )
-        completed.add('claims')
-      context.operations?.abortAll(new Error('Project is closing'))
-      if (
-        await attempt('project_manager.close.park_workers_failed', () =>
-          context.runtime.park().then(() => this.#closeParticipants.parkWorkers(context))
-        )
-      )
-        completed.add('park')
-      if (
-        await attempt('project_manager.close.stop_workers_failed', () =>
-          context.runtime.stop().then(() => this.#closeParticipants.stopWorkersAndIndex(context))
-        )
-      )
-        completed.add('workers')
-      if (await attempt('project_manager.close.database_failed', () => context.database.close())) {
-        completed.add('database')
-      }
-      if (
-        await attempt('project_manager.close.lock_release_failed', async () => {
-          await context.writeLock.release()
-        })
-      )
-        completed.add('lock')
-      if (
-        await attempt('project_manager.close.subscription_revoke_failed', () =>
-          this.#closeParticipants.revokeSubscriptions(context.projectSessionId)
-        )
-      )
-        completed.add('subscriptions')
-
-      this.#context = null
-      this.#recovery = { kind: 'close', context, completed }
-      if (firstError !== undefined) {
-        this.#setState('recovery-required')
+  async #finishClose(
+    context: ProjectContext,
+    retainWriteLock = false
+  ): Promise<ProjectLifecycleSnapshot> {
+    const startedAt = Date.now()
+    this.#logger.info(
+      { event: 'project_manager.close.started', projectId: context.manifest.projectId },
+      'Project close transition started'
+    )
+    let firstError: unknown
+    const recovery = this.#createCloseRecovery(context)
+    const attempt = async (
+      event: string,
+      operation: () => void | Promise<void>
+    ): Promise<boolean> => {
+      try {
+        await operation()
+        return true
+      } catch (err) {
+        firstError ??= err
         this.#logger.error(
-          {
-            event: 'project_manager.close.failed',
-            err: firstError,
-            projectId: context.manifest.projectId,
-            durationMs: Date.now() - startedAt
-          },
-          'Project close transition failed'
+          { event, err, projectId: context.manifest.projectId },
+          'Project close step failed'
         )
-        throw new Error('Failed to close project cleanly', { cause: firstError })
+        return false
       }
+    }
 
-      this.#setState('closed')
-      this.#recovery = null
-      this.#logger.info(
+    let currentRevision: string | null = null
+    await attempt('project_manager.close.editor_revision_read_failed', async () => {
+      currentRevision = await this.#closeParticipants.getCurrentRevision(context)
+    })
+    const finalFlushAuthorization: ProjectFinalFlushAuthorization = {
+      projectSessionId: context.projectSessionId,
+      currentRevision,
+      closingToken: this.#dependencies.randomUUID()
+    }
+    this.#finalFlushAuthorization = finalFlushAuthorization
+    this.#finalFlushConsumed = false
+    await attempt('project_manager.close.editor_flush_failed', () =>
+      withTimeout(
+        this.#closeParticipants.flushEditors(context, finalFlushAuthorization),
+        this.#finalFlushTimeoutMs,
+        'Final editor flush timed out'
+      )
+    )
+    await attempt('project_manager.close.editor_flush_verify_failed', () =>
+      this.#closeParticipants.verifyFinalEditorFlush(context, finalFlushAuthorization)
+    )
+    this.#finalFlushAuthorization = null
+    const resourceFailure = await this.#closeResources(recovery, retainWriteLock)
+    if (resourceFailure !== undefined) {
+      firstError ??= resourceFailure.err ?? new Error('Project close resource failed')
+    }
+
+    this.#context = null
+    this.#recovery = recovery
+    if (firstError !== undefined) {
+      this.#setState('recovery-required')
+      this.#logger.error(
         {
-          event: 'project_manager.close.completed',
+          event: 'project_manager.close.failed',
+          err: firstError,
           projectId: context.manifest.projectId,
           durationMs: Date.now() - startedAt
         },
-        'Project close transition completed'
+        'Project close transition failed'
       )
-      return this.snapshot()
-    })
+      throw new Error('Failed to close project cleanly', { cause: firstError })
+    }
+
+    this.#setState('closed')
+    this.#recovery = null
+    this.#logger.info(
+      {
+        event: 'project_manager.close.completed',
+        projectId: context.manifest.projectId,
+        durationMs: Date.now() - startedAt
+      },
+      'Project close transition completed'
+    )
+    return this.snapshot()
   }
 
   switch(selectedRoot: string): Promise<ProjectLifecycleSnapshot> {
+    if (this.#restoringCheckpoint) {
+      return Promise.reject(new Error('Cannot switch projects during checkpoint restore'))
+    }
     const closing = this.close()
     return this.#serialize(async () => {
       await closing
-      this.#requireState('closed')
-      this.#setState('opening')
-      this.#recovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
-      this.#logger.info(
-        { event: 'project_manager.open.started' },
-        'Project open transition started'
-      )
-      try {
-        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
-        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
-        await this.#openCanonicalRoot(canonicalRoot)
-      } catch (err) {
-        this.#logger.error(
-          { event: 'project_manager.open.failed', err },
-          'Project open transition failed'
-        )
-        this.#context = null
-        this.#setState('recovery-required')
-        this.#recovery.reason =
-          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
-        throw new Error('Failed to open project', { cause: err })
-      }
-      return this.snapshot()
+      return this.#openClosedProject(selectedRoot)
     })
   }
 
@@ -717,6 +713,7 @@ export class ProjectManager {
       if (this.#state !== 'closed' && this.#state !== 'recovery-required') {
         throw new Error(`Cannot recover a project lock while state is ${this.#state}`)
       }
+      this.#assertNoPendingClose()
       try {
         const canonicalRoot = await this.#dependencies.canonicalizeRoot(options.selectedRoot)
         const recovered = await this.#dependencies.recoverStaleLock(canonicalRoot, {
@@ -770,14 +767,7 @@ export class ProjectManager {
         return this.snapshot()
       } catch (err) {
         if (writeLock !== undefined) {
-          try {
-            await writeLock.release()
-          } catch (cleanupErr) {
-            this.#logger.error(
-              { event: 'project_manager.restore.lock_cleanup_failed', err: cleanupErr, projectId },
-              'Failed to release project lock after restore failure'
-            )
-          }
+          await this.#cleanupFailedOpen({ projectId, writeLock })
         }
         this.#context = null
         this.#setState('recovery-required')
@@ -795,26 +785,30 @@ export class ProjectManager {
       if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'open') {
         throw new Error('No failed project open is available to retry')
       }
-      const recovery = this.#recovery
-      const selectedRoot = recovery.selectedRoot
-      this.#setState('opening')
-      try {
-        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
-        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
-        await this.#openCanonicalRoot(canonicalRoot)
-        this.#recovery = null
-        return this.snapshot()
-      } catch (err) {
-        this.#setState('recovery-required')
-        recovery.reason =
-          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
-        this.#logger.error(
-          { event: 'project_manager.retry_open.failed', err },
-          'Project open retry failed'
-        )
-        throw new Error('Failed to retry opening the project', { cause: err })
-      }
+      return this.#retryOpen(this.#recovery)
     })
+  }
+
+  async #retryOpen(
+    recovery: OpenRecovery,
+    lock?: ProjectWriteLock
+  ): Promise<ProjectLifecycleSnapshot> {
+    this.#setState('opening')
+    try {
+      const canonicalRoot =
+        lock?.projectRoot ?? (await this.#resolveOpenRoot(recovery.selectedRoot))
+      await this.#openCanonicalRoot(canonicalRoot, lock)
+      this.#recovery = null
+      return this.snapshot()
+    } catch (err) {
+      this.#logger.error(
+        { event: 'project_manager.retry_open.failed', err },
+        'Project open retry failed'
+      )
+      this.#setState('recovery-required')
+      recovery.reason = openRecoveryReason(err)
+      throw new Error('Failed to retry opening the project', { cause: err })
+    }
   }
 
   recoverStaleLockAndRetryOpen(): Promise<ProjectLifecycleSnapshot> {
@@ -829,20 +823,19 @@ export class ProjectManager {
       const recovery = this.#recovery
       this.#setState('opening')
       try {
-        await recoverIncompleteHistoryRestore(recovery.selectedRoot, this.#logger)
-        const canonicalRoot = await this.#dependencies.canonicalizeRoot(recovery.selectedRoot)
-        const metadata = await this.#dependencies.inspectLock(canonicalRoot, {
-          ...this.#lockOptions,
-          logger: this.#logger
-        })
-        if (metadata !== null) {
-          await this.#dependencies.recoverStaleLock(canonicalRoot, {
-            ...this.#lockOptions,
-            logger: this.#logger,
-            expectedOwnerToken: metadata.ownerToken,
-            staleBefore: new Date(this.#dependencies.now().getTime() - this.#staleLockTimeoutMs)
-          })
-        }
+        const canonicalRoot = await this.#resolveOpenRoot(recovery.selectedRoot).then(
+          async (root) => {
+            await this.#recoverObservedLock(root)
+            return root
+          },
+          async (err: unknown) => {
+            if (!(err instanceof ProjectLockContendedError) || err.projectRoot === undefined) {
+              throw err
+            }
+            await this.#recoverObservedLock(err.projectRoot)
+            return this.#resolveOpenRoot(recovery.selectedRoot)
+          }
+        )
         await this.#openCanonicalRoot(canonicalRoot)
         this.#recovery = null
         this.#logger.info(
@@ -852,8 +845,8 @@ export class ProjectManager {
         return this.snapshot()
       } catch (err) {
         this.#setState('recovery-required')
-        recovery.reason =
-          err instanceof ProjectLockContendedError ? 'lock-contended' : recovery.reason
+        const reason = openRecoveryReason(err)
+        if (reason !== 'open-failed') recovery.reason = reason
         this.#logger.error(
           { event: 'project_manager.stale_lock_recovery_open.failed', err },
           'Stale project lock recovery and open failed'
@@ -865,6 +858,121 @@ export class ProjectManager {
     })
   }
 
+  async #recoverObservedLock(projectRoot: string): Promise<void> {
+    const options = { ...this.#lockOptions, logger: this.#logger }
+    const metadata = await this.#dependencies.inspectLock(projectRoot, options)
+    if (metadata === null) return
+    await this.#dependencies.recoverStaleLock(projectRoot, {
+      ...options,
+      expectedOwnerToken: metadata.ownerToken,
+      staleBefore: new Date(this.#dependencies.now().getTime() - this.#staleLockTimeoutMs)
+    })
+  }
+
+  #createCloseRecovery(resources: ProjectContext | PartialOpenResources): CloseRecovery {
+    const steps: CloseStep[] = []
+    if ('projectSessionId' in resources) {
+      const context = resources
+      steps.push(
+        {
+          resource: 'claims',
+          failureEvent: 'project_manager.close.stop_claims_failed',
+          run: async () => {
+            try {
+              context.runtime.stopClaims()
+              await this.#closeParticipants.stopJobClaims(context)
+            } finally {
+              context.operations?.abortAll(new Error('Project is closing'))
+            }
+          }
+        },
+        {
+          resource: 'park',
+          failureEvent: 'project_manager.close.park_workers_failed',
+          run: async () => {
+            await context.runtime.park()
+            await this.#closeParticipants.parkWorkers(context)
+          }
+        },
+        {
+          resource: 'workers',
+          failureEvent: 'project_manager.close.stop_workers_failed',
+          run: async () => {
+            await context.runtime.stop()
+            await this.#closeParticipants.stopWorkersAndIndex(context)
+          }
+        }
+      )
+    }
+    const { database, writeLock } = resources
+    if (database !== undefined) {
+      steps.push({
+        resource: 'database',
+        failureEvent: 'project_manager.close.database_failed',
+        run: () => database.close()
+      })
+    }
+    steps.push({
+      resource: 'lock',
+      failureEvent: 'project_manager.close.lock_release_failed',
+      run: async () => {
+        await writeLock.release()
+      }
+    })
+    if ('projectSessionId' in resources) {
+      steps.push({
+        resource: 'subscriptions',
+        failureEvent: 'project_manager.close.subscription_revoke_failed',
+        run: () => this.#closeParticipants.revokeSubscriptions(resources.projectSessionId)
+      })
+    }
+    return {
+      kind: 'close',
+      projectId: 'manifest' in resources ? resources.manifest.projectId : resources.projectId,
+      writeLock,
+      steps,
+      completed: new Set()
+    }
+  }
+
+  async #closeResources(
+    recovery: CloseRecovery,
+    retainWriteLock = false
+  ): Promise<{ err: unknown } | undefined> {
+    let failure: { err: unknown } | undefined
+    for (const step of recovery.steps) {
+      if (recovery.completed.has(step.resource)) continue
+      if (retainWriteLock && step.resource === 'lock') continue
+      // Session revocation does not depend on releasing the project resources.
+      if (failure !== undefined && step.resource !== 'subscriptions') continue
+      try {
+        await step.run()
+        recovery.completed.add(step.resource)
+      } catch (err) {
+        failure ??= { err }
+        this.#logger.error(
+          { event: step.failureEvent, err, projectId: recovery.projectId },
+          'Project close step failed'
+        )
+      }
+    }
+    return failure
+  }
+
+  async #cleanupFailedOpen(
+    resources: ProjectContext | PartialOpenResources,
+    retainWriteLock = false
+  ): Promise<void> {
+    const openRecovery = this.#recovery
+    const closeRecovery = this.#createCloseRecovery(resources)
+    this.#context = null
+    this.#recovery = closeRecovery
+    this.#setState('recovery-required')
+    if ((await this.#closeResources(closeRecovery, retainWriteLock)) === undefined) {
+      this.#recovery = openRecovery
+    }
+  }
+
   retryClose(): Promise<ProjectLifecycleSnapshot> {
     return this.#serialize(async () => {
       if (this.#state !== 'recovery-required' || this.#recovery?.kind !== 'close') {
@@ -872,29 +980,14 @@ export class ProjectManager {
       }
       const recovery = this.#recovery
       try {
-        if (!recovery.completed.has('workers')) {
-          await recovery.context.runtime.stop()
-          await this.#closeParticipants.stopWorkersAndIndex(recovery.context)
-          recovery.completed.add('workers')
-        }
-        if (!recovery.completed.has('database')) {
-          recovery.context.database.close()
-          recovery.completed.add('database')
-        }
-        if (!recovery.completed.has('lock')) {
-          await recovery.context.writeLock.release()
-          recovery.completed.add('lock')
-        }
-        if (!recovery.completed.has('subscriptions')) {
-          await this.#closeParticipants.revokeSubscriptions(recovery.context.projectSessionId)
-          recovery.completed.add('subscriptions')
-        }
+        const failure = await this.#closeResources(recovery)
+        if (failure !== undefined) throw failure.err
         this.#recovery = null
         this.#setState('closed')
         this.#logger.info(
           {
             event: 'project_manager.retry_close.completed',
-            projectId: recovery.context.manifest.projectId
+            projectId: recovery.projectId
           },
           'Project close retry completed'
         )
@@ -905,7 +998,7 @@ export class ProjectManager {
           {
             event: 'project_manager.retry_close.failed',
             err,
-            projectId: recovery.context.manifest.projectId
+            projectId: recovery.projectId
           },
           'Project close retry failed'
         )
@@ -950,28 +1043,72 @@ export class ProjectManager {
       if (this.#state !== 'recovery-required')
         throw new Error('Project location recovery is unavailable')
       this.#setState('opening')
-      const recovery: {
-        kind: 'open'
-        selectedRoot: string
-        reason: 'lock-contended' | 'open-failed'
-      } = { kind: 'open', selectedRoot, reason: 'open-failed' }
+      const recovery: OpenRecovery = { kind: 'open', selectedRoot, reason: 'open-failed' }
       this.#recovery = recovery
       try {
-        await recoverIncompleteHistoryRestore(selectedRoot, this.#logger)
-        const canonicalRoot = await this.#dependencies.canonicalizeRoot(selectedRoot)
+        const canonicalRoot = await this.#resolveOpenRoot(selectedRoot)
         await this.#openCanonicalRoot(canonicalRoot)
         this.#recovery = null
         return this.snapshot()
       } catch (err) {
         this.#setState('recovery-required')
-        recovery.reason =
-          err instanceof ProjectLockContendedError ? 'lock-contended' : 'open-failed'
+        recovery.reason = openRecoveryReason(err)
         this.#logger.error(
           { event: 'project_manager.locate_moved.failed', err },
           'Moved project location recovery failed'
         )
         throw new Error('Failed to open the located project', { cause: err })
       }
+    })
+  }
+
+  recoverMissingManifest(
+    selectDestinationParent?: () => Promise<string | null>
+  ): Promise<ProjectLifecycleSnapshot> {
+    return this.#serialize(async () => {
+      const recovery = this.#recovery
+      if (
+        this.#state !== 'recovery-required' ||
+        recovery?.kind !== 'open' ||
+        recovery.reason !== 'manifest-missing'
+      ) {
+        throw new Error('No missing project manifest is available to recover')
+      }
+      const destinationParent = await selectDestinationParent?.()
+      if (destinationParent === null) return this.snapshot()
+      const sourceRoot = await this.#dependencies.canonicalizeRoot(recovery.selectedRoot)
+      const filesystem = new ProjectFilesystem(sourceRoot, this.#logger)
+      await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH)
+      let lock: ProjectWriteLock | undefined
+      let destination: string | undefined
+      try {
+        lock = await this.#dependencies.acquireLock(sourceRoot, {
+          ...this.#lockOptions,
+          logger: this.#logger
+        })
+        if (destinationParent === undefined) {
+          await rebuildMissingProjectManifest(filesystem, this.#logger)
+        } else {
+          destination = await createManifestRecoveryCopy({
+            sourceRoot,
+            destinationParent,
+            log: this.#logger
+          })
+        }
+      } catch (err) {
+        this.#logger.error(
+          { event: 'project_manager.rebuild_manifest.failed', err },
+          'Missing manifest recovery failed'
+        )
+        if (err instanceof ProjectLockContendedError) recovery.reason = 'lock-contended'
+        if (lock !== undefined) await this.#cleanupFailedOpen({ writeLock: lock })
+        throw err
+      }
+      if (destination === undefined) return this.#retryOpen(recovery, lock)
+      await lock.release()
+      this.#recovery = null
+      this.#setState('closed')
+      return this.#openClosedProject(destination)
     })
   }
 
@@ -1018,18 +1155,6 @@ export class ProjectManager {
   createSnapshot(projectSessionId: string, destination: string): Promise<ProjectSnapshotManifest> {
     return this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
-      const operations = context.operations
-      const barrier = {
-        pauseMutations: async () => {
-          operations?.pauseMutations()
-        },
-        finalEditorFlush: () => this.#snapshotParticipants.finalEditorFlush(context),
-        pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
-        resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
-        resumeMutations: async () => {
-          operations?.resumeMutations()
-        }
-      }
       try {
         return await createProjectSnapshot({
           sourceRoot: context.projectRoot,
@@ -1038,7 +1163,7 @@ export class ProjectManager {
           destination,
           sourceAppVersion: this.#applicationVersion,
           inventoryFromBackup: () => inventoryProjectFiles(context.projectRoot),
-          barrier,
+          barrier: this.#snapshotBarrier(context),
           includeVersionHistory: true,
           log: this.#logger
         })
@@ -1064,7 +1189,6 @@ export class ProjectManager {
   ): Promise<PublishedManuscriptExport> {
     return this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
-      const operations = context.operations
       const controller = new AbortController()
       this.#activeManuscriptExport = { projectSessionId, controller }
       try {
@@ -1077,13 +1201,7 @@ export class ProjectManager {
           manuscript: context.manuscript,
           assets: context.manuscriptAssets,
           database: context.database,
-          barrier: {
-            pauseMutations: async () => operations?.pauseMutations(),
-            finalEditorFlush: () => this.#snapshotParticipants.finalEditorFlush(context, 'export'),
-            pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
-            resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
-            resumeMutations: async () => operations?.resumeMutations()
-          },
+          barrier: this.#snapshotBarrier(context, { purpose: 'export' }),
           log: this.#logger,
           renderPdf: this.#renderPdfPublication,
           publicationOptions,
@@ -1122,7 +1240,6 @@ export class ProjectManager {
   ): Promise<ProjectLifecycleSnapshot> {
     const cloned = await this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
-      const operations = context.operations
       const controller = new AbortController()
       this.#activeClone = { projectSessionId, controller }
       try {
@@ -1132,14 +1249,7 @@ export class ProjectManager {
           sourceDatabase: context.database,
           destination,
           sourceAppVersion: this.#applicationVersion,
-          barrier: {
-            pauseMutations: async () => operations?.pauseMutations(),
-            finalEditorFlush: () =>
-              this.#snapshotParticipants.finalEditorFlush(context, 'snapshot'),
-            pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
-            resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
-            resumeMutations: async () => operations?.resumeMutations()
-          },
+          barrier: this.#snapshotBarrier(context, { purpose: 'snapshot' }),
           signal: controller.signal,
           createId: this.#dependencies.randomUUID,
           now: this.#dependencies.now,
@@ -1309,168 +1419,210 @@ export class ProjectManager {
     })
   }
 
-  async restoreCheckpoint(
+  restoreCheckpoint(
     projectSessionId: string,
     oid: string
   ): Promise<{ snapshot: ProjectLifecycleSnapshot; checkpoint: CheckpointEntry }> {
-    const prepared = await this.#serialize(async () => {
+    return this.#serialize(async () => {
       const context = this.assertActiveSession(projectSessionId)
-      const history = this.#requireVersionHistory(context)
-      const target = (await history.list({ cursor: oid, limit: 1 })).checkpoints[0]
-      if (target?.oid !== oid) throw new Error('Restore checkpoint is not reachable')
-      const comparison = await this.#withVersionSnapshot(context, (snapshotRoot) =>
-        history.compareSnapshot(snapshotRoot)
-      )
-      let parentOid = comparison.headOid
-      if (comparison.status === 'uncheckpointed-changes') {
-        const safety = await this.#withVersionSnapshot(context, (snapshotRoot) =>
-          history.createCheckpoint(snapshotRoot, {
-            name: `Before restoring ${target.name}`.slice(0, 100)
-          })
-        )
-        parentOid = safety.oid
-      }
-      const parent = dirname(context.projectRoot)
-      const token = this.#dependencies.randomUUID()
-      const materialized = join(parent, `.${basename(context.projectRoot)}.${token}.git-restore`)
-      const candidate = join(parent, `.${basename(context.projectRoot)}.${token}.candidate`)
-      await history.materializeCheckpoint(target.oid, materialized)
-      await restoreProjectSnapshot({
-        snapshotRoot: materialized,
-        destination: candidate,
-        log: this.#logger
-      })
-      return {
-        projectRoot: context.projectRoot,
-        projectRootName: basename(context.projectRoot),
-        projectId: context.manifest.projectId,
-        token,
-        target,
-        parentOid,
-        materialized,
-        candidate,
-        rollback: join(parent, `.${basename(context.projectRoot)}.${token}.rollback`),
-        failed: join(parent, `.${basename(context.projectRoot)}.${token}.failed`),
-        journal: join(parent, `.writellm-restore-${context.manifest.projectId}.json`)
+      this.#restoringCheckpoint = true
+      try {
+        return await this.#restoreCheckpoint(context, oid)
+      } finally {
+        this.#restoringCheckpoint = false
       }
     })
+  }
 
-    try {
-      await this.close()
-    } catch (err) {
-      await rm(prepared.materialized, { recursive: true, force: true })
-      await rm(prepared.candidate, { recursive: true, force: true })
-      this.#logger.error(
-        {
-          event: 'project_manager.history_restore_close_failed',
-          err,
-          projectId: prepared.projectId
-        },
-        'Project checkpoint restore could not close the active project'
+  async #restoreCheckpoint(
+    context: ProjectContext,
+    oid: string
+  ): Promise<{ snapshot: ProjectLifecycleSnapshot; checkpoint: CheckpointEntry }> {
+    const history = this.#requireVersionHistory(context)
+    const target = (await history.list({ cursor: oid, limit: 1 })).checkpoints[0]
+    if (target?.oid !== oid) throw new Error('Restore checkpoint is not reachable')
+    const comparison = await this.#withVersionSnapshot(context, (snapshotRoot) =>
+      history.compareSnapshot(snapshotRoot)
+    )
+    let parentOid = comparison.headOid
+    if (comparison.status === 'uncheckpointed-changes') {
+      const safety = await this.#withVersionSnapshot(context, (snapshotRoot) =>
+        history.createCheckpoint(snapshotRoot, {
+          name: `Before restoring ${target.name}`.slice(0, 100)
+        })
       )
-      throw new Error('Failed to close the project before checkpoint restore', { cause: err })
+      parentOid = safety.oid
     }
+    const identity = {
+      projectRootName: basename(context.projectRoot),
+      projectId: context.manifest.projectId,
+      token: this.#dependencies.randomUUID()
+    }
+    const paths = historyRestorePaths(dirname(context.projectRoot), identity)
+    await history.materializeCheckpoint(target.oid, paths.materialized)
+    await restoreProjectSnapshot({
+      snapshotRoot: paths.materialized,
+      destination: paths.candidate,
+      log: this.#logger
+    })
+    const originalLock = context.writeLock
+    const heldLocks = [originalLock]
     const writeJournal = async (phase: HistoryRestoreJournal['phase']): Promise<void> => {
       await writeAtomicFile(
-        prepared.journal,
+        paths.journal,
         `${JSON.stringify({
           format: 'writellm-history-restore',
           formatVersion: 1,
-          projectId: prepared.projectId,
-          projectRootName: prepared.projectRootName,
-          token: prepared.token,
+          projectId: identity.projectId,
+          projectRootName: identity.projectRootName,
+          token: identity.token,
           phase,
-          targetOid: prepared.target.oid
+          targetOid: target.oid
         })}\n`
       )
     }
-    await writeJournal('prepared')
-    let swapped = false
+    const reopen = async (): Promise<void> => {
+      const lock = heldLocks.find((candidate) => candidate.projectRoot === paths.projectRoot)
+      if (lock === undefined) throw new Error('Checkpoint restore lost the project lock')
+      await this.#openClosedProject(paths.projectRoot, lock)
+    }
     try {
-      await rename(prepared.projectRoot, prepared.rollback)
-      await writeJournal('original-moved')
-      await rename(prepared.candidate, prepared.projectRoot)
-      await writeJournal('candidate-installed')
-      swapped = true
-      await mkdir(resolveProjectPath(prepared.projectRoot, '.writellm'), {
-        recursive: true,
-        mode: 0o700
-      })
-      await rename(
-        resolveProjectPath(prepared.rollback, PROJECT_HISTORY_RELATIVE_PATH),
-        resolveProjectPath(prepared.projectRoot, PROJECT_HISTORY_RELATIVE_PATH)
-      )
-      await rename(
-        resolveProjectPath(prepared.rollback, PROJECT_HISTORY_IGNORE_RELATIVE_PATH),
-        resolveProjectPath(prepared.projectRoot, PROJECT_HISTORY_IGNORE_RELATIVE_PATH)
-      )
-      await writeJournal('history-moved')
-      const opened = await this.#openDuringHistoryRestore(prepared.projectRoot)
-      const activeSession = opened.activeProject?.projectSessionId
-      if (activeSession === undefined) throw new Error('Restored project did not reopen')
-      const checkpoint = await this.#serialize(async () => {
-        const context = this.assertActiveSession(activeSession)
-        return this.#requireVersionHistory(context).createRestoreCommit(
-          prepared.target.oid,
-          prepared.parentOid
+      let candidateLock: ProjectWriteLock | undefined
+      try {
+        candidateLock = await this.#dependencies.acquireLock(paths.candidate, {
+          ...this.#lockOptions,
+          logger: this.#logger
+        })
+        heldLocks.push(candidateLock)
+        this.#beginClose()
+        await this.#finishClose(context, true)
+      } catch (err) {
+        this.#logger.error(
+          {
+            event: 'project_manager.history_restore_close_failed',
+            err,
+            projectId: identity.projectId
+          },
+          'Project checkpoint restore could not prepare the locked swap'
         )
-      })
-      await writeJournal('committed')
-      await rm(prepared.rollback, { recursive: true, force: true })
-      await rm(prepared.materialized, { recursive: true, force: true })
-      await rm(prepared.journal, { force: true })
+        await candidateLock?.release()
+        await rm(paths.materialized, { recursive: true, force: true })
+        if (candidateLock !== undefined) await rm(paths.candidate, { recursive: true, force: true })
+        throw new Error('Failed to prepare the project checkpoint swap', { cause: err })
+      }
+      let checkpoint: CheckpointEntry
+      try {
+        await writeJournal('prepared')
+        await originalLock.moveProjectRoot(paths.rollback)
+        await writeJournal('original-moved')
+        await candidateLock.moveProjectRoot(paths.projectRoot)
+        await writeJournal('candidate-installed')
+        for (const entry of [PROJECT_HISTORY_RELATIVE_PATH, PROJECT_HISTORY_IGNORE_RELATIVE_PATH]) {
+          await rename(
+            resolveProjectPath(paths.rollback, entry),
+            resolveProjectPath(paths.projectRoot, entry)
+          )
+        }
+        await writeJournal('history-moved')
+        await reopen()
+        if (this.#context === null) throw new Error('Restored project did not reopen')
+        checkpoint = await this.#requireVersionHistory(this.#context).createRestoreCommit(
+          target.oid,
+          parentOid
+        )
+        await writeJournal('committed')
+      } catch (err) {
+        this.#logger.error(
+          {
+            event: 'project_manager.history_restore_failed',
+            err,
+            projectId: identity.projectId,
+            checkpointOid: target.oid
+          },
+          'Project checkpoint restore failed'
+        )
+        try {
+          if (this.#context !== null) {
+            const active = this.#context
+            this.#beginClose()
+            await this.#finishClose(active, true)
+          }
+          if (this.#state === 'recovery-required') {
+            this.#assertNoPendingClose()
+            this.#recovery = null
+            this.#setState('closed')
+          }
+          if (
+            !(await recoverIncompleteHistoryRestore(
+              paths.projectRoot,
+              this.#logger,
+              this.#lockOptions,
+              heldLocks
+            ))
+          ) {
+            await candidateLock.release()
+            await rm(paths.candidate, { recursive: true, force: true })
+            await rm(paths.materialized, { recursive: true, force: true })
+          }
+          await reopen()
+        } catch (rollbackErr) {
+          this.#logger.error(
+            {
+              event: 'project_manager.history_restore_rollback_failed',
+              err: rollbackErr,
+              projectId: identity.projectId
+            },
+            'Project checkpoint restore rollback failed'
+          )
+        }
+        throw new Error('Failed to restore the project checkpoint', { cause: err })
+      }
+      try {
+        await originalLock.release()
+        await rm(paths.rollback, { recursive: true, force: true })
+        await rm(paths.materialized, { recursive: true, force: true })
+        await rm(paths.journal, { force: true })
+      } catch (err) {
+        this.#logger.error(
+          {
+            event: 'project_manager.history_restore_cleanup_failed',
+            err,
+            projectId: identity.projectId
+          },
+          'Committed checkpoint restore will finish cleanup on the next open'
+        )
+      }
       this.#logger.info(
         {
           event: 'project_manager.history_restore_completed',
-          projectId: prepared.projectId,
-          checkpointOid: prepared.target.oid,
+          projectId: identity.projectId,
+          checkpointOid: target.oid,
           restoreCommitOid: checkpoint.oid
         },
         'Project checkpoint restore completed'
       )
       return { snapshot: this.snapshot(), checkpoint }
-    } catch (err) {
-      this.#logger.error(
-        {
-          event: 'project_manager.history_restore_failed',
-          err,
-          projectId: prepared.projectId,
-          checkpointOid: prepared.target.oid
-        },
-        'Project checkpoint restore failed'
-      )
-      try {
-        if (this.#state === 'open') await this.close()
-        if (this.#state === 'recovery-required') await this.returnToClosed()
-        if (swapped) {
-          await rename(prepared.projectRoot, prepared.failed)
-          const failedHistory = resolveProjectPath(prepared.failed, PROJECT_HISTORY_RELATIVE_PATH)
-          try {
-            await rename(
-              failedHistory,
-              resolveProjectPath(prepared.rollback, PROJECT_HISTORY_RELATIVE_PATH)
-            )
-          } catch (moveErr) {
-            if ((moveErr as NodeJS.ErrnoException).code !== 'ENOENT') throw moveErr
-          }
-          await rename(prepared.rollback, prepared.projectRoot)
-          await rm(prepared.failed, { recursive: true, force: true })
+    } finally {
+      for (const lock of heldLocks) {
+        if (
+          this.#context?.writeLock === lock ||
+          (this.#recovery?.kind === 'close' && this.#recovery.writeLock === lock)
+        ) {
+          continue
         }
-        await this.#openDuringHistoryRestore(prepared.projectRoot)
-        await rm(prepared.journal, { force: true })
-      } catch (rollbackErr) {
-        this.#logger.error(
-          {
-            event: 'project_manager.history_restore_rollback_failed',
-            err: rollbackErr,
-            projectId: prepared.projectId
-          },
-          'Project checkpoint restore rollback failed'
-        )
+        try {
+          await lock.release()
+        } catch (err) {
+          this.#logger.error(
+            {
+              event: 'project_manager.history_restore_lock_release_failed',
+              err,
+              projectId: identity.projectId
+            },
+            'Failed to release a checkpoint restore lock'
+          )
+        }
       }
-      await rm(prepared.materialized, { recursive: true, force: true })
-      await rm(prepared.candidate, { recursive: true, force: true })
-      throw new Error('Failed to restore the project checkpoint', { cause: err })
     }
   }
 
@@ -1504,19 +1656,45 @@ export class ProjectManager {
     })
   }
 
-  async #openCanonicalRoot(canonicalRoot: string, acquiredLock?: ProjectWriteLock): Promise<void> {
+  async #openCanonicalRoot(
+    canonicalRoot: string,
+    acquiredLock?: ProjectWriteLock,
+    retainWriteLockOnFailure = false
+  ): Promise<void> {
     const startedAt = Date.now()
-    const manifest = await this.#dependencies.readManifest(canonicalRoot)
-    const filesystem = new ProjectFilesystem(canonicalRoot, this.#logger)
     let writeLock = acquiredLock
     let database: ProjectDatabase | undefined
-    let runtime: ProjectRuntime | undefined
+    let projectId: string | undefined
+    let context: ProjectContext | undefined
     try {
+      const manifest = await this.#dependencies.readManifest(canonicalRoot)
+      projectId = manifest.projectId
+      const filesystem = new ProjectFilesystem(canonicalRoot, this.#logger)
       // Reject a static malicious internal root or database before the write lock
       // creates anything below `.writellm`.
-      await filesystem.assertExistingDirectory(WRITELLM_INTERNAL_DIRECTORY)
-      await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH)
-      await filesystem.removeTree(`${PROJECT_TEMP_DIRECTORY}/manuscript-import`)
+      await filesystem.assertExistingRegularFile(PROJECT_DATABASE_RELATIVE_PATH).catch((err) => {
+        throw new ProjectOpenIssue('database-unavailable', 'Project database is unavailable', err)
+      })
+      writeLock ??= await this.#dependencies.acquireLock(canonicalRoot, {
+        ...this.#lockOptions,
+        logger: this.#logger
+      })
+      database = await this.#dependencies
+        .openDatabase({
+          projectRoot: canonicalRoot,
+          filesystem,
+          manifest,
+          applicationVersion: this.#applicationVersion,
+          log: this.#logger as Logger
+        })
+        .catch((err) => {
+          throw new ProjectOpenIssue(
+            'database-open-failed',
+            'Project database could not be opened',
+            err
+          )
+        })
+      await filesystem.removeTree(MANUSCRIPT_IMPORT_STAGING_DIRECTORY)
       this.#logger.info(
         {
           event: 'manuscript.import.crash_staging_cleaned',
@@ -1524,17 +1702,6 @@ export class ProjectManager {
         },
         'Stale manuscript import staging removed during project open'
       )
-      writeLock ??= await this.#dependencies.acquireLock(canonicalRoot, {
-        ...this.#lockOptions,
-        logger: this.#logger
-      })
-      database = await this.#dependencies.openDatabase({
-        projectRoot: canonicalRoot,
-        filesystem,
-        manifest,
-        applicationVersion: this.#applicationVersion,
-        log: this.#logger as Logger
-      })
       const jobs = new JobStore({
         database,
         projectId: manifest.projectId,
@@ -1607,7 +1774,7 @@ export class ProjectManager {
         log: this.#logger
       })
       const projectIndex = knowledgeRuntime.projectIndex
-      runtime = this.#createRuntime({
+      const runtime = this.#createRuntime({
         projectId: manifest.projectId,
         projectSessionId,
         jobs,
@@ -1615,14 +1782,13 @@ export class ProjectManager {
         log: this.#logger,
         terminateWorkers: knowledgeRuntime.terminateWorkers
       })
-      const context: ProjectContext = {
+      context = {
         projectRoot: canonicalRoot,
         filesystem,
         manifest,
         projectSessionId,
         operations,
         displayName: projectDisplayName(canonicalRoot),
-        indexRebuildRequired: await isIndexRebuildRequired(canonicalRoot, this.#logger),
         database,
         jobs,
         manuscript,
@@ -1681,57 +1847,29 @@ export class ProjectManager {
         'Project open transition completed'
       )
     } catch (err) {
-      if (runtime !== undefined) {
-        try {
-          await runtime.stop()
-        } catch (cleanupErr) {
-          this.#logger.error(
-            {
-              event: 'project_manager.open.runtime_cleanup_failed',
-              err: cleanupErr,
-              projectId: manifest.projectId
-            },
-            'Failed to stop runtime after project open failure'
-          )
-        }
-      }
-      if (database !== undefined) {
-        try {
-          database.close()
-        } catch (cleanupErr) {
-          this.#logger.error(
-            {
-              event: 'project_manager.open.database_cleanup_failed',
-              err: cleanupErr,
-              projectId: manifest.projectId
-            },
-            'Failed to close database after project open failure'
-          )
-        }
-      }
-      if (writeLock !== undefined) {
-        try {
-          await writeLock.release()
-        } catch (cleanupErr) {
-          this.#logger.error(
-            {
-              event: 'project_manager.open.lock_cleanup_failed',
-              err: cleanupErr,
-              projectId: manifest.projectId
-            },
-            'Failed to release lock after project open failure'
-          )
-        }
+      if (context !== undefined) {
+        await this.#cleanupFailedOpen(context, retainWriteLockOnFailure)
+      } else if (writeLock !== undefined) {
+        await this.#cleanupFailedOpen({ projectId, database, writeLock }, retainWriteLockOnFailure)
       }
       throw err
     }
   }
 
   #setState(next: ProjectLifecycleState): void {
+    if (this.#state === 'recovery-required' && next !== 'recovery-required') {
+      this.#assertNoPendingClose()
+    }
     if (!canTransition(PROJECT_LIFECYCLE_TRANSITIONS, this.#state, next)) {
       throw new Error(`Project manager cannot move from ${this.#state} to ${next}`)
     }
     this.#state = next
+  }
+
+  #assertNoPendingClose(): void {
+    if (this.#recovery?.kind === 'close') {
+      throw new Error('Retry the pending project close first')
+    }
   }
 
   #requireState(expected: ProjectLifecycleState): void {
@@ -1747,6 +1885,23 @@ export class ProjectManager {
     return context.versionHistory
   }
 
+  #snapshotBarrier(
+    context: ProjectContext,
+    options: { purpose?: 'snapshot' | 'export'; skipEditorFlush?: boolean } = {}
+  ): SnapshotBarrier {
+    const operations = context.operations
+    return {
+      pauseMutations: async () => operations?.pauseMutations(),
+      finalEditorFlush: () =>
+        options.skipEditorFlush
+          ? Promise.resolve()
+          : this.#snapshotParticipants.finalEditorFlush(context, options.purpose),
+      pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
+      resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
+      resumeMutations: async () => operations?.resumeMutations()
+    }
+  }
+
   async #withVersionSnapshot<T>(
     context: ProjectContext,
     operation: (snapshotRoot: string, history: ProjectVersionStore) => Promise<T>,
@@ -1756,17 +1911,6 @@ export class ProjectManager {
       context.projectRoot,
       `${PROJECT_TEMP_DIRECTORY}/checkpoint-${this.#dependencies.randomUUID()}`
     )
-    const operations = context.operations
-    const barrier = {
-      pauseMutations: async () => operations?.pauseMutations(),
-      finalEditorFlush: () =>
-        options.skipEditorFlush
-          ? Promise.resolve()
-          : this.#snapshotParticipants.finalEditorFlush(context),
-      pauseFilePublishers: () => this.#snapshotParticipants.pauseFilePublishers(context),
-      resumeFilePublishers: () => this.#snapshotParticipants.resumeFilePublishers(context),
-      resumeMutations: async () => operations?.resumeMutations()
-    }
     try {
       await createProjectSnapshot({
         sourceRoot: context.projectRoot,
@@ -1775,7 +1919,7 @@ export class ProjectManager {
         destination: snapshotRoot,
         sourceAppVersion: this.#applicationVersion,
         inventoryFromBackup: () => inventoryProjectFiles(context.projectRoot),
-        barrier,
+        barrier: this.#snapshotBarrier(context, options),
         log: this.#logger
       })
       return await operation(snapshotRoot, this.#requireVersionHistory(context))
@@ -1800,59 +1944,6 @@ export class ProjectManager {
       () => undefined
     )
     return result
-  }
-}
-
-async function isIndexRebuildRequired(
-  projectRoot: string,
-  log: Pick<Logger, 'info' | 'warn' | 'error'>
-): Promise<boolean> {
-  const startedAt = Date.now()
-  const indexPath = resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH)
-  const exists = await access(indexPath).then(
-    () => true,
-    (err: NodeJS.ErrnoException) => {
-      if (err.code === 'ENOENT') return false
-      throw err
-    }
-  )
-  if (!exists) return true
-
-  let database: Database.Database | undefined
-  try {
-    database = new Database(indexPath, { readonly: true, fileMustExist: true })
-    const applicationId = database.pragma('application_id', { simple: true }) as number
-    const userVersion = database.pragma('user_version', { simple: true }) as number
-    if (
-      applicationId !== INDEX_DATABASE_APPLICATION_ID ||
-      userVersion < 1 ||
-      userVersion > INDEX_SCHEMA_VERSION
-    ) {
-      return true
-    }
-    const active = database
-      .prepare("SELECT count(*) FROM index_generations WHERE state = 'active'")
-      .pluck()
-      .get() as number
-    log.info(
-      {
-        event: 'project.index.header_check_completed',
-        applicationId,
-        schemaVersion: userVersion,
-        activeGenerationCount: active,
-        durationMs: Date.now() - startedAt
-      },
-      'Project index header check completed'
-    )
-    return active !== 1
-  } catch (err) {
-    log.error(
-      { event: 'project.index.compatibility_check_failed', err },
-      'Project index compatibility check failed; rebuild is required'
-    )
-    return true
-  } finally {
-    database?.close()
   }
 }
 

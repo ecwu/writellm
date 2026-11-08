@@ -1,6 +1,7 @@
 import { briefTextFields, type BriefFields } from './brief-fields'
 import type { ManuscriptBrief } from '../../../../shared/contracts/manuscript'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ClipboardList } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -69,7 +70,10 @@ export function ManuscriptBriefDialog(props: {
       <DialogContent className='max-h-[88vh] overflow-y-auto sm:max-w-3xl'>
         <DialogHeader>
           <div className='flex items-center gap-2'>
-            <DialogTitle>Manuscript brief</DialogTitle>
+            <DialogTitle className='flex items-center gap-2'>
+              <ClipboardList className='size-4 text-muted-foreground' aria-hidden='true' />
+              Manuscript brief
+            </DialogTitle>
             <Badge
               variant={
                 props.error || externalConflict ? 'destructive' : dirty ? 'secondary' : 'outline'

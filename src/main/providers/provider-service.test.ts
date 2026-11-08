@@ -33,16 +33,19 @@ class FakeSafeStorage implements SafeStorageAdapter {
     private readonly backend = 'kwallet6'
   ) {}
 
-  isEncryptionAvailable(): boolean {
+  async isAsyncEncryptionAvailable(): Promise<boolean> {
     return this.available
   }
 
-  encryptString(value: string): Buffer {
+  async encryptStringAsync(value: string): Promise<Buffer> {
     return Buffer.from(Buffer.from(value, 'utf8').map((byte) => byte ^ 0xa5))
   }
 
-  decryptString(value: Buffer): string {
-    return Buffer.from(value.map((byte) => byte ^ 0xa5)).toString('utf8')
+  async decryptStringAsync(value: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }> {
+    return {
+      result: Buffer.from(value.map((byte) => byte ^ 0xa5)).toString('utf8'),
+      shouldReEncrypt: false
+    }
   }
 
   getSelectedStorageBackend(): string {
@@ -366,7 +369,7 @@ describe('ProviderService', () => {
     )
     const service = providerService(appDatabase, credentials)
 
-    expect(credentials.backendStatus()).toMatchObject({
+    expect(await credentials.backendStatus()).toMatchObject({
       platform: 'linux',
       backend: 'basic_text',
       encryptionAvailable: true,
@@ -388,9 +391,9 @@ describe('ProviderService', () => {
       .values({
         id: 'agent:api-key',
         provider_config_id: 'agent',
-        ciphertext: new FakeSafeStorage(true, 'basic_text')
-          .encryptString('legacy-unsafe')
-          .toString('base64'),
+        ciphertext: (
+          await new FakeSafeStorage(true, 'basic_text').encryptStringAsync('legacy-unsafe')
+        ).toString('base64'),
         binding_fingerprint: credentialBindingFingerprint({
           providerConfigId: 'agent',
           provider: 'openai-compatible',

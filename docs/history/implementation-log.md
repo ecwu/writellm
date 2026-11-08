@@ -2243,3 +2243,825 @@ Local runtime acceptance covers macOS arm64 only with Electron 44.7.2, ABI 149, 
 Distribution remains unsigned and unnotarized.
 
 Evidence: [package gate](../../.cache/verification/1793959281529-54789-473b69b0).
+
+## 2026-11-07 Code knot maintenance
+
+Local branch `codex/untangle-code-knots` starts at `707eb15`. The changes remain uncommitted, with no push or merge.
+The static inventory covers 547 implementation files before refactoring and 548 afterward, with no detected import cycles.
+Six consumers now import the tool error contract independently of the read-tool implementation.
+Agent and Notebook share one completion dispatcher with explicit retry, timeout, and retention policies.
+The context forwarding method and an unused math re-export are removed. Eighteen database scenarios cover completion policy differences.
+
+Each item passes static analysis and a production build through the documented direct Node entry points.
+The first item passes 281 tests in 35 files, in 9.0 seconds, with a 16.5-second build.
+The second passes 321 tests in 37 files, in 9.9 seconds, with an 18.5-second build.
+The third passes 307 tests in 41 files, in 9.5 seconds, with a 17.9-second build.
+Static stages take 4.6, 5.0, and 4.6 seconds, respectively.
+The first two items each require one rollback and correction after a static failure in a test import or fixture.
+Three interaction scenarios pass in 24.3 seconds. The final grounded Agent workflow rerun passes in 22.4 seconds.
+Both interaction runs use zero retries. Chrome confirms that the HTML overview fits a 1600 by 900 viewport.
+
+Runtime evidence covers macOS arm64 with Electron 44.7.2, Node 24.21.0, module ABI 149, and Node-API 10.
+Installed pnpm 11.17.0 differs from the 11.28.3 pin. Host Node 26.13.0 runs the script wrappers, outside the declared 24.x range.
+No dependency, schema, renderer authority, or package resource changes occur. Package and other-platform acceptance remain outside this maintenance gate.
+The static map excludes dynamic IPC and external packages. Broader decomposition of the large services remains open.
+
+## 2026-11-07 Code knot continuation
+
+Local branch `codex/untangle-code-knots` remains at `707eb15` with uncommitted changes.
+`AgentSessionQueries` now owns session records, and the coordinator provides the live activity flags.
+Project startup calls interrupted Agent recovery directly. Recovery still closes persisted runs and compactions without replay.
+Three mutation guards share the current-run section evidence lookup. Four project capture operations share pause and flush configuration.
+`session-service.ts` drops from 3,997 to 3,769 lines.
+
+Session queries pass 299 tests in 36 files in 10.2 seconds. Static analysis takes 5.4 seconds, and the build takes 19.3 seconds.
+Startup recovery passes 57 tests in 3 files in 6.9 seconds. Static analysis takes 4.1 seconds, and the build takes 16.6 seconds.
+Mutation evidence passes 88 tests in 8 files in 4.9 seconds. Static analysis takes 4.1 seconds, and the build takes 16.6 seconds.
+Project capture passes 52 tests in 5 files in 7.0 seconds. Static analysis takes 3.8 seconds, and the build takes 16.3 seconds.
+
+The four interaction runs pass 2, 1, 1, and 4 scenarios in 6.6, 6.9, 9.1, and 7.5 seconds, respectively.
+All gates pass on the first attempt. There are no retries or rollbacks.
+Runtime coverage uses the direct Node runners and Electron 44.7.2 on macOS arm64.
+Package acceptance and runtime coverage on other platforms remain outside this maintenance gate.
+
+## 2026-11-07 Agent message queue
+
+`session-service.ts` shares Steer and Follow-up validation, model request creation, and worker command setup.
+Steer still enters history before delivery. Follow-up still enters history when the worker consumes it.
+Follow-up checks count and UTF-8 capacity again after model request creation yields.
+When two submissions compete for the remaining capacity, the rejected request is aborted before worker delivery.
+Two regression cases cover the count and byte limits and make sure direct Steer still works.
+
+The setup change passes 331 tests in 37 files in 11.1 seconds. Static analysis takes 4.5 seconds, and the build takes 19.6 seconds.
+The capacity change passes 333 tests in 37 files in 9.3 seconds. Static analysis takes 5.4 seconds, and the build takes 18.8 seconds.
+The Electron queue scenario passes after both changes in 6.0 and 5.7 seconds, with zero scenario retries.
+The first host approval review times out before launch. Its retry succeeds. No code rollback is needed.
+Runtime evidence covers Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Code ownership maintenance
+
+Approved section patches and generated image inserts use one revision write and decision path.
+Image proposals still require a published asset. Both kinds check the current retained base before simulation.
+The workspace selects revision metadata. Full manuscript assembly loads section bodies through the same snapshot rules.
+Five unused forwarding exports are removed. The two Agent worker paths share one trace header filter.
+Existing trace tests cover allowed request IDs, excluded cookies, and the header value limit.
+
+Proposal application passes 38 tests in five files in 5.6 seconds. Static analysis takes 3.9 seconds. The build takes 18.9 seconds.
+Workspace reads pass 36 tests in four files in 3.2 seconds. Static analysis takes 3.8 seconds. The build takes 16.0 seconds.
+Export cleanup passes 48 tests in five files in 7.5 seconds. Static analysis takes 3.8 seconds. The build takes 16.1 seconds.
+Trace filtering passes 59 tests in four files in 4.5 seconds. Static analysis takes 3.7 seconds. The build takes 15.8 seconds.
+
+Two interaction scenarios pass for each of proposal application, workspace reads, and trace filtering.
+Those runs take 24.3, 8.3, and 22.5 seconds, respectively. The unused export cleanup uses source and focused test gates.
+All gates pass on the first attempt. No rollback is needed.
+Runtime evidence covers Electron 44.7.2 on macOS arm64. Package and other-platform acceptance remain outside this pass.
+
+## 2026-11-07 Project lifecycle ownership
+
+Initial close and retry share ordered resource steps. Initial close continues after a failure. Retry skips completed steps and stops on failure.
+Project open cleans import staging after it holds the write lock and opens the database. Creating an import plan preserves other staging.
+Open and switch share a transition. Only an active restore's reopen skips recovery of its own journal.
+File and tree removal share path validation. File removal still requires a regular file.
+
+Close passes 36 tests in three files in 7.1 seconds. Static analysis takes 4.0 seconds. The resumed build takes 17.5 seconds.
+Import staging passes 55 tests in four files in 7.2 seconds. Static analysis takes 4.0 seconds. The build takes 17.0 seconds.
+Project open passes 67 tests in four files in 6.9 seconds. Static analysis takes 3.8 seconds. The build takes 16.4 seconds.
+Managed deletion passes 69 tests in five files in 7.5 seconds. Static analysis takes 3.9 seconds. The build takes 16.4 seconds.
+
+The four interaction runs pass 1, 2, 3, and 1 scenarios in 7.3, 4.3, 6.9, and 8.5 seconds, respectively.
+The first staging attempt fails a test that expects cleanup during plan creation. Rollback precedes the corrected test and source.
+The close build is interrupted before its final report. A new build passes. The interaction runs use zero scenario retries.
+Runtime evidence covers Electron 44.7.2 on macOS arm64. Package and other-platform acceptance remain outside this pass.
+
+## 2026-11-07 Agent queue delivery and retirement
+
+Direct Steer and Follow-up share cleanup if context preparation or worker delivery fails.
+Main aborts the queued model request and stops the run if delivery fails.
+Direct Steer enters history before delivery. Follow-up enters history when the worker consumes it.
+
+Delete and Promote share the worker removal and model request retirement steps.
+If the abort write fails after worker removal, Main stops the run and settlement retries the unfinished request.
+Four regression cases cover context preparation failures and failed abort writes.
+
+The delivery change passes 317 tests in 36 files in 9.8 seconds. Static analysis takes 5.6 seconds, and the build takes 19.2 seconds.
+The retirement change passes 334 tests in 37 files in 10.4 seconds. Static analysis takes 6.0 seconds, and the build takes 20.1 seconds.
+The Electron queue scenario passes in 5.9 and 6.5 seconds, with zero scenario retries.
+The first Playwright filter selects zero tests. The delivery change is rolled back, then reapplied byte for byte before the spec passes.
+Runtime evidence uses the direct Node runners and Electron 44.7.2 on macOS arm64. Changes remain uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Knowledge artifact readers
+
+Mapping shares one manifest lookup and one selected content-list read per request.
+Pipeline layout geometry remains available when provenance fails. All geometry files now require a matching size and hash.
+The first draft fails the Biome assignment rule and is rolled back before correction.
+
+Mapping, normalization, and publication recovery share a bounded manifest reader.
+It checks revision, Knowledge item, and source identities. Only publication recovery accepts a missing recorded hash.
+Publication recovery still checks the remote task ID and all published files.
+
+The index worker uses the shared file reader. The reader rejects size changes with at most one byte beyond the observed size.
+The exact limit and optional empty file still work. A regression test changes a file after the size check.
+
+Mapping passes 103 tests in 15 files in 5.9 seconds. Static analysis takes 4.4 seconds and the build takes 17.3 seconds.
+The manifest reader passes 104 tests in 15 files in 6.1 seconds. Static analysis takes 4.6 seconds and the build takes 17.3 seconds.
+The file reader passes 159 tests in 23 files in 5.9 seconds. Static analysis takes 4.5 seconds and the build takes 17.3 seconds.
+One, two, and two Electron scenarios pass in 9.5, 9.7, and 9.8 seconds, with zero scenario retries.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Normalized Knowledge readers
+
+Main and the index worker share one bounded scan for normalized blocks. It parses and hashes the same bytes in one pass.
+The worker now rejects blank lines and lines over 2 MiB. Tests preserve Main pagination and golden chunk IDs, including CRLF input without a final newline.
+Main still checks image references during publication. The worker retains parsed blocks for chunk grouping.
+
+Active reads, image reads, publication recovery, and the worker share normalized manifest identity checks.
+Published reads require a recorded hash. Recovery can compute a missing hash and still checks the original source and normalized output.
+
+Asset lookup uses the active normalization run when the requested revision is active.
+A historical revision uses its highest published normalizer version. The regression test exercises both paths with two published runs.
+
+Block streaming passes 154 tests in 22 files in 5.8 seconds. Static analysis takes 4.6 seconds and the build takes 17.5 seconds.
+The manifest reader passes 156 tests in 22 files in 6.3 seconds. Static analysis takes 4.9 seconds and the build takes 18.0 seconds.
+Asset selection passes 106 tests in 15 files in 5.9 seconds. Static analysis takes 4.6 seconds and the build takes 17.1 seconds.
+Two, two, and one Electron scenarios pass in 9.9, 9.7, and 8.5 seconds. There are no retries or rollbacks.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Index scheduling and fingerprints
+
+The index service owns rebuild enqueueing. Normalization requests a refresh without constructing a job.
+New refresh jobs omit the placeholder generation ID. Older saved payloads still parse and recover after reopen.
+Earlier binaries require the generation field. Build jobs still require the real ID.
+
+New refresh jobs wait in the queue for 1,500 ms before they become eligible for a claim.
+Item removal stays eligible immediately. Legacy jobs retain the delay in their handler.
+
+Main and the worker use the existing worker encoding for source fingerprints and generation IDs.
+The worker orders chunk fingerprints the same way during build and reopen. Mixed-case source IDs exercise both changes.
+
+Job ownership passes 149 tests in 21 files in 5.6 seconds. Static analysis takes 4.3 seconds and the build takes 17.2 seconds.
+Scheduling passes 149 tests in 21 files in 5.6 seconds. Static analysis takes 4.4 seconds and the build takes 17.0 seconds.
+Fingerprints pass 161 tests in 21 files in 6.2 seconds. Static analysis takes 4.7 seconds and the build takes 17.6 seconds.
+Two, three, and two Electron scenarios pass in 9.3, 15.6, and 8.6 seconds. There are no retries or rollbacks.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Embedding contract and index cleanup
+
+The embedding contract module owns identity fields for both the worker contract and the endpoint-sensitive hash.
+A golden test preserves the existing hash and generation ID. The first type check fails on an endpoint read and the draft is rolled back before correction.
+
+Query and build embedding calls share the provider guard at execution. A changed endpoint rejects before the gateway call or model request insert.
+The regression test holds the model and dimension constant. The index tests make sure both build modes pass their expected contract hash.
+
+The index service removes the unused standalone publish handler and inspection method.
+The build handler remains responsible for activation. The migration still converts legacy publish jobs.
+
+Contract ownership passes 56 tests in 7 files in 1.7 seconds. Static analysis takes 3.7 seconds and the build takes 15.8 seconds.
+The provider guard passes 56 tests in 7 files in 1.9 seconds. Static analysis takes 4.1 seconds and the build takes 17.5 seconds.
+Index cleanup passes 83 tests in 10 files in 3.3 seconds. Static analysis takes 4.0 seconds and the build takes 16.3 seconds.
+Two Electron scenarios pass after each change in 9.6, 9.6, and 9.3 seconds. No Electron scenario retries.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Embedding refresh admission and activation
+
+The job store checks for an active job of the same type inside the enqueue transaction.
+Manual embedding refresh rejects a duplicate and checks the current source generation after index inspection.
+Regression tests cover a running job outside the first 100 rows, overlapping requests, and source changes during inspection.
+
+Text and vector builds share the current-source check before activation.
+If sources change during vector writes, Main queues the current text generation instead of activating the stale vectors.
+
+Both build handlers use the persisted job schemas. One embedding schema covers automatic, whole-project, and item refresh jobs.
+
+Admission passes 107 tests in 12 files in 4.6 seconds. Static analysis takes 4.9 seconds and the build takes 18.1 seconds.
+Activation passes 82 tests in 9 files in 3.7 seconds. Static analysis takes 4.4 seconds and the build takes 17.9 seconds.
+Payload validation passes 91 tests in 11 files in 3.8 seconds. Static analysis takes 4.4 seconds and the build takes 18.0 seconds.
+Two Electron scenarios pass after each change in 9.7, 9.5, and 9.8 seconds. There are no retries or rollbacks.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Embedding refresh recovery
+
+The worker creates a vector generation and clears its selected cache in one transaction.
+A retry with saved vectors keeps its cached progress. An older generation without progress can still clear the cache.
+Tests cover close and reopen, legacy partial setup, and a cache clear failure that rolls back creation.
+
+The worker compares the stored source and provider identities before reopening a vector generation.
+It rejects reactivation against a different active text generation.
+New manual refresh jobs save the selected text generation and provider hash. A superseded request queues current work without forcing a refresh on the new target.
+Older payloads remain readable. Earlier binaries reject the new target field.
+
+Atomic setup passes 103 tests in 11 files in 4.3 seconds. Static analysis takes 4.3 seconds and the build takes 17.4 seconds.
+A second static pass takes 3.8 seconds after the item refresh test is added.
+Source binding passes 83 tests in 9 files in 3.6 seconds. Static analysis takes 4.1 seconds and the build takes 17.1 seconds.
+Saved targets pass 111 tests in 12 files in 4.3 seconds. Static analysis takes 4.5 seconds and the build takes 18.1 seconds.
+Two source Electron scenarios pass after each change in 10.4, 10.3, and 10.8 seconds. There are no retries or rollbacks.
+
+An isolated macOS arm64 app passes package inventory and uses an ad-hoc signature without a Team ID.
+All 12 packaged runtime scenarios pass in 40.8 seconds. The same app passes the two targeted Electron scenarios in 10.4 seconds.
+The item refresh uses a local embedding fixture and reaches the worker through the application.
+Runtime evidence uses Electron 44.7.2. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Vector write and activation integrity
+
+Vector writes check each chunk ID and hash against the generation's source. Invalid entries roll back the whole batch.
+The activation regression exposes a sqlite-vec primary key error during repeated writes. The activation draft is rolled back.
+
+Repeated writes delete only the vector mapped to the same chunk before inserting its replacement.
+The map uses a chunk-specific conflict target. A close-and-reopen test sends the same input again.
+
+Activation checks source coverage and state in the same transaction that switches generations.
+A replacement with a wrong hash leaves the active vectors available. An obsolete generation cannot replace the current one.
+
+Write correlation passes 57 tests in 7 files in 1.7 seconds. Static analysis takes 4.1 seconds and the build takes 17.7 seconds.
+Repeated writes pass 57 tests in 7 files in 1.4 seconds. Static analysis takes 3.9 seconds and the build takes 17.4 seconds.
+The activation retry passes 58 tests in 7 files in 1.4 seconds. Static analysis takes 4.0 seconds and the build takes 17.1 seconds.
+Two Electron scenarios pass after each change in 10.2, 10.3, and 10.1 seconds. No Electron scenario retries.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Vector retention and reads
+
+The index client and worker remove the unused vector deletion command. The retention test exercises real vector tables through production cleanup.
+Vector activation prunes obsolete generations in the same transaction. A failed prune leaves the earlier generation active.
+Vector queries and previews check the active text generation before reading. A query with a superseded source fails.
+
+Command removal passes 58 tests in 7 files in 1.4 seconds. Static analysis takes 4.4 seconds and the build takes 17.9 seconds.
+Retention passes 1,980 tests in 305 files in 25.5 seconds. Three opt-in benchmarks are skipped.
+Its static analysis takes 5.5 seconds and the build takes 22.4 seconds.
+The read guard passes 59 tests in 7 files in 1.4 seconds. Static analysis takes 3.9 seconds and the build takes 17.2 seconds.
+Two source Electron scenarios pass after each change in 10.3, 9.3, and 9.4 seconds. There are no retries or rollbacks.
+
+The isolated macOS arm64 app passes inventory and uses an ad-hoc signature without a Team ID.
+All 12 packaged runtime scenarios pass in 40.6 seconds. The same app passes the two targeted Electron scenarios in 10.0 seconds.
+Runtime evidence uses Electron 44.7.2. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Search candidate snapshots
+
+Search and Mapping read the active generation without calculating diagnostic counts.
+The index worker ranks and loads candidates from the same generation within each call.
+Main checks the generation after reranking or vector fallback. Main retries once after a change and returns no hits after a second change.
+
+The lookup change passes 62 tests in 8 files in 1.4 seconds. Static analysis takes 4.0 seconds and the build takes 17.2 seconds.
+The candidate change passes 162 tests in 21 files in 6.0 seconds. Static analysis takes 4.6 seconds and the build takes 17.7 seconds.
+The final generation check passes 164 tests in 21 files in 6.2 seconds. Static analysis takes 4.7 seconds and the build takes 18.2 seconds.
+Two source Electron scenarios pass after each change in 10.2, 10.3, and 10.0 seconds. No scenario retries or rollbacks occur.
+
+The isolated macOS arm64 app passes package inventory and uses an ad-hoc signature without a Team ID.
+The same app passes 12 packaged runtime scenarios in 39.0 seconds and two packaged interaction scenarios in 9.4 seconds.
+Runtime evidence uses Electron 44.7.2.
+
+## 2026-11-07 Agent queue persistence and Steer dispatch
+
+Main shares model request setup across submission and promotion. Direct Steer, promotion, and consumption share the user history write.
+Main writes Steer history before worker delivery. Main writes Follow-up history when the worker consumes the message.
+The worker shares request registration and Pi dispatch for direct Steer and committed promotion.
+
+Each change passes 186 tests in 11 files in 7.4 seconds. Static analysis takes 4.7 seconds for each change.
+The Main and worker builds take 16.8 and 16.4 seconds. The Electron queue scenario passes in 6.5 and 6.6 seconds.
+No scenario retries occur. Neither verified change needs a rollback.
+A separate Stop guard draft is removed before verification because it can compete with run settlement to abort the same request.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent queue lifetime
+
+Queue cleanup and run settlement share one abort write for each pending request.
+Settlement retries a concurrent queue abort if its write fails.
+Direct Steer and promotion check the original worker handle after history publication.
+The Agent client rejects queue commands and actions after Stop or worker completion.
+
+The abort change passes 203 tests in 12 files in 7.4 seconds. Static analysis takes 4.8 seconds, and the build takes 16.8 seconds.
+The delivery guard passes 205 tests in 12 files in 8.1 seconds. Static analysis takes 5.4 seconds, and the build takes 16.6 seconds.
+The client change passes 207 tests in 12 files in 7.2 seconds. Static analysis takes 4.4 seconds, and the build takes 16.5 seconds.
+The Electron queue scenario passes after each change in 6.5, 6.2, and 6.1 seconds. No scenario retries occur.
+The first guard attempt rolls back after a test callback fails type checking. The corrected attempt passes all gates.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent queue cleanup and cancellation
+
+Main releases queued images when it clears the queue. Review and overflow recovery now start the cleanup grace period for unconsumed images.
+Overflow recovery closes queue admission before it waits for the old model requests to abort.
+Stop ends Follow-up and tool continuation authorization waits through the same worker cancellation signal.
+Main skips a late Follow-up reply if the run stops during publication.
+
+Image cleanup passes 209 tests in 12 files in 7.4 seconds. Static analysis takes 4.5 seconds and the build takes 16.6 seconds.
+Overflow admission passes 209 tests in 12 files in 7.5 seconds. Static analysis takes 4.6 seconds and the build takes 16.7 seconds.
+Cancellation passes 230 tests in 13 files in 7.6 seconds. Static analysis takes 4.5 seconds and the build takes 16.6 seconds.
+The first two changes pass two Electron scenarios in 6.3 and 6.6 seconds. Cancellation passes four scenarios in 12.3 seconds.
+The first cancellation attempt rolls back after two worker tests report an incorrect success result. The corrected attempt passes all gates.
+
+The isolated macOS arm64 app passes inventory and uses an ad-hoc signature without a Team ID.
+The app passes 12 packaged runtime scenarios in 40.4 seconds and four packaged Electron scenarios in 12.3 seconds.
+No Electron scenarios retry. Runtime evidence uses Electron 44.7.2.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Tool continuation lifetime
+
+Writing Agent and Notebook share model request creation for tool continuations.
+Settlement waits for pending saves and aborts any saved request that Stop prevented from reaching the worker.
+Notebook keeps metadata-only retention.
+The supervisor ignores replies from replaced processes and decisions from handlers whose requests ended.
+Queue commands and authorizations share a capability check. The supervisor requires a live request before posting either.
+
+Continuation setup passes 232 tests in 13 files in 7.8 seconds. Static analysis takes 4.4 seconds and the build takes 18.1 seconds.
+The late reply and outgoing command changes each pass 1,998 tests in 305 files. The runs take 24.0 and 24.4 seconds.
+Three opt-in benchmarks are skipped in each full run. Static analysis takes 5.2 and 5.0 seconds. Both builds take 16.8 seconds.
+Electron passes four, four, and three scenarios in 30.9, 14.1, and 24.4 seconds. No scenario retries or rollbacks occur.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Notebook startup and cancellation
+
+Notebook registers real turn completion before its first snapshot. Stop signals cancellation before it publishes the stopping phase.
+Concurrent callers share one default-model load. Close prevents a late catalog result from applying.
+Stop, Clear, and Close cancel preparation. Configuration changes recheck turn ownership after their lookups.
+
+Startup passes 129 tests in 7 files in 5.1 seconds. Static analysis takes 3.9 seconds and the build takes 16.8 seconds.
+Default-model loading passes 131 tests in 7 files in 5.5 seconds. Static analysis takes 3.9 seconds and the build takes 17.2 seconds.
+Preparation passes 135 tests in 7 files in 6.0 seconds. Static analysis takes 3.9 seconds and the build takes 16.8 seconds.
+Two Electron scenarios pass after each change in 6.6, 6.6, and 6.7 seconds. No scenario retries or code rollbacks occur.
+The first host approval for default-model verification times out before launch. The approval retry succeeds.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Notebook source reconciliation and turn history
+
+Notebook ignores late index results after a newer read applies. It adds one boundary for each confirmed source change.
+Source selection and refresh share the same update. Temporary index unavailability preserves the last confirmed chat context.
+Each turn rechecks source authority after model resolution and captures its bounded history before it saves the first model request.
+
+Read ordering passes 76 tests in five files in 6.3 seconds. Static analysis takes 3.8 seconds and the build takes 16.7 seconds.
+Index readiness passes 79 tests in five files in 7.0 seconds. Static analysis takes 3.7 seconds and the build takes 17.6 seconds.
+Turn history passes 81 tests in five files in 7.2 seconds. Static analysis takes 3.8 seconds and the build takes 17.1 seconds.
+Two Electron scenarios pass after each change in 45.4, 45.9, and 45.8 seconds. The large source fixture covers 301 sources.
+No scenario retries or code rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Notebook capacity and Stop cleanup
+
+Notebook applies source changes at the message and text limits. It advances model context and adds a visible marker only when it fits.
+Streaming and snapshot validation share a UTF-8 text budget. An overflowing delta leaves the last valid text and reports the capacity error.
+Stop settles the request independently of notification delivery. It clears the cleanup timer when settlement finishes.
+
+Source boundaries pass 69 tests in four files in 7.5 seconds. Static analysis takes 3.8 seconds and the build takes 16.9 seconds.
+UTF-8 accounting passes 70 tests in four files in 8.7 seconds. Static analysis takes 4.3 seconds and the build takes 16.7 seconds.
+Stop cleanup passes 72 tests in four files in 8.2 seconds. Static analysis takes 3.8 seconds and the build takes 16.5 seconds.
+The Notebook Electron scenario passes after each change in 3.9, 3.8, and 3.8 seconds. No scenario retries or code rollbacks occur.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Search heading filters
+
+Full-text and vector ranking match literal decoded heading text before limiting candidates.
+The worker applies the existing normalization policy through a SQLite function registered on its connection.
+One builder emits SQL clauses and bound values. Direct candidate loads use that builder, and ranked candidates reuse their selection.
+
+Heading matching passes 101 tests in seven files in 9.4 seconds and two SQL tests in 0.4 seconds.
+Static analysis takes 4.5 seconds and the build takes 17.7 seconds.
+The shared builder passes 2,020 tests in 305 files in 25.2 seconds. The full run skips three opt-in benchmarks.
+Its static analysis takes 5.3 seconds and the build takes 17.2 seconds.
+Two source Electron scenarios pass after each change in 10.8 and 10.5 seconds.
+The first heading attempt rolls back after a fixture expects three normalized blocks. The corrected fixture expects four and passes.
+
+The isolated macOS arm64 app passes inventory and uses an ad-hoc signature without a Team ID.
+The app passes 12 runtime scenarios in 40.3 seconds and two packaged Electron scenarios in 10.0 seconds.
+No scenario retries occur. Runtime evidence uses Electron 44.7.2.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent queue authorization and delivery cleanup
+
+Main grants model event access after it saves the user message. Queued Follow-ups get access at consumption.
+Direct submission and promotion share failed delivery cleanup. The cleanup retires the request and stops the run if its worker handle is current.
+The Electron scenario covers a queued Follow-up that reaches its provider after Steer.
+
+Both changes pass 194 tests in 11 files in 8.1 and 8.2 seconds. Static analysis takes 4.7 and 5.2 seconds.
+The builds take 18.0 and 17.8 seconds. The Electron queue scenario passes in 6.7 and 7.2 seconds.
+No scenario retries or code rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Index source provenance
+
+Ranked search loads block IDs, pages, and asset references. Citation expansion adds source locations when a caller requests them.
+Citation expansion and Mapping validate bounding boxes through one decoder. Existing indexes need no migration.
+
+Both changes pass 107 tests in nine files in 8.5 and 8.4 seconds. Static analysis takes 4.0 and 3.9 seconds.
+The builds take 16.7 and 16.5 seconds. Two source Electron scenarios pass after each change in 10.1 and 10.0 seconds.
+The first projection attempt rolls back after a test line fails formatting. The corrected attempt passes all gates.
+No scenario retries occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Mapping row limits and block lookups
+
+The worker limits both Mapping queries to one row above their caps. It rejects overflow before it loads chunk text or vector previews.
+Main searches sorted block ranges to select normalized content and find the first block for each chunk's coverage.
+The tests cover the exact row limit, both overflow paths, and character offsets across overlapping ranges.
+
+The SQL change passes 108 tests in nine files in 8.4 seconds. The range change passes 109 tests in nine files in 8.5 seconds.
+Static analysis takes 4.0 seconds for each change. The builds take 16.4 and 17.1 seconds.
+Two source Electron scenarios pass after each change in 9.8 and 10.0 seconds. No scenario retries or rollbacks occur.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Chunk grouping and Mapping rules
+
+The chunker renders each searchable block once and tracks the active image as it groups captions. The splitter receives the finished text.
+Chunking and Mapping share the block separator and the caption match rule. Golden fixtures retain their chunk IDs and source ranges.
+
+Each change passes 114 tests in ten files in 8.5, 8.5, and 8.6 seconds. Static analysis takes 4.1, 4.0, and 3.9 seconds.
+The builds take 17.0, 16.9, and 16.9 seconds. Two source Electron scenarios pass after each change in 10.1, 9.9, and 9.9 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Segment provenance and asset limits
+
+Each index segment records only overlapping source blocks. A new derived generation format triggers the existing background rebuild.
+The chunk ID keeps the original group coordinates. The chunker splits groups that exceed the shared limit of 2,000 distinct asset references.
+
+Segment provenance passes 2,027 tests in 305 files in 25.9 seconds. Three opt-in benchmark files are skipped.
+The asset limit passes 117 tests in ten files in 9.4 seconds. Static analysis takes 5.5 and 4.3 seconds.
+The builds take 20.8 and 17.5 seconds. Two source Electron scenarios pass after each change in 9.3 and 10.0 seconds.
+The first segment attempt rolls back after ten Main tests use the old generation ID format. The revised fixtures use the shared builder.
+No scenario retries occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Startup fingerprint allocation
+
+Startup reads ordered source rows one at a time and appends their IDs. Build and reopen hash chunk entries one at a time.
+The fixed digest confirms encoding compatibility. Clean reopen rejects reordered source IDs.
+
+Both changes pass 118 tests in ten files in 8.4 seconds each. Static analysis takes 4.0 and 3.9 seconds.
+The builds take 16.6 and 16.9 seconds. Two source Electron scenarios pass after each change in 9.9 and 10.0 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Index readiness probes and recovery
+
+Startup and readiness probes request only the active generation ID. Main rechecks current sources after the worker replies.
+Startup queues the latest source generation. Successful activation restores readiness after a failed startup.
+
+The protocol change passes 2,030 tests in 305 files in 26.9 seconds. Three opt-in benchmarks are skipped.
+The source recheck passes 119 focused tests in 8.5 seconds. Readiness recovery passes 120 in 8.6 seconds.
+Static analysis takes 5.7, 4.0, and 4.0 seconds. The builds take 21.7, 17.3, and 17.0 seconds.
+Two source Electron scenarios pass after each change in 9.9, 10.0, and 10.2 seconds.
+
+The isolated macOS arm64 app passes inventory and uses an ad-hoc signature without a Team ID.
+It passes 12 runtime scenarios in 40.3 seconds and two packaged Electron scenarios in 9.6 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Index worker runtime recovery
+
+Concurrent index requests share worker startup and the recovery retry. They wait for the replacement to report readiness before posting requests.
+Main receives one notification per replacement and queues a durable rebuild if the active generation differs from the current sources.
+
+Shared startup passes 121 tests in nine files in 8.9 seconds. The rebuild notification passes 2,034 tests in 305 files in 26.7 seconds.
+The full suite skips three opt-in benchmarks. Static analysis takes 4.1 and 5.6 seconds. The builds take 17.2 and 21.7 seconds.
+Two source Electron scenarios pass after each change in 10.2 and 9.4 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Index shutdown and recovery cleanup
+
+Normal close and forced termination wait for recovery file removal before project shutdown completes.
+The client shares concurrent close calls and blocks requests that have yet to reach the worker.
+The tests pause file removal and exercise both stop paths. A separate test covers a request that waits while graceful close starts.
+
+File cleanup passes 113 tests in nine files in 7.4 seconds. Close admission passes 114 tests in nine files in 7.2 seconds.
+Static analysis takes 4.1 seconds after each change. The builds take 16.8 and 17.1 seconds.
+Three source Electron scenarios pass after each change in 13.7 seconds. No scenario retries or rollbacks occur.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Derived index ownership
+
+Main removes its index header check and the unused flag from live project responses.
+The Index worker creates and validates the derived database. It can initialize a header-only file from an older version.
+Snapshot creation removes its false-only index option. Archive metadata stays compatible, and inventories exclude the shared index path and its sidecars.
+
+The live flag change passes 2,037 tests in 305 files in 27.3 seconds. Three opt-in benchmarks are skipped.
+Worker-owned creation passes 212 tests in 43 files in 8.5 seconds. Archive cleanup passes 136 tests in 37 files in 9.3 seconds.
+The two focused suites each skip one opt-in benchmark. Static analysis takes 5.5, 4.8, and 4.8 seconds.
+The builds take 23.5, 17.7, and 18.4 seconds. Three source Electron scenarios pass after the first two changes in 13.5 and 13.8 seconds.
+Two snapshot and clone scenarios pass after archive cleanup in 3.7 seconds.
+The first attempt rolls back after five history tests lose an archive field. The revised change limits removal to live project data.
+No Electron scenario retries occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent queue delivery and admission
+
+Main uses one sequence to save history, check the worker handle, and authorize model events.
+The shared sequence covers direct Steer, promotion, and Follow-up consumption.
+Run cleanup tracks rejected queue requests and retries if the first abort write fails.
+
+Delivery passes 188 tests in 10 files in 8.4 seconds. Admission passes 189 tests in 10 files in 7.5 seconds.
+Static analysis takes 4.5 and 4.3 seconds. The builds take 17.3 and 16.3 seconds.
+The source Electron queue scenario passes after each change in 6.8 and 6.5 seconds.
+The first admission attempt rolls back because its regression test expects a shortened error message.
+No Electron scenario retries occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent queue settlement
+
+Run cleanup retries an abort once whether it starts the first attempt or shares another queue action's attempt.
+Main closes queue admission when the worker exits and waits for saves that already started.
+A late unused request can finish its abort without changing a successful run's outcome.
+Interrupted output links only to a pending request that Main authorized.
+
+Abort retry passes 190 tests in 10 files in 8.5 seconds. Save tracking passes 194 tests in 10 files in 8.0 seconds.
+Static analysis takes 4.9 and 4.1 seconds. Both builds take 16.1 seconds.
+The first change passes one source Electron scenario in 6.5 seconds. The second passes two in 7.0 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Project open and close cleanup
+
+ProjectManager retains the database and lock after a failed worker stop, claim stop, or drain.
+Failed open uses the same cleanup for the resources it acquired. Create and restore transfer lock ownership to open.
+Main preserves the original open error and offers close retry when cleanup fails.
+
+Worker shutdown ordering passes 156 tests in 8.9 seconds. Drain retry passes 158 in 8.2 seconds.
+Failed open cleanup passes 191 tests in 42 files in 8.8 seconds. Each pass skips one opt-in benchmark.
+Static analysis takes 5.1, 4.5, and 4.7 seconds. The builds take 18.3, 17.4, and 16.5 seconds.
+Source Electron scenarios pass 3, 3, and 5 in 10.9, 10.7, and 14.2 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Project lock release and owner validation
+
+A lock handle resumes a failed release on the same directory. Concurrent callers wait for the active attempt.
+Stale-lock recovery checks the owner token against the observed filename and uses the observed path.
+
+Release passes 176 tests in 39 files in 9.0 seconds. Owner validation passes 177 in 39 files in 8.9 seconds.
+Each pass skips one opt-in benchmark. Static analysis takes 4.6 and 4.7 seconds.
+The builds take 16.9 and 17.2 seconds. Two source Electron scenarios pass after each change in 8.0 and 7.5 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Checkpoint restore recovery
+
+Failed restore uses the same journal replay as restart recovery. Replay preserves history and its ignore rules after an interrupted rollback.
+Main checks the project manifest and directory type before moving a project directory. A journal for another project leaves the directories in place.
+
+Replay passes 178 tests in 39 files in 9.2 seconds. Directory validation passes 180 in 39 files in 9.5 seconds.
+Each suite skips one opt-in benchmark. Static analysis takes 4.6 and 4.7 seconds.
+The builds take 16.6 and 16.7 seconds. Four source Electron scenarios pass after each change in 10.8 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Cross-process exclusion during checkpoint swap and journal replay remains open.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Checkpoint journal replay locks
+
+Journal replay acquires write locks before moving project directories. A lock follows its directory.
+The explicit stale-lock action can recover a blocked rollback directory when the selected root is missing.
+The normal checkpoint swap still releases the original lock before it installs the candidate.
+
+The change passes 182 tests in 39 files in 10.6 seconds and skips one opt-in benchmark.
+Static analysis takes 4.9 seconds. The build takes 17.6 seconds.
+Four source Electron scenarios pass in 11.7 seconds without retries. No rollback occurs.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Editor save requests and session cleanup
+
+Main shares the editor save request and acknowledgment across close, export, snapshot, and manuscript mutations.
+Replies must match the sender, session, and purpose. The editor exposes only its own close hooks.
+Main's editor session cleanup clears the active section and cancels pending requests.
+
+The shared exchange passes 73 tests in 10.4 seconds. Session cleanup passes 74 tests in 10.0 seconds.
+Both suites cover four files. Static analysis takes 3.9 and 3.8 seconds. The builds take 16.8 and 16.7 seconds.
+Four source Electron scenarios pass after the first change in 12.6 seconds. Two close and reopen scenarios pass after the second in 8.5 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Manuscript revision writes and request lifetime
+
+Editor saves, replacement, and Undo share revision insertion, current pointer updates, and comment anchor mapping.
+Find, replacement preview, Knowledge search, and citation coverage share cancellation, a final session check, and request cleanup.
+
+Revision writes pass 55 tests in five files in 6.1 seconds. Request lifetime passes 35 tests in six files in 0.7 seconds.
+Static analysis takes 3.8 and 3.7 seconds. The builds take 16.5 and 18.0 seconds.
+Three source Electron scenarios pass after the first change in 9.2 seconds. Four pass after the second in 12.8 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Publication citation capture
+
+Publication preview and export derive the reference index from the captured manuscript. Markdown and citation coverage use the same projection.
+Formatted preview passes the captured manuscript and reference items to the formatter. The formatter uses the shared citation traversal.
+
+Reference indexing passes 49 tests in seven files in 3.2 seconds. Formatter capture passes 39 tests in six files in 2.4 seconds.
+Static analysis takes 3.9 and 3.8 seconds. The builds take 16.2 and 16.9 seconds.
+Three source Electron scenarios pass after the first change in 8.1 seconds. Two pass after the second in 13.8 seconds.
+No scenario retries or rollbacks occur. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Section Markdown export
+
+Section Markdown export checks the requested revision against the same manuscript capture that supplies the text and citation numbers.
+The focused suite passes 35 tests in three files in 2.9 seconds. Static analysis takes 3.7 seconds, and the production build takes 16.6 seconds.
+Two export scenarios pass in 4.4 seconds on Electron 44.7.2 and macOS arm64. No tests need a retry or rollback.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Import metadata and image references
+
+Import planning and applying read the active revision ID and hash from the workspace metadata. This removes a separate read and decode of the section body.
+Revision saves and whole-manuscript exports share the same image reference scan and URL parser.
+
+The two changes pass 39 and 27 focused tests in 5.9 and 6.1 seconds. Each static gate takes 3.8 seconds.
+The production builds take 16.9 and 16.7 seconds. Three import and two export scenarios pass in 6.5 and 6.9 seconds on Electron 44.7.2 and macOS arm64.
+No gate needs a retry or rollback. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Editor refresh and Agent notification delivery
+
+Agent mutations and Find and Replace share a refresh of the workspace and active editor. They also share the release of the editor lock.
+Main sends each Agent mutation once per window. Preload delivers it to each registered listener.
+
+The two changes pass 24 and 26 focused tests in 0.7 and 3.9 seconds. The static gates take 3.7 and 3.9 seconds.
+The production builds take 17.1 and 16.7 seconds. Replacement and Agent approval pass together in 24.5 seconds.
+After the delivery change, approval and Agent table authoring pass in 24.3 and 8.8 seconds on Electron 44.7.2 and macOS arm64.
+The table scenario needs a separate exact filter. No test retries or rollbacks occur.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent refresh ownership
+
+The workspace refreshes the manuscript when Main sends an Agent change notification. Approval, Undo, and batch apply no longer request a second refresh.
+Citation coverage uses the common Preload subscription. Its listener refreshes coverage for section revision changes.
+
+The two changes pass 30 and 15 focused tests in 0.9 and 0.6 seconds. The static gates take 3.7 and 3.8 seconds.
+The production builds take 16.8 and 16.7 seconds. Agent approval and Undo, plus Brief and outline approval, pass in 24.4 seconds.
+The Citation coverage scenario passes in 7.9 seconds. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+No test retries or rollbacks occur. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Agent session reads and proposal approval
+
+Agent panel refreshes share the active and archived session list reader. The first user message starts one refresh after writing guidance is ready.
+Main reads the proposal once before dispatch. Both approval paths share the result notification.
+
+The two changes pass 55 and 27 focused tests in 6.4 and 4.7 seconds. The static gates take 3.8 and 4.5 seconds.
+The production builds take 16.8 and 17.6 seconds. Writing Skills and writing-task archive scenarios pass in 7.3 seconds.
+Proposal approval and Undo, plus Brief and outline approval, pass in 25.8 seconds on Electron 44.7.2 and macOS arm64.
+No test retries or rollbacks occur. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Editor section selection and save requests
+
+Main uses the selected section's current revision to prepare close, snapshot, export, and mutation saves. It reads the revision again after the editor replies.
+The unused `editor:open` IPC route is removed. The workbench loads the section that it selects.
+
+The two changes pass 68 and 32 focused tests in 8.7 and 5.6 seconds. The static gates take 3.9 and 3.8 seconds.
+Both production builds take 17.1 seconds. Four save scenarios pass in 11.6 seconds. Two editor scenarios pass in 9.2 seconds.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. No test retries or rollbacks occur.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Editor save result and file repair
+
+The revision writer reports whether it created a revision. The save service uses that result and removes its separate section read.
+Identical retries use the project-open file validation and repair path. An intact regular file stays in place, and a missing file is rebuilt from SQLite.
+
+The changes pass 56 and 68 focused tests in 6.0 and 10.6 seconds. The final static gates take 4.0 and 3.8 seconds.
+The production builds take 17.0 and 17.1 seconds. Two save and import scenarios pass in 4.0 seconds, and three save, reopen, and export scenarios pass in 11.2 seconds.
+The static gate and focused tests run again after the regular-file guard. No Electron scenario retries or rollbacks occur.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Section loading and navigation
+
+Section loads leave the active section alone. The explicit activation endpoint sets the target for final saves.
+The workbench updates the tab once after it activates the editor. Other navigation paths use the same tab update.
+
+The changes pass 62 and 20 focused tests in 8.4 and 0.7 seconds. Both static gates take 3.8 seconds.
+The production builds take 16.8 and 17.4 seconds. Each change passes three source Electron scenarios in 9.0 and 11.6 seconds respectively.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. No scenario retries or rollbacks occur.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Section creation and outline recovery
+
+The creation handler uses the returned revision ID to build the section file. Manuscript IPC calls the workspace reader directly.
+Create, move, update, and delete share the outline refresh after a failed write.
+
+The changes pass 42 and 30 focused tests in 5.7 and 2.9 seconds. The static gates take 3.8 and 3.7 seconds.
+The production builds take 16.4 and 16.7 seconds. Each change passes two source Electron scenarios in 8.3 and 8.5 seconds respectively.
+Runtime evidence uses Electron 44.7.2 on macOS arm64. No scenario retries or rollbacks occur.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Writing workspace save coordination
+
+The final-save hook uses the shared subscription and one acknowledgment path when it handles the reply directly.
+The section title hook owns the draft, canonical title, and pending save. Section activation and canonical updates share one reset.
+
+The changes pass 62 and 30 focused tests in 8.6 and 2.9 seconds. The final static gates take 3.8 and 3.6 seconds.
+The production builds take 16.9 and 16.7 seconds. Four final-save scenarios and three title and outline scenarios pass in 14.1 and 9.3 seconds.
+The first title extraction rolls back after the Renderer type check finds a stale error setter. The corrected extraction passes all gates.
+No Electron scenarios need a retry. Runtime evidence uses Electron 44.7.2 on macOS arm64.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Writing workspace navigation
+
+The navigation hook owns queued section switches, Agent scrolling, and Find reveals. One action clears both a pending reveal and the editor highlight.
+The focused suite passes 24 tests in four files in 0.7 seconds. Static analysis takes 3.6 seconds, and the production build takes 16.2 seconds.
+Find navigation, Agent follow, and workspace reopen pass in 25.3 seconds on Electron 44.7.2 and macOS arm64.
+No scenario retries or rollbacks occur. Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Checkpoint restore lock handoff
+
+Main retains the original lock through close and locks the candidate before the swap. Reopen takes ownership of the installed directory's lock.
+If the candidate cannot reopen, journal replay uses the held locks. A competing open during the missing-root interval receives lock contention.
+
+The final focused suite passes 65 tests in four files in 9.0 seconds. Static analysis takes 4.0 seconds, and the production build takes 18.0 seconds.
+Checkpoint restore and two-process lock contention pass in 4.9 seconds on Electron 44.7.2 and macOS arm64.
+The first attempt rolls back after type checking finds an unused import. The corrected attempt passes all gates with zero Electron scenario retries.
+Changes remain local and uncommitted on `codex/untangle-code-knots`.
+
+## 2026-11-07 Launcher project diagnostics
+
+The launcher shows a reason and the available recovery actions. Main rebuilds a missing manifest in a verified recovery copy.
+The copy preserves the project identity and opens through the normal lifecycle. Checkpoint history and backups stay with the original.
+
+Static checks take 3.6 seconds. The focused suite passes 102 tests in five files in 8.6 seconds after one error-chain assertion correction.
+The production build takes 16.9 seconds. The local unpacked app and inventory pass in 40.2 seconds on macOS arm64.
+Four selected scenarios pass on the packaged executable. The first run takes 20.8 seconds and passes two scenarios.
+The two corrected scenarios pass in 4.7 seconds on the same app. Playwright uses zero automatic retries.
+The tests use temporary projects on Electron 44.7.2. The change remains local and uncommitted.
+
+## 2026-11-07 In-place manifest repair
+
+Main verifies the database with a read-only connection under the project write lock.
+It publishes a missing manifest without replacing an existing file, then opens the project under the same lock.
+The copy option remains available. The in-place test checks that the existing checkpoint ref stays intact.
+
+Static checks pass in 3.9 seconds. The focused suite passes 102 tests in five files in 9.1 seconds.
+The production build takes 16.3 seconds. The unpacked app and inventory pass in 39.4 seconds on macOS arm64.
+Four packaged recovery scenarios pass in 11.0 seconds on Electron 44.7.2 with zero retries.
+Tests use temporary projects. The change remains local and uncommitted.
+
+## 2026-11-07 Interface polish
+
+Panel headers, sidebar headers, and content toolbars now share one 56-pixel header row from `components/panel-header.tsx`.
+Header dividers align across the Outline, Comments, Find, References, Writing rules, Preview, Images, Knowledge, Notebook, Checks, Agent, and Settings columns.
+The Outline editor tree and inspector headers share one 64-pixel height.
+Embedded workspace sidebars now fill their column, so nested Knowledge and Notebook header controls no longer clip.
+The Agent provider list no longer clips its status badges.
+The Outline header uses icon actions with the existing `Brief` and `Edit outline` accessible names.
+Knowledge statistics move to a strip below the toolbar. Checks gains a toolbar that holds Refresh.
+Settings pages share `components/settings-page-header.tsx`, and settings sections have distinct Lucide icons.
+Theme, citation display, approval, completion length, filters, metrics, section headings, and provider actions gain Lucide icons.
+Publication presets use the same selectable `Button` row as the provider list.
+Onboarding step icons match the Settings sections. Project diagnostics actions gain icons.
+The Create project, Brief, Import, Export, template, and checkpoint dialog titles gain icons, as do their primary actions.
+Arbitrary 10- and 11-pixel text becomes `text-xs`. The 8-pixel page number in the print thumbnail is intentionally scaled.
+
+Static checks pass in 3.4 seconds. Renderer Vitest passes 261 tests in 44 files after one General description correction.
+The production build takes 15.2 seconds. Eight selected E2E files pass 40 scenarios in 105.6 seconds on Electron 44.7.2 and macOS arm64 with zero retries.
+After the provider action icons, the knowledge and Agent writing files pass 7 scenarios in 67.2 seconds with zero retries.
+After the dialog, onboarding, and diagnostics icons, six E2E files pass 43 scenarios in 103.7 seconds with zero retries.
+Renderer Vitest again passes 261 tests in 44 files.
+Before and after screenshots are under `.cache/verification/ui-polish/`. The change remains local and uncommitted.
+
+## 2026-11-07 Pi 1.5, Electron 45, and dependency migrations
+
+The user authorizes updating Pi to 1.5 and the low-risk dependencies, then the coupled migrations ADR 056 had deferred, and repairs for the failing tests.
+[ADR 056](../adrs/056-dependency-security-and-compatibility-refresh.md#2026-11-07-pi-15-electron-45-vite-8-and-katex-018-amendment) records the decisions.
+
+Changes:
+
+- Pi Agent Core and Pi AI advance from 1.3.0 to 1.5.0, and `AGENT_RUNTIME_VERSION` follows them. TypeBox advances to 1.4.
+- Electron advances from 44.7.2 to 45.2.3 (Node 24.22.2, ABI 150, Node-API 10). better-sqlite3 and sqlite-vec load unchanged.
+- `CredentialService` uses the asynchronous `safeStorage` methods, encrypts before the provider save transaction, and re-encrypts values Electron reports under a rotated key. Four new tests cover the round trip, rotation, failed re-encryption, and the concurrent-save guard.
+- electron-vite 6, Vite 8, and plugin-react 6 replace the Rollup build with Rolldown. The entry points and CommonJS main bundle are unchanged.
+- KaTeX 0.18.10 is shared by every consumer through an exact override; 0.18.11 is deprecated upstream. BlockNote advances to 0.57 with the popover patch ported, and Mermaid to 12.3.
+- Biome 2.6, Playwright 1.65 with the patch moved, p-queue 10, `@google/genai` 3 on its default `v1` API, and patch or minor updates of 19 other packages.
+- The undici, DOMPurify, and fast-uri overrides move to repaired releases.
+
+Diagnosed failures:
+
+- `workbench.tabs-docking-restore` failed at the native-menu Knowledge toggle before and after the update: 2 of 12 with the previous dependencies, 7 of 12 with Dockview 8.6.1, and 7 of 24 with all updates.
+  The cause was a product race: a layout change republished controls and marked the old object dead, so a menu command reaching it was dropped.
+  Controls now stay valid while their Dockview instance is mounted, and menu toggles read the live layout. The scenario then passed 24 of 24.
+- `manuscript.rich-media-reopen-export` failed only on Electron 45 (3 of 3, against 0 of 3 on 44.10.2).
+  Chromium 156 reports a CSP violation when an inline handler is parsed, even in an inert `DOMParser` or template document. A minimal window reproduced it.
+  The scenario injects `onerror` on purpose, so it opts in to accept exactly that blocked report and still asserts no event attribute reaches the live document.
+- Outdated tests: the PDF export hash snapshots change only by KaTeX 0.18 class renames, confirmed structurally identical against 0.16.47. Gemini URL assertions follow the `v1` default.
+  The Citation.js network test now asserts that no module code loads `sync-fetch-undici` and that the denial stub is bundled, because Rolldown inlines Citation.js's `package.json`. Removing the boundary still fails the test.
+
+Verification on macOS arm64 with pnpm 11.28.3 and local Node 26.13.0 (outside the Node 24 engine range; tests run on Electron's Node):
+
+- A frozen installation passes. The production audit reports no advisories; the full audit reports one moderate minimatch advisory in electron-builder tooling.
+- The static gate passes. The complete Electron-hosted suite passes 2,070 tests in 306 files, with three optional benchmarks skipped, in 24.5 seconds.
+- The final package gate passes all ten stages in 268.1 seconds: 47 of 47 packaged scenarios with zero retries, the installers, and artifact checksums.
+- The same build then passes all 69 source E2E scenarios in 198 seconds, with zero retries.
+- Earlier package gate runs did not count as acceptance: the first failed on the docking race, and the second on the Electron 45 CSP report.
+
+This task creates no commit or push.
+
+## 2026-11-07 OpenAI ChatGPT sign-in
+
+The provider catalog passes Pi a callback that creates or reads a random installation ID from `app.sqlite`.
+One transaction keeps the ID stable when sign-in attempts overlap. The change remains uncommitted.
+
+On macOS arm64, the static gate passes five stages in 3.6 seconds. Electron passes 37 tests in three files in 4.2 seconds.
+The build passes in 2.4 seconds. The provider settings scenario passes in 11.9 seconds with zero retries.
+The scenario exercises the local authorization callback, token storage, and status after restart with a simulated OpenAI token response.
+Live ChatGPT account authorization remains untested.
+
+## 2026-11-08 Local macOS app rebuild
+
+The Apple Silicon app in `dist/macos-arm64/mac-arm64` includes the OpenAI sign-in repair.
+The build passes in 2.2 seconds. The package inventory and signature policy checks pass.
+The packaged provider settings scenario passes in 14.3 seconds with zero retries.
+It uses a simulated OpenAI token response. The existing DMG and ZIP contain the earlier app.
+
+## 2026-11-08 Maintenance branch verification
+
+The user authorizes pushing the maintenance branch for review. It includes the dependency update and OpenAI sign-in fix.
+The static gate passes five stages in 5.0 seconds.
+On macOS arm64, Electron passes 2,071 tests in 24.9 seconds with three optional benchmarks skipped.
+The packaged OpenAI scenario uses the same source and passes with a simulated token response.

@@ -65,6 +65,8 @@
     { "id": "project.template-user-extraction", "tiers": ["critical", "packaged"] },
     { "id": "project.lifecycle-restart", "tiers": ["critical", "packaged"] },
     { "id": "project.moved-root-keeps-identity", "tiers": ["packaged"] },
+    { "id": "project.recovers-missing-manifest", "tiers": ["packaged"] },
+    { "id": "project.rebuilds-manifest-in-place", "tiers": ["packaged"] },
     { "id": "project.recovers-stale-lock", "tiers": ["packaged"] },
     { "id": "project.rejects-live-lock-contention", "tiers": ["packaged"] },
     { "id": "project.snapshot-restore", "tiers": ["critical", "packaged"] },

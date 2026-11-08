@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizedKnowledgeBlockSchema } from '../../shared/contracts/knowledge'
+import { ProjectFilesystem } from '../project/project-filesystem'
 import { KnowledgeMappingService } from './knowledge-mapping-service'
 
 const roots: string[] = []
@@ -110,10 +111,16 @@ describe('KnowledgeMappingService', () => {
     const service = new KnowledgeMappingService({
       projectRoot,
       database: {
-        immediate: (callback: (database: unknown) => unknown) =>
+        read: (callback: (database: unknown) => unknown) =>
           callback({
             prepare: () => ({
-              get: () => ({ relative_path: 'revision', manifest_sha256: sha256(manifestBytes) })
+              get: () => ({
+                relative_path: 'revision',
+                parse_revision_id: manifest.parseRevisionId,
+                knowledge_item_id: manifest.knowledgeItemId,
+                source_sha256: manifest.sourceSha256,
+                manifest_sha256: sha256(manifestBytes)
+              })
             })
           })
       } as never,
@@ -150,127 +157,252 @@ describe('KnowledgeMappingService', () => {
     })
   })
 
-  it('recovers page provenance from a verified prefixed content list for legacy blocks', async () => {
-    const projectRoot = await mkdtemp(join(tmpdir(), 'writellm-knowledge-mapping-legacy-'))
-    roots.push(projectRoot)
-    const revisionRoot = join(projectRoot, 'revision')
-    await mkdir(join(revisionRoot, 'raw', 'extracted'), { recursive: true })
-    const contentListBytes = Buffer.from(
-      JSON.stringify([
-        { type: 'text', text: 'Legacy located block', page_idx: 0, bbox: [10, 20, 110, 120] }
-      ])
-    )
-    const geometryBytes = Buffer.from(
-      JSON.stringify({ pdf_info: [{ page_idx: 0, page_size: [612, 792] }] })
-    )
-    const contentListPath = 'raw/extracted/task-123_content_list.json'
-    const geometryPath = 'raw/extracted/layout.json'
-    const manifest = {
-      schemaVersion: 1,
-      parseRevisionId: '22222222-2222-4222-8222-222222222222',
-      knowledgeItemId: '11111111-1111-4111-8111-111111111111',
-      sourceSha256: 'a'.repeat(64),
-      providerId: 'mineru',
-      providerApiVersion: 'v4',
-      providerFingerprint: 'b'.repeat(64),
-      modelVersion: 'vlm',
-      remoteTaskId: 'task-legacy',
-      archive: { relativePath: 'raw/provider-result.zip', sha256: 'c'.repeat(64), byteSize: 1 },
-      files: [
-        {
-          relativePath: contentListPath,
-          sha256: sha256(contentListBytes),
-          byteSize: contentListBytes.byteLength
-        },
-        {
-          relativePath: geometryPath,
-          sha256: sha256(geometryBytes),
-          byteSize: geometryBytes.byteLength
-        }
-      ],
-      createdAt: '2026-07-19T00:00:00.000Z'
-    }
-    const manifestBytes = Buffer.from(JSON.stringify(manifest))
-    await writeFile(join(revisionRoot, 'manifest.json'), manifestBytes)
-    await writeFile(join(revisionRoot, contentListPath), contentListBytes)
-    await writeFile(join(revisionRoot, geometryPath), geometryBytes)
-    const block = normalizedKnowledgeBlockSchema.parse({
-      id: 'kb_cccccccccccccccccccccccccccccccc',
-      ordinal: 0,
-      type: 'paragraph',
-      text: 'Legacy located block',
-      markdown: 'Legacy located block',
-      headingPath: [],
-      assetRefs: [],
-      contentHash: 'd'.repeat(64)
-    })
-    const inspect = vi.fn(async () => ({
-      state: 'ready' as const,
-      activeIndexGenerationId: 'index-legacy',
-      activeEmbeddingGenerationId: 'embedding-legacy',
-      chunks: [
-        {
-          chunkId: 'chunk-legacy',
-          ordinal: 0,
-          text: block.text ?? '',
+  it('selects overlapping chunk ranges across gaps and measures coverage from the chunk start', async () => {
+    const blocks = ['zero', 'one', 'two', 'three', 'four', 'gap', '🙂', '中文'].map(
+      (text, ordinal) =>
+        normalizedKnowledgeBlockSchema.parse({
+          id: `kb_${String(ordinal).padStart(32, '0')}`,
+          ordinal,
+          text,
+          type: 'paragraph',
+          page: 0,
+          bbox: [0, 0, 100, 100],
           headingPath: [],
-          sourceBlockStart: 0,
-          sourceBlockEnd: 0,
-          sources: [
-            {
-              blockId: block.id,
-              blockOrdinal: block.ordinal,
-              blockType: block.type,
-              page: null,
-              bbox: null,
-              providerBlockId: null,
-              segmentStart: 0,
-              segmentEnd: Array.from(block.text ?? '').length
-            }
-          ],
-          embedding: null
-        }
-      ]
-    }))
+          assetRefs: [],
+          contentHash: 'a'.repeat(64)
+        })
+    )
+    const last = blocks.at(-1)
+    if (last === undefined) throw new Error('Expected a final normalized block')
+    const readBlocksForMapping = vi.fn(
+      async (_itemId: string, _revisionId: string, select: (block: typeof last) => boolean) => ({
+        blocks: blocks.filter(select),
+        tooComplex: false
+      })
+    )
+    const parseRevisionId = '22222222-2222-4222-8222-222222222222'
     const service = new KnowledgeMappingService({
-      projectRoot,
+      projectRoot: '/unused',
       database: {
-        immediate: (callback: (database: unknown) => unknown) =>
-          callback({
-            prepare: () => ({
-              get: () => ({ relative_path: 'revision', manifest_sha256: sha256(manifestBytes) })
-            })
-          })
+        read: (callback: (database: unknown) => unknown) =>
+          callback({ prepare: () => ({ get: () => undefined }) })
       } as never,
       normalization: {
-        metadata: vi.fn(async () => ({
-          active: { parseRevisionId: manifest.parseRevisionId }
-        })),
-        readBlocksForMapping: vi.fn(
-          async (
-            _knowledgeItemId: string,
-            _parseRevisionId: string,
-            select: (candidate: typeof block) => boolean
-          ) => ({ blocks: [block].filter(select), tooComplex: false })
-        )
+        metadata: async () => ({ active: { parseRevisionId } }),
+        readBlocksForMapping
       } as never,
-      index: { inspectKnowledgeMapping: inspect } as never,
+      index: {
+        inspectKnowledgeMapping: async () => ({
+          state: 'ready',
+          activeIndexGenerationId: 'index-1',
+          activeEmbeddingGenerationId: null,
+          chunks: [
+            { start: 6, end: 7 },
+            { start: 1, end: 3 },
+            { start: 2, end: 4 }
+          ].map(({ start, end }, ordinal) => ({
+            chunkId: `chunk-${ordinal}`,
+            ordinal,
+            text: '',
+            headingPath: [],
+            sourceBlockStart: start,
+            sourceBlockEnd: end,
+            sources:
+              ordinal === 0
+                ? [
+                    {
+                      blockId: last.id,
+                      blockOrdinal: last.ordinal,
+                      blockType: last.type,
+                      page: 0,
+                      bbox: last.bbox,
+                      providerBlockId: null,
+                      segmentStart: 3,
+                      segmentEnd: 4
+                    }
+                  ]
+                : [],
+            embedding: null
+          }))
+        })
+      } as never,
       log: { info: vi.fn(), error: vi.fn() }
     })
 
-    const result = await service.page(manifest.knowledgeItemId, 0)
-    expect(inspect).toHaveBeenCalledWith(manifest.knowledgeItemId, manifest.parseRevisionId, 0, [0])
-    expect(result.geometry).toEqual({ width: 1000, height: 1000, origin: 'top-left' })
-    expect(result.regions).toEqual([
-      expect.objectContaining({
-        normalizedBlockIds: [block.id],
-        pageIndex: 0,
-        bbox: [10, 20, 110, 120]
-      })
-    ])
-    expect(result.chunks).toHaveLength(1)
-    expect(result.chunks[0]?.coverages).toHaveLength(1)
+    const result = await service.page('11111111-1111-4111-8111-111111111111', 0)
+    expect(result.state).toBe('ready')
+    const selected = await readBlocksForMapping.mock.results[1]?.value
+    expect(selected?.blocks.map((block) => block.ordinal)).toEqual([1, 2, 3, 4, 6, 7])
+    expect(result.chunks[0]?.coverages[0]).toMatchObject({
+      totalCharacters: 2,
+      coveredCharacters: 1,
+      segments: [{ startRatio: 0, endRatio: 0.5 }]
+    })
   })
+
+  it.each(['vlm', 'pipeline'] as const)(
+    'reads verified raw artifacts once per Mapping request for %s legacy blocks',
+    async (modelVersion) => {
+      const projectRoot = await mkdtemp(join(tmpdir(), 'writellm-knowledge-mapping-legacy-'))
+      roots.push(projectRoot)
+      const revisionRoot = join(projectRoot, 'revision')
+      await mkdir(join(revisionRoot, 'raw', 'extracted'), { recursive: true })
+      const contentListBytes = Buffer.from(
+        JSON.stringify([
+          { type: 'text', text: 'Legacy located block', page_idx: 0, bbox: [10, 20, 110, 120] }
+        ])
+      )
+      const geometryBytes = Buffer.from(
+        JSON.stringify({ pdf_info: [{ page_idx: 0, page_size: [612, 792] }] })
+      )
+      const contentListPath = 'raw/extracted/task-123_content_list.json'
+      const geometryPath = 'raw/extracted/layout.json'
+      const manifest = {
+        schemaVersion: 1,
+        parseRevisionId: '22222222-2222-4222-8222-222222222222',
+        knowledgeItemId: '11111111-1111-4111-8111-111111111111',
+        sourceSha256: 'a'.repeat(64),
+        providerId: 'mineru',
+        providerApiVersion: 'v4',
+        providerFingerprint: 'b'.repeat(64),
+        modelVersion,
+        remoteTaskId: 'task-legacy',
+        archive: { relativePath: 'raw/provider-result.zip', sha256: 'c'.repeat(64), byteSize: 1 },
+        files: [
+          {
+            relativePath: contentListPath,
+            sha256: sha256(contentListBytes),
+            byteSize: contentListBytes.byteLength
+          },
+          {
+            relativePath: geometryPath,
+            sha256: sha256(geometryBytes),
+            byteSize: geometryBytes.byteLength
+          }
+        ],
+        createdAt: '2026-07-19T00:00:00.000Z'
+      }
+      const manifestBytes = Buffer.from(JSON.stringify(manifest))
+      await writeFile(join(revisionRoot, 'manifest.json'), manifestBytes)
+      await writeFile(join(revisionRoot, contentListPath), contentListBytes)
+      await writeFile(join(revisionRoot, geometryPath), geometryBytes)
+      const block = normalizedKnowledgeBlockSchema.parse({
+        id: 'kb_cccccccccccccccccccccccccccccccc',
+        ordinal: 0,
+        type: 'paragraph',
+        text: 'Legacy located block',
+        markdown: 'Legacy located block',
+        headingPath: [],
+        assetRefs: [],
+        contentHash: 'd'.repeat(64)
+      })
+      const inspect = vi.fn(async () => ({
+        state: 'ready' as const,
+        activeIndexGenerationId: 'index-legacy',
+        activeEmbeddingGenerationId: 'embedding-legacy',
+        chunks: [
+          {
+            chunkId: 'chunk-legacy',
+            ordinal: 0,
+            text: block.text ?? '',
+            headingPath: [],
+            sourceBlockStart: 0,
+            sourceBlockEnd: 0,
+            sources: [
+              {
+                blockId: block.id,
+                blockOrdinal: block.ordinal,
+                blockType: block.type,
+                page: null,
+                bbox: null,
+                providerBlockId: null,
+                segmentStart: 0,
+                segmentEnd: Array.from(block.text ?? '').length
+              }
+            ],
+            embedding: null
+          }
+        ]
+      }))
+      const filesystem = new ProjectFilesystem(projectRoot)
+      const readPath = vi.spyOn(filesystem, 'assertExistingRegularFile')
+      const service = new KnowledgeMappingService({
+        projectRoot,
+        filesystem,
+        database: {
+          read: (callback: (database: unknown) => unknown) =>
+            callback({
+              prepare: () => ({
+                get: () => ({
+                  relative_path: 'revision',
+                  parse_revision_id: manifest.parseRevisionId,
+                  knowledge_item_id: manifest.knowledgeItemId,
+                  source_sha256: manifest.sourceSha256,
+                  manifest_sha256: sha256(manifestBytes)
+                })
+              })
+            })
+        } as never,
+        normalization: {
+          metadata: vi.fn(async () => ({
+            active: { parseRevisionId: manifest.parseRevisionId }
+          })),
+          readBlocksForMapping: vi.fn(
+            async (
+              _knowledgeItemId: string,
+              _parseRevisionId: string,
+              select: (candidate: typeof block) => boolean
+            ) => ({ blocks: [block].filter(select), tooComplex: false })
+          )
+        } as never,
+        index: { inspectKnowledgeMapping: inspect } as never,
+        log: { info: vi.fn(), error: vi.fn() }
+      })
+
+      const result = await service.page(manifest.knowledgeItemId, 0)
+      expect(inspect).toHaveBeenCalledWith(
+        manifest.knowledgeItemId,
+        manifest.parseRevisionId,
+        0,
+        [0]
+      )
+      const layoutGeometry = { width: 612, height: 792, origin: 'top-left' }
+      expect(result.geometry).toEqual(
+        modelVersion === 'vlm' ? { width: 1000, height: 1000, origin: 'top-left' } : layoutGeometry
+      )
+      const expectedPaths = [
+        'revision/manifest.json',
+        `revision/${contentListPath}`,
+        ...(modelVersion === 'pipeline' ? [`revision/${geometryPath}`] : [])
+      ]
+      expect(readPath.mock.calls.flat()).toEqual(expectedPaths)
+      expect(result.regions).toEqual([
+        expect.objectContaining({
+          normalizedBlockIds: [block.id],
+          pageIndex: 0,
+          bbox: [10, 20, 110, 120]
+        })
+      ])
+      expect(result.chunks).toHaveLength(1)
+      expect(result.chunks[0]?.coverages).toHaveLength(1)
+
+      readPath.mockClear()
+      await writeFile(
+        join(revisionRoot, contentListPath),
+        contentListBytes.toString().replace('Legacy', 'Edited')
+      )
+      const afterEdit = await service.page(manifest.knowledgeItemId, 0)
+      expect(inspect).toHaveBeenLastCalledWith(
+        manifest.knowledgeItemId,
+        manifest.parseRevisionId,
+        0,
+        []
+      )
+      expect(afterEdit.regions).toEqual([])
+      expect(afterEdit.geometry).toEqual(modelVersion === 'vlm' ? null : layoutGeometry)
+      expect(readPath.mock.calls.flat()).toEqual(expectedPaths)
+    }
+  )
 })
 
 function sha256(value: Buffer): string {

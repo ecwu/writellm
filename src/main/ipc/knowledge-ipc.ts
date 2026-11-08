@@ -12,6 +12,7 @@ import { KnowledgeCitationCoverageService } from '../knowledge/knowledge-citatio
 import type { MineruWorkReferences } from '../knowledge/mineru-workflow-service'
 import type { ProjectContext } from '../project/project-context'
 import type { ProjectManager } from '../project/project-manager'
+import { runCancellableProjectRequest } from '../project/project-operations'
 import type { BibliographyConnectorService } from '../references/bibliography-connector-service'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
 import { createEndpointRegistrar } from './endpoint'
@@ -475,24 +476,23 @@ export function registerKnowledgeIpc(options: {
 
   handle(knowledgeIpcEndpoints.citationCoveragePage, async (parsed, context) => {
     const startedAt = Date.now()
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
     try {
       const service = new KnowledgeCitationCoverageService({
         manuscript: context.manuscript,
         projectIndex: context.projectIndex,
         references: context.references
       })
-      const result = await service.page(
-        {
-          filter: parsed.filter,
-          query: parsed.query,
-          ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
-          limit: parsed.limit
-        },
-        controller.signal
+      const result = await runCancellableProjectRequest(context, options.manager, (signal) =>
+        service.page(
+          {
+            filter: parsed.filter,
+            query: parsed.query,
+            ...(parsed.cursor === undefined ? {} : { cursor: parsed.cursor }),
+            limit: parsed.limit
+          },
+          signal
+        )
       )
-      options.manager.assertActiveSession(parsed.projectSessionId)
       options.logger.info(
         {
           event: 'knowledge.citation_coverage.completed',
@@ -526,8 +526,6 @@ export function registerKnowledgeIpc(options: {
         'Knowledge citation coverage page failed'
       )
       throw new Error('Knowledge citation coverage could not be loaded', { cause: err })
-    } finally {
-      release?.()
     }
   })
 

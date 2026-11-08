@@ -48,7 +48,7 @@ export class MainPiCredentialStore implements CredentialStore {
         const providerConfigId = await this.resolveProviderConfigId(providerId)
         options?.signal?.throwIfAborted()
         const serialized = JSON.stringify(validateCredential(next))
-        const ciphertext = this.credentials.encryptForPersistence(serialized)
+        const ciphertext = await this.credentials.encryptForPersistence(serialized)
         await this.credentials.persistEncrypted(providerConfigId, ciphertext)
         return next
       },

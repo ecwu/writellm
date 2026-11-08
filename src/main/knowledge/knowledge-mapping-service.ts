@@ -1,5 +1,4 @@
 import { sha256 } from '../../shared/hash'
-import { open } from 'node:fs/promises'
 import { basename } from 'node:path'
 import type { Logger } from 'pino'
 import {
@@ -7,24 +6,40 @@ import {
   type KnowledgeMappingPage
 } from '../../shared/contracts/knowledge-mapping'
 import type { NormalizedKnowledgeBlock } from '../../shared/contracts/knowledge'
-import { searchableKnowledgeBlockText } from '../../shared/knowledge-text'
-import { mineruRawManifestSchema } from '../../shared/contracts/mineru'
+import { captionMatchesImage } from '../../shared/knowledge-block-provenance'
+import {
+  KNOWLEDGE_BLOCK_SEPARATOR,
+  searchableKnowledgeBlockText
+} from '../../shared/knowledge-text'
+import type { MineruRawManifest } from '../../shared/contracts/mineru'
 import { chooseMineruContentListPath } from '../../shared/mineru-content-list'
 import type { ProjectIndexService } from '../search/index-service'
 import type { ProjectDatabase } from '../project/project-database'
 import { ProjectFilesystem } from '../project/project-filesystem'
+import { readBounded } from '../storage/durable-sync'
 import type { KnowledgeNormalizationService } from './knowledge-normalization-service'
+import { readMineruRawManifest, type RawManifestRevision } from './mineru-raw-manifest'
 import {
   recoverMineruBlockProvenance,
   type RecoveredBlockProvenance
 } from './mineru-block-provenance'
 
-const MAX_GEOMETRY_BYTES = 100 * 1024 * 1024
+const MAX_RAW_JSON_BYTES = 100 * 1024 * 1024
 const MAX_DEPTH = 24
 const MAX_GEOMETRY_NODES = 200_000
 const MAX_GEOMETRY_PAGES = 10_000
 const MAX_PAGE_DIMENSION = 10_000_000
 const VLM_CONTENT_COORDINATE_SIZE = 1_000
+const BLOCK_SEPARATOR_CODE_POINTS = Array.from(KNOWLEDGE_BLOCK_SEPARATOR).length
+
+type RawArtifact = MineruRawManifest['files'][number]
+type PageGeometry = { width: number; height: number; origin: 'top-left' }
+
+interface RawMappingRevision {
+  manifest: MineruRawManifest
+  contentList: RawArtifact | undefined
+  readJson(file: RawArtifact): Promise<unknown>
+}
 
 export class KnowledgeMappingService {
   private readonly filesystem: ProjectFilesystem
@@ -60,6 +75,11 @@ export class KnowledgeMappingService {
       })
     }
     const parseRevisionId = metadata.active.parseRevisionId
+    let rawRevision: Promise<RawMappingRevision | undefined> | undefined
+    const readRawRevision = () => {
+      rawRevision ??= this.#readRawRevision(knowledgeItemId, parseRevisionId)
+      return rawRevision
+    }
     const fallbackRead = await this.options.normalization.readBlocksForMapping(
       knowledgeItemId,
       parseRevisionId,
@@ -70,7 +90,8 @@ export class KnowledgeMappingService {
     let recoveredProvenance = new Map<string, RecoveredBlockProvenance>()
     if (!fallbackRead.tooComplex && fallbackBlocks.length > 0) {
       try {
-        recoveredProvenance = await this.blockProvenance(
+        recoveredProvenance = await this.#blockProvenance(
+          await readRawRevision(),
           knowledgeItemId,
           parseRevisionId,
           fallbackBlocks
@@ -99,9 +120,9 @@ export class KnowledgeMappingService {
       pageIndex,
       fallbackTooComplex ? [] : fallbackBlockOrdinals
     )
-    let geometry = new Map<number, { width: number; height: number; origin: 'top-left' }>()
+    let geometry = new Map<number, PageGeometry>()
     try {
-      geometry = await this.pageGeometry(knowledgeItemId, parseRevisionId)
+      geometry = await this.#pageGeometry(await readRawRevision())
     } catch (err) {
       this.options.log.error(
         {
@@ -170,19 +191,24 @@ export class KnowledgeMappingService {
       })
     }
 
-    const ranges = indexed.chunks.map((chunk) => ({
-      start: chunk.sourceBlockStart,
-      end: chunk.sourceBlockEnd
-    }))
+    const ranges = mergeOrdinalRanges(
+      indexed.chunks.map((chunk) => ({
+        start: chunk.sourceBlockStart,
+        end: chunk.sourceBlockEnd
+      }))
+    )
     const sourceBlockIds = new Set(
       indexed.chunks.flatMap((chunk) => chunk.sources.map((source) => source.blockId))
     )
     const relevantRead = await this.options.normalization.readBlocksForMapping(
       knowledgeItemId,
       parseRevisionId,
-      (block) =>
-        sourceBlockIds.has(block.id) ||
-        ranges.some((range) => block.ordinal >= range.start && block.ordinal <= range.end),
+      (block) => {
+        if (sourceBlockIds.has(block.id)) return true
+        const index = lowerBoundByOrdinal(ranges, block.ordinal, (range) => range.end)
+        const range = ranges[index]
+        return range !== undefined && range.start <= block.ordinal
+      },
       { maxBlocks: 10_000, maxBytes: 32 * 1024 * 1024 }
     )
     if (relevantRead.tooComplex) {
@@ -214,8 +240,7 @@ export class KnowledgeMappingService {
         if (block === undefined) continue
         const recovered = recoveredProvenance.get(block.id)
         const candidateBbox = source.bbox ?? block.bbox ?? recovered?.bbox ?? null
-        const inheritedCaptionBbox =
-          block.type === 'caption' && isInheritedCaptionBbox(block, candidateBbox, activeBlocks)
+        const inheritedCaptionBbox = isInheritedCaptionBbox(block, candidateBbox, activeBlocks)
         const effectiveSource = {
           ...source,
           page: source.page ?? block.page ?? recovered?.page ?? null,
@@ -317,113 +342,80 @@ export class KnowledgeMappingService {
     return result
   }
 
-  async pageGeometry(
+  async #readRawRevision(
     knowledgeItemId: string,
     parseRevisionId: string
-  ): Promise<Map<number, { width: number; height: number; origin: 'top-left' }>> {
-    const row = this.options.database.immediate(
+  ): Promise<RawMappingRevision | undefined> {
+    const row = this.options.database.read(
       (database) =>
         database
           .prepare(
-            `SELECT relative_path, manifest_sha256
+            `SELECT relative_path, parse_revision_id, knowledge_item_id, source_sha256, manifest_sha256
                FROM parse_revisions
               WHERE knowledge_item_id = ? AND parse_revision_id = ?`
           )
-          .get(knowledgeItemId, parseRevisionId) as
-          | { relative_path: string; manifest_sha256: string }
-          | undefined
+          .get(knowledgeItemId, parseRevisionId) as RawManifestRevision | undefined
     )
-    if (row === undefined) return new Map()
-    const manifestBytes = await readBounded(
-      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
-      10 * 1024 * 1024
+    if (row === undefined) return undefined
+    const { manifest } = await readMineruRawManifest(this.filesystem, row)
+    const contentListPath = chooseMineruContentListPath(
+      manifest.files.map((file) => file.relativePath)
     )
-    if (sha256(manifestBytes) !== row.manifest_sha256)
-      throw new Error('Raw parse manifest hash mismatch')
-    const manifest = mineruRawManifestSchema.parse(JSON.parse(manifestBytes.toString('utf8')))
-    if (manifest.modelVersion === 'vlm') {
-      const contentListPath = chooseMineruContentListPath(
-        manifest.files.map((file) => file.relativePath)
-      )
-      const contentListFile = manifest.files.find((file) => file.relativePath === contentListPath)
-      if (contentListFile !== undefined) {
-        const bytes = await readBounded(
-          await this.filesystem.assertExistingRegularFile(
-            `${row.relative_path}/${contentListFile.relativePath}`
-          ),
-          MAX_GEOMETRY_BYTES
-        )
-        if (
-          bytes.byteLength !== contentListFile.byteSize ||
-          sha256(bytes) !== contentListFile.sha256
-        ) {
-          throw new Error('Raw VLM content-list hash or size mismatch')
-        }
-        const geometry = collectVlmContentListGeometry(JSON.parse(bytes.toString('utf8')))
-        if (geometry.size > 0) return geometry
+    const contentList = manifest.files.find((file) => file.relativePath === contentListPath)
+    let contentListJson: Promise<unknown> | undefined
+    return {
+      manifest,
+      contentList,
+      readJson: (file) => {
+        if (file !== contentList) return this.#readRawJson(row.relative_path, file)
+        contentListJson ??= this.#readRawJson(row.relative_path, file)
+        return contentListJson
       }
+    }
+  }
+
+  async #readRawJson(relativePath: string, file: RawArtifact): Promise<unknown> {
+    const bytes = await readBounded(
+      await this.filesystem.assertExistingRegularFile(`${relativePath}/${file.relativePath}`),
+      MAX_RAW_JSON_BYTES
+    )
+    if (bytes.byteLength !== file.byteSize || sha256(bytes) !== file.sha256) {
+      throw new Error('Raw mapping artifact hash or size mismatch')
+    }
+    return JSON.parse(bytes.toString('utf8'))
+  }
+
+  async #pageGeometry(
+    revision: RawMappingRevision | undefined
+  ): Promise<Map<number, PageGeometry>> {
+    if (revision === undefined) return new Map()
+    const { manifest, contentList, readJson } = revision
+    if (manifest.modelVersion === 'vlm' && contentList !== undefined) {
+      const geometry = collectVlmContentListGeometry(await readJson(contentList))
+      if (geometry.size > 0) return geometry
     }
     const candidates = manifest.files
       .filter((file) => /(?:middle|layout|model|content_list)\.json$/i.test(file.relativePath))
       .sort((a, b) => geometryPriority(a.relativePath) - geometryPriority(b.relativePath))
     for (const file of candidates) {
-      const bytes = await readBounded(
-        await this.filesystem.assertExistingRegularFile(
-          `${row.relative_path}/${file.relativePath}`
-        ),
-        MAX_GEOMETRY_BYTES
-      )
-      if (sha256(bytes) !== file.sha256) throw new Error('Raw geometry file hash mismatch')
-      const geometry = collectGeometry(JSON.parse(bytes.toString('utf8')))
+      const geometry = collectGeometry(await readJson(file))
       if (geometry.size > 0) return geometry
     }
     return new Map()
   }
 
-  async blockProvenance(
+  async #blockProvenance(
+    revision: RawMappingRevision | undefined,
     knowledgeItemId: string,
     parseRevisionId: string,
     blocks: readonly NormalizedKnowledgeBlock[]
   ): Promise<Map<string, RecoveredBlockProvenance>> {
-    const row = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT relative_path, manifest_sha256
-               FROM parse_revisions
-              WHERE knowledge_item_id = ? AND parse_revision_id = ?`
-          )
-          .get(knowledgeItemId, parseRevisionId) as
-          | { relative_path: string; manifest_sha256: string }
-          | undefined
-    )
-    if (row === undefined) return new Map()
-    const manifestBytes = await readBounded(
-      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
-      10 * 1024 * 1024
-    )
-    if (sha256(manifestBytes) !== row.manifest_sha256) {
-      throw new Error('Raw parse manifest hash mismatch')
-    }
-    const manifest = mineruRawManifestSchema.parse(JSON.parse(manifestBytes.toString('utf8')))
-    const contentListPath = chooseMineruContentListPath(
-      manifest.files.map((file) => file.relativePath)
-    )
-    if (contentListPath === undefined) return new Map()
-    const file = manifest.files.find((candidate) => candidate.relativePath === contentListPath)
-    if (file === undefined) throw new Error('MinerU content list inventory record is missing')
-    const contentListBytes = await readBounded(
-      await this.filesystem.assertExistingRegularFile(`${row.relative_path}/${contentListPath}`),
-      MAX_GEOMETRY_BYTES
-    )
-    if (contentListBytes.byteLength !== file.byteSize || sha256(contentListBytes) !== file.sha256) {
-      throw new Error('MinerU content list hash or size does not match')
-    }
+    if (revision?.contentList === undefined) return new Map()
     const recovered = recoverMineruBlockProvenance({
       blocks,
-      contentListPath,
-      contentList: JSON.parse(contentListBytes.toString('utf8')),
-      manifest
+      contentListPath: revision.contentList.relativePath,
+      contentList: await revision.readJson(revision.contentList),
+      manifest: revision.manifest
     })
     this.options.log.info(
       {
@@ -500,18 +492,13 @@ function isInheritedCaptionBbox(
     parent = candidate
     break
   }
-  if (parent?.type !== 'image') return false
-  const related =
-    block.assetRefs.some((asset) => parent.assetRefs.includes(asset)) ||
-    (block.sourceProviderBlockId !== undefined &&
-      block.sourceProviderBlockId === parent.sourceProviderBlockId)
-  if (!related || parent.bbox === undefined) return false
+  if (parent?.bbox === undefined || !captionMatchesImage(block, parent)) return false
   return parent.bbox.every((coordinate, index) => coordinate === bbox[index])
 }
 
 function validateBbox(
   bbox: [number, number, number, number] | null,
-  geometry: { width: number; height: number; origin: 'top-left' } | undefined
+  geometry: PageGeometry | undefined
 ): [number, number, number, number] | null {
   if (bbox === null || geometry === undefined) return bbox
   const tolerance = Math.max(1, Math.max(geometry.width, geometry.height) * 0.01)
@@ -527,6 +514,36 @@ function validateBbox(
   return bbox
 }
 
+function mergeOrdinalRanges(ranges: Array<{ start: number; end: number }>) {
+  const merged: typeof ranges = []
+  for (const range of ranges.sort((left, right) => left.start - right.start)) {
+    if (range.start > range.end) continue
+    const last = merged.at(-1)
+    if (last !== undefined && range.start <= last.end) {
+      last.end = Math.max(last.end, range.end)
+    } else {
+      merged.push(range)
+    }
+  }
+  return merged
+}
+
+function lowerBoundByOrdinal<T>(
+  entries: readonly T[],
+  ordinal: number,
+  getOrdinal: (entry: T) => number
+): number {
+  let first = 0
+  let end = entries.length
+  while (first < end) {
+    const middle = first + Math.floor((end - first) / 2)
+    const entry = entries[middle]
+    if (entry !== undefined && getOrdinal(entry) < ordinal) first = middle + 1
+    else end = middle
+  }
+  return first
+}
+
 function blockOffsets(
   blocks: readonly NormalizedKnowledgeBlock[],
   startOrdinal: number,
@@ -535,11 +552,13 @@ function blockOffsets(
   const offsets = new Map<string, { start: number; end: number }>()
   let cursor = 0
   let first = true
-  for (const block of blocks) {
-    if (block.ordinal < startOrdinal || block.ordinal > endOrdinal) continue
+  const firstBlock = lowerBoundByOrdinal(blocks, startOrdinal, (block) => block.ordinal)
+  for (let index = firstBlock; index < blocks.length; index += 1) {
+    const block = blocks[index]
+    if (block === undefined || block.ordinal > endOrdinal) break
     const text = searchableKnowledgeBlockText(block)
     if (text.length === 0) continue
-    if (!first) cursor += 2
+    if (!first) cursor += BLOCK_SEPARATOR_CODE_POINTS
     const start = cursor
     cursor += Array.from(text).length
     offsets.set(block.id, { start, end: cursor })
@@ -548,10 +567,8 @@ function blockOffsets(
   return offsets
 }
 
-function collectGeometry(
-  value: unknown
-): Map<number, { width: number; height: number; origin: 'top-left' }> {
-  const result = new Map<number, { width: number; height: number; origin: 'top-left' }>()
+function collectGeometry(value: unknown): Map<number, PageGeometry> {
+  const result = new Map<number, PageGeometry>()
   let visited = 0
   const visit = (node: unknown, depth: number, pageHint?: number): void => {
     if (depth > MAX_DEPTH || node === null || typeof node !== 'object') return
@@ -576,13 +593,11 @@ function collectGeometry(
   return result
 }
 
-function collectVlmContentListGeometry(
-  value: unknown
-): Map<number, { width: number; height: number; origin: 'top-left' }> {
+function collectVlmContentListGeometry(value: unknown): Map<number, PageGeometry> {
   if (!Array.isArray(value) || value.length > 20_000) {
     throw new Error('MinerU VLM content-list geometry shape is invalid')
   }
-  const result = new Map<number, { width: number; height: number; origin: 'top-left' }>()
+  const result = new Map<number, PageGeometry>()
   for (const item of value) {
     if (item === null || typeof item !== 'object' || Array.isArray(item)) {
       throw new Error('MinerU VLM content-list block is invalid')
@@ -672,17 +687,4 @@ function geometryPriority(path: string): number {
   if (name === 'middle.json' || name === 'layout.json') return 0
   if (name === 'model.json') return 1
   return 2
-}
-
-async function readBounded(path: string, maxBytes: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const stat = await handle.stat()
-    if (!stat.isFile() || stat.size <= 0 || stat.size > maxBytes) {
-      throw new Error('Geometry file size is invalid')
-    }
-    return await handle.readFile()
-  } finally {
-    await handle.close()
-  }
 }

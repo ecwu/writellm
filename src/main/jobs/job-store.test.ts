@@ -64,6 +64,49 @@ describe('JobStore', () => {
     database.close()
   })
 
+  it('deduplicates by active type across keys and outside the first job page', async () => {
+    const { database, projectManifest } = await createDatabase()
+    let now = new Date('2026-07-15T00:00:00.000Z')
+    const store = new JobStore({
+      database,
+      projectId: projectManifest.projectId,
+      log: silentLog,
+      now: () => now
+    })
+    try {
+      const automatic = store.enqueue({
+        type: 'build_embedding_generation',
+        payload: { generationId: 'automatic' },
+        deduplicationKey: 'embedding:automatic'
+      }).job
+      const claim = store.claimNext({ workerId: 'worker', leaseMs: 10_000 })
+      if (claim === null) throw new Error('Expected an active embedding job')
+      now = new Date('2026-07-15T00:00:01.000Z')
+      for (let index = 0; index < 101; index += 1) {
+        store.enqueue({ type: 'rebuild_index', payload: {} })
+      }
+      expect(store.list({ limit: 100, states: ['queued', 'running'] })).not.toContainEqual(
+        expect.objectContaining({ jobId: automatic.jobId })
+      )
+
+      const manual = {
+        type: 'build_embedding_generation',
+        payload: { generationId: 'manual', refreshScope: 'all' },
+        deduplicationKey: 'embedding-refresh:active',
+        deduplicateByType: true
+      } as const
+      expect(store.enqueue(manual)).toMatchObject({
+        created: false,
+        job: { jobId: automatic.jobId, state: 'running' }
+      })
+      store.complete(claim.lease)
+      expect(store.enqueue(manual)).toMatchObject({ created: true })
+      expect(store.enqueue(manual)).toMatchObject({ created: false, job: { state: 'queued' } })
+    } finally {
+      database.close()
+    }
+  })
+
   it('stores bounded reference payloads and rejects private or heavyweight values', async () => {
     const { database, projectManifest } = await createDatabase()
     const store = new JobStore({ database, projectId: projectManifest.projectId, log: silentLog })
@@ -328,50 +371,56 @@ describe('JobStore', () => {
     database.close()
   })
 
-  it('recovers expired work after process or project closure without double attempts', async () => {
-    const { root, database, projectManifest } = await createDatabase()
-    let now = new Date('2026-07-15T04:00:00.000Z')
-    const beforeClose = new JobStore({
-      database,
-      projectId: projectManifest.projectId,
-      log: silentLog,
-      now: () => now
-    })
-    const recoverable = beforeClose.enqueue({
-      type: 'rebuild_index',
-      payload: { generationId: 'generation-1' },
-      maxAttempts: 2
-    }).job
-    const cancelled = beforeClose.enqueue({
-      type: 'mineru_parse',
-      payload: { parseTaskId: 'parse-1' }
-    }).job
-    beforeClose.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
-    beforeClose.claimNext({ workerId: 'closing-worker', leaseMs: 1_000 })
-    beforeClose.requestCancellation(cancelled.jobId)
-    database.close()
+  it.each([
+    { format: 'current', payload: {} },
+    { format: 'legacy', payload: { generationId: 'generation-1' } }
+  ])(
+    'recovers $format index refresh jobs after project closure without double attempts',
+    async ({ payload }) => {
+      const { root, database, projectManifest } = await createDatabase()
+      let now = new Date('2026-07-15T04:00:00.000Z')
+      const beforeClose = new JobStore({
+        database,
+        projectId: projectManifest.projectId,
+        log: silentLog,
+        now: () => now
+      })
+      const recoverable = beforeClose.enqueue({
+        type: 'rebuild_index',
+        payload,
+        maxAttempts: 2
+      }).job
+      const cancelled = beforeClose.enqueue({
+        type: 'mineru_parse',
+        payload: { parseTaskId: 'parse-1' }
+      }).job
+      beforeClose.claimNext({ workerId: 'crashed-worker', leaseMs: 1_000 })
+      beforeClose.claimNext({ workerId: 'closing-worker', leaseMs: 1_000 })
+      beforeClose.requestCancellation(cancelled.jobId)
+      database.close()
 
-    now = new Date('2026-07-15T04:00:02.000Z')
-    const reopenedDatabase = await openProjectDatabase({
-      projectRoot: root,
-      manifest: projectManifest,
-      applicationVersion: '1.0.0-test',
-      log: silentLog
-    })
-    const reopened = new JobStore({
-      database: reopenedDatabase,
-      projectId: projectManifest.projectId,
-      log: silentLog,
-      now: () => now
-    })
-    expect(reopened.recoverExpiredLeases()).toEqual({ recovered: 1, cancelled: 1, failed: 0 })
-    expect(reopened.require(recoverable.jobId)).toMatchObject({ state: 'queued', attempts: 1 })
-    expect(reopened.require(cancelled.jobId).state).toBe('cancelled')
-    expect(reopened.claimNext({ workerId: 'replacement-worker', leaseMs: 1_000 })).toMatchObject({
-      job: { jobId: recoverable.jobId, attempts: 2 }
-    })
-    reopenedDatabase.close()
-  })
+      now = new Date('2026-07-15T04:00:02.000Z')
+      const reopenedDatabase = await openProjectDatabase({
+        projectRoot: root,
+        manifest: projectManifest,
+        applicationVersion: '1.0.0-test',
+        log: silentLog
+      })
+      const reopened = new JobStore({
+        database: reopenedDatabase,
+        projectId: projectManifest.projectId,
+        log: silentLog,
+        now: () => now
+      })
+      expect(reopened.recoverExpiredLeases()).toEqual({ recovered: 1, cancelled: 1, failed: 0 })
+      expect(reopened.require(recoverable.jobId)).toMatchObject({ state: 'queued', attempts: 1 })
+      expect(reopened.require(cancelled.jobId).state).toBe('cancelled')
+      expect(reopened.claimNext({ workerId: 'replacement-worker', leaseMs: 1_000 })).toMatchObject({
+        job: { jobId: recoverable.jobId, attempts: 2, payload }
+      })
+      reopenedDatabase.close()
+    }
+  )
 
   it('treats a lease token and attempt as a claim-scoped capability', async () => {
     const { database, projectManifest } = await createDatabase()

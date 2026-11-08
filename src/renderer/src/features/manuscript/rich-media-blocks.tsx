@@ -29,9 +29,9 @@ export const diagramBlockSpec = createReactBlockSpec(diagramConfig, {
     code: true,
     defining: true,
     isolating: false,
-    hasPreview: true,
-    hardBreakShortcut: 'enter'
+    hasPreview: true
   },
+  experimental_keyboard: { enter: 'line-break' },
   render: DiagramBlock,
   toExternalHTML: ({ block }) => (
     <figure

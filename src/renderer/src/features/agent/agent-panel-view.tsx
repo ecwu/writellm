@@ -200,7 +200,7 @@ export function AgentPanelView({
         }}
       >
         <header
-          className='grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-2 border-b px-3 py-2'
+          className='grid h-14 min-w-0 shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 border-b px-3'
           data-testid='agent-conversation-header'
         >
           <ConversationSwitcher

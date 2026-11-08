@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentToolRequest } from '../../shared/contracts/agent-tools'
+import { ModelRequestRepository } from '../providers/model-request-repository'
 import { SkillReadError } from '../skills/skill-router'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import {
   log,
   activateToolGroups,
@@ -305,6 +306,56 @@ describe('AgentSessionService: tools', () => {
     reopenedRuntime.active().reject(workerExitError())
     await continued.completion
     database.close()
+  })
+
+  it('drains a saved tool continuation before Stop settles the run', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Gather the evidence.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active(run.agentRunId)
+    const saved = Promise.withResolvers<string>()
+    const release = Promise.withResolvers<void>()
+    const start = ModelRequestRepository.prototype.start
+    const save = vi
+      .spyOn(ModelRequestRepository.prototype, 'start')
+      .mockImplementationOnce(async function (this: ModelRequestRepository, input) {
+        const record = await start.call(this, input)
+        saved.resolve(record.modelRequestId)
+        await release.promise
+        return record
+      })
+    const continuation = active.emit({
+      type: 'model_call_requested',
+      continuationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc474',
+      reason: 'tool_continuation'
+    })
+    try {
+      const modelRequestId = await Promise.race([saved.promise, continuation.then(() => '')])
+      expect(modelRequestId).not.toBe('')
+      const stopping = service.abort(run.agentRunId)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(service.requireRun(run.agentRunId).status).toBe('running')
+      release.resolve()
+      await Promise.all([stopping, continuation])
+      expect(active.authorizations).toEqual([])
+      const row = await database.kysely
+        .selectFrom('model_requests')
+        .select('status')
+        .where('model_request_id', '=', modelRequestId)
+        .executeTakeFirstOrThrow()
+      expect(row.status).toBe('aborted')
+    } finally {
+      release.resolve()
+      save.mockRestore()
+      await service.abort(run.agentRunId)
+      database.close()
+    }
   })
 
   it('continues authorizing tool calls beyond 180 durable events without forced finalization', async () => {

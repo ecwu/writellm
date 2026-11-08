@@ -66,13 +66,12 @@ describe('ManuscriptService', () => {
       const assembly = service.assemble()
       expect(read).toHaveBeenCalledTimes(1)
       const workspace = service.getWorkspace()
-      expect(workspace.sections[0]?.revision.sectionRevisionId).toBe(
-        assembly.sections[0]?.revision.sectionRevisionId
-      )
-      expect(read).toHaveBeenCalledTimes(2)
-      expect(immediate).not.toHaveBeenCalled()
       const first = assembly.sections[0]
       if (first === undefined) throw new Error('Missing section')
+      const { content: _content, ...revisionMetadata } = first.revision
+      expect(workspace.sections).toEqual([{ section: first.section, revision: revisionMetadata }])
+      expect(read).toHaveBeenCalledTimes(2)
+      expect(immediate).not.toHaveBeenCalled()
       read.mockClear()
       service.appendRevision({
         sectionId: first.section.sectionId,

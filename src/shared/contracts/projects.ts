@@ -45,11 +45,24 @@ export const projectLifecycleStateSchema = z.enum([
   'recovery-required'
 ])
 
+const projectOpenRecoveryReasonSchema = z.enum([
+  'folder-missing',
+  'manifest-missing',
+  'manifest-unreadable',
+  'manifest-invalid',
+  'database-unavailable',
+  'database-open-failed',
+  'lock-contended',
+  'open-failed'
+])
+
+export type ProjectOpenRecoveryReason = z.infer<typeof projectOpenRecoveryReasonSchema>
+
 export const projectRecoveryContextSchema = z.discriminatedUnion('kind', [
   z
     .object({
       kind: z.literal('open'),
-      reason: z.enum(['lock-contended', 'open-failed'])
+      reason: projectOpenRecoveryReasonSchema
     })
     .strict(),
   z.object({ kind: z.literal('create') }).strict(),
@@ -60,8 +73,7 @@ export const activeProjectSchema = z
   .object({
     projectId: projectIdSchema,
     projectSessionId: projectSessionIdSchema,
-    displayName: z.string().trim().min(1).max(255),
-    indexRebuildRequired: z.boolean()
+    displayName: z.string().trim().min(1).max(255)
   })
   .strict()
 

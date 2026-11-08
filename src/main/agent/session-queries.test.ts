@@ -1,6 +1,8 @@
 import { agentDiagnosticForLogging } from '../../shared/agent-diagnostic-error'
 import { expect, it, vi } from 'vitest'
 import { AgentSessionQueries } from './session-queries'
+import { AgentRunCoordinator } from './session-run-coordinator'
+import { WritingTaskService } from './writing-task-service'
 import {
   createDatabase,
   createService,
@@ -28,7 +30,16 @@ it('reads populated run history and bounded event pages without opening write tr
     throw new Error('A history query must not request a write transaction')
   })
   try {
-    const queries = new AgentSessionQueries(database, log)
+    const queries = new AgentSessionQueries(
+      database,
+      log,
+      new AgentRunCoordinator(),
+      new WritingTaskService({ database, log })
+    )
+    expect(queries.requireSession(session.agentSessionId)).toEqual(
+      service.getSession(session.agentSessionId)
+    )
+    expect(queries.listSessions('active')).toEqual([service.getSession(session.agentSessionId)])
     expect(queries.listRuns(session.agentSessionId)).toEqual(expectedRuns)
     expect(queries.requireRun(started.agentRunId)).toEqual(expectedRuns[0])
     expect(queries.listEvents(session.agentSessionId)).toEqual(expectedEvents)
@@ -57,7 +68,12 @@ it('distinguishes missing legacy diagnostics from malformed stored JSON and repo
   runtime.active().resolve()
   await started.completion
   const warn = vi.fn()
-  const queries = new AgentSessionQueries(database, { warn })
+  const queries = new AgentSessionQueries(
+    database,
+    { warn },
+    new AgentRunCoordinator(),
+    new WritingTaskService({ database, log })
+  )
   database.immediate((native) =>
     native
       .prepare('UPDATE agent_runs SET error_json = ? WHERE agent_run_id = ?')

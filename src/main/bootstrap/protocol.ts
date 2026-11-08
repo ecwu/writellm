@@ -3,7 +3,6 @@ import { pathToFileURL } from 'node:url'
 import { APP_SCHEME } from '../../shared/security/urls'
 import { resolveRendererAsset } from './protocol-path'
 
-export { APP_SCHEME } from '../../shared/security/urls'
 export const PDF_ASSET_SCHEME = 'writellm-pdf-asset'
 
 export function registerAppScheme(): void {

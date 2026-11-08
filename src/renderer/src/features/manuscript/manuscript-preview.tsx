@@ -7,7 +7,17 @@ import {
 import type { ManuscriptAssembly } from '../../../../shared/contracts/manuscript'
 import { manuscriptToMarkdown } from '../../../../shared/manuscript-markdown'
 import { isAllowedExternalUrl } from '../../../../shared/security/urls'
-import { AlertCircle, Copy, FileText, ImageOff, RefreshCw } from 'lucide-react'
+import {
+  AlertCircle,
+  ClipboardList,
+  Copy,
+  Eye,
+  FileText,
+  ImageOff,
+  ListTree,
+  RefreshCw
+} from 'lucide-react'
+import { PanelTitle, panelHeaderClassName, panelToolbarClassName } from '@/components/panel-header'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
@@ -141,16 +151,12 @@ export function ManuscriptPreviewWorkspace(
           onOpenSettings={props.onOpenSettings}
         />
         <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
-          <SidebarHeader className='border-b p-4'>
-            <div className='flex items-center gap-2'>
-              <FileText className='size-4' aria-hidden='true' />
-              <span className='font-medium'>Preview</span>
-            </div>
-            <p className='text-xs text-muted-foreground'>Manuscript, Brief, and Outline</p>
+          <SidebarHeader className={panelHeaderClassName}>
+            <PanelTitle icon={Eye} title='Preview' />
           </SidebarHeader>
           <SidebarContent>
             <SidebarGroup>
-              <SidebarGroupLabel>Preview</SidebarGroupLabel>
+              <SidebarGroupLabel>Manuscript, Brief, and Outline</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {(['markdown', 'brief', 'outline'] as const).map((type) => (
@@ -160,7 +166,13 @@ export function ManuscriptPreviewWorkspace(
                         aria-current={previewType === type ? 'page' : undefined}
                         onClick={() => setPreviewType(type)}
                       >
-                        <FileText />
+                        {type === 'markdown' ? (
+                          <FileText />
+                        ) : type === 'brief' ? (
+                          <ClipboardList />
+                        ) : (
+                          <ListTree />
+                        )}
                         <span>
                           {
                             {
@@ -180,7 +192,7 @@ export function ManuscriptPreviewWorkspace(
         </Sidebar>
       </Sidebar>
       <SidebarInset className='min-h-0 min-w-0 overflow-auto'>
-        <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+        <header className={panelToolbarClassName}>
           <SidebarTrigger className='-ml-1' />
           <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
           <Breadcrumb>

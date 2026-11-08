@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { IndexCandidate, VectorGenerationContract } from '../../shared/contracts/indexing'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type { IndexClient } from './index-client'
-import { embeddingContractSha256 } from './index-service'
+import { embeddingContractSha256 } from './embedding-contract'
 import { reciprocalRankFusion, RetrievalService } from './retrieval-service'
 
 const embeddingConfig: ProviderConfig = {
@@ -34,23 +34,13 @@ describe('RetrievalService', () => {
     const a = candidate('a', 'alpha source')
     const b = candidate('b', 'beta source')
     const c = candidate('c', 'gamma source')
-    const candidates = new Map([a, b, c].map((value) => [value.chunkId, value]))
     const client = {
       retrievalState: vi.fn(async () => ({
         activeIndexGenerationId: 'generation-active',
         activeEmbeddingContract: contract()
       })),
-      ftsCandidates: vi.fn(async () => [
-        { chunkId: a.chunkId, rank: -2, strategy: 'trigram' },
-        { chunkId: b.chunkId, rank: -1, strategy: 'unicode61' }
-      ]),
-      hydrateCandidates: vi.fn(async (ids: string[]) =>
-        ids.flatMap((id) => (candidates.has(id) ? [candidates.get(id) as IndexCandidate] : []))
-      ),
-      queryVectors: vi.fn(async () => [
-        { chunkId: b.chunkId, distance: 0.1 },
-        { chunkId: c.chunkId, distance: 0.2 }
-      ]),
+      ftsCandidates: vi.fn(async () => [a, b]),
+      queryVectors: vi.fn(async () => [b, c]),
       expandCitations: vi.fn(async () => [b])
     } as unknown as IndexClient
     const rerank = vi.fn(async () => ({
@@ -108,11 +98,7 @@ describe('RetrievalService', () => {
         activeIndexGenerationId: 'generation-active',
         activeEmbeddingContract: { ...contract(), contractSha256: '0'.repeat(64) }
       }),
-      ftsCandidates: async () => [
-        { chunkId: b.chunkId, rank: -2, strategy: 'trigram' },
-        { chunkId: a.chunkId, rank: -1, strategy: 'trigram' }
-      ],
-      hydrateCandidates: async (ids: string[]) => ids.map((id) => (id === a.chunkId ? a : b))
+      ftsCandidates: async () => [b, a]
     } as unknown as IndexClient
     const warn = vi.fn()
     const getRerankProvider = vi.fn<() => Promise<ProviderConfig>>(async () => {
@@ -172,6 +158,133 @@ describe('RetrievalService', () => {
     )
   })
 
+  it('restarts both channels when the source changes during vector search', async () => {
+    const oldCandidate = candidate('a', 'previous source')
+    const newCandidate = candidate('b', 'current source')
+    const retrievalState = vi
+      .fn()
+      .mockResolvedValueOnce({
+        activeIndexGenerationId: 'generation-active',
+        activeEmbeddingContract: contract()
+      })
+      .mockResolvedValueOnce({
+        activeIndexGenerationId: 'generation-replacement',
+        activeEmbeddingContract: null
+      })
+    const ftsCandidates = vi
+      .fn()
+      .mockResolvedValueOnce([oldCandidate])
+      .mockResolvedValueOnce([newCandidate])
+    const queryVectors = vi.fn(async () => null)
+    const service = new RetrievalService({
+      projectId: randomUUID(),
+      client: { retrievalState, ftsCandidates, queryVectors } as unknown as IndexClient,
+      getEmbeddingProvider: async () => embeddingConfig,
+      embedQuery: async () => [1, 0, 0],
+      getRerankProvider: async () => rerankConfig,
+      rerank: vi.fn(),
+      log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+    })
+    const signal = new AbortController().signal
+    const filters = { knowledgeItemIds: [], fileExtensions: [], parseRevisionIds: [] }
+    await expect(
+      service.search(
+        {
+          projectSessionId: randomUUID(),
+          query: 'source',
+          filters,
+          limits: { fts: 10, vector: 10, fused: 10, results: 10 },
+          rerank: false
+        },
+        signal
+      )
+    ).resolves.toMatchObject({
+      mode: 'fts',
+      hits: [{ chunkId: newCandidate.chunkId }]
+    })
+    expect(retrievalState).toHaveBeenCalledTimes(2)
+    expect(ftsCandidates).toHaveBeenNthCalledWith(
+      1,
+      'generation-active',
+      'source',
+      10,
+      filters,
+      signal,
+      undefined
+    )
+    expect(ftsCandidates).toHaveBeenNthCalledWith(
+      2,
+      'generation-replacement',
+      'source',
+      10,
+      filters,
+      signal,
+      undefined
+    )
+    expect(queryVectors).toHaveBeenCalledExactlyOnceWith(
+      'generation-active',
+      contract().embeddingGenerationId,
+      [1, 0, 0],
+      10,
+      filters,
+      signal
+    )
+  })
+
+  it.each(['rerank', 'vector'] as const)(
+    'discards old hits if the source changes during a %s provider call',
+    async (operation) => {
+      const oldCandidate = candidate('a', 'previous source')
+      const newCandidate = candidate('b', 'current source')
+      let activeGeneration = 'generation-active'
+      const retrievalState = vi.fn(async () => ({
+        activeIndexGenerationId: activeGeneration,
+        activeEmbeddingContract:
+          operation === 'vector' && activeGeneration === 'generation-active' ? contract() : null
+      }))
+      const ftsCandidates = vi.fn(async (generationId: string) => [
+        generationId === 'generation-active' ? oldCandidate : newCandidate
+      ])
+      const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      const service = new RetrievalService({
+        projectId: randomUUID(),
+        client: { retrievalState, ftsCandidates } as unknown as IndexClient,
+        getEmbeddingProvider: async () => embeddingConfig,
+        embedQuery: async () => {
+          activeGeneration = 'generation-replacement'
+          throw new Error('Vector provider unavailable')
+        },
+        getRerankProvider: async () => rerankConfig,
+        rerank: async () => {
+          activeGeneration = 'generation-replacement'
+          return {
+            ranking: [{ originalIndex: 0, score: 0.9 }],
+            metadata: metadata(rerankConfig.model)
+          }
+        },
+        log
+      })
+
+      const result = await service.search(
+        {
+          projectSessionId: randomUUID(),
+          query: 'source',
+          filters: { knowledgeItemIds: [], fileExtensions: [], parseRevisionIds: [] },
+          limits: { fts: 10, vector: 10, fused: 10, results: 10 },
+          rerank: operation === 'rerank'
+        },
+        new AbortController().signal
+      )
+
+      expect(result.hits.map((hit) => hit.chunkId)).toEqual([newCandidate.chunkId])
+      expect(ftsCandidates.mock.calls.map(([generationId]) => generationId)).toEqual([
+        'generation-active',
+        'generation-replacement'
+      ])
+      expect(log.info).toHaveBeenCalledOnce()
+    }
+  )
+
   it('reports skipped reranking when there are no candidates', async () => {
     const client = {
       retrievalState: vi.fn(async () => ({
@@ -179,7 +292,6 @@ describe('RetrievalService', () => {
         activeEmbeddingContract: null
       })),
       ftsCandidates: vi.fn(async () => []),
-      hydrateCandidates: vi.fn(async () => []),
       expandCitations: vi.fn(async () => [])
     } as unknown as IndexClient
     const getRerankProvider = vi.fn(async () => rerankConfig)

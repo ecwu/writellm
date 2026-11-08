@@ -16,16 +16,16 @@ const log = pino({ level: 'silent' })
 registerBunOAuthFlows()
 
 class FakeSafeStorage implements SafeStorageAdapter {
-  isEncryptionAvailable(): boolean {
+  async isAsyncEncryptionAvailable(): Promise<boolean> {
     return true
   }
 
-  encryptString(value: string): Buffer {
+  async encryptStringAsync(value: string): Promise<Buffer> {
     return Buffer.from(value, 'utf8')
   }
 
-  decryptString(value: Buffer): string {
-    return value.toString('utf8')
+  async decryptStringAsync(value: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }> {
+    return { result: value.toString('utf8'), shouldReEncrypt: false }
   }
 
   getSelectedStorageBackend(): string {
@@ -84,7 +84,7 @@ async function seedLegacyAgentConfig(
       updated_at: now
     })
     .execute()
-  const ciphertext = credentials.encryptForPersistence('legacy-secret')
+  const ciphertext = await credentials.encryptForPersistence('legacy-secret')
   await credentials.persistEncrypted('agent', ciphertext)
   return ciphertext
 }

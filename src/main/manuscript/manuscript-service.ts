@@ -45,13 +45,19 @@ import type { ProjectDatabase } from '../project/project-database'
 import {
   decodeStoredSectionContent,
   prepareSectionContent,
-  prepareValidatedSectionContent
+  prepareValidatedSectionContent,
+  type PreparedSectionContent
 } from './content'
 import { updateCommentAnchors } from './comment-anchor-mapping'
-import { ManuscriptRepository } from './manuscript-repository'
-import { SectionRepository } from './section-repository'
+import { ManuscriptRepository, type SectionRevisionMetadataRow } from './manuscript-repository'
+import { SectionRepository, type SectionRevisionWriteInput } from './section-repository'
 
 const appendRevisionMetadataSchema = appendSectionRevisionInputSchema.omit({ content: true })
+
+type BodyRevisionWrite = Pick<
+  SectionRevisionWriteInput,
+  'revisionId' | 'sectionId' | 'source' | 'sourceClass' | 'createdAt'
+> & { prepared: PreparedSectionContent }
 
 export interface SectionDeletionGuard {
   assertCanDelete(database: Database.Database, sectionId: string): void
@@ -656,14 +662,14 @@ export class ManuscriptService {
       })
       throw err
     }
-    return this.appendValidatedRevision({ ...input, content })
+    return this.appendValidatedRevision({ ...input, content }).revision
   }
 
   // Internal callers validate the document at their input boundary. Metadata and the
   // normalized document still pass their contracts before the write transaction.
   appendValidatedRevision(
     input: Omit<AppendSectionRevisionInput, 'content'> & { content: BlockNoteDocument }
-  ): SectionRevision {
+  ): { revision: SectionRevision; unchanged: boolean } {
     const revisionId = this.#createId()
     const now = this.#now().toISOString()
     const startedAt = Date.now()
@@ -679,7 +685,7 @@ export class ManuscriptService {
         parsed.agentProposalId !== null
       if (hasAnyLineage) throw new TypeError('Editor revisions cannot include agent lineage')
       const prepared = prepareValidatedSectionContent(parsed.content, parsed.sectionId)
-      const row = this.#database.immediate((database) => {
+      const { row, unchanged } = this.#database.immediate((database) => {
         const manuscript = this.#primary(database)
         const section = this.#repository.section(parsed.sectionId, database)
         if (section === undefined || section.manuscript_id !== manuscript.manuscript_id) {
@@ -688,7 +694,7 @@ export class ManuscriptService {
         const current = this.#repository.revision(section.current_revision_id, database)
         if (current === undefined) throw new Error('Section current revision is missing')
         assertCurrentCountAlgorithm(current)
-        if (current.content_hash === prepared.contentHash) return current
+        if (current.content_hash === prepared.contentHash) return { row: current, unchanged: true }
         if (
           current.section_revision_id !== parsed.baseRevisionId ||
           current.content_hash !== parsed.baseContentHash
@@ -698,42 +704,20 @@ export class ManuscriptService {
             'The section body has changed'
           )
         }
-        SectionRepository.insertRevision(database, {
+        const written = this.#writeBodyRevision(database, current, {
           revisionId,
           sectionId: section.section_id,
-          revisionNumber: current.revision_number + 1,
           source: parsed.source,
           sourceClass:
             parsed.sourceClass ?? (parsed.source === 'import' ? 'import' : 'manual_autosave'),
           prepared,
-          priorRevisionId: current.section_revision_id,
-          agentRunId: parsed.agentRunId,
-          agentToolCallId: parsed.agentToolCallId,
-          agentProposalId: parsed.agentProposalId,
           createdAt: now
         })
-        if (
-          !SectionRepository.updateCurrentRevision(database, {
-            sectionId: section.section_id,
-            expectedRevisionId: current.section_revision_id,
-            revisionId,
-            updatedAt: now
-          })
-        ) {
-          throw new ManuscriptDomainError(
-            'section_revision_conflict',
-            'The section body has changed'
-          )
-        }
-        updateCommentAnchors(database, section.section_id)
-        return this.#repository.revision(revisionId, database) as SectionRevisionTable
+        return { row: written, unchanged: false }
       })
       this.#log.info(
         {
-          event:
-            row.section_revision_id === revisionId
-              ? 'manuscript.revision.appended'
-              : 'manuscript.revision.noop',
+          event: unchanged ? 'manuscript.revision.noop' : 'manuscript.revision.appended',
           projectId: this.#projectId,
           sectionId: row.section_id,
           sectionRevisionId: row.section_revision_id,
@@ -742,14 +726,12 @@ export class ManuscriptService {
           characterCount: row.character_count,
           durationMs: Date.now() - startedAt
         },
-        row.section_revision_id === revisionId
-          ? 'Section revision appended'
-          : 'Identical section revision skipped'
+        unchanged ? 'Identical section revision skipped' : 'Section revision appended'
       )
-      return revisionFromRow(
-        row,
-        row.section_revision_id === revisionId ? prepared.content : undefined
-      )
+      return {
+        revision: revisionFromRow(row, unchanged ? undefined : prepared.content),
+        unchanged
+      }
     } catch (err) {
       this.#logFailure('manuscript.revision.append_failed', err, startedAt, {
         sectionId: typeof input.sectionId === 'string' ? input.sectionId : undefined,
@@ -805,36 +787,14 @@ export class ManuscriptService {
             'Replacement no longer changes the section body'
           )
         }
-        const revisionId = this.#createId()
-        SectionRepository.insertRevision(database, {
-          revisionId,
+        const row = this.#writeBodyRevision(database, current, {
+          revisionId: this.#createId(),
           sectionId: section.section_id,
-          revisionNumber: current.revision_number + 1,
           source: 'manual',
           sourceClass: 'manual_checkpoint',
           prepared,
-          priorRevisionId: current.section_revision_id,
-          agentRunId: null,
-          agentToolCallId: null,
-          agentProposalId: null,
           createdAt: now
         })
-        if (
-          !SectionRepository.updateCurrentRevision(database, {
-            sectionId: section.section_id,
-            expectedRevisionId: current.section_revision_id,
-            revisionId,
-            updatedAt: now
-          })
-        ) {
-          throw new ManuscriptDomainError(
-            'section_revision_conflict',
-            'The section body has changed'
-          )
-        }
-        updateCommentAnchors(database, section.section_id)
-        const row = this.#repository.revision(revisionId, database)
-        if (row === undefined) throw new Error('Replacement revision was not stored')
         result.push(row)
       }
       return result
@@ -894,35 +854,14 @@ export class ManuscriptService {
         parent.section_id
       )
       const prepared = prepareSectionContent(document, section.section_id)
-      const revisionId = this.#createId()
-      const now = this.#now().toISOString()
-      SectionRepository.insertRevision(database, {
-        revisionId,
+      return this.#writeBodyRevision(database, applied, {
+        revisionId: this.#createId(),
         sectionId: section.section_id,
-        revisionNumber: applied.revision_number + 1,
         source: 'undo',
         sourceClass: 'manual_checkpoint',
         prepared,
-        priorRevisionId: applied.section_revision_id,
-        agentRunId: null,
-        agentToolCallId: null,
-        agentProposalId: null,
-        createdAt: now
+        createdAt: this.#now().toISOString()
       })
-      if (
-        !SectionRepository.updateCurrentRevision(database, {
-          sectionId: section.section_id,
-          expectedRevisionId: applied.section_revision_id,
-          revisionId,
-          updatedAt: now
-        })
-      ) {
-        throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
-      }
-      updateCommentAnchors(database, section.section_id)
-      const created = this.#repository.revision(revisionId, database)
-      if (created === undefined) throw new Error('Replacement undo revision was not stored')
-      return created
     })
     this.#log.info(
       {
@@ -936,7 +875,60 @@ export class ManuscriptService {
     return revisionFromRow(row)
   }
 
+  #writeBodyRevision(
+    database: Database.Database,
+    previous: SectionRevisionTable,
+    input: BodyRevisionWrite
+  ): SectionRevisionTable {
+    SectionRepository.insertRevision(database, {
+      ...input,
+      revisionNumber: previous.revision_number + 1,
+      priorRevisionId: previous.section_revision_id,
+      agentRunId: null,
+      agentToolCallId: null,
+      agentProposalId: null
+    })
+    if (
+      !SectionRepository.updateCurrentRevision(database, {
+        sectionId: input.sectionId,
+        expectedRevisionId: previous.section_revision_id,
+        revisionId: input.revisionId,
+        updatedAt: input.createdAt
+      })
+    ) {
+      throw new ManuscriptDomainError('section_revision_conflict', 'The section body has changed')
+    }
+    updateCommentAnchors(database, input.sectionId)
+    const revision = this.#repository.revision(input.revisionId, database)
+    if (revision === undefined) throw new Error('Section revision was not stored')
+    return revision
+  }
+
   assemble(): ManuscriptAssembly {
+    return this.#projectCurrentManuscript(
+      (revisionId, database) => this.#repository.revision(revisionId, database),
+      revisionFromRow
+    )
+  }
+
+  getWorkspace(): ManuscriptWorkspace {
+    return this.#projectCurrentManuscript(
+      (revisionId, database) => this.#repository.revisionMetadata(revisionId, database),
+      revisionSummaryFromRow
+    )
+  }
+
+  getReferenceIndex(): ManuscriptReferenceIndex {
+    return buildManuscriptReferenceIndex(this.assemble())
+  }
+
+  #projectCurrentManuscript<
+    Row extends SectionRevisionMetadataRow,
+    Revision extends SectionRevisionSummary
+  >(
+    readRevision: (revisionId: string, database: Database.Database) => Row | undefined,
+    projectRevision: (row: Row) => Revision
+  ) {
     const snapshot = this.#database.read((database) => {
       const manuscript = this.#primary(database)
       const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
@@ -944,7 +936,7 @@ export class ManuscriptService {
       const sections = orderOutline(
         this.#repository.sections(manuscript.manuscript_id, database)
       ).map((section) => {
-        const revision = this.#repository.revision(section.current_revision_id, database)
+        const revision = readRevision(section.current_revision_id, database)
         if (revision === undefined) throw new Error('Section current revision is missing')
         assertCurrentCountAlgorithm(revision)
         return { section, revision }
@@ -953,7 +945,7 @@ export class ManuscriptService {
     })
     const sections = snapshot.sections.map(({ section, revision }) => ({
       section: sectionFromRow(section),
-      revision: revisionFromRow(revision)
+      revision: projectRevision(revision)
     }))
     return {
       manuscriptId: snapshot.manuscript.manuscript_id,
@@ -963,46 +955,6 @@ export class ManuscriptService {
       wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
       characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
     }
-  }
-
-  getWorkspace(): ManuscriptWorkspace {
-    const snapshot = this.#database.read((database) => {
-      const manuscript = this.#primary(database)
-      const brief = this.#repository.latestBrief(manuscript.manuscript_id, database)
-      if (brief === undefined) throw new Error('Primary manuscript brief is missing')
-      const sections = orderOutline(
-        this.#repository.sections(manuscript.manuscript_id, database)
-      ).map((section) => {
-        const revision = this.#repository.revision(section.current_revision_id, database)
-        if (revision === undefined) throw new Error('Section current revision is missing')
-        assertCurrentCountAlgorithm(revision)
-        return { section, revision }
-      })
-      return { manuscript, brief, sections }
-    })
-    const sections = snapshot.sections.map(({ section, revision }) => {
-      return { section: sectionFromRow(section), revision: revisionSummaryFromRow(revision) }
-    })
-    return {
-      manuscriptId: snapshot.manuscript.manuscript_id,
-      outlineVersion: snapshot.manuscript.outline_version,
-      brief: briefFromRow(snapshot.brief),
-      sections,
-      wordCount: sections.reduce((total, item) => total + item.revision.wordCount, 0),
-      characterCount: sections.reduce((total, item) => total + item.revision.characterCount, 0)
-    }
-  }
-
-  getReferenceIndex(): ManuscriptReferenceIndex {
-    const assembly = this.assemble()
-    const index = buildManuscriptReferenceIndex(
-      assembly.sections.map((item) => ({
-        sectionId: item.section.sectionId,
-        sectionRevisionId: item.revision.sectionRevisionId,
-        content: item.revision.content
-      }))
-    )
-    return { outlineVersion: assembly.outlineVersion, entries: index.entries }
   }
 
   #primary(database?: Database.Database): ManuscriptTable {
@@ -1095,7 +1047,7 @@ function revisionFromRow(
   }
 }
 
-function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSummary {
+function revisionSummaryFromRow(row: SectionRevisionMetadataRow): SectionRevisionSummary {
   return {
     sectionRevisionId: row.section_revision_id,
     sectionId: row.section_id,
@@ -1115,7 +1067,7 @@ function revisionSummaryFromRow(row: SectionRevisionTable): SectionRevisionSumma
   }
 }
 
-function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 | 4 | 5 {
+function contentSchemaVersionFromRow(row: SectionRevisionMetadataRow): 1 | 2 | 3 | 4 | 5 {
   if (
     row.content_schema_version !== 1 &&
     row.content_schema_version !== 2 &&
@@ -1128,14 +1080,14 @@ function contentSchemaVersionFromRow(row: SectionRevisionTable): 1 | 2 | 3 | 4 |
   return row.content_schema_version
 }
 
-function countAlgorithmVersionFromRow(row: SectionRevisionTable): 1 | 2 {
+function countAlgorithmVersionFromRow(row: SectionRevisionMetadataRow): 1 | 2 {
   if (row.count_algorithm_version !== 1 && row.count_algorithm_version !== 2) {
     throw new Error('Section revision count algorithm version is unsupported')
   }
   return row.count_algorithm_version
 }
 
-function assertCurrentCountAlgorithm(row: SectionRevisionTable): void {
+function assertCurrentCountAlgorithm(row: SectionRevisionMetadataRow): void {
   if (
     row.count_algorithm_version !== SECTION_COUNT_ALGORITHM_VERSION ||
     row.content_schema_version !== SECTION_CONTENT_SCHEMA_VERSION

@@ -133,6 +133,7 @@ function harness() {
     }))
   }
   const context = {
+    projectSessionId,
     manifest: { projectId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
     references: {
       list: vi.fn(() => [

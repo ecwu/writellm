@@ -31,7 +31,6 @@ export interface ProjectContext {
   readonly projectSessionId: ProjectSessionId
   readonly operations?: ProjectOperationRegistry
   readonly displayName: string
-  readonly indexRebuildRequired: boolean
   readonly database: ProjectDatabase
   readonly jobs: JobStore
   readonly runtime: ProjectRuntime
@@ -58,7 +57,6 @@ export function toActiveProject(context: ProjectContext): ActiveProject {
   return {
     projectId: context.manifest.projectId,
     projectSessionId: context.projectSessionId,
-    displayName: context.displayName,
-    indexRebuildRequired: context.indexRebuildRequired
+    displayName: context.displayName
   }
 }

@@ -1,3 +1,4 @@
+import { safeProviderResponseHeaders } from './agent-provider-trace'
 import { providerErrorDetails, providerErrorMessage } from './agent-provider-errors'
 import { createAbortError } from '../shared/abort-error'
 import { traceJsonValue as jsonValue } from '../shared/trace-image-redaction'
@@ -225,31 +226,6 @@ export async function runAgentModelRequest(
       providerModelId: finalMessage.responseModel ?? finalMessage.model
     }
   }
-}
-
-function safeProviderResponseHeaders(
-  headers: Readonly<Record<string, string>>
-): Record<string, string> {
-  const allowed = new Set([
-    'request-id',
-    'x-request-id',
-    'openai-request-id',
-    'retry-after',
-    'retry-after-ms',
-    'server-timing',
-    'x-ratelimit-limit-requests',
-    'x-ratelimit-limit-tokens',
-    'x-ratelimit-remaining-requests',
-    'x-ratelimit-remaining-tokens',
-    'x-ratelimit-reset-requests',
-    'x-ratelimit-reset-tokens'
-  ])
-  return Object.fromEntries(
-    Object.entries(headers)
-      .map(([name, value]) => [name.toLowerCase(), value] as const)
-      .filter(([name]) => allowed.has(name))
-      .map(([name, value]) => [name, value.slice(0, 2_048)])
-  )
 }
 
 function makeTraceCapture(

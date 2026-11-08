@@ -125,6 +125,7 @@ describe('whole-manuscript export', () => {
     await expect(validateStagedExport(markdownDestination)).resolves.toEqual(markdown.manifest)
 
     const pandocDestination = join(fixture.parent, 'Pandoc export')
+    const assemble = vi.spyOn(fixture.options.manuscript, 'assemble')
     const pandoc = await createManuscriptExport({
       ...fixture.options,
       destination: pandocDestination,
@@ -135,6 +136,8 @@ describe('whole-manuscript export', () => {
     expect(
       JSON.parse(await readFile(join(pandocDestination, MANUSCRIPT_PANDOC_REFERENCES_FILE), 'utf8'))
     ).toEqual([])
+    expect(assemble).toHaveBeenCalledOnce()
+    assemble.mockClear()
     await expect(validateStagedExport(pandocDestination)).resolves.toEqual(pandoc.manifest)
 
     const firstDocxDestination = join(fixture.parent, 'Word export α')
@@ -154,6 +157,8 @@ describe('whole-manuscript export', () => {
       barrier: recordingBarrier([])
     })
     expect(firstDocx.manifest.content.relativePath).toBe(MANUSCRIPT_DOCX_CONTENT_FILE)
+    expect(assemble).toHaveBeenCalledTimes(2)
+    assemble.mockRestore()
     expect(secondDocx.manifest.content.sha256).toBe(firstDocx.manifest.content.sha256)
     expect(
       (await readFile(join(firstDocxDestination, MANUSCRIPT_DOCX_CONTENT_FILE))).subarray(0, 2)

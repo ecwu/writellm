@@ -17,6 +17,7 @@ import {
   File,
   FileText,
   FolderOpen,
+  LibraryBig,
   Link2,
   MoreHorizontal,
   PanelLeft,
@@ -50,6 +51,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
+import { PanelTitle, panelToolbarClassName } from '@/components/panel-header'
 import {
   Select,
   SelectContent,
@@ -650,25 +652,25 @@ export function KnowledgeManager(props: {
         />
       </Sidebar>
       <SidebarInset className='min-h-0 min-w-0 overflow-auto'>
-        <header className='sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-2 border-b bg-background p-4'>
+        <header className={panelToolbarClassName}>
           <SidebarTrigger className='-ml-1' />
-          <div className='ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2'>
-            <KnowledgeHeaderStats
-              stats={stats}
-              indexStatus={indexStatusQuery.data}
-              indexStatusUnavailable={indexStatusQuery.isError}
-            />
+          <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
+          <PanelTitle icon={LibraryBig} title='Knowledge' className='flex-none' />
+          <div className='ml-auto flex min-w-0 items-center justify-end gap-2'>
             <Button
               variant='outline'
               size='sm'
               disabled={busy}
+              aria-label='Connect Zotero export…'
+              title='Connect Zotero export…'
               onClick={() => void chooseBibliography()}
             >
-              <Link2 /> Connect Zotero export…
+              <Link2 /> <span className='hidden truncate 2xl:inline'>Connect Zotero export…</span>
+              <span className='2xl:hidden'>Zotero</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant='outline' size='icon-sm' aria-label='Knowledge actions'>
+                <Button variant='ghost' size='icon-sm' aria-label='Knowledge actions'>
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -736,6 +738,13 @@ export function KnowledgeManager(props: {
             </DropdownMenu>
           </div>
         </header>
+        <div className='flex h-10 shrink-0 items-center border-b px-4'>
+          <KnowledgeHeaderStats
+            stats={stats}
+            indexStatus={indexStatusQuery.data}
+            indexStatusUnavailable={indexStatusQuery.isError}
+          />
+        </div>
         <main className='mx-auto flex min-h-0 min-w-0 w-full max-w-7xl flex-1 flex-col px-4 md:px-8'>
           {itemsQuery.isError ? (
             <div className='mt-6 flex items-center gap-2 border-y border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive'>
@@ -1569,7 +1578,7 @@ function KnowledgeHeaderStats(props: {
 }): React.JSX.Element {
   return (
     <dl
-      className='hidden items-center divide-x text-xs xl:flex'
+      className='flex min-w-0 items-center divide-x overflow-x-auto text-xs scrollbar-none'
       data-testid='knowledge-header-stats'
     >
       <CompactStatus value={props.stats.total.toLocaleString()} label='Files' />
@@ -1637,7 +1646,7 @@ function KnowledgeDetails(props: {
               <File className='size-5 text-muted-foreground' />
             </div>
             <div className='min-w-0'>
-              <h2 className='truncate text-lg font-semibold'>
+              <h2 className='truncate text-2xl font-semibold tracking-tight'>
                 {props.reference?.title ?? props.item.displayName}
               </h2>
               <p className='mt-1 text-sm text-muted-foreground'>

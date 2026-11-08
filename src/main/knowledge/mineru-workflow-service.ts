@@ -1,7 +1,7 @@
 import { cachedStatement } from '../db/statement-cache'
 import { canTransition, isTerminalState, type StateTransitions } from '../db/state-transitions'
 import { createHash, randomUUID } from 'node:crypto'
-import { copyFile, open, readFile } from 'node:fs/promises'
+import { copyFile, open } from 'node:fs/promises'
 import { basename, dirname } from 'node:path'
 import type { Logger } from 'pino'
 import { syncFile, writeDurable } from '../storage/durable-sync'
@@ -22,6 +22,7 @@ import { sha256 as hashSha256 } from '../../shared/hash'
 import { ProjectFilesystem } from '../project/project-filesystem'
 import { extractMineruArchive } from './mineru-archive'
 import type { MineruGateway } from './mineru-gateway'
+import { readMineruRawManifest } from './mineru-raw-manifest'
 
 const DOWNLOAD_LIMIT_BYTES = 512 * 1024 * 1024
 const POLL_DELAY_MS = 2_000
@@ -961,20 +962,16 @@ export class MineruWorkflowService {
   ): Promise<boolean> {
     try {
       await this.#filesystem.assertExistingDirectory(revision.relative_path)
-      const bytes = await readFile(
-        await this.#filesystem.assertExistingRegularFile(`${revision.relative_path}/manifest.json`)
+      const { manifest, manifestHash } = await readMineruRawManifest(
+        this.#filesystem,
+        revision,
+        'publication-recovery'
       )
-      const manifest = mineruRawManifestSchema.parse(JSON.parse(bytes.toString('utf8')))
-      const hash = hashSha256(bytes)
-      if (
-        manifest.parseRevisionId !== revision.parse_revision_id ||
-        manifest.remoteTaskId !== task.remote_task_id ||
-        (revision.manifest_sha256 !== null && revision.manifest_sha256 !== hash)
-      ) {
+      if (manifest.remoteTaskId !== task.remote_task_id) {
         throw new Error('Published MinerU directory provenance does not match')
       }
       await this.#verifyPublishedFiles(revision.relative_path, manifest)
-      await this.#commitPublished(task, { ...revision, manifest_sha256: hash })
+      await this.#commitPublished(task, { ...revision, manifest_sha256: manifestHash })
       return true
     } catch (err) {
       if (

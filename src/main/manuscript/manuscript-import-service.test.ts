@@ -1,5 +1,5 @@
 import { createWriteStream } from 'node:fs'
-import { access, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -29,6 +29,7 @@ afterEach(async () => {
 describe('ManuscriptImportService', () => {
   it('captures one hashed plan, deduplicates assets, and atomically creates Main-owned sections', async () => {
     const fixture = await createFixture()
+    const loadSection = vi.spyOn(fixture.persistence, 'loadSection')
     const sourceDirectory = await mkdtemp(join(tmpdir(), 'writellm-import-source-'))
     roots.push(sourceDirectory)
     await writeFile(join(sourceDirectory, '图.png'), png(32, 24))
@@ -45,6 +46,11 @@ describe('ManuscriptImportService', () => {
     })
     expect(plan.source.displayName).toBe('论文 café.md')
     expect(plan.source.sha256).toMatch(/^[a-f0-9]{64}$/u)
+    expect(plan.base).toMatchObject({
+      activeSectionId: fixture.active.section.sectionId,
+      activeRevisionId: fixture.active.revision.sectionRevisionId,
+      activeContentHash: fixture.active.revision.contentHash
+    })
     expect(plan.sections.map((section) => section.title)).toEqual(['第一章', 'Chapter 2'])
     expect(plan.assets).toHaveLength(1)
     expect(plan.noOp).toBe(false)
@@ -57,6 +63,7 @@ describe('ManuscriptImportService', () => {
     expect(result.sourceHash).toBe(plan.source.sha256)
     expect(result.createdSectionIds).toHaveLength(2)
     expect(result.createdSectionIds).not.toContain(plan.sections[0]?.proposedSectionId)
+    expect(loadSection).not.toHaveBeenCalled()
     expect(fixture.manuscript.assemble().sections).toHaveLength(3)
     await expect(
       access(join(fixture.projectRoot, '.writellm/temp/manuscript-import', plan.planId))
@@ -239,11 +246,12 @@ Evidence from \cite{garcia2025}.
     ).rejects.toThrow('no longer matches')
   })
 
-  it('rejects links and oversized sources, reports traversal as a loss, and cleans crash staging', async () => {
+  it('rejects unsafe sources, reports traversal as a loss, and preserves other staging', async () => {
     const fixture = await createFixture()
-    const staleDirectory = join(fixture.projectRoot, '.writellm/temp/manuscript-import/stale')
-    await mkdir(staleDirectory, { recursive: true })
-    await writeFile(join(staleDirectory, 'source.md'), 'stale')
+    const otherPlan = join(fixture.projectRoot, '.writellm/temp/manuscript-import/other-plan')
+    await mkdir(otherPlan, { recursive: true })
+    const otherSource = join(otherPlan, 'source.md')
+    await writeFile(otherSource, 'Other plan source')
 
     const target = join(fixture.root, 'target.md')
     const link = join(fixture.root, 'linked.md')
@@ -278,7 +286,7 @@ Evidence from \cite{garcia2025}.
       expect.arrayContaining([expect.objectContaining({ code: 'image_not_imported' })])
     )
     expect(plan.assets).toHaveLength(0)
-    await expect(access(staleDirectory)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(otherSource, 'utf8')).resolves.toBe('Other plan source')
   })
 
   it('keeps published resources orphaned when later mapping fails and revokes plans on switch', async () => {
@@ -400,7 +408,6 @@ async function createFixture(importLog: Pick<Logger, 'info' | 'warn' | 'error'> 
     manifest,
     projectSessionId: crypto.randomUUID(),
     displayName: 'Import test',
-    indexRebuildRequired: false,
     database,
     manuscript,
     editorPersistence: persistence,

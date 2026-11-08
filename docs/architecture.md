@@ -202,12 +202,12 @@ search becomes available.
 
 | Area                    | Choice                                                                        |
 | ----------------------- | ----------------------------------------------------------------------------- |
-| Desktop runtime         | Electron 44; macOS 13 or later                                                |
-| Build and development   | electron-vite 5                                                               |
+| Desktop runtime         | Electron 45; macOS 13 or later                                                |
+| Build and development   | electron-vite 6 with Vite 8                                                   |
 | Packaging               | electron-builder                                                              |
 | Renderer                | React 19, TypeScript, Tailwind CSS 4, shadcn/ui                               |
 | PDF preview rendering   | `pdfjs-dist` with a bundled Vite worker and Main-owned stream          |
-| Block editor            | BlockNote React 0.55.0 with the shadcn-compatible UI integration               |
+| Block editor            | BlockNote React 0.57.0 with the shadcn-compatible UI integration               |
 | Rich media rendering    | Native BlockNote image/inline Math plus application Mermaid and display Math  |
 | Renderer server state   | TanStack Query                                                                |
 | Local UI state          | React state first; Zustand only when justified                                |
@@ -288,7 +288,7 @@ Creating a project performs, in order:
 2. Main derives a new `<project-name>.writellm` child, validates that it does not exist, and verifies that it is not inside a forbidden application directory.
 3. Main reserves the final child path with an exclusive directory create. An existing directory or symlink is never replaced.
 4. Main creates the internal layout and acquires the project write lock while the container remains unpublished.
-5. Main initializes `project.sqlite` and `index.sqlite`.
+5. Main initializes `project.sqlite`. The Index worker creates the derived `index.sqlite` when it starts.
 6. Main creates the singleton project and manuscript records plus the initial section.
 7. Main atomically writes the project manifest as the final validity/commit marker. This is a manifest-last publication protocol, not an atomic rename of the entire directory. A directory without a valid manifest is incomplete and must never be opened as a project.
 8. Main canonicalizes the published root and opens it as the active project using the already-held lock.
@@ -333,11 +333,26 @@ Closing performs:
 
 Delayed IPC responses or worker messages carrying an old `projectSessionId` are rejected after close or project switch.
 
-`recovery-required` is recoverable, not a dead-end state. Its allowed exits are explicit `retry-open`, `retry-close`, `restore-from-backup`, `discard-incomplete-create`, `locate-moved-project`, `export-diagnostics`, and `return-to-closed` operations. A failed migration or restore never silently replaces the authoritative database.
+If open fails after acquiring the lock, Main uses the same cleanup order for the resources it acquired.
+If an earlier cleanup step fails, Main retains the lock and offers Retry close.
+Main can revoke session subscriptions while the project resources remain open for retry.
+
+`recovery-required` accepts explicit `retry-open`, `retry-close`, `restore-from-backup`, `discard-incomplete-create`, `locate-moved-project`, `rebuild-missing-manifest`, `export-diagnostics`, and `return-to-closed` operations. Main requires an explicit recovery action after a failed migration or restore.
+
+The launcher receives a bounded reason for a failed open. Main keeps raw errors and paths in their existing trust boundaries.
+For a missing manifest, the user can rebuild it in place or choose a separate location for a recovery copy.
+For in-place repair, Main verifies the read-only project database under the project lock.
+Main publishes the missing manifest without replacing an existing file and passes the same lock to normal open.
+For copy repair, Main holds the source lock and reconstructs the manifest from a verified SQLite backup.
+The recovery copy preserves identity for relocation and opens through the normal project lifecycle.
+Checkpoint history and backups stay with the original. The index rebuilds on the recovery copy.
 
 ### Project locking
 
 The initial product supports one writer and no read-only secondary open mode. The lock contains an owner token, process identity, host identity, acquisition time, and heartbeat. Stale-lock recovery must be explicit and logged. A user must not be able to bypass an active lock merely by deleting a visible file from the renderer.
+
+The lock handle can retry unfinished release steps on the same directory.
+Stale-lock recovery requires the owner token to match the inspected filename and uses that file.
 
 ## Process Model
 
@@ -700,6 +715,7 @@ The materialized file contains the current native BlockNote JSON plus a small sc
 
 [ADR 089](adrs/089-section-write-authority.md) gives `SectionRepository` the shared section and revision write primitives.
 Editor and Agent services retain their transactions, approval checks, comment mapping, asset checks, and materialization duties.
+Editor saves, replacement, and Undo share the revision write and comment mapping within ManuscriptService.
 
 A missing or stale materialization does not invalidate the manuscript. Project open schedules or performs repair after verifying the canonical revision hash.
 
@@ -724,6 +740,8 @@ Import stays Main-owned and inert:
 Publication formats derive from one ephemeral, typed, format-neutral assembly over the captured
 manuscript, reference index, figure metadata, and verified asset inventory. It is never a second
 manuscript or table authority. Preflight errors fail closed, and every permitted loss is recorded.
+Preview and export derive the reference index from their manuscript capture. Formatted preview
+passes that capture and its reference items to the citation formatter.
 Exports reuse the Main-owned snapshot barrier, create-only staging, hash inventory, and atomic
 publication.
 
@@ -761,6 +779,9 @@ Renderer editing uses:
 - atomic revision commit followed by materialization;
 - a visible save state: clean, saving, saved, conflict, failed;
 - bounded local retry without swallowing errors.
+
+Close, snapshot, export, and manuscript mutations share the editor save request and acknowledgment.
+Main checks the sender, session, and purpose before it accepts a save or acknowledgment.
 
 If the content hash is unchanged, do not create a new revision.
 Revision sources are `manual_autosave`, `manual_checkpoint`, `agent_accepted`, `import`, and `undo`.
@@ -1010,6 +1031,9 @@ Chunking starts from normalized MinerU blocks:
 - split overlong text blocks by a deterministic token policy;
 - retain exact source block IDs and page/bounding-box provenance;
 - derive `chunkId` from parse revision, source block range, chunker version, and content hash.
+
+A segment records the source blocks that overlap its text and measures offsets from its first source block.
+The chunk ID uses the original group range. The index generation format controls when the derived index needs a rebuild.
 
 Deleting `index.sqlite` must not lose authoritative knowledge. Rebuild reads active parse revisions and normalized block artifacts.
 
@@ -1484,6 +1508,9 @@ correlated to the exact active run and pending-message ID; unconsumed items are 
 projected into Agent history. The queue is cleared with its run and adds no durable queue table or
 job.
 
+When the worker exits, Main closes queue admission. Run cleanup waits for pending request saves
+before it retires unused requests. Renderer publication does not delay this cleanup.
+
 ## Durable Job Model
 
 Jobs are project-local. `app.sqlite` does not schedule project work.
@@ -1512,6 +1539,9 @@ Do not include document bodies, BlockNote JSON, embeddings, absolute paths, or c
 `jobs` is the sole current-state and recovery authority. `job_transitions` durably audits material state transitions and control events in the same transaction as each mutation. It does not participate in scheduling or recovery. Audit history intentionally excludes high-frequency heartbeat and progress updates.
 
 The only durable job types are `mineru_parse`, `normalize_parse_revision`, `build_index_generation`, `build_embedding_generation`, `remove_index_item`, `rebuild_index`, and `artifact_cleanup`. MinerU submit, poll, download, and publish are stages of the one `mineru_parse` job. Search, query embedding, rerank, provider probes, ordinary manuscript saves, brief/outline mutations, Agent turns, and transient Notebook turns are request-scoped work. They use `AbortController`, ordinary concurrency limits, `projectSessionId`, and `model_requests` where needed, but never lease or heartbeat rows.
+
+Manuscript Find, replacement preview, and Knowledge search share request registration and cleanup.
+Main checks that the project session is still active before returning the result.
 
 Agent provider generation has no WriteLLM wall-clock deadline. Each authorized model request can
 make at most five physical attempts for transient failures before any assistant content is
@@ -1613,6 +1643,14 @@ a Git commit. Initial, manual, safety, and restore checkpoints are linear commit
 objects are written before the ref advances. Missing or damaged history never prevents project
 opening or editing. The exact boundary, ownership marker, state hashing, opt-in rules, and recovery
 semantics are fixed by ADR 007.
+
+Failed checkpoint restore and restart use the same journal replay. Before moving a project
+directory, Main checks its manifest against the journal. Replay returns the history repository
+and its ignore rules to the original project before removing the rejected candidate.
+Replay acquires the project write locks before moving directories. Each lock moves with its
+directory. Explicit stale-lock recovery uses the directory that blocked replay.
+During checkpoint restore, Main keeps the original write lock through close and locks the candidate before the swap.
+Main reuses the candidate lock on reopen. If reopen fails, journal replay uses the held locks to restore the original directory.
 
 Verified external Snapshot v2 can include a separately inventoried and validated
 `.writellm/history.git` tree. Snapshot v1 remains readable and restores as history-uninitialized.

@@ -322,15 +322,25 @@ test(
       await steeredWaitingMessage.getByRole('button', { name: 'Steer', exact: true }).click()
       await expect(steeredWaitingMessage).not.toBeVisible()
 
+      await panel.getByLabel('Agent message').fill('Follow up after steering.')
+      await panel.getByRole('button', { name: 'Queue follow-up', exact: true }).click()
+      await expect(waitingMessages).toContainText('Waiting follow-ups · 1')
+
       const firstResponse = pendingAgentResponses[0]
       if (firstResponse === undefined) throw new Error('First Agent response was not pending')
       sendCompletion(firstResponse, 'Initial work completed.', 'parallel-first-response')
       await expect.poll(() => pendingAgentResponses.length).toBe(4)
       expect(pendingAgentRequestBodies[3]).toContain('Keep this queued.')
       expect(pendingAgentRequestBodies[3]).not.toContain('Delete this queued message.')
+      expect(pendingAgentRequestBodies[3]).not.toContain('Follow up after steering.')
       const steeredResponse = pendingAgentResponses[3]
       if (steeredResponse === undefined) throw new Error('Steered Agent response was not pending')
       sendCompletion(steeredResponse, 'Steered work completed.', 'parallel-steered-response')
+      await expect.poll(() => pendingAgentResponses.length).toBe(5)
+      expect(pendingAgentRequestBodies[4]).toContain('Follow up after steering.')
+      const followUpResponse = pendingAgentResponses[4]
+      if (followUpResponse === undefined) throw new Error('Follow-up response was not pending')
+      sendCompletion(followUpResponse, 'Follow-up completed.', 'parallel-follow-up-response')
       await expect(panel.getByTestId('agent-status')).toContainText('Ready')
 
       await panel.getByTestId('agent-conversation-switcher').click()

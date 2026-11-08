@@ -29,6 +29,8 @@ Status markers:
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-26-release-02026104-preparation).
 - [x] Documentation evidence archive under [ADR 092](adrs/092-documentation-evidence-archive.md): committed and pushed to `main`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-22-documentation-evidence-archive).
+- [x] Pi 1.5, Electron 45, Vite 8, and KaTeX 0.18 dependency migrations pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md).
+  Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-11-07-pi-15-electron-45-and-dependency-migrations).
 - [x] Pi 1.3 and compatible dependency maintenance pass local macOS arm64 acceptance under [ADR 056](adrs/056-dependency-security-and-compatibility-refresh.md); changes are committed in `0f8d964`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-10-21-pi-13-and-compatible-dependency-maintenance).
 - [x] Issue 19 follow-up repairs: single IPC endpoint authority, compatibility, and guard repairs pass local macOS arm64 acceptance under [ADR 091](adrs/091-issue-19-endpoint-authority-and-compatibility.md); changes are committed in `ad0786e`.

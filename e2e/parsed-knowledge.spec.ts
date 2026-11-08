@@ -134,13 +134,15 @@ function sendNotebookToolCall(
 
 async function startNotebookAgentServer(sourceIds: () => string[] = () => []) {
   const requestBodies: unknown[] = []
+  const embeddingRequests: string[][] = []
   const server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/v1/models') {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end('{"data":[{"id":"notebook-model","displayName":"Notebook model"}]}')
       return
     }
-    if (request.method !== 'POST' || request.url !== '/v1/chat/completions') {
+    const embedding = request.url === '/v1/embeddings'
+    if (request.method !== 'POST' || (!embedding && request.url !== '/v1/chat/completions')) {
       response.writeHead(404)
       response.end()
       return
@@ -149,7 +151,30 @@ async function startNotebookAgentServer(sourceIds: () => string[] = () => []) {
     request.on('data', (chunk) => chunks.push(Buffer.from(chunk)))
     request.on('end', () => {
       const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+        input?: string[]
         messages?: Array<{ role?: string; content?: string }>
+      }
+      if (embedding) {
+        if (!Array.isArray(body.input)) {
+          response.writeHead(400)
+          response.end()
+          return
+        }
+        embeddingRequests.push(body.input)
+        response.writeHead(200, { 'content-type': 'application/json' })
+        response.end(
+          JSON.stringify({
+            object: 'list',
+            model: 'e2e-embedding',
+            data: body.input.map((_, index) => ({
+              object: 'embedding',
+              index,
+              embedding: [1, 0, 0]
+            })),
+            usage: { prompt_tokens: body.input.length, total_tokens: body.input.length }
+          })
+        )
+        return
       }
       requestBodies.push(body)
       const toolResults = body.messages?.filter((message) => message.role === 'tool') ?? []
@@ -187,7 +212,7 @@ async function startNotebookAgentServer(sourceIds: () => string[] = () => []) {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', resolve)
   })
-  return { server, port: (server.address() as AddressInfo).port, requestBodies }
+  return { server, port: (server.address() as AddressInfo).port, requestBodies, embeddingRequests }
 }
 
 async function diagnosticEventCount(page: Page, event: string): Promise<number> {
@@ -296,7 +321,8 @@ test(
   async ({ testRoot }) => {
     const source = join(testRoot, 'parsed source.pdf')
     await writeFile(source, makeMinimalPdf())
-    const mineru = await startSuccessfulMineruServer(await resultZip())
+    const heading = 'CAFÉ 100%_ "Audit"'
+    const mineru = await startSuccessfulMineruServer(await resultZip(heading))
     const notebookAgent = await startNotebookAgentServer()
     const projectName = 'Parsed knowledge viewer'
     const launched = await launchApp({
@@ -433,7 +459,7 @@ test(
       const headerStats = knowledge.getByTestId('knowledge-header-stats')
       await expect(headerStats.getByTestId('knowledge-stat-files')).toContainText(/1\s*Files/)
       await expect(headerStats.getByTestId('knowledge-stat-parsed')).toContainText(/1\s*Parsed/)
-      await expect(headerStats.getByTestId('knowledge-stat-blocks')).toContainText(/3\s*Blocks/)
+      await expect(headerStats.getByTestId('knowledge-stat-blocks')).toContainText(/4\s*Blocks/)
       await expect(headerStats.getByTestId('knowledge-stat-indexed')).toContainText(/Yes\s*Indexed/)
       await expect(headerStats.getByTestId('knowledge-stat-queue')).toContainText(/\d+\s*Queue/)
       await expect(headerStats.getByText('Embeddings', { exact: true })).toHaveCount(0)
@@ -521,6 +547,70 @@ test(
       expect(diagnosticText).not.toContain(privateAnswer)
       expect(mineru.stats.uploadedBytes).toBeGreaterThan(0)
       expect(mineru.stats.parseTaskId).not.toBe('')
+
+      await launched.page.evaluate(async (port) => {
+        await window.desktop.providers.save({
+          config: {
+            role: 'embedding',
+            providerId: 'openai-compatible',
+            baseUrl: `http://127.0.0.1:${port}/v1`,
+            model: 'e2e-embedding',
+            modelRevision: 'e2e-v1',
+            embeddingDimension: 3,
+            batchLimit: 16,
+            timeoutMs: 10_000,
+            fileSizeLimitMb: null
+          },
+          apiKey: 'e2e-embedding-key'
+        })
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (projectSessionId === undefined) throw new Error('Expected an active project')
+        const [item] = await window.desktop.knowledge.list({ projectSessionId })
+        if (item === undefined) throw new Error('Expected parsed Knowledge')
+        await window.desktop.knowledge.refreshEmbeddings({
+          projectSessionId,
+          knowledgeItemId: item.knowledgeItemId
+        })
+      }, notebookAgent.port)
+      await expect
+        .poll(() => succeededJobCount(launched.page, 'build_embedding_generation'))
+        .toBe(1)
+      expect(notebookAgent.embeddingRequests.flat().join(' ')).toContain(
+        'Normalized body from MinerU'
+      )
+      const hybrid = await launched.page.evaluate(async () => {
+        const projectSessionId = (await window.desktop.projects.lifecycle()).activeProject
+          ?.projectSessionId
+        if (projectSessionId === undefined) throw new Error('Expected an active project')
+        return window.desktop.knowledge.search({
+          projectSessionId,
+          query: 'Normalized body',
+          filters: {
+            knowledgeItemIds: [],
+            fileExtensions: [],
+            parseRevisionIds: [],
+            heading: 'cafe\u0301 100%_ "audit"'
+          },
+          limits: { fts: 10, vector: 10, fused: 10, results: 10 },
+          rerank: false
+        })
+      })
+      expect(hybrid).toMatchObject({
+        mode: 'hybrid',
+        hits: expect.arrayContaining([
+          expect.objectContaining({
+            snippet: expect.stringContaining('Normalized body from MinerU'),
+            headingPath: [heading],
+            debug: {
+              ftsRank: expect.any(Number),
+              vectorRank: expect.any(Number),
+              rrfScore: expect.any(Number),
+              rerankScore: null
+            }
+          })
+        ])
+      })
     } finally {
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>
@@ -1036,11 +1126,14 @@ async function succeededJobCount(
   }, type)
 }
 
-async function resultZip(): Promise<Buffer> {
+async function resultZip(heading?: string): Promise<Buffer> {
   const zip = new ZipFile()
   zip.addBuffer(
     Buffer.from(
       JSON.stringify([
+        ...(heading === undefined
+          ? []
+          : [{ type: 'text', text: heading, text_level: 1, page_idx: 0, bbox: [10, 0, 900, 20] }]),
         {
           type: 'text',
           text: 'Normalized body from MinerU',

@@ -31,15 +31,7 @@ export function manuscriptToMarkdown(
 ): { markdown: string; lossReport: ManuscriptMarkdownLossReport } {
   const losses: ManuscriptMarkdownLoss[] = []
   const chunks: string[] = []
-  const citationNumbers = referenceNumberMap(
-    buildManuscriptReferenceIndex(
-      manuscript.sections.map((item) => ({
-        sectionId: item.section.sectionId,
-        sectionRevisionId: item.revision.sectionRevisionId,
-        content: item.revision.content
-      }))
-    )
-  )
+  const citationNumbers = referenceNumberMap(buildManuscriptReferenceIndex(manuscript))
   for (const item of manuscript.sections) {
     chunks.push(`${'#'.repeat(item.section.level)} ${escapeHeading(item.section.title)}`)
     const body = blocksToMarkdown(
@@ -106,15 +98,7 @@ export function manuscriptSectionToMarkdown(
   const item = manuscript.sections.find((candidate) => candidate.section.sectionId === sectionId)
   if (item === undefined) throw new Error('Manuscript section was not found')
   const losses: ManuscriptMarkdownLoss[] = []
-  const citationNumbers = referenceNumberMap(
-    buildManuscriptReferenceIndex(
-      manuscript.sections.map((candidate) => ({
-        sectionId: candidate.section.sectionId,
-        sectionRevisionId: candidate.revision.sectionRevisionId,
-        content: candidate.revision.content
-      }))
-    )
-  )
+  const citationNumbers = referenceNumberMap(buildManuscriptReferenceIndex(manuscript))
   const body = blocksToMarkdown(
     item.revision.content,
     sectionId,

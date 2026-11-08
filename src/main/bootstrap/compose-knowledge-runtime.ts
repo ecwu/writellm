@@ -5,6 +5,7 @@ import type { AgentProviderCatalogService } from '../providers/agent-provider-ca
 import type { ProviderService } from '../providers/provider-service'
 import type { AgentModelClient } from '../providers/agent-model-client'
 import type { ModelExecutionService } from '../providers/model-execution-service'
+import type { ModelRequestCorrelation } from '../providers/model-request-repository'
 import type { MineruClient } from '../knowledge/mineru-client'
 import type { WritingSkillRuntime } from '../skills/skill-router'
 import type { AgentEventBroker } from '../agent/event-broker'
@@ -16,6 +17,7 @@ import { ChangeSetBatchService } from '../agent/change-set-batch-service'
 import { MainAgentReadTools } from '../agent/read-tools'
 import { MainAgentTools } from '../agent/tools'
 import { AgentSessionService } from '../agent/session-service'
+import { recoverInterruptedAgentWork } from '../agent/session-recovery'
 import { AgentTraceRepository } from '../agent/trace-repository'
 import { ManuscriptCommentService } from '../manuscript/comment-service'
 import { MutationProposalService } from '../agent/mutation-service'
@@ -29,11 +31,8 @@ import {
 import { MineruWorkflowService, registerMineruHandlers } from '../knowledge/mineru-workflow-service'
 import { NotebookRegistry } from '../knowledge/notebook-registry'
 import { IndexClient } from '../search/index-client'
-import {
-  embeddingContractSha256,
-  ProjectIndexService,
-  registerIndexHandlers
-} from '../search/index-service'
+import { assertEmbeddingProviderContract } from '../search/embedding-contract'
+import { ProjectIndexService, registerIndexHandlers } from '../search/index-service'
 import { RetrievalService } from '../search/retrieval-service'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from '../project/project-paths'
 import {
@@ -137,8 +136,22 @@ export function composeKnowledgeRuntime(
       projectId,
       projectSessionId,
       collector: logCollector,
-      log: createLogger('index', 'client')
+      log: createLogger('index', 'client'),
+      onRestart: (activeGenerationId) => projectIndex.handleWorkerRestart(activeGenerationId)
     })
+    const embedForIndex = (
+      values: string[],
+      expectedContractSha256: string,
+      correlation: Pick<ModelRequestCorrelation, 'operationId' | 'jobId'>,
+      signal: AbortSignal
+    ) =>
+      modelExecution.embedBatch(
+        database,
+        { values },
+        { ...correlation, projectSessionId },
+        signal,
+        (config) => assertEmbeddingProviderContract(config, expectedContractSha256)
+      )
     const projectIndex = new ProjectIndexService({
       projectRoot,
       projectId,
@@ -146,13 +159,7 @@ export function composeKnowledgeRuntime(
       jobs,
       client: indexClient,
       getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
-      embedBatch: (values, correlation, signal) =>
-        modelExecution.embedBatch(
-          database,
-          { values },
-          { ...correlation, projectSessionId },
-          signal
-        ),
+      embedBatch: embedForIndex,
       log
     })
     const retrieval = new RetrievalService({
@@ -160,17 +167,7 @@ export function composeKnowledgeRuntime(
       client: indexClient,
       getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
       embedQuery: async (query, expectedContractSha256, operationId, signal) => {
-        const result = await modelExecution.embedBatch(
-          database,
-          { values: [query] },
-          { operationId, projectSessionId },
-          signal,
-          (config) => {
-            if (embeddingContractSha256(config) !== expectedContractSha256) {
-              throw new Error('Embedding provider changed before query execution')
-            }
-          }
-        )
+        const result = await embedForIndex([query], expectedContractSha256, { operationId }, signal)
         const vector = result.embeddings[0]
         if (vector === undefined) throw new Error('Embedding provider returned no query vector')
         return vector
@@ -236,6 +233,7 @@ export function composeKnowledgeRuntime(
       writingTasks,
       manuscriptComments
     )
+    const agentSessionLog = createLogger('agent', 'session')
     const agentSessions = new AgentSessionService({
       projectId,
       projectSessionId,
@@ -243,7 +241,7 @@ export function composeKnowledgeRuntime(
       agentCatalog: agentProviderCatalog,
       attachments: agentAttachments,
       runtime: agentModel,
-      contextBuilder: agentTools.contextBuilder(),
+      contextBuilder: agentReadTools.contextBuilder(),
       skillRouter: writingSkillRuntime,
       tools: agentTools,
       writingTasks,
@@ -319,9 +317,9 @@ export function composeKnowledgeRuntime(
           modelRequestId: execution.modelRequestId
         }
       },
-      log: createLogger('agent', 'session')
+      log: agentSessionLog
     })
-    agentSessions.recoverInterruptedRuns()
+    recoverInterruptedAgentWork(database, agentSessionLog)
     const agentChangeSets = new ChangeSetBatchService({
       projectSessionId,
       database,
@@ -337,7 +335,7 @@ export function composeKnowledgeRuntime(
       database,
       log,
       normalizeInUtility: (input, signal) => mineruClient.normalize(input, signal),
-      jobs
+      requestIndexRefresh: () => projectIndex.requestRebuild()
     })
     const knowledgeMapping = new KnowledgeMappingService({
       projectRoot,
@@ -365,7 +363,7 @@ export function composeKnowledgeRuntime(
         await agentMutations.cancelAllImageGenerations()
         await knowledgeChat.close()
         await agentSessions.close()
-        projectIndex.terminate()
+        await projectIndex.terminate()
       }
     }
   }

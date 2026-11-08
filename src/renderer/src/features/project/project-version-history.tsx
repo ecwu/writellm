@@ -340,7 +340,10 @@ export function ProjectVersionHistory({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create checkpoint</DialogTitle>
+            <DialogTitle className='flex items-center gap-2'>
+              <History className='size-4 text-muted-foreground' aria-hidden='true' />
+              Create checkpoint
+            </DialogTitle>
             <DialogDescription>
               Save a named, consistent version of the entire project.
             </DialogDescription>

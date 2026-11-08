@@ -1,20 +1,21 @@
 import { randomUUID } from 'node:crypto'
 import { createAbortError } from '../../shared/abort-error'
-import { sha256 } from '../../shared/hash'
+import { generationIdFor, hashSourceSet } from '../../shared/index-generation'
 import type { Logger } from 'pino'
 import {
   INDEX_CHUNKER_VERSION,
   indexSourceSchema,
-  type IndexSnapshot,
   type IndexSource,
-  type VectorGenerationContract
+  type VectorRefresh
 } from '../../shared/contracts/indexing'
 import type { EmbeddingBatchResult } from '../../shared/contracts/model-runtime'
 import type { ProviderConfig } from '../../shared/contracts/providers'
+import { jobPayloadRegistry } from '../jobs/job-schemas'
 import type { JobStore } from '../jobs/job-store'
 import type { JobHandlerContext, JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
 import type { ProjectDatabase } from '../project/project-database'
 import { resolveProjectPath } from '../project/project-paths'
+import { createEmbeddingGenerationContract } from './embedding-contract'
 import type { IndexClient } from './index-client'
 
 interface CurrentIndexGeneration {
@@ -56,9 +57,9 @@ export class ProjectIndexService {
       getEmbeddingProvider: () => Promise<ProviderConfig>
       embedBatch: (
         values: string[],
+        expectedContractSha256: string,
         correlation: { operationId: string; jobId: string },
-        signal: AbortSignal,
-        projectSessionId?: string
+        signal: AbortSignal
       ) => Promise<EmbeddingBatchResult>
       log: Pick<Logger, 'info' | 'warn' | 'error'>
     }
@@ -88,12 +89,21 @@ export class ProjectIndexService {
     return this.#readiness
   }
 
+  handleWorkerRestart(activeGenerationId: string | null): void {
+    if (this.#closing) return
+    const current = this.#currentGeneration()
+    this.#activeGenerationId = activeGenerationId
+    this.#readiness = 'available'
+    if (activeGenerationId !== current.generationId) {
+      this.#enqueueBuild(current.generationId, 'index-worker-restart')
+    }
+  }
+
   async #initialize(): Promise<void> {
     const startedAt = Date.now()
-    const current = this.#currentGeneration()
-    let snapshot: IndexSnapshot
+    let activeGenerationId: string | null
     try {
-      snapshot = await this.options.client.initialize()
+      activeGenerationId = await this.options.client.initialize()
     } catch (err) {
       if (this.#closing) {
         this.options.log.info(
@@ -116,11 +126,13 @@ export class ProjectIndexService {
         },
         'Index utility is unavailable; rebuild remains durable'
       )
-      this.#enqueueBuild(current.generationId, 'index-open-recovery')
+      this.#enqueueBuild(this.#currentGeneration().generationId, 'index-open-recovery')
       return
     }
-    this.#activeGenerationId = snapshot.activeGenerationId
-    if (snapshot.activeGenerationId !== current.generationId) {
+    if (this.#closing) return
+    const current = this.#currentGeneration()
+    this.#activeGenerationId = activeGenerationId
+    if (activeGenerationId !== current.generationId) {
       this.#enqueueBuild(current.generationId, 'index-open')
     } else {
       await this.#queueEmbeddings(current, 'index-open')
@@ -130,13 +142,23 @@ export class ProjectIndexService {
       {
         event: 'index.service.initialized',
         projectId: this.options.projectId,
-        activeGenerationId: snapshot.activeGenerationId,
+        activeGenerationId,
         currentGenerationId: current.generationId,
         sourceCount: current.sources.length,
         durationMs: Date.now() - startedAt
       },
       'Project index service initialized'
     )
+  }
+
+  requestRebuild(): void {
+    this.options.jobs.enqueue({
+      type: 'rebuild_index',
+      payload: {},
+      runAfter: new Date(Date.now() + GENERATION_BUILD_DEBOUNCE_MS),
+      deduplicationKey: 'index-rebuild:pending',
+      maxAttempts: 8
+    })
   }
 
   requestItemDelete(knowledgeItemId: string): void {
@@ -159,29 +181,29 @@ export class ProjectIndexService {
     ) {
       throw new Error('The selected knowledge source has no active parsed revision')
     }
-    const activeEmbeddingJob = this.options.jobs
-      .list({ limit: 100, states: ['queued', 'running'] })
-      .find((job) => job.type === 'build_embedding_generation')
-    if (activeEmbeddingJob !== undefined) {
-      throw new Error('An embedding generation is already queued or running')
-    }
-    const snapshot = await this.options.client.inspect()
-    if (snapshot.activeGenerationId !== current.generationId) {
+    const { contractSha256 } = createEmbeddingGenerationContract(
+      await this.options.getEmbeddingProvider(),
+      current
+    )
+    const activeGenerationId = await this.options.client.activeGenerationId()
+    if (this.#confirmCurrentGeneration(current.generationId, activeGenerationId) === null) {
       throw new Error('The knowledge search index is still being prepared')
     }
-    embeddingContract(await this.options.getEmbeddingProvider(), current)
     const embeddingGenerationId = `embedding-refresh-${randomUUID()}`
     const refreshScope = knowledgeItemId === undefined ? 'all' : 'item'
-    this.options.jobs.enqueue({
+    const { created } = this.options.jobs.enqueue({
       type: 'build_embedding_generation',
       payload: {
         generationId: embeddingGenerationId,
         refreshScope,
+        target: { indexGenerationId: current.generationId, contractSha256 },
         ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
       },
       deduplicationKey: 'embedding-refresh:active',
+      deduplicateByType: true,
       maxAttempts: 8
     })
+    if (!created) throw new Error('An embedding generation is already queued or running')
     this.options.log.info(
       {
         event: 'embedding.refresh.queued',
@@ -196,14 +218,17 @@ export class ProjectIndexService {
 
   async handleRefresh(context: JobHandlerContext): Promise<void> {
     if (context.signal.aborted) throw createAbortError('Index operation aborted')
-    if (context.job.type === 'rebuild_index') await waitForGenerationBuildDebounce(context)
+    // Older refresh jobs stored the delay in the handler rather than runAfter.
+    if (context.job.type === 'rebuild_index' && context.job.payload.generationId !== undefined) {
+      await waitForLegacyRefreshDelay(context)
+      if (context.signal.aborted) throw createAbortError('Index operation aborted')
+    }
     const current = this.#currentGeneration()
     this.#enqueueBuild(current.generationId, context.job.jobId)
   }
 
   async handleBuild(context: JobHandlerContext): Promise<void> {
-    const generationId = context.job.payload.generationId
-    if (typeof generationId !== 'string') throw new Error('Index build payload is invalid')
+    const { generationId } = jobPayloadRegistry.build_index_generation.parse(context.job.payload)
     const current = this.#currentGeneration()
     if (current.generationId !== generationId) {
       this.#enqueueBuild(current.generationId, context.job.jobId)
@@ -219,22 +244,10 @@ export class ProjectIndexService {
       context.signal
     )
     context.reportProgress({ completed: 1, total: 2, stage: 'built' })
-    const afterBuild = this.#currentGeneration()
-    if (afterBuild.generationId !== generationId) {
-      this.options.log.info(
-        {
-          event: 'index.generation.superseded_before_activation',
-          projectId: this.options.projectId,
-          builtGenerationId: generationId,
-          currentGenerationId: afterBuild.generationId
-        },
-        'Index generation was superseded while building and will not be activated'
-      )
-      this.#enqueueBuild(afterBuild.generationId, context.job.jobId)
-      return
-    }
+    if (this.#deferSupersededActivation(generationId, context)) return
     const activation = await this.options.client.activate(generationId, context.signal)
     this.#activeGenerationId = activation.snapshot.activeGenerationId
+    this.#readiness = 'available'
     context.reportProgress({ completed: 2, total: 2, stage: 'active' })
     this.options.log.info(
       {
@@ -249,62 +262,38 @@ export class ProjectIndexService {
     await this.#queueEmbeddings(current, context.job.jobId)
   }
 
-  async handlePublish(context: JobHandlerContext): Promise<void> {
-    const generationId = context.job.payload.generationId
-    if (typeof generationId !== 'string') throw new Error('Index publish payload is invalid')
+  async handleEmbedding(context: JobHandlerContext): Promise<void> {
+    const { generationId, refreshScope, knowledgeItemId, target } =
+      jobPayloadRegistry.build_embedding_generation.parse(context.job.payload)
+    context.signal.throwIfAborted()
+    const config = await this.options.getEmbeddingProvider()
+    context.signal.throwIfAborted()
     const current = this.#currentGeneration()
-    if (current.generationId !== generationId) {
+    if (target !== undefined && target.indexGenerationId !== current.generationId) {
+      context.reportProgress({ stage: 'superseded' })
       this.#enqueueBuild(current.generationId, context.job.jobId)
       return
     }
-    context.reportProgress({ completed: 1, total: 2, stage: 'validated' })
-    const result = await this.options.client.activate(generationId, context.signal)
-    this.#activeGenerationId = result.snapshot.activeGenerationId
-    context.reportProgress({ completed: 2, total: 2, stage: 'active' })
-    this.options.log.info(
-      {
-        event: 'index.generation.activated',
-        projectId: this.options.projectId,
-        generationId,
-        chunkCount: result.snapshot.chunkCount,
-        sourceCount: result.snapshot.sourceCount
-      },
-      'Index generation activated'
-    )
-    await this.#queueEmbeddings(current, context.job.jobId)
-  }
-
-  async handleEmbedding(context: JobHandlerContext): Promise<void> {
-    const generationId = context.job.payload.generationId
-    if (typeof generationId !== 'string') throw new Error('Embedding generation payload is invalid')
-    const current = this.#currentGeneration()
-    const config = await this.options.getEmbeddingProvider()
-    const standardContract = embeddingContract(config, current)
-    const refreshScope = context.job.payload.refreshScope
-    if (refreshScope !== undefined && refreshScope !== 'all' && refreshScope !== 'item') {
-      throw new Error('Embedding refresh scope is invalid')
-    }
-    const refreshKnowledgeItemId = context.job.payload.knowledgeItemId
-    if (refreshScope === 'item' && typeof refreshKnowledgeItemId !== 'string') {
-      throw new Error('Embedding refresh knowledge item is invalid')
+    const standardContract = createEmbeddingGenerationContract(config, current)
+    if (target !== undefined && target.contractSha256 !== standardContract.contractSha256) {
+      context.reportProgress({ stage: 'superseded' })
+      this.#enqueueEmbedding(standardContract.embeddingGenerationId, context.job.jobId)
+      return
     }
     if (
       refreshScope === 'item' &&
-      !current.sources.some((source) => source.knowledgeItemId === refreshKnowledgeItemId)
+      !current.sources.some((source) => source.knowledgeItemId === knowledgeItemId)
     ) {
       this.options.log.info(
         {
           event: 'embedding.refresh.item_unavailable',
           projectId: this.options.projectId,
           embeddingGenerationId: generationId,
-          knowledgeItemId: refreshKnowledgeItemId
+          knowledgeItemId
         },
         'Embedding refresh ended because the selected source is no longer active'
       )
       return
-    }
-    if (refreshScope !== 'item' && refreshKnowledgeItemId !== undefined) {
-      throw new Error('Embedding refresh knowledge item is invalid')
     }
     if (refreshScope === undefined && generationId !== standardContract.embeddingGenerationId) {
       this.#enqueueEmbedding(standardContract.embeddingGenerationId, context.job.jobId)
@@ -314,7 +303,14 @@ export class ProjectIndexService {
       refreshScope === undefined
         ? standardContract
         : { ...standardContract, embeddingGenerationId: generationId }
-    const alreadyActive = await this.options.client.beginVectors(contract, context.signal)
+    let refresh: VectorRefresh | undefined
+    if (refreshScope === 'item') refresh = { scope: 'item', knowledgeItemId }
+    if (refreshScope === 'all') refresh = { scope: 'all' }
+    const { alreadyActive, clearedCount } = await this.options.client.beginVectors(
+      contract,
+      context.signal,
+      refresh
+    )
     if (alreadyActive) {
       this.options.log.info(
         {
@@ -326,13 +322,7 @@ export class ProjectIndexService {
       )
       return
     }
-    if (refreshScope !== undefined) {
-      const clearedCount = await this.options.client.clearEmbeddingCache(
-        contract.indexGenerationId,
-        contract.contractSha256,
-        refreshScope === 'item' ? (refreshKnowledgeItemId as string) : undefined,
-        context.signal
-      )
+    if (refreshScope !== undefined && clearedCount !== null) {
       this.options.log.info(
         {
           event: 'embedding.refresh.cache_cleared',
@@ -340,7 +330,7 @@ export class ProjectIndexService {
           embeddingGenerationId: contract.embeddingGenerationId,
           refreshScope,
           clearedCount,
-          ...(refreshScope === 'item' ? { knowledgeItemId: refreshKnowledgeItemId as string } : {})
+          ...(refreshScope === 'item' ? { knowledgeItemId } : {})
         },
         'Embedding cache cleared for refresh'
       )
@@ -376,6 +366,7 @@ export class ProjectIndexService {
       for (const group of splitEmbeddingBatches(missing, config.batchLimit)) {
         const result = await this.options.embedBatch(
           group.map((value) => value.text),
+          contract.contractSha256,
           { operationId: contract.embeddingGenerationId, jobId: context.job.jobId },
           context.signal
         )
@@ -400,6 +391,15 @@ export class ProjectIndexService {
       offset += page.values.length
       context.reportProgress({ completed: offset, total: Math.max(total, 1), stage: 'embedding' })
     } while (offset < total)
+    if (
+      this.#deferSupersededActivation(
+        contract.indexGenerationId,
+        context,
+        contract.embeddingGenerationId
+      )
+    ) {
+      return
+    }
     await this.options.client.activateVectors(
       contract.embeddingGenerationId,
       contract.contractSha256,
@@ -419,10 +419,6 @@ export class ProjectIndexService {
     )
   }
 
-  inspect(): Promise<IndexSnapshot> {
-    return this.options.client.inspect()
-  }
-
   inspectKnowledgeMapping(
     knowledgeItemId: string,
     parseRevisionId: string,
@@ -440,26 +436,19 @@ export class ProjectIndexService {
   }
 
   async isCurrentGenerationIndexed(): Promise<boolean> {
-    if (this.#readiness !== 'available') return false
+    if (this.#closing || this.#readiness !== 'available') return false
     const current = this.#currentGeneration()
-    const snapshot = await this.options.client.inspect()
-    this.#activeGenerationId = snapshot.activeGenerationId
-    return snapshot.activeGenerationId === current.generationId
+    const activeGenerationId = await this.options.client.activeGenerationId()
+    return this.#confirmCurrentGeneration(current.generationId, activeGenerationId) !== null
   }
 
   async currentIndexedSources(signal: AbortSignal): Promise<CurrentIndexedSourceSnapshot> {
+    if (this.#closing || this.#readiness === 'unavailable') return { state: 'unavailable' }
     if (this.#readiness === 'preparing') return { state: 'preparing' }
-    if (this.#readiness === 'unavailable') return { state: 'unavailable' }
     const before = this.#currentGeneration()
-    const snapshot = await this.options.client.inspect(signal)
-    this.#activeGenerationId = snapshot.activeGenerationId
-    const after = this.#currentGeneration()
-    if (
-      before.generationId !== after.generationId ||
-      snapshot.activeGenerationId !== after.generationId
-    ) {
-      return { state: 'preparing' }
-    }
+    const activeGenerationId = await this.options.client.activeGenerationId(signal)
+    const after = this.#confirmCurrentGeneration(before.generationId, activeGenerationId)
+    if (after === null) return { state: this.#closing ? 'unavailable' : 'preparing' }
     return {
       state: 'ready',
       generationId: after.generationId,
@@ -471,8 +460,20 @@ export class ProjectIndexService {
     }
   }
 
+  #confirmCurrentGeneration(
+    expectedGenerationId: string,
+    activeGenerationId: string | null
+  ): CurrentIndexGeneration | null {
+    if (this.#closing) return null
+    this.#activeGenerationId = activeGenerationId
+    if (activeGenerationId !== expectedGenerationId) return null
+    const current = this.#currentGeneration()
+    return current.generationId === expectedGenerationId ? current : null
+  }
+
   isRetrievalAvailable(): boolean {
     return (
+      !this.#closing &&
       this.#readiness === 'available' &&
       this.#activeGenerationId === this.#currentGeneration().generationId
     )
@@ -483,9 +484,31 @@ export class ProjectIndexService {
     return this.options.client.close()
   }
 
-  terminate(): void {
+  terminate(): Promise<void> {
     this.#closing = true
-    this.options.client.terminate()
+    return this.options.client.terminate()
+  }
+
+  #deferSupersededActivation(
+    builtGenerationId: string,
+    context: JobHandlerContext,
+    embeddingGenerationId?: string
+  ): boolean {
+    context.signal.throwIfAborted()
+    const current = this.#currentGeneration()
+    if (current.generationId === builtGenerationId) return false
+    this.options.log.info(
+      {
+        event: 'index.generation.superseded_before_activation',
+        projectId: this.options.projectId,
+        builtGenerationId,
+        currentGenerationId: current.generationId,
+        embeddingGenerationId
+      },
+      'Source index generation changed before activation'
+    )
+    this.#enqueueBuild(current.generationId, context.job.jobId)
+    return true
   }
 
   #currentGeneration(): CurrentIndexGeneration {
@@ -527,20 +550,21 @@ export class ProjectIndexService {
         manifestSha256: row.manifest_sha256
       })
     )
-    const sourceSetSha256 = hashSourceSet(sources)
+    const sourceSetSha256 = hashSourceSet(sources, INDEX_CHUNKER_VERSION)
     return {
       sources,
       contentFingerprint: sourceSetSha256,
-      generationId: `generation-${sha256(
-        Buffer.from(`${INDEX_CHUNKER_VERSION}\0${sourceSetSha256}`)
-      ).slice(0, 40)}`
+      generationId: generationIdFor(sourceSetSha256, INDEX_CHUNKER_VERSION)
     }
   }
 
   async #queueEmbeddings(current: CurrentIndexGeneration, cause: string): Promise<void> {
     try {
       const config = await this.options.getEmbeddingProvider()
-      this.#enqueueEmbedding(embeddingContract(config, current).embeddingGenerationId, cause)
+      this.#enqueueEmbedding(
+        createEmbeddingGenerationContract(config, current).embeddingGenerationId,
+        cause
+      )
     } catch (err) {
       this.options.log.warn(
         { event: 'embedding.generation.not_queued', err, projectId: this.options.projectId, cause },
@@ -581,7 +605,7 @@ export class ProjectIndexService {
   }
 }
 
-async function waitForGenerationBuildDebounce(context: JobHandlerContext): Promise<void> {
+async function waitForLegacyRefreshDelay(context: JobHandlerContext): Promise<void> {
   const createdAt = Date.parse(context.job.createdAt)
   if (!Number.isFinite(createdAt)) return
   const remaining = createdAt + GENERATION_BUILD_DEBOUNCE_MS - Date.now()
@@ -622,51 +646,6 @@ export function registerIndexHandlers(
   })
 }
 
-function embeddingContract(
-  config: ProviderConfig,
-  current: { generationId: string; contentFingerprint: string }
-): VectorGenerationContract {
-  if (config.role !== 'embedding' || config.embeddingDimension === null) {
-    throw new Error('Embedding provider contract is invalid')
-  }
-  const contractSha256 = embeddingContractSha256(config)
-  return {
-    embeddingGenerationId: `embedding-${sha256(
-      Buffer.from(`${current.generationId}\0${contractSha256}`)
-    ).slice(0, 40)}`,
-    indexGenerationId: current.generationId,
-    providerId: config.providerId,
-    modelId: config.model,
-    modelRevision: config.modelRevision,
-    dimension: config.embeddingDimension,
-    metric: 'cosine',
-    normalization: 'l2',
-    chunkerVersion: INDEX_CHUNKER_VERSION,
-    contractSha256,
-    contentFingerprint: current.contentFingerprint
-  }
-}
-
-export function embeddingContractSha256(config: ProviderConfig): string {
-  if (config.role !== 'embedding' || config.embeddingDimension === null) {
-    throw new Error('Embedding provider contract is invalid')
-  }
-  return sha256(
-    Buffer.from(
-      JSON.stringify({
-        providerId: config.providerId,
-        baseUrl: config.baseUrl,
-        modelId: config.model,
-        modelRevision: config.modelRevision,
-        dimension: config.embeddingDimension,
-        metric: 'cosine',
-        normalization: 'l2',
-        chunkerVersion: INDEX_CHUNKER_VERSION
-      })
-    )
-  )
-}
-
 function splitEmbeddingBatches<T extends { text: string }>(values: T[], batchLimit: number): T[][] {
   const result: T[][] = []
   let current: T[] = []
@@ -685,21 +664,4 @@ function splitEmbeddingBatches<T extends { text: string }>(values: T[], batchLim
   }
   if (current.length > 0) result.push(current)
   return result
-}
-
-function hashSourceSet(sources: readonly IndexSource[]): string {
-  return sha256(
-    Buffer.from(
-      JSON.stringify({
-        chunkerVersion: INDEX_CHUNKER_VERSION,
-        sources: sources.map((source) => ({
-          knowledgeItemId: source.knowledgeItemId,
-          extension: source.extension,
-          parseRevisionId: source.parseRevisionId,
-          normalizationRunId: source.normalizationRunId,
-          manifestSha256: source.manifestSha256
-        }))
-      })
-    )
-  )
 }

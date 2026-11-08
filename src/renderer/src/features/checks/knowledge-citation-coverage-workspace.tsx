@@ -4,9 +4,23 @@ import type {
   KnowledgeCitationCoveragePageResult
 } from '../../../../shared/contracts/knowledge'
 import type { JobStatusEvent } from '../../../../shared/contracts/jobs'
-import type { MutationSectionChanged } from '../../../../shared/contracts/agent-mutations'
+import type { MutationProposalChanged } from '../../../../shared/contracts/agent-mutations'
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, FileQuestion, RefreshCw, Search } from 'lucide-react'
+import {
+  AlertCircle,
+  ChevronDown,
+  CircleDashed,
+  Database,
+  FileQuestion,
+  Info,
+  ListChecks,
+  Percent,
+  Quote,
+  RefreshCw,
+  Search,
+  TriangleAlert
+} from 'lucide-react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { WorkspaceRail } from '@/components/app-sidebar'
 import { Badge } from '@/components/ui/badge'
@@ -91,13 +105,15 @@ export function KnowledgeCitationCoverageWorkspace(props: {
     if (firstPage?.state === 'ready') setStaleReloading(false)
   }, [firstPage])
 
-  useDesktopSubscription<MutationSectionChanged>(
+  useDesktopSubscription<MutationProposalChanged>(
     (listener) =>
-      window.desktop.agent.subscribeSectionChanged(
+      window.desktop.agent.subscribeMutations(
         { projectSessionId: props.projectSessionId },
         listener
       ),
-    () => resetCoverage(),
+    ({ sectionChanged }) => {
+      if (sectionChanged !== null) resetCoverage()
+    },
     {
       source: 'knowledge-citation-coverage.manuscript-subscription',
       dependencies: [props.projectSessionId, resetCoverage],
@@ -144,25 +160,9 @@ export function KnowledgeCitationCoverageWorkspace(props: {
         onOpenFind={props.onOpenFind}
         onOpenSettings={props.onOpenSettings}
       />
-      <main className='mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-6 overflow-auto p-5 md:p-8'>
-        <div className='flex flex-col justify-between gap-4 sm:flex-row sm:items-start'>
-          <div className='max-w-3xl'>
-            <h1 className='text-2xl font-semibold tracking-tight'>Citation coverage</h1>
-            <p className='mt-2 text-sm leading-6 text-muted-foreground'>
-              Compare indexed sources with citations in the saved manuscript.
-            </p>
-            <Collapsible>
-              <CollapsibleTrigger asChild>
-                <Button variant='ghost' size='sm' className='px-0'>
-                  How matching works
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className='text-sm text-muted-foreground'>
-                Project citekeys identify references. Older title citations match exact reference
-                titles, with the original Knowledge filename as a fallback.
-              </CollapsibleContent>
-            </Collapsible>
-          </div>
+      <div className='flex min-h-0 min-w-0 flex-1 flex-col'>
+        <header className={panelHeaderClassName}>
+          <PanelTitle icon={ListChecks} title='Checks' />
           <Button
             variant='outline'
             size='sm'
@@ -172,120 +172,146 @@ export function KnowledgeCitationCoverageWorkspace(props: {
             {coverage.isFetching ? <Spinner /> : <RefreshCw />}
             Refresh
           </Button>
-        </div>
-
-        {coverage.isPending ? (
-          <CoverageSkeleton />
-        ) : coverage.isError ? (
-          <CoverageEmpty
-            icon={<AlertCircle />}
-            title='Coverage could not be loaded'
-            description='Retry the check. Your manuscript and Knowledge sources were not changed.'
-            action={<Button onClick={() => void coverage.refetch()}>Retry</Button>}
-          />
-        ) : firstPage?.state === 'preparing' ? (
-          <CoverageEmpty
-            icon={<Spinner />}
-            title='Knowledge index is preparing'
-            description='Coverage will appear when the latest source collection becomes active.'
-          />
-        ) : firstPage?.state === 'unavailable' ? (
-          <CoverageEmpty
-            icon={<AlertCircle />}
-            title='Knowledge index is unavailable'
-            description='Retry after the index utility becomes available. An older generation is never shown here.'
-            action={<Button onClick={resetCoverage}>Retry</Button>}
-          />
-        ) : ready === undefined ? (
-          <CoverageSkeleton />
-        ) : (
-          <>
-            <CoverageSummary page={ready} />
-
-            {staleReloading ? (
-              <div role='status' className='flex items-center gap-2 border-y py-3 text-sm'>
-                <Spinner />
-                The manuscript or index changed. Reloading the first page…
-              </div>
-            ) : null}
-
-            {ready.summary.indexedSourceCount === 0 ? (
-              <div className='border-y py-4 text-sm'>
-                <p className='font-medium'>No indexed Knowledge articles</p>
-                <p className='mt-1 text-muted-foreground'>
-                  Coverage is not computable until a current text index contains at least one
-                  article. Unmatched manuscript citations remain available under Needs attention.
-                </p>
-              </div>
-            ) : null}
-
-            {ready.summary.citedSourceCount === 0 &&
-            ready.summary.unmatchedCitationOccurrenceCount === 0 ? (
-              <p className='text-sm text-muted-foreground'>
-                No canonical Knowledge citations are present in the saved manuscript.
+        </header>
+        <main className='mx-auto flex min-h-0 w-full max-w-6xl flex-1 flex-col gap-6 overflow-auto p-5 md:p-8'>
+          <div className='flex flex-col justify-between gap-4 sm:flex-row sm:items-start'>
+            <div className='max-w-3xl'>
+              <h1 className='text-2xl font-semibold tracking-tight'>Citation coverage</h1>
+              <p className='mt-2 text-sm leading-6 text-muted-foreground'>
+                Compare indexed sources with citations in the saved manuscript.
               </p>
-            ) : null}
-
-            <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-              <ToggleGroup
-                type='single'
-                variant='outline'
-                value={filter}
-                onValueChange={(value) => {
-                  if (value !== '') setFilter(value as KnowledgeCitationCoverageFilter)
-                }}
-                aria-label='Coverage filter'
-                className='max-w-full overflow-x-auto'
-              >
-                <ToggleGroupItem value='all'>All</ToggleGroupItem>
-                <ToggleGroupItem value='cited'>Cited</ToggleGroupItem>
-                <ToggleGroupItem value='uncited'>Uncited</ToggleGroupItem>
-                <ToggleGroupItem value='attention'>Needs attention</ToggleGroupItem>
-              </ToggleGroup>
-              <div className='relative w-full lg:max-w-xs'>
-                <Search
-                  className='pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground'
-                  aria-hidden='true'
-                />
-                <Input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder='Search title, citekey, or file'
-                  aria-label='Search title, citekey, or file'
-                  className='pl-9'
-                />
-              </div>
+              <Collapsible className='mt-2'>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    className='group -ml-2 px-2 text-muted-foreground'
+                  >
+                    <Info /> How matching works
+                    <ChevronDown className='transition-transform group-data-[state=open]:rotate-180' />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className='pt-1 text-sm text-muted-foreground'>
+                  Project citekeys identify references. Older title citations match exact reference
+                  titles, with the original Knowledge filename as a fallback.
+                </CollapsibleContent>
+              </Collapsible>
             </div>
+          </div>
 
-            {items.length === 0 ? (
-              <CoverageEmpty
-                icon={<FileQuestion />}
-                title='No results for this view'
-                description='Change the filter or title search to see other coverage entries.'
-              />
-            ) : (
-              <CoverageLedger items={items} />
-            )}
+          {coverage.isPending ? (
+            <CoverageSkeleton />
+          ) : coverage.isError ? (
+            <CoverageEmpty
+              icon={<AlertCircle />}
+              title='Coverage could not be loaded'
+              description='Retry the check. Your manuscript and Knowledge sources were not changed.'
+              action={<Button onClick={() => void coverage.refetch()}>Retry</Button>}
+            />
+          ) : firstPage?.state === 'preparing' ? (
+            <CoverageEmpty
+              icon={<Spinner />}
+              title='Knowledge index is preparing'
+              description='Coverage will appear when the latest source collection becomes active.'
+            />
+          ) : firstPage?.state === 'unavailable' ? (
+            <CoverageEmpty
+              icon={<AlertCircle />}
+              title='Knowledge index is unavailable'
+              description='Retry after the index utility becomes available. An older generation is never shown here.'
+              action={<Button onClick={resetCoverage}>Retry</Button>}
+            />
+          ) : ready === undefined ? (
+            <CoverageSkeleton />
+          ) : (
+            <>
+              <CoverageSummary page={ready} />
 
-            <div className='flex items-center justify-between gap-4 border-t pt-4 text-sm text-muted-foreground'>
-              <span>
-                Showing {items.length} of {ready.filteredTotal}
-              </span>
-              {coverage.hasNextPage ? (
-                <Button
-                  variant='outline'
-                  size='sm'
-                  disabled={coverage.isFetchingNextPage}
-                  onClick={() => void coverage.fetchNextPage()}
-                >
-                  {coverage.isFetchingNextPage ? <Spinner /> : null}
-                  Load more
-                </Button>
+              {staleReloading ? (
+                <div role='status' className='flex items-center gap-2 border-y py-3 text-sm'>
+                  <Spinner />
+                  The manuscript or index changed. Reloading the first page…
+                </div>
               ) : null}
-            </div>
-          </>
-        )}
-      </main>
+
+              {ready.summary.indexedSourceCount === 0 ? (
+                <div className='border-y py-4 text-sm'>
+                  <p className='font-medium'>No indexed Knowledge articles</p>
+                  <p className='mt-1 text-muted-foreground'>
+                    Coverage is not computable until a current text index contains at least one
+                    article. Unmatched manuscript citations remain available under Needs attention.
+                  </p>
+                </div>
+              ) : null}
+
+              {ready.summary.citedSourceCount === 0 &&
+              ready.summary.unmatchedCitationOccurrenceCount === 0 ? (
+                <p className='text-sm text-muted-foreground'>
+                  No canonical Knowledge citations are present in the saved manuscript.
+                </p>
+              ) : null}
+
+              <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
+                <ToggleGroup
+                  type='single'
+                  variant='outline'
+                  value={filter}
+                  onValueChange={(value) => {
+                    if (value !== '') setFilter(value as KnowledgeCitationCoverageFilter)
+                  }}
+                  aria-label='Coverage filter'
+                  className='max-w-full overflow-x-auto'
+                >
+                  <ToggleGroupItem value='all'>All</ToggleGroupItem>
+                  <ToggleGroupItem value='cited'>Cited</ToggleGroupItem>
+                  <ToggleGroupItem value='uncited'>Uncited</ToggleGroupItem>
+                  <ToggleGroupItem value='attention'>Needs attention</ToggleGroupItem>
+                </ToggleGroup>
+                <div className='relative w-full lg:max-w-xs'>
+                  <Search
+                    className='pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground'
+                    aria-hidden='true'
+                  />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder='Search title, citekey, or file'
+                    aria-label='Search title, citekey, or file'
+                    className='pl-9'
+                  />
+                </div>
+              </div>
+
+              {items.length === 0 ? (
+                <CoverageEmpty
+                  icon={<FileQuestion />}
+                  title='No results for this view'
+                  description='Change the filter or title search to see other coverage entries.'
+                />
+              ) : (
+                <CoverageLedger items={items} />
+              )}
+
+              <div className='flex items-center justify-between gap-4 border-t pt-4 text-sm text-muted-foreground'>
+                <span>
+                  Showing {items.length} of {ready.filteredTotal}
+                </span>
+                {coverage.hasNextPage ? (
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={coverage.isFetchingNextPage}
+                    onClick={() => void coverage.fetchNextPage()}
+                  >
+                    {coverage.isFetchingNextPage ? <Spinner /> : null}
+                    Load more
+                  </Button>
+                ) : null}
+              </div>
+            </>
+          )}
+        </main>
+      </div>
     </SidebarProvider>
   )
 }
@@ -296,18 +322,21 @@ function CoverageSummary(props: {
   const { summary } = props.page
   const percentage = summary.coverageRatio === null ? null : Math.round(summary.coverageRatio * 100)
   const metrics = [
-    ['Coverage', percentage === null ? '—' : `${percentage}%`],
-    ['Indexed', summary.indexedSourceCount],
-    ['Cited', summary.citedSourceCount],
-    ['Uncited', summary.uncitedSourceCount],
-    ['Needs attention', summary.attentionCount]
+    ['Coverage', percentage === null ? '—' : `${percentage}%`, Percent],
+    ['Indexed', summary.indexedSourceCount, Database],
+    ['Cited', summary.citedSourceCount, Quote],
+    ['Uncited', summary.uncitedSourceCount, CircleDashed],
+    ['Needs attention', summary.attentionCount, TriangleAlert]
   ] as const
   return (
     <section aria-label='Coverage summary' className='space-y-4'>
       <dl className='grid grid-cols-2 divide-x divide-y border-y sm:grid-cols-5 sm:divide-y-0'>
-        {metrics.map(([label, value]) => (
+        {metrics.map(([label, value, Icon]) => (
           <div key={label} className='px-4 py-3 first:pl-0 sm:first:pl-4'>
-            <dt className='text-xs text-muted-foreground'>{label}</dt>
+            <dt className='flex items-center gap-1.5 text-xs text-muted-foreground'>
+              <Icon className='size-3.5' aria-hidden='true' />
+              {label}
+            </dt>
             <dd className='mt-1 text-lg font-semibold tabular-nums'>{value}</dd>
           </div>
         ))}

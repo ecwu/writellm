@@ -21,7 +21,7 @@ Past command examples do not replace the command catalog below.
 
 ## Project Setup
 
-The Electron 44 application requires macOS 13 or later on both arm64 and x64.
+The Electron 45 application requires macOS 13 or later on both arm64 and x64.
 Linux retains its GTK dependencies; Electron now links ANGLE into its runtime.
 
 The repository requires Node.js `24.21.0` or newer within the Node 24 major line, plus pnpm

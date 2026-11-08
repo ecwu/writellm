@@ -220,7 +220,7 @@ describe('runAuxiliaryModelRequest', () => {
     const data = Buffer.from('generated-png').toString('base64')
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const sdkRequest = input instanceof Request ? input : new Request(input, init)
-      expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions')
+      expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1/interactions')
       expect(sdkRequest.headers.get('x-goog-api-key')).toBe('gemini-secret')
       expect(sdkRequest.headers.get('content-type')).toContain('application/json')
       expect(sdkRequest.headers.get('x-goog-api-client')).toMatch(
@@ -527,7 +527,7 @@ describe('runAuxiliaryModelRequest', () => {
     const data = Buffer.from('generated-png').toString('base64')
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const sdkRequest = input instanceof Request ? input : new Request(input, init)
-      expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1beta/interactions')
+      expect(sdkRequest.url).toBe('https://generativelanguage.googleapis.com/v1/interactions')
       return new Response(
         JSON.stringify(interactionResponse([{ type: 'image', mime_type: 'image/png', data }])),
         { headers: { 'content-type': 'application/json' } }

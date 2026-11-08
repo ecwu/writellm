@@ -12,8 +12,7 @@ const openSnapshot = {
   activeProject: {
     projectId,
     projectSessionId: sessionId,
-    displayName: 'Safe project',
-    indexRebuildRequired: false
+    displayName: 'Safe project'
   }
 }
 const closedSnapshot = { state: 'closed' as const, activeProject: null }

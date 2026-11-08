@@ -11,14 +11,17 @@ const directories: string[] = []
 const log = pino({ level: 'silent' })
 
 class FakeSafeStorage implements SafeStorageAdapter {
-  isEncryptionAvailable(): boolean {
+  async isAsyncEncryptionAvailable(): Promise<boolean> {
     return true
   }
-  encryptString(value: string): Buffer {
+  async encryptStringAsync(value: string): Promise<Buffer> {
     return Buffer.from(Buffer.from(value).map((byte) => byte ^ 0xa5))
   }
-  decryptString(value: Buffer): string {
-    return Buffer.from(value.map((byte) => byte ^ 0xa5)).toString()
+  async decryptStringAsync(value: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }> {
+    return {
+      result: Buffer.from(value.map((byte) => byte ^ 0xa5)).toString(),
+      shouldReEncrypt: false
+    }
   }
   getSelectedStorageBackend(): string {
     return 'kwallet6'

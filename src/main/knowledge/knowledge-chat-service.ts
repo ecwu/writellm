@@ -1,6 +1,7 @@
+import { completeModelCall } from '../agent/model-call-completion'
 import { randomUUID } from 'node:crypto'
 import type { Logger } from 'pino'
-import { isAbortError } from '../../shared/abort-error'
+import { createAbortError, isAbortError } from '../../shared/abort-error'
 import {
   serializeAgentDiagnosticError,
   agentDiagnosticSensitiveValues
@@ -9,6 +10,7 @@ import {
   NOTEBOOK_MAX_CHAT_BYTES,
   NOTEBOOK_MAX_CITATIONS,
   NOTEBOOK_MAX_MESSAGES,
+  notebookChatTextBytes,
   notebookChatEventSchema,
   notebookChatSnapshotSchema,
   notebookChatStartTurnInputSchema,
@@ -41,7 +43,7 @@ import type {
 } from '../../shared/contracts/providers'
 import type { ProjectDatabase } from '../project/project-database'
 import type { RetrievalService } from '../search/retrieval-service'
-import type { ProjectIndexService } from '../search/index-service'
+import type { CurrentIndexedSourceSnapshot, ProjectIndexService } from '../search/index-service'
 import type { ReferenceLibraryService } from '../references/reference-library-service'
 import {
   agentCredentialFromResolved,
@@ -59,6 +61,7 @@ import {
   NOTEBOOK_CHAT_SYSTEM_PROMPT
 } from '../agent/prompts/notebook-chat'
 import { executeCitationRead, executeKnowledgeSearch } from '../agent/knowledge-tools'
+import { ToolContinuationRequests } from '../agent/tool-continuation-requests'
 
 const NO_EVIDENCE_MESSAGE = '选中的资料中没有足够信息。'
 const STOP_TIMEOUT_MS = 5_000
@@ -67,10 +70,9 @@ const CITATION_MARKER = /\[\[cite:(\d{1,3})\]\]/gu
 
 interface ActiveNotebookTurn {
   turnId: string
-  userMessageId: string
   assistantMessageId: string
   controller: AbortController
-  completion: Promise<void>
+  readonly completion: Promise<void>
   detached: boolean
   operationId: string
   agentRunId: string
@@ -78,6 +80,7 @@ interface ActiveNotebookTurn {
   config: Extract<ProviderConfig, { role: 'agent' }>
   thinkingLevel: AgentThinkingLevel
   handle: AgentSessionRunHandle | null
+  toolContinuations: ToolContinuationRequests
   authorizedModelRequestIds: Set<string>
   pendingModelRequestIds: Set<string>
   citationsById: Map<string, NotebookChatCitation>
@@ -118,6 +121,8 @@ export class KnowledgeChatService {
   #sourceScope: NotebookSourceScope = { mode: 'all', knowledgeItemIds: [] }
   #sourceReadiness: NotebookChatSnapshot['sourceReadiness'] = 'preparing'
   #availableKnowledgeItemIds: string[] = []
+  #sourceReadSequence = 0
+  #appliedSourceRead = 0
   #effectiveSourceIds: string[] | null = null
   #contextEpoch = 0
   #modelSelection: AgentModelSelection | null = null
@@ -125,8 +130,9 @@ export class KnowledgeChatService {
   #assistantHistory = new Map<string, AgentAssistantMessagePayload>()
   #agentSessionId: string
   #lastError: string | null = null
+  #startingTurn: AbortController | null = null
   #activeTurn: ActiveNotebookTurn | null = null
-  #initialized = false
+  #initialization: Promise<void> | undefined
   #closed = false
 
   constructor(private readonly options: KnowledgeChatServiceOptions) {
@@ -139,50 +145,43 @@ export class KnowledgeChatService {
   async snapshot(): Promise<NotebookChatSnapshot> {
     this.#assertOpen()
     await this.#initialize()
+    this.#assertOpen()
     await this.#reconcileSources()
+    this.#assertOpen()
     return this.#snapshot()
   }
 
   async setSources(rawScope: NotebookSourceScope): Promise<NotebookChatSnapshot> {
     this.#assertOpen()
     await this.#initialize()
-    if (this.#activeTurn !== null) throw new Error('Stop the active Notebook answer first')
+    this.#assertConfigurable()
     const scope = notebookSourceScopeSchema.parse(rawScope)
-    await this.#refreshAvailableSources()
-    const available = new Set(this.#availableKnowledgeItemIds)
-    if (scope.mode === 'selected' && scope.knowledgeItemIds.some((id) => !available.has(id))) {
-      throw new Error('Only currently indexed Knowledge sources can be selected')
-    }
     const normalized =
       scope.mode === 'all'
         ? scope
         : { mode: 'selected' as const, knowledgeItemIds: [...scope.knowledgeItemIds].sort() }
-    if (sameScope(this.#sourceScope, normalized)) return this.#snapshot()
-    this.#sourceScope = normalized
-    this.#effectiveSourceIds = this.#resolveEffectiveSourceIds()
-    this.#appendSourceBoundary()
-    this.#lastError = null
-    this.#bumpRevision()
-    await this.#publishSnapshot()
-    this.options.log.info(
-      {
-        event: 'knowledge.notebook.sources_changed',
-        projectId: this.options.projectId,
-        projectSessionId: this.options.projectSessionId,
-        sourceMode: normalized.mode,
-        sourceCount: this.#effectiveSourceIds.length,
-        contextEpoch: this.#contextEpoch
-      },
-      'Notebook Knowledge sources changed'
-    )
+    if (await this.#reconcileSources({ selection: normalized })) {
+      this.options.log.info(
+        {
+          event: 'knowledge.notebook.sources_changed',
+          projectId: this.options.projectId,
+          projectSessionId: this.options.projectSessionId,
+          sourceMode: normalized.mode,
+          sourceCount: this.#effectiveSourceIds?.length ?? 0,
+          contextEpoch: this.#contextEpoch
+        },
+        'Notebook Knowledge sources changed'
+      )
+    }
     return this.#snapshot()
   }
 
   async setModel(modelSelection: AgentModelSelection): Promise<NotebookChatSnapshot> {
     this.#assertOpen()
     await this.#initialize()
-    if (this.#activeTurn !== null) throw new Error('Stop the active Notebook answer first')
+    this.#assertConfigurable()
     const resolved = await this.options.agentCatalog.resolve(modelSelection)
+    this.#assertConfigurable()
     this.#modelSelection = modelSelection
     this.#thinkingLevel = clampResolvedAgentThinkingLevel(resolved, this.#thinkingLevel)
     this.#lastError = null
@@ -194,9 +193,14 @@ export class KnowledgeChatService {
   async setThinkingLevel(level: AgentThinkingLevel): Promise<NotebookChatSnapshot> {
     this.#assertOpen()
     await this.#initialize()
-    if (this.#activeTurn !== null) throw new Error('Stop the active Notebook answer first')
-    if (this.#modelSelection === null) throw new Error('Choose an Agent model first')
-    const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+    this.#assertConfigurable()
+    const modelSelection = this.#modelSelection
+    if (modelSelection === null) throw new Error('Choose an Agent model first')
+    const resolved = await this.options.agentCatalog.resolve(modelSelection)
+    this.#assertConfigurable()
+    if (this.#modelSelection !== modelSelection) {
+      throw new Error('Notebook model changed. Retry the Thinking level change.')
+    }
     if (clampResolvedAgentThinkingLevel(resolved, level) !== level) {
       throw new Error('Selected Thinking level is unavailable for this Agent model')
     }
@@ -209,33 +213,57 @@ export class KnowledgeChatService {
 
   async startTurn(content: string): Promise<NotebookChatStartTurnResult> {
     this.#assertOpen()
-    await this.#initialize()
-    await this.#reconcileSources()
-    if (this.#activeTurn !== null) throw new Error('A Notebook answer is already in progress')
-    if (this.#modelSelection === null) {
-      throw new Error('Configure and select an Agent model before asking a Notebook question')
+    if (this.#startingTurn !== null || this.#activeTurn !== null) {
+      throw new Error('A Notebook answer is already in progress')
     }
-    const question = notebookChatStartTurnInputSchema.parse({
-      notebookId: this.notebookId,
-      projectSessionId: this.options.projectSessionId,
-      content
-    }).content
-    const sourceIds = this.#resolveEffectiveSourceIds()
-    if (sourceIds.length === 0) throw new Error('Select at least one indexed Knowledge source')
-    this.#assertCapacityFor(question)
-    const contextEpoch = this.#contextEpoch
-    const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
-    this.#assertOpen()
-    if (this.#activeTurn !== null) throw new Error('A Notebook answer is already in progress')
-    if (contextEpoch !== this.#contextEpoch)
-      throw new Error('Notebook sources changed. Retry the question.')
+    const controller = new AbortController()
+    this.#startingTurn = controller
+    try {
+      await this.#initialize()
+      controller.signal.throwIfAborted()
+      await this.#reconcileSources({ signal: controller.signal })
+      controller.signal.throwIfAborted()
+      if (this.#modelSelection === null) {
+        throw new Error('Configure and select an Agent model before asking a Notebook question')
+      }
+      const question = notebookChatStartTurnInputSchema.parse({
+        notebookId: this.notebookId,
+        projectSessionId: this.options.projectSessionId,
+        content
+      }).content
+      const sourceIds = this.#sourceReadiness === 'ready' ? (this.#effectiveSourceIds ?? []) : []
+      if (sourceIds.length === 0) throw new Error('Select at least one indexed Knowledge source')
+      this.#assertCapacityFor(question)
+      const contextEpoch = this.#contextEpoch
+      const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+      controller.signal.throwIfAborted()
+      if (
+        contextEpoch !== this.#contextEpoch ||
+        this.#sourceReadiness !== 'ready' ||
+        !sameStrings(sourceIds, this.#effectiveSourceIds ?? [])
+      ) {
+        throw new Error('Notebook sources changed. Retry the question.')
+      }
+      this.#startingTurn = null
+      return this.#beginTurn(question, [...sourceIds], resolved, controller)
+    } finally {
+      if (this.#startingTurn === controller) this.#startingTurn = null
+    }
+  }
+
+  async #beginTurn(
+    question: string,
+    sourceIds: string[],
+    resolved: ResolvedAgentCatalogModel,
+    controller: AbortController
+  ): Promise<NotebookChatStartTurnResult> {
     const thinkingLevel = clampResolvedAgentThinkingLevel(resolved, this.#thinkingLevel)
     const config = agentProviderConfigFromResolved(resolved)
+    const history = boundedAgentHistory(this.#messages, this.#assistantHistory, this.#contextEpoch)
 
     const turnId = this.#createId()
     const userMessageId = this.#createId()
     const assistantMessageId = this.#createId()
-    const controller = new AbortController()
     const createdAt = this.#now().toISOString()
     this.#messages.push(
       {
@@ -260,10 +288,9 @@ export class KnowledgeChatService {
     this.#lastError = null
     const active: ActiveNotebookTurn = {
       turnId,
-      userMessageId,
       assistantMessageId,
       controller,
-      completion: Promise.resolve(),
+      completion: Promise.resolve().then(() => this.#runTurn(active, question, resolved, history)),
       detached: false,
       operationId: this.#createId(),
       agentRunId: this.#createId(),
@@ -271,17 +298,17 @@ export class KnowledgeChatService {
       config,
       thinkingLevel,
       handle: null,
+      toolContinuations: new ToolContinuationRequests(),
       authorizedModelRequestIds: new Set(),
       pendingModelRequestIds: new Set(),
       citationsById: new Map(),
       finalMessage: null
     }
     this.#activeTurn = active
-    this.#bumpRevision()
-    await this.#publishSnapshot()
-    active.completion = this.#runTurn(active, question, resolved)
     // error-handling: allow owner=notebook-chat reason=detached-completion
     void active.completion.catch(() => undefined)
+    this.#bumpRevision()
+    await this.#publishSnapshot()
     return notebookChatStartTurnResultSchema.parse({ turnId, snapshot: this.#snapshot() })
   }
 
@@ -335,14 +362,19 @@ export class KnowledgeChatService {
     )
   }
 
-  async #initialize(): Promise<void> {
-    if (this.#initialized) return
-    this.#initialized = true
+  #initialize(): Promise<void> {
+    this.#initialization ??= this.#loadDefaultModel()
+    return this.#initialization
+  }
+
+  async #loadDefaultModel(): Promise<void> {
     try {
       const catalog = await this.options.agentCatalog.snapshot()
+      if (this.#closed) return
       this.#modelSelection = catalog.defaultSelection
       if (this.#modelSelection !== null) {
         const resolved = await this.options.agentCatalog.resolve(this.#modelSelection)
+        if (this.#closed) return
         this.#thinkingLevel = clampResolvedAgentThinkingLevel(
           resolved,
           catalog.defaultThinkingLevel ?? 'medium'
@@ -361,43 +393,65 @@ export class KnowledgeChatService {
     }
   }
 
-  async #reconcileSources(): Promise<void> {
-    const previous = this.#effectiveSourceIds
-    await this.#refreshAvailableSources()
-    const effective = this.#resolveEffectiveSourceIds()
-    if (previous === null) {
-      this.#effectiveSourceIds = effective
-      return
+  async #reconcileSources({
+    signal = new AbortController().signal,
+    selection
+  }: {
+    signal?: AbortSignal
+    selection?: NotebookSourceScope
+  } = {}): Promise<boolean> {
+    const read = ++this.#sourceReadSequence
+    const indexed = await this.options.projectIndex.currentIndexedSources(signal)
+    signal.throwIfAborted()
+    if (selection === undefined) this.#assertOpen()
+    else this.#assertConfigurable()
+
+    const currentRead = read > this.#appliedSourceRead
+    if (!currentRead && selection === undefined) return false
+    const readiness = currentRead ? indexed.state : this.#sourceReadiness
+    const availableIds = currentRead
+      ? this.#indexedSourceIds(indexed)
+      : this.#availableKnowledgeItemIds
+    const requestedScope = selection ?? this.#sourceScope
+    const available = new Set(availableIds)
+    const selectedIds = requestedScope.knowledgeItemIds.filter((id) => available.has(id))
+    if (selection !== undefined && selectedIds.length !== selection.knowledgeItemIds.length) {
+      throw new Error('Only currently indexed Knowledge sources can be selected')
     }
-    const previousScope = this.#sourceScope
-    if (this.#sourceScope.mode === 'selected' && this.#sourceReadiness === 'ready') {
-      const available = new Set(this.#availableKnowledgeItemIds)
-      this.#sourceScope = {
-        mode: 'selected',
-        knowledgeItemIds: this.#sourceScope.knowledgeItemIds.filter((id) => available.has(id))
-      }
-    }
-    if (sameStrings(previous, effective)) {
-      if (!sameScope(previousScope, this.#sourceScope)) {
-        this.#bumpRevision()
-        await this.#publishSnapshot()
-      }
-      return
-    }
+    const scope: NotebookSourceScope =
+      requestedScope.mode === 'selected' && readiness === 'ready'
+        ? { mode: 'selected', knowledgeItemIds: selectedIds }
+        : requestedScope
+    const scopeChanged = !sameScope(this.#sourceScope, scope)
+    const explicitChange = selection !== undefined && scopeChanged
+    // An unavailable index cannot confirm that a source was removed.
+    let effective = explicitChange ? null : this.#effectiveSourceIds
+    if (readiness === 'ready') effective = scope.mode === 'all' ? availableIds : selectedIds
+    const historyChanged =
+      explicitChange ||
+      (effective !== null &&
+        this.#effectiveSourceIds !== null &&
+        !sameStrings(this.#effectiveSourceIds, effective))
+    const availabilityChanged =
+      readiness !== this.#sourceReadiness ||
+      !sameStrings(this.#availableKnowledgeItemIds, availableIds)
+
+    if (historyChanged) this.#advanceSourceContext()
+    if (currentRead) this.#appliedSourceRead = read
+    this.#sourceReadiness = readiness
+    this.#availableKnowledgeItemIds = availableIds
+    this.#sourceScope = scope
     this.#effectiveSourceIds = effective
-    this.#appendSourceBoundary()
-    this.#bumpRevision()
-    await this.#publishSnapshot()
+    if (explicitChange) this.#lastError = null
+    if (availabilityChanged || scopeChanged || historyChanged) {
+      this.#bumpRevision()
+      await this.#publishSnapshot()
+    }
+    return explicitChange
   }
 
-  async #refreshAvailableSources(): Promise<void> {
-    const controller = new AbortController()
-    const indexed = await this.options.projectIndex.currentIndexedSources(controller.signal)
-    this.#sourceReadiness = indexed.state
-    if (indexed.state !== 'ready') {
-      this.#availableKnowledgeItemIds = []
-      return
-    }
+  #indexedSourceIds(indexed: CurrentIndexedSourceSnapshot): string[] {
+    if (indexed.state !== 'ready') return []
     const existing = new Set(
       this.options
         .listKnowledgeItems()
@@ -409,22 +463,17 @@ export class KnowledgeChatService {
         )
         .map((item) => item.knowledgeItemId)
     )
-    this.#availableKnowledgeItemIds = indexed.sources
+    return indexed.sources
       .map((source) => source.knowledgeItemId)
       .filter((id) => existing.has(id))
       .sort()
   }
 
-  #resolveEffectiveSourceIds(): string[] {
-    if (this.#sourceScope.mode === 'all') return [...this.#availableKnowledgeItemIds]
-    const available = new Set(this.#availableKnowledgeItemIds)
-    return this.#sourceScope.knowledgeItemIds.filter((id) => available.has(id)).sort()
-  }
-
   async #runTurn(
     active: ActiveNotebookTurn,
     question: string,
-    resolved: ResolvedAgentCatalogModel
+    resolved: ResolvedAgentCatalogModel,
+    history: AgentHistoryMessage[]
   ): Promise<void> {
     const startedAt = Date.now()
     const repository = new ModelRequestRepository(
@@ -448,8 +497,9 @@ export class KnowledgeChatService {
           retention: 'metadata_only'
         })
       ).modelRequestId
-      active.authorizedModelRequestIds.add(initialModelRequestId)
       active.pendingModelRequestIds.add(initialModelRequestId)
+      active.controller.signal.throwIfAborted()
+      active.authorizedModelRequestIds.add(initialModelRequestId)
       active.handle = this.options.runtime.beginSessionRun(
         active.config,
         agentCredentialFromResolved(resolved),
@@ -459,13 +509,7 @@ export class KnowledgeChatService {
           agentRunId: active.agentRunId,
           modelRequestId: initialModelRequestId,
           systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
-          history: boundedAgentHistory(
-            this.#messages,
-            this.#assistantHistory,
-            this.#contextEpoch,
-            active.userMessageId,
-            active.assistantMessageId
-          ),
+          history,
           prompt: formatNotebookChatPrompt({ question }),
           maxOutputTokens: Math.min(8_192, resolved.model.maxTokens),
           modelLimits: agentModelLimitsFromResolved(resolved, this.#now()),
@@ -500,10 +544,12 @@ export class KnowledgeChatService {
       )
     } catch (err) {
       if (active.detached) return
-      if (active.controller.signal.aborted || isAbortError(err)) {
+      const reason = active.controller.signal.reason
+      const capacityError = reason instanceof NotebookChatCapacityError ? reason : null
+      if (capacityError === null && (active.controller.signal.aborted || isAbortError(err))) {
         this.#stopAssistant(active)
       } else {
-        const diagnostic = serializeAgentDiagnosticError(err, 'notebook.run', {
+        const diagnostic = serializeAgentDiagnosticError(capacityError ?? err, 'notebook.run', {
           knownSensitiveValues: agentDiagnosticSensitiveValues(
             agentCredentialFromResolved(resolved)
           ),
@@ -523,6 +569,7 @@ export class KnowledgeChatService {
         this.#failAssistant(active, diagnostic.message)
       }
     } finally {
+      await active.toolContinuations.close()
       for (const modelRequestId of active.pendingModelRequestIds) {
         await repository
           .abort(modelRequestId, active.controller.signal.aborted ? 'aborted' : 'runtime_ended')
@@ -538,7 +585,7 @@ export class KnowledgeChatService {
         this.#activeTurn = null
         this.#phase = 'idle'
         this.#bumpRevision()
-        if (!this.#closed) await this.#publishSnapshot()
+        if (!this.#closed) void this.#publishSnapshot()
       }
     }
   }
@@ -608,33 +655,7 @@ export class KnowledgeChatService {
         this.#now,
         this.#createId
       )
-      if (event.outcome === 'succeeded') {
-        await repository.succeed(
-          event.modelRequestId,
-          { metadata: event.metadata, outputItems: 1 },
-          'metadata_only'
-        )
-      } else if (event.outcome === 'aborted') {
-        await repository.abort(event.modelRequestId, 'aborted', event.metadata, 'metadata_only')
-      } else {
-        await repository.fail(
-          event.modelRequestId,
-          {
-            code:
-              event.outcome === 'timed_out'
-                ? 'provider_timeout'
-                : (event.failureCode ?? 'provider_request_failed'),
-            retryable:
-              event.outcome === 'timed_out' ||
-              event.retryable === true ||
-              event.httpStatus === 429 ||
-              (event.httpStatus ?? 0) >= 500,
-            ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus })
-          },
-          event.metadata,
-          'metadata_only'
-        )
-      }
+      await completeModelCall(repository, event, 'notebook')
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
     }
@@ -651,43 +672,42 @@ export class KnowledgeChatService {
     active: ActiveNotebookTurn,
     continuationId: string
   ): Promise<void> {
-    if (active.handle === null) throw new Error('Notebook Agent runtime is unavailable')
+    const handle = active.handle
+    if (handle === null) throw new Error('Notebook Agent runtime is unavailable')
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
       this.#now,
       this.#createId
     )
-    const modelRequestId = (
-      await repository.start({
-        operation: 'agent',
+    await active.toolContinuations.authorize({
+      repository,
+      log: this.options.log,
+      request: {
         provider: active.config,
-        request: { delivery: 'tool_continuation' },
         thinkingLevel: active.thinkingLevel,
-        inputItems: 1,
         operationId: active.operationId,
         agentRunId: active.agentRunId,
         projectSessionId: this.options.projectSessionId,
         retention: 'metadata_only'
-      })
-    ).modelRequestId
-    active.authorizedModelRequestIds.add(modelRequestId)
-    active.pendingModelRequestIds.add(modelRequestId)
-    try {
-      active.handle.authorizeModelCall({
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: this.#agentSessionId,
-        agentRunId: active.agentRunId,
-        continuationId,
-        modelRequestId,
-        systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
-        interactionMode: 'write'
-      })
-    } catch (err) {
-      await repository.abort(modelRequestId, 'authorization_delivery_failed')
-      active.pendingModelRequestIds.delete(modelRequestId)
-      throw err
-    }
+      },
+      continuationId,
+      pendingModelRequestIds: active.pendingModelRequestIds,
+      canSend: () =>
+        this.#activeTurn === active && !active.detached && !active.controller.signal.aborted,
+      send: (modelRequestId) => {
+        handle.authorizeModelCall({
+          projectSessionId: this.options.projectSessionId,
+          agentSessionId: this.#agentSessionId,
+          agentRunId: active.agentRunId,
+          continuationId,
+          modelRequestId,
+          systemPrompt: NOTEBOOK_CHAT_SYSTEM_PROMPT,
+          interactionMode: 'write'
+        })
+        active.authorizedModelRequestIds.add(modelRequestId)
+      }
+    })
   }
 
   async #handleToolRequest(
@@ -836,9 +856,11 @@ export class KnowledgeChatService {
     if (active.detached || this.#activeTurn !== active || active.controller.signal.aborted) return
     const message = this.#assistant(active.assistantMessageId)
     const nextContent = `${message.content}${delta}`
-    if (this.#chatBytes(nextContent.length - message.content.length) > NOTEBOOK_MAX_CHAT_BYTES) {
-      active.controller.abort('notebook_capacity')
-      throw new NotebookChatCapacityError()
+    const additionalBytes = Buffer.byteLength(nextContent) - Buffer.byteLength(message.content)
+    if (!this.#hasChatCapacity(0, additionalBytes)) {
+      const error = new NotebookChatCapacityError()
+      active.controller.abort(error)
+      throw error
     }
     message.content = nextContent
     this.#bumpRevision()
@@ -862,9 +884,8 @@ export class KnowledgeChatService {
   ): void {
     if (active.detached || this.#activeTurn !== active) return
     const message = this.#assistant(active.assistantMessageId)
-    const existingBytes = new TextEncoder().encode(message.content).byteLength
-    const nextBytes = new TextEncoder().encode(content).byteLength
-    if (this.#chatBytes(nextBytes - existingBytes) > NOTEBOOK_MAX_CHAT_BYTES) {
+    const additionalBytes = Buffer.byteLength(content) - Buffer.byteLength(message.content)
+    if (!this.#hasChatCapacity(0, additionalBytes)) {
       throw new NotebookChatCapacityError()
     }
     message.content = content
@@ -888,16 +909,22 @@ export class KnowledgeChatService {
   }
 
   async #cancelActive(reason: string, publishStopping: boolean): Promise<void> {
+    const starting = this.#startingTurn
+    this.#startingTurn = null
+    starting?.abort(createAbortError('Notebook turn was cancelled'))
     const active = this.#activeTurn
     if (active === null) return
     this.#phase = 'stopping'
     this.#bumpRevision()
-    if (publishStopping && !this.#closed) await this.#publishSnapshot()
     active.controller.abort(reason)
+    if (publishStopping && !this.#closed) void this.#publishSnapshot()
+    let timer: ReturnType<typeof setTimeout> | undefined
     const completed = await Promise.race([
       active.completion.then(() => true),
-      new Promise<false>((resolve) => setTimeout(() => resolve(false), STOP_TIMEOUT_MS))
-    ])
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), STOP_TIMEOUT_MS)
+      })
+    ]).finally(() => clearTimeout(timer))
     if (completed) return
     if (this.#activeTurn === active) {
       this.#stopAssistant(active)
@@ -917,15 +944,16 @@ export class KnowledgeChatService {
     )
   }
 
-  #appendSourceBoundary(): void {
+  #advanceSourceContext(): void {
     if (this.#messages.length === 0) return
-    if (this.#messages.length >= NOTEBOOK_MAX_MESSAGES) throw new NotebookChatCapacityError()
     this.#contextEpoch += 1
     this.#assistantHistory.clear()
+    const content = 'Sources changed'
+    if (!this.#hasChatCapacity(1, Buffer.byteLength(content))) return
     this.#messages.push({
       messageId: this.#createId(),
       role: 'source_boundary',
-      content: 'Sources changed',
+      content,
       contextEpoch: this.#contextEpoch,
       createdAt: this.#now().toISOString()
     })
@@ -938,20 +966,15 @@ export class KnowledgeChatService {
   }
 
   #assertCapacityFor(content: string): void {
-    if (this.#messages.length + 2 > NOTEBOOK_MAX_MESSAGES) throw new NotebookChatCapacityError()
-    const additionalBytes = new TextEncoder().encode(content).byteLength
-    if (this.#chatBytes(additionalBytes) > NOTEBOOK_MAX_CHAT_BYTES) {
+    if (!this.#hasChatCapacity(2, Buffer.byteLength(content))) {
       throw new NotebookChatCapacityError()
     }
   }
 
-  #chatBytes(additionalBytes = 0): number {
+  #hasChatCapacity(additionalMessages: number, additionalBytes: number): boolean {
     return (
-      additionalBytes +
-      this.#messages.reduce(
-        (total, message) => total + new TextEncoder().encode(message.content).byteLength,
-        0
-      )
+      this.#messages.length + additionalMessages <= NOTEBOOK_MAX_MESSAGES &&
+      notebookChatTextBytes(this.#messages) + additionalBytes <= NOTEBOOK_MAX_CHAT_BYTES
     )
   }
 
@@ -1002,9 +1025,9 @@ export class KnowledgeChatService {
     })
   }
 
-  async #publishSnapshot(): Promise<void> {
+  #publishSnapshot(): Promise<void> {
     const snapshot = this.#snapshot()
-    await this.#publish(
+    return this.#publish(
       notebookChatEventSchema.parse({
         notebookId: this.notebookId,
         kind: 'snapshot',
@@ -1036,21 +1059,22 @@ export class KnowledgeChatService {
   #assertOpen(): void {
     if (this.#closed) throw new Error('Notebook chat is closed')
   }
+
+  #assertConfigurable(): void {
+    this.#assertOpen()
+    if (this.#startingTurn !== null || this.#activeTurn !== null) {
+      throw new Error('Stop the active Notebook answer first')
+    }
+  }
 }
 
 function boundedAgentHistory(
   messages: NotebookChatMessage[],
   assistantHistory: ReadonlyMap<string, AgentAssistantMessagePayload>,
-  contextEpoch: number,
-  activeUserMessageId: string,
-  activeAssistantMessageId: string
+  contextEpoch: number
 ): AgentHistoryMessage[] {
   const eligible = messages.filter(
-    (message) =>
-      message.contextEpoch === contextEpoch &&
-      message.messageId !== activeUserMessageId &&
-      message.messageId !== activeAssistantMessageId &&
-      message.role !== 'source_boundary'
+    (message) => message.contextEpoch === contextEpoch && message.role !== 'source_boundary'
   )
   const pairs: AgentHistoryMessage[][] = []
   for (let index = 0; index < eligible.length - 1; index += 1) {

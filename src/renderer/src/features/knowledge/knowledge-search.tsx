@@ -215,7 +215,7 @@ export function KnowledgeSearch(props: {
               </p>
             ) : null}
             {debug ? (
-              <pre className='ml-6 overflow-x-auto rounded-md bg-muted p-2 text-[11px]'>
+              <pre className='ml-6 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs'>
                 {JSON.stringify({ score: hit.score, ...hit.debug }, null, 2)}
               </pre>
             ) : null}

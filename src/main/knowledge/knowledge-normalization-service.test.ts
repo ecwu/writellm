@@ -14,12 +14,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { normalizedKnowledgeBlockSchema } from '../../shared/contracts/knowledge'
 import { mineruRawManifestSchema } from '../../shared/contracts/mineru'
 import { initializeProjectDatabase } from '../project/project-database'
+import { ProjectFilesystem } from '../project/project-filesystem'
 import type { ProjectManifest } from '../project/project-manifest'
-import { JobStore } from '../jobs/job-store'
 import { runKnowledgeNormalizer } from '../../workers/knowledge-normalizer'
 import type { MineruGateway } from './mineru-gateway'
 import { KnowledgeNormalizationService } from './knowledge-normalization-service'
@@ -115,8 +115,68 @@ describe('KnowledgeNormalizationService', () => {
     expect(blockLines[2]?.assetRefs[0]).toMatch(/^images\/[a-f0-9]{64}\.png$/)
     expect(blockLines.every((block, index) => block.ordinal === index)).toBe(true)
     expect(new Set(blockLines.map((block) => block.id)).size).toBe(blockLines.length)
-    expect(fixture.jobs.list({ limit: 10 }).some((job) => job.type === 'rebuild_index')).toBe(true)
+    expect(fixture.requestIndexRefresh).toHaveBeenCalledOnce()
     fixture.database.close()
+  })
+
+  it('rejects a hash-matching raw manifest for a different Knowledge item', async () => {
+    const fixture = await createFixture()
+    try {
+      await publishRaw(fixture, { contentList: Buffer.from('[]') })
+      const manifestPath = join(
+        fixture.projectRoot,
+        'knowledge',
+        'parsed',
+        knowledgeItemId,
+        parseRevisionId,
+        'manifest.json'
+      )
+      const manifest = mineruRawManifestSchema.parse(
+        JSON.parse(await readFile(manifestPath, 'utf8'))
+      )
+      const mismatched = Buffer.from(JSON.stringify({ ...manifest, knowledgeItemId: parseTaskId }))
+      await writeFile(manifestPath, mismatched)
+      fixture.database.immediate((database) => {
+        database
+          .prepare('UPDATE parse_revisions SET manifest_sha256 = ? WHERE parse_revision_id = ?')
+          .run(hash(mismatched), parseRevisionId)
+      })
+
+      const service = new KnowledgeNormalizationService({ ...fixture, log })
+      await expect(
+        service.normalize(parseRevisionId, new AbortController().signal)
+      ).rejects.toThrow('Raw parse manifest provenance does not match the revision')
+      expect(
+        await fixture.database.kysely.selectFrom('normalization_runs').selectAll().execute()
+      ).toEqual([])
+    } finally {
+      fixture.database.close()
+    }
+  })
+
+  it('requires a recorded hash to read a published normalized manifest', async () => {
+    const fixture = await createFixture()
+    try {
+      await publishRaw(fixture, {
+        contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Seed' }]))
+      })
+      const service = new KnowledgeNormalizationService({ ...fixture, log })
+      const runId = await service.normalize(parseRevisionId, new AbortController().signal)
+      await fixture.database.kysely
+        .updateTable('normalization_runs')
+        .set({ manifest_sha256: null })
+        .where('normalization_run_id', '=', runId)
+        .execute()
+
+      await expect(service.metadata(knowledgeItemId)).rejects.toThrow(
+        'Published normalized manifest hash is missing'
+      )
+      await expect(
+        service.asset(knowledgeItemId, parseRevisionId, 'images/figure.png')
+      ).rejects.toThrow('Published normalized manifest hash is missing')
+    } finally {
+      fixture.database.close()
+    }
   })
 
   it('re-normalizes the same raw revision with a new version without re-upload', async () => {
@@ -163,6 +223,65 @@ describe('KnowledgeNormalizationService', () => {
     )
     expect(active).toBe(2)
     fixture.database.close()
+  })
+
+  it('loads assets from the active run or the latest published version of a historical revision', async () => {
+    const fixture = await createFixture()
+    const image = tinyPng()
+    try {
+      await publishRaw(fixture, {
+        contentList: Buffer.from(
+          JSON.stringify([{ type: 'image', img_path: 'images/figure.png' }])
+        ),
+        image
+      })
+      const filesystem = new ProjectFilesystem(fixture.projectRoot)
+      const first = new KnowledgeNormalizationService({ ...fixture, log, filesystem })
+      const second = new KnowledgeNormalizationService({
+        ...fixture,
+        log,
+        normalizerVersion: 2
+      })
+      const signal = new AbortController().signal
+      const firstId = await first.normalize(parseRevisionId, signal)
+      const secondId = await second.normalize(parseRevisionId, signal)
+      // Retrying the first version selects it again for the same parse revision.
+      await first.normalize(parseRevisionId, signal)
+      const runs = await fixture.database.kysely
+        .selectFrom('normalization_runs')
+        .select(['normalization_run_id', 'relative_path'])
+        .execute()
+      const paths = new Map(runs.map((run) => [run.normalization_run_id, run.relative_path]))
+      const readPath = vi.spyOn(filesystem, 'assertExistingRegularFile')
+      await expect(
+        first.asset(knowledgeItemId, parseRevisionId, 'images/figure.png')
+      ).resolves.toEqual({
+        mimeType: 'image/png',
+        dataBase64: image.toString('base64')
+      })
+      expect(readPath).toHaveBeenCalledWith(`${paths.get(firstId)}/manifest.json`)
+
+      const nextTask = '66666666-6666-4666-8666-666666666666'
+      const nextRevision = '77777777-7777-4777-8777-777777777777'
+      await publishRaw(
+        fixture,
+        { contentList: Buffer.from(JSON.stringify([{ type: 'text', text: 'Next revision' }])) },
+        nextTask,
+        nextRevision,
+        2
+      )
+      await first.normalize(nextRevision, signal)
+      readPath.mockClear()
+      await expect(
+        first.asset(knowledgeItemId, parseRevisionId, 'images/figure.png')
+      ).resolves.toEqual({
+        mimeType: 'image/png',
+        dataBase64: image.toString('base64')
+      })
+      expect(readPath).toHaveBeenCalledWith(`${paths.get(secondId)}/manifest.json`)
+    } finally {
+      fixture.database.close()
+    }
   })
 
   it('rejects escaped or missing assets and leaves the prior active revision unchanged', async () => {
@@ -604,7 +723,7 @@ describe('KnowledgeNormalizationService', () => {
     await utimes(blocksPath, before.atime, before.mtime)
 
     await expect(service.metadata(knowledgeItemId)).rejects.toThrow(
-      'Active normalized document hash or block count does not match'
+      'Normalized blocks hash does not match'
     )
     fixture.database.close()
   })
@@ -656,8 +775,14 @@ async function createFixture(
       )
       .run(knowledgeItemId, `source.${source.extension}`, `source.${source.extension}`, now, now)
   })
-  const jobs = new JobStore({ database, projectId: manifest.projectId, log })
-  return { root, projectRoot, projectId: manifest.projectId, database, jobs, normalizeInUtility }
+  return {
+    root,
+    projectRoot,
+    projectId: manifest.projectId,
+    database,
+    requestIndexRefresh: vi.fn(),
+    normalizeInUtility
+  }
 }
 
 async function publishRaw(

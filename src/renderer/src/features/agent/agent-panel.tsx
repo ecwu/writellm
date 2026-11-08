@@ -34,7 +34,6 @@ export interface AgentPanelProps {
   onQuickActionHandled?(requestId: string, started: boolean): void
   onFollowSection(sectionId: string): Promise<boolean>
   flushCurrent(): Promise<boolean>
-  refreshManuscript(): Promise<void>
   onError(message: string): void
 }
 

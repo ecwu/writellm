@@ -15,7 +15,7 @@ import {
   type KnowledgeSearchResult
 } from '../../shared/contracts/search'
 import type { IndexClient } from './index-client'
-import { embeddingContractSha256 } from './index-service'
+import { embeddingContractSha256 } from './embedding-contract'
 
 interface RankedCandidate {
   candidate: IndexCandidate
@@ -57,34 +57,41 @@ export class RetrievalService {
     options: { ftsMode?: 'phrase' | 'terms' } = {}
   ): Promise<KnowledgeSearchResult> {
     const input = knowledgeSearchInputSchema.parse(rawInput)
-    if (signal.aborted) throw createAbortError('Retrieval operation aborted')
     const operationId = randomUUID()
-    const state = await this.options.client.retrievalState(signal)
-    if (state.activeIndexGenerationId === null) {
-      return knowledgeSearchResultSchema.parse({ mode: 'none', rerankStatus: 'disabled', hits: [] })
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const result = await this.#searchGeneration(input, signal, operationId, options.ftsMode)
+      if (result !== null) return result
     }
+    return emptySearchResult()
+  }
 
-    const ftsRaw = await this.options.client.ftsCandidates(
+  async #searchGeneration(
+    input: KnowledgeSearchInput,
+    signal: AbortSignal,
+    operationId: string,
+    ftsMode: 'phrase' | 'terms' | undefined
+  ): Promise<KnowledgeSearchResult | null> {
+    if (signal.aborted) throw createAbortError('Retrieval operation aborted')
+    const { activeIndexGenerationId, activeEmbeddingContract } =
+      await this.options.client.retrievalState(signal)
+    if (activeIndexGenerationId === null) return emptySearchResult()
+
+    const ftsHydrated = await this.options.client.ftsCandidates(
+      activeIndexGenerationId,
       input.query,
       input.limits.fts,
       input.filters,
       signal,
-      options.ftsMode
+      ftsMode
     )
-    const ftsHydrated = await this.options.client.hydrateCandidates(
-      ftsRaw.map((candidate) => candidate.chunkId),
-      input.filters,
-      signal
-    )
-    const ftsAllowed = new Set(ftsHydrated.map((candidate) => candidate.chunkId))
-    const ftsIds = ftsRaw
-      .map((candidate) => candidate.chunkId)
-      .filter((chunkId) => ftsAllowed.has(chunkId))
+    if (ftsHydrated === null) return null
+    const ftsIds = ftsHydrated.map((candidate) => candidate.chunkId)
 
     let vectorHydrated: IndexCandidate[] = []
     let vectorIds: string[] = []
     let vectorAvailable = false
-    const embeddingContract = state.activeEmbeddingContract
+    let recheckGeneration = false
+    const embeddingContract = activeEmbeddingContract
     if (embeddingContract !== null) {
       try {
         const configured = await this.options.getEmbeddingProvider()
@@ -100,25 +107,21 @@ export class RetrievalService {
         if (vector.length !== embeddingContract.dimension) {
           throw new Error('Query embedding dimension is incompatible with the active index')
         }
-        const vectorRaw = await this.options.client.queryVectors(
+        const candidates = await this.options.client.queryVectors(
+          activeIndexGenerationId,
           embeddingContract.embeddingGenerationId,
           vector,
           input.limits.vector,
           input.filters,
           signal
         )
-        vectorHydrated = await this.options.client.hydrateCandidates(
-          vectorRaw.map((candidate) => candidate.chunkId),
-          input.filters,
-          signal
-        )
-        const vectorAllowed = new Set(vectorHydrated.map((candidate) => candidate.chunkId))
-        vectorIds = vectorRaw
-          .map((candidate) => candidate.chunkId)
-          .filter((chunkId) => vectorAllowed.has(chunkId))
+        if (candidates === null) return null
+        vectorHydrated = candidates
+        vectorIds = candidates.map((candidate) => candidate.chunkId)
         vectorAvailable = true
       } catch (err) {
         if (signal.aborted || isAbortError(err)) throw err
+        recheckGeneration = true
         this.options.log.warn(
           {
             event: 'retrieval.vector_unavailable',
@@ -158,6 +161,7 @@ export class RetrievalService {
         : 'not-configured'
       : 'disabled'
     if (input.rerank && ranked.length > 0) {
+      recheckGeneration = true
       try {
         const rerankProvider = await this.options.getRerankProvider()
         if (rerankProvider.role !== 'rerank') throw new Error('Rerank provider role is invalid')
@@ -187,6 +191,10 @@ export class RetrievalService {
       }
     }
 
+    if (recheckGeneration) {
+      const current = await this.options.client.retrievalState(signal)
+      if (current.activeIndexGenerationId !== activeIndexGenerationId) return null
+    }
     const hits = ranked.slice(0, input.limits.results).map(toSearchHit)
     const result = knowledgeSearchResultSchema.parse({
       mode: vectorAvailable ? 'hybrid' : 'fts',
@@ -235,6 +243,10 @@ export class RetrievalService {
       })
     )
   }
+}
+
+function emptySearchResult(): KnowledgeSearchResult {
+  return knowledgeSearchResultSchema.parse({ mode: 'none', rerankStatus: 'disabled', hits: [] })
 }
 
 export function reciprocalRankFusion(

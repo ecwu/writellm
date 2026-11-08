@@ -472,6 +472,15 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
   const initialVisibility = useRef<{ agent: boolean; outline: boolean } | null>(null)
   const current = useRef(props)
   current.current = props
+  // Controls stay valid while their Dockview instance is mounted. A panel change republishes
+  // controls, and a menu command may still reach the previous object before consumers re-render.
+  const mountedApi = useRef<DockviewApi | null>(null)
+  useEffect(() => {
+    mountedApi.current = api
+    return () => {
+      if (mountedApi.current === api) mountedApi.current = null
+    }
+  }, [api])
   const ready = ({ api: dock }: DockviewReadyEvent): void => {
     const layout = current.current.controller.initialLayout?.tools
     try {
@@ -610,8 +619,27 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
   resetRef.current = reset
   useEffect(() => {
     if (!api) return
-    let live = true
+    const live = () => mountedApi.current === api
     const tabs = props.controller.tabs
+    const setTool = (tool: WorkbenchTool, open: boolean) => {
+      if (!live()) return
+      if (tool === 'agent') current.current.onAgentOpenChange(open)
+      if (tool === 'outline') setOutlineOpen(open)
+      if (open) addTool(api, tool)
+      else {
+        removeTool(api, tool)
+        if (tool === 'find') current.current.sidebar.props.onCloseFind()
+      }
+    }
+    const setPage = (kind: LayoutPage, open: boolean) => {
+      if (!live()) return
+      const workbench = current.current.controller
+      if (open) void workbench.open({ kind })
+      else {
+        const tab = workbench.tabs.find((item) => item.kind === kind)
+        if (tab) void workbench.close(tab)
+      }
+    }
     const controls: LayoutControls = {
       projectSessionId: current.current.projectSessionId,
       tools: panelIds.split('|').filter((id) => id && id !== 'content') as WorkbenchTool[],
@@ -619,35 +647,23 @@ export function DockingWorkbench(props: Props): React.JSX.Element {
         tab.kind !== 'section' && tab.kind !== 'notebook' ? [tab.kind as LayoutPage] : []
       ),
       canCreateNotebook: tabs.filter((tab) => tab.kind === 'notebook').length < 10,
-      setTool(tool, open) {
-        if (!live) return
-        if (tool === 'agent') current.current.onAgentOpenChange(open)
-        if (tool === 'outline') setOutlineOpen(open)
-        if (open) addTool(api, tool)
-        else {
-          removeTool(api, tool)
-          if (tool === 'find') current.current.sidebar.props.onCloseFind()
-        }
+      setTool,
+      setPage,
+      toggleTool(tool) {
+        setTool(tool, api.getPanel(tool) === undefined)
       },
-      setPage(kind, open) {
-        if (!live) return
-        const workbench = current.current.controller
-        if (open) void workbench.open({ kind })
-        else {
-          const tab = workbench.tabs.find((item) => item.kind === kind)
-          if (tab) void workbench.close(tab)
-        }
+      togglePage(kind) {
+        setPage(kind, !current.current.controller.tabs.some((tab) => tab.kind === kind))
       },
       newNotebook() {
-        if (live) void current.current.controller.newNotebook()
+        if (live()) void current.current.controller.newNotebook()
       },
       reset() {
-        if (live) resetRef.current()
+        if (live()) resetRef.current()
       }
     }
     setControls(controls)
     return () => {
-      live = false
       setControls((previous) => (previous === controls ? null : previous))
     }
   }, [api, panelIds, props.controller.tabs, setControls, setOutlineOpen])

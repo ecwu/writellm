@@ -255,3 +255,83 @@ No database migration, content schema, provider capability, or process authority
 
 Acceptance requires frozen installation, both dependency audits, the complete Electron-hosted suite, and the full package gate.
 This host establishes macOS arm64 acceptance only.
+
+## 2026-11-07 Pi 1.5, Electron 45, Vite 8, and KaTeX 0.18 amendment
+
+The user approves updating Pi to 1.5 with the compatible dependencies, and then the coupled migrations this ADR had deferred.
+This replaces the earlier deferral of Electron 45, Vite 8 with plugin-react 6 and electron-vite 6, p-queue 10, BlockNote 0.56 and later, Mermaid 12.2 and later, and Biome 2.6.
+It also replaces the earlier rule that Mermaid stays on 12.1 and KaTeX on 0.16.
+
+### Pi 1.5
+
+Pi Agent Core and Pi AI advance together from 1.3.0 to 1.5.0, and `AGENT_RUNTIME_VERSION` follows them.
+New sessions record runtime version 1.5.0. Existing sessions keep their recorded value, which is informational only.
+WriteLLM uses none of the removed or renamed Pi APIs:
+
+- 1.4 renames `telemetryContext`, removes `getPiUserAgent()`, and changes `resolveTranscriptTools()`.
+- 1.5 drops Pi's TypeBox dependency and re-exports. WriteLLM imports TypeBox directly, and its tool parameters are Zod-generated JSON Schema, which Pi 1.5 accepts.
+
+Pi 1.5 validates tool arguments with `@earendil-works/pi-schema`, whose coercion is a superset of TypeBox `Value.Convert`.
+Main's Zod contract parse still authorizes every dispatched argument, so the looser coercion grants no new authority.
+WriteLLM's preflight diagnostic, which explains arguments Pi rejected, keeps TypeBox `Value.Convert` and `Value.Errors`.
+Where pi-schema rejects an argument that TypeBox accepts, the diagnostic falls back to its generic blocked-before-dispatch message.
+TypeBox advances to 1.4 because Pi no longer pins its own copy.
+
+### Electron 45 and asynchronous credential storage
+
+Electron advances to 45.2.3. It bundles Node 24.22, so the Node 24 engine and `@types/node` 24 remain correct.
+The module ABI moves from 149 to 150. better-sqlite3 13 loads its Node-API 10 prebuild, and sqlite-vec loads unchanged.
+The sandboxed preload uses none of the removed `Buffer`, `events`, `timers`, or `url` globals. Native modules remain unpacked from ASAR.
+Chromium 156 reports a `script-src 'self'` violation when markup with an inline event handler is parsed, even in an inert `DOMParser` or template document.
+The Mermaid scenario injects an `onerror` label on purpose. It now opts in to accept exactly that blocked report and still requires that no event attribute reaches the live document.
+
+Electron 45 deprecates the synchronous `safeStorage` methods, and Electron 46 removes them.
+`CredentialService` now uses `isAsyncEncryptionAvailable`, `encryptStringAsync`, and `decryptStringAsync`.
+Existing ciphertext remains readable: Electron documents that the asynchronous methods decrypt values from `encryptString`.
+Encryption runs before the provider save transaction, so no transaction waits on the operating-system key store.
+When Electron reports `shouldReEncrypt`, the service re-encrypts the value under the current key.
+The update replaces only the ciphertext that was read, so it never overwrites a credential saved concurrently.
+A failed re-encryption is logged and leaves the previous ciphertext valid.
+
+### Build chain
+
+electron-vite advances to 6, Vite to 8, and plugin-react to 6. Vite 8 bundles with Rolldown.
+The output keeps the same entry points and CommonJS main bundle. Rolldown splits main into more chunks.
+Rolldown inlines Citation.js's whole `package.json`, so the network-boundary test now asserts that no module code loads `sync-fetch-undici` and that the denial stub is bundled.
+The boundary itself is unchanged.
+
+### KaTeX 0.18, BlockNote 0.57, and Mermaid 12.3
+
+BlockNote math requires KaTeX ^0.18.9 and Mermaid 12.2 and later require ^0.18.
+KaTeX 0.18 prefixes its internal CSS classes, so the app must not load two KaTeX versions with one stylesheet.
+`rehype-katex` 7.0.1, its latest release, still declares ^0.16. An exact `katex` override therefore keeps every consumer on 0.18.10.
+`rehype-katex` calls only `renderToString`, which 0.18 keeps. KaTeX 0.18.10 also repairs the prototype-pollution advisory.
+KaTeX 0.18.11 is deprecated upstream as an accidental breaking release, and 0.19 is outside the BlockNote and Mermaid ranges.
+
+The sanitizer runs before KaTeX, so it holds no KaTeX class allowlist. `katex-display` and `katex-error` are unchanged.
+The PDF export hash snapshots change only by the documented class renames; the markup structure is identical.
+
+BlockNote advances to 0.57. The popover patch moves to the 0.57 source and distribution files and keeps 0.57's new `getClientRects` fallback.
+The math block imports `@blocknote/math-block/style.css`. The diagram block replaces the deprecated `hardBreakShortcut` with `experimental_keyboard: { enter: 'line-break' }`.
+
+### Other updates and repairs
+
+- Biome advances to 2.6. Its new Markdown and YAML formatters stay disabled, so formatting scope is unchanged.
+  A Main IPC helper named `describe` is renamed, because the new Playwright describe rule matched it.
+- Playwright advances to 1.65. Its Linux password-store patch moves unchanged to the new line.
+- p-queue advances to 10. WriteLLM uses none of its changed events, `.clear()`, or option validation.
+- `@google/genai` advances to 3 and uses the SDK's default API version, `v1`. The URL assertions follow it.
+- AI SDK, OpenAI, TanStack Query, Dockview, DOCX, fast-xml-parser, PDF.js, isomorphic-git, Kysely, ProseMirror View, Lucide, React Resizable Panels, Tailwind CSS, Vitest, and electron-builder advance within their majors.
+- The undici overrides move to 6.29.1 and 7.30.2, DOMPurify to 3.4.17, and fast-uri to 3.1.9, repairing their advisories.
+
+Each selected version is at least one day old under the release-age policy, so no new exception is required.
+
+### Remaining limits
+
+- KaTeX 0.19 waits for BlockNote math and Mermaid to accept it.
+- `@types/node` 26 waits for an Electron release on Node 26.
+- The full audit retains one moderate minimatch advisory inside electron-builder's `@electron/universal`. Its repair requires minimatch 11, a major version that electron-builder does not declare, so it stays unresolved build-time tooling.
+
+No database migration, content schema, provider capability, or process authority changes.
+Acceptance requires frozen installation, both dependency audits, the complete Electron-hosted suite, and the full package gate.
+This host establishes macOS arm64 acceptance only.

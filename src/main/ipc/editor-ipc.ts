@@ -16,6 +16,8 @@ import {
   editorSectionSchema,
   ManuscriptDomainError,
   saveSectionDocumentResponseSchema,
+  type EditorFlushRequest,
+  type Section,
   type saveSectionDocumentResultSchema
 } from '../../shared/contracts/manuscript'
 import type { ProjectContext } from '../project/project-context'
@@ -23,7 +25,6 @@ import {
   ProjectSessionError,
   type ProjectManager,
   type ProjectCloseParticipants,
-  type ProjectFinalFlushAuthorization,
   type ProjectSnapshotParticipants
 } from '../project/project-manager'
 import { resolveProjectPath } from '../project/project-paths'
@@ -38,12 +39,18 @@ export interface EditorIpcMain extends Pick<IpcMain, 'handle' | 'removeHandler'>
 
 interface PendingFlush {
   senderId: number
-  authorization: ProjectFinalFlushAuthorization
+  request: EditorFlushRequest
   resolve: () => void
   reject: (error: Error) => void
   acknowledgedSectionId: string | null
   acknowledgedRevision: string | null
 }
+
+type SectionFlushRequest = EditorFlushRequest & { sectionId: string; sectionRevisionId: string }
+type EditorCloseParticipants = Pick<
+  ProjectCloseParticipants,
+  'getCurrentRevision' | 'flushEditors' | 'verifyFinalEditorFlush'
+>
 
 export function registerEditorIpc(options: {
   manager: ProjectManager
@@ -66,7 +73,7 @@ export function registerEditorIpc(options: {
   }) => Promise<LatexImportWorkerResult>
 }): {
   authorizeLayoutFlush(projectSessionId: string, closingToken: string, senderId: number): string
-  closeParticipants: ProjectCloseParticipants
+  closeParticipants: EditorCloseParticipants
   snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'>
   flushForMutation(
     projectSessionId: string,
@@ -90,18 +97,80 @@ export function registerEditorIpc(options: {
     parseLatex: options.parseLatex
   })
 
-  handle(editorIpcEndpoints.open, (parsed, context) => {
-    const result = context.editorPersistence.openEditor()
-    if (result.activeSection !== null) {
-      activeSections.set(parsed.projectSessionId, result.activeSection.section.sectionId)
+  function findFlushSubscriber(projectSessionId: string): WebContents | undefined {
+    return Array.from(subscribers.get(projectSessionId)?.values() ?? []).find(
+      (candidate) => !candidate.isDestroyed()
+    )
+  }
+
+  function authorizedFlush(
+    input: Pick<EditorFlushRequest, 'projectSessionId' | 'closingToken' | 'purpose'>,
+    senderId: number
+  ): PendingFlush | undefined {
+    const flush = pending.get(input.closingToken)
+    return flush?.senderId === senderId &&
+      flush.request.projectSessionId === input.projectSessionId &&
+      (flush.request.purpose ?? 'close') === (input.purpose ?? 'close')
+      ? flush
+      : undefined
+  }
+
+  function requestFlush(sender: WebContents, request: SectionFlushRequest): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      pending.set(request.closingToken, {
+        senderId: sender.id,
+        request,
+        resolve,
+        reject,
+        acknowledgedSectionId: null,
+        acknowledgedRevision: null
+      })
+      sender.send(IPC_CHANNELS.editorFlushRequest, editorFlushRequestSchema.parse(request))
+    })
+  }
+
+  async function flushWithTimeout(
+    context: ProjectContext,
+    sender: WebContents,
+    request: SectionFlushRequest
+  ): Promise<void> {
+    const { projectSessionId, closingToken, sectionId, purpose } = request
+    const mutation = purpose === 'mutation'
+    const label = mutation ? 'Manuscript mutation editor flush' : 'Snapshot editor flush'
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error(`${label} timed out`)
+          options.logger.error(
+            {
+              event: mutation ? 'editor.mutation_barrier.timeout' : 'editor.snapshot_flush.timeout',
+              err,
+              projectSessionId,
+              ...(mutation ? {} : { closingToken }),
+              timeoutMs: snapshotFlushTimeoutMs
+            },
+            err.message
+          )
+          reject(err)
+        }, snapshotFlushTimeoutMs)
+      })
+      await Promise.race([requestFlush(sender, request), timeout])
+      verifyFlush(
+        pending.get(closingToken),
+        sectionId,
+        context.manuscript.getSection(sectionId).currentRevisionId,
+        label
+      )
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      pending.delete(closingToken)
     }
-    return result
-  })
-  handle(editorIpcEndpoints.loadSection, (parsed, context) => {
-    const result = context.editorPersistence.loadSection(parsed.sectionId)
-    activeSections.set(parsed.projectSessionId, result.section.sectionId)
-    return result
-  })
+  }
+
+  handle(editorIpcEndpoints.loadSection, (parsed, context) =>
+    context.editorPersistence.loadSection(parsed.sectionId)
+  )
   handle(editorIpcEndpoints.setActiveSection, (parsed, context) => {
     context.manuscript.getSection(parsed.sectionId)
     activeSections.set(parsed.projectSessionId, parsed.sectionId)
@@ -172,23 +241,23 @@ export function registerEditorIpc(options: {
   handle(
     editorIpcEndpoints.exportMarkdown,
     async (parsed, context) => {
-      const current = context.editorPersistence.loadSection(parsed.sectionId).revision
+      const manuscript = context.manuscript.assemble()
+      const current = manuscript.sections.find(
+        ({ section }) => section.sectionId === parsed.sectionId
+      )?.revision
       if (
+        current === undefined ||
         current.sectionRevisionId !== parsed.sectionRevisionId ||
         current.contentHash !== parsed.contentHash
       ) {
         throw new Error('Markdown export source revision is stale')
       }
       const relativePath = `manuscript/exports/${encodeURIComponent(parsed.sectionId)}-${parsed.sectionRevisionId}.md`
-      const converted = manuscriptSectionToMarkdown(
-        context.manuscript.assemble(),
-        parsed.sectionId,
-        (logicalUrl) => {
-          const match = /^writellm-asset:([0-9a-f-]+)$/iu.exec(logicalUrl)
-          if (match?.[1] === undefined) throw new Error('Markdown asset reference is invalid')
-          return context.manuscriptAssets.markdownReference(match[1])
-        }
-      )
+      const converted = manuscriptSectionToMarkdown(manuscript, parsed.sectionId, (logicalUrl) => {
+        const match = /^writellm-asset:([0-9a-f-]+)$/iu.exec(logicalUrl)
+        if (match?.[1] === undefined) throw new Error('Markdown asset reference is invalid')
+        return context.manuscriptAssets.markdownReference(match[1])
+      })
       await writeAtomicFile(
         resolveProjectPath(context.projectRoot, relativePath),
         Buffer.from(converted.markdown)
@@ -265,8 +334,7 @@ export function registerEditorIpc(options: {
     }
   })
   handle(editorIpcEndpoints.finalFlushSave, async (parsed, _context, event) => {
-    const currentPending = pending.get(parsed.closingToken)
-    if (currentPending?.senderId !== event.sender.id)
+    if (authorizedFlush(parsed, event.sender.id) === undefined)
       throw new Error('Final editor flush sender is not authorized')
     const context =
       parsed.purpose === 'mutation'
@@ -277,11 +345,9 @@ export function registerEditorIpc(options: {
     return saveWithConflictResult(() => context.editorPersistence.save(parsed))
   })
   handle(editorIpcEndpoints.acknowledgeFlush, (parsed, _context, event) => {
-    const currentPending = pending.get(parsed.closingToken)
+    const currentPending = authorizedFlush(parsed, event.sender.id)
     if (
       currentPending === undefined ||
-      currentPending.senderId !== event.sender.id ||
-      currentPending.authorization.projectSessionId !== parsed.projectSessionId ||
       currentPending.acknowledgedSectionId !== null ||
       currentPending.acknowledgedRevision !== null
     )
@@ -291,143 +357,59 @@ export function registerEditorIpc(options: {
     currentPending.resolve()
   })
 
-  const closeParticipants: ProjectCloseParticipants = {
-    getCurrentRevision: async (context) => activeRevision(context, activeSections),
+  const closeParticipants: EditorCloseParticipants = {
+    getCurrentRevision: async (context) =>
+      resolveActiveSection(context, activeSections)?.currentRevisionId ?? null,
     flushEditors: async (context, authorization) => {
-      const activeSectionId = resolveActiveSection(context, activeSections)
-      const currentRevision =
-        activeSectionId === undefined
-          ? undefined
-          : context.manuscript.getSection(activeSectionId).currentRevisionId
-      if (activeSectionId === undefined || currentRevision === undefined) return
-      const sender = Array.from(subscribers.get(context.projectSessionId)?.values() ?? []).find(
-        (candidate) => !candidate.isDestroyed()
-      )
+      const section = resolveActiveSection(context, activeSections)
+      if (section === undefined) return
+      const sender = findFlushSubscriber(context.projectSessionId)
       if (sender === undefined) {
         if (activeSections.has(context.projectSessionId)) {
           throw new Error('Active editor final-flush subscriber is unavailable')
         }
         return
       }
-      await new Promise<void>((resolve, reject) => {
-        pending.set(authorization.closingToken, {
-          senderId: sender.id,
-          authorization,
-          resolve,
-          reject,
-          acknowledgedSectionId: null,
-          acknowledgedRevision: null
-        })
-        sender.send(
-          IPC_CHANNELS.editorFlushRequest,
-          editorFlushRequestSchema.parse({
-            projectSessionId: context.projectSessionId,
-            closingToken: authorization.closingToken,
-            sectionId: activeSectionId,
-            sectionRevisionId: currentRevision
-          })
-        )
+      await requestFlush(sender, {
+        projectSessionId: context.projectSessionId,
+        closingToken: authorization.closingToken,
+        sectionId: section.sectionId,
+        sectionRevisionId: section.currentRevisionId,
+        bodyRequired: true
       })
     },
     verifyFinalEditorFlush: async (context, authorization) => {
       const request = pending.get(authorization.closingToken)
       pending.delete(authorization.closingToken)
       if (request === undefined) return
-      const activeSectionId = resolveActiveSection(context, activeSections)
-      const currentRevision =
-        activeSectionId === undefined
-          ? null
-          : context.manuscript.getSection(activeSectionId).currentRevisionId
-      if (
-        request.acknowledgedSectionId !== (activeSectionId ?? null) ||
-        request.acknowledgedRevision !== currentRevision
-      ) {
-        throw new Error('Final editor flush revision was not acknowledged')
-      }
-    },
-    stopJobClaims: async () => undefined,
-    parkWorkers: async () => undefined,
-    stopWorkersAndIndex: async () => undefined,
-    revokeSubscriptions: async (sessionId) => {
-      subscribers.delete(sessionId)
-      activeSections.delete(sessionId)
-      importService.revokeSession(sessionId)
+      const section = resolveActiveSection(context, activeSections)
+      verifyFlush(
+        request,
+        section?.sectionId ?? null,
+        section?.currentRevisionId ?? null,
+        'Final editor flush'
+      )
     }
   }
 
   const snapshotParticipants: Pick<ProjectSnapshotParticipants, 'finalEditorFlush'> = {
     finalEditorFlush: async (context, purpose = 'snapshot') => {
-      const authorization = options.manager.beginSnapshotFlush(context.projectSessionId)
-      const activeSectionId = resolveActiveSection(context, activeSections)
-      const currentRevision =
-        activeSectionId === undefined
-          ? undefined
-          : context.manuscript.getSection(activeSectionId).currentRevisionId
-      const sender = Array.from(subscribers.get(context.projectSessionId)?.values() ?? []).find(
-        (candidate) => !candidate.isDestroyed()
-      )
-      if (activeSectionId === undefined || currentRevision === undefined || sender === undefined) {
-        options.manager.completeSnapshotFlush(authorization.closingToken)
-        return
-      }
+      const { projectSessionId } = context
+      const { closingToken } = options.manager.beginSnapshotFlush(projectSessionId)
       try {
-        let timer: ReturnType<typeof setTimeout> | undefined
-        try {
-          await new Promise<void>((resolve, reject) => {
-            pending.set(authorization.closingToken, {
-              senderId: sender.id,
-              authorization: { ...authorization, currentRevision },
-              resolve,
-              reject,
-              acknowledgedSectionId: null,
-              acknowledgedRevision: null
-            })
-            timer = setTimeout(() => {
-              pending.delete(authorization.closingToken)
-              const err = new Error('Snapshot editor flush timed out')
-              options.logger.error(
-                {
-                  event: 'editor.snapshot_flush.timeout',
-                  err,
-                  projectSessionId: context.projectSessionId,
-                  closingToken: authorization.closingToken,
-                  timeoutMs: snapshotFlushTimeoutMs
-                },
-                'Snapshot editor flush timed out'
-              )
-              reject(err)
-            }, snapshotFlushTimeoutMs)
-            try {
-              sender.send(
-                IPC_CHANNELS.editorFlushRequest,
-                editorFlushRequestSchema.parse({
-                  projectSessionId: context.projectSessionId,
-                  closingToken: authorization.closingToken,
-                  purpose,
-                  sectionId: activeSectionId,
-                  sectionRevisionId: currentRevision
-                })
-              )
-            } catch (err) {
-              pending.delete(authorization.closingToken)
-              reject(err)
-            }
-          })
-        } finally {
-          if (timer !== undefined) clearTimeout(timer)
-        }
-        const request = pending.get(authorization.closingToken)
-        pending.delete(authorization.closingToken)
-        if (
-          request?.acknowledgedSectionId !== activeSectionId ||
-          request.acknowledgedRevision !==
-            context.manuscript.getSection(activeSectionId).currentRevisionId
-        ) {
-          throw new Error('Snapshot editor flush revision was not acknowledged')
-        }
+        const section = resolveActiveSection(context, activeSections)
+        const sender = findFlushSubscriber(projectSessionId)
+        if (section === undefined || sender === undefined) return
+        await flushWithTimeout(context, sender, {
+          projectSessionId,
+          closingToken,
+          purpose,
+          bodyRequired: true,
+          sectionId: section.sectionId,
+          sectionRevisionId: section.currentRevisionId
+        })
       } finally {
-        pending.delete(authorization.closingToken)
-        options.manager.completeSnapshotFlush(authorization.closingToken)
+        options.manager.completeSnapshotFlush(closingToken)
       }
     }
   }
@@ -438,66 +420,21 @@ export function registerEditorIpc(options: {
     flushMetadata = false
   ): Promise<void> => {
     const context = options.manager.assertMutationSession(projectSessionId)
-    const activeSectionId = resolveActiveSection(context, activeSections)
-    if (activeSectionId === undefined) return
-    const bodyRequired = affectedSectionIds.includes(activeSectionId)
+    const section = resolveActiveSection(context, activeSections)
+    if (section === undefined) return
+    const bodyRequired = affectedSectionIds.includes(section.sectionId)
     if (!bodyRequired && !flushMetadata) return
-    const sender = Array.from(subscribers.get(projectSessionId)?.values() ?? []).find(
-      (candidate) => !candidate.isDestroyed()
-    )
+    const sender = findFlushSubscriber(projectSessionId)
     if (sender === undefined)
       throw new Error('Active editor mutation-flush subscriber is unavailable')
-    const closingToken = randomUUID()
-    const currentRevision = context.manuscript.getSection(activeSectionId).currentRevisionId
-    let timer: ReturnType<typeof setTimeout> | undefined
-    try {
-      await new Promise<void>((resolve, reject) => {
-        pending.set(closingToken, {
-          senderId: sender.id,
-          authorization: { projectSessionId, closingToken, currentRevision },
-          resolve,
-          reject,
-          acknowledgedSectionId: null,
-          acknowledgedRevision: null
-        })
-        timer = setTimeout(() => {
-          pending.delete(closingToken)
-          const err = new Error('Manuscript mutation editor flush timed out')
-          options.logger.error(
-            {
-              event: 'editor.mutation_barrier.timeout',
-              err,
-              projectSessionId,
-              timeoutMs: snapshotFlushTimeoutMs
-            },
-            'Manuscript mutation editor flush timed out'
-          )
-          reject(err)
-        }, snapshotFlushTimeoutMs)
-        sender.send(
-          IPC_CHANNELS.editorFlushRequest,
-          editorFlushRequestSchema.parse({
-            projectSessionId,
-            closingToken,
-            purpose: 'mutation',
-            bodyRequired,
-            sectionId: activeSectionId,
-            sectionRevisionId: currentRevision
-          })
-        )
-      })
-      const request = pending.get(closingToken)
-      if (
-        request?.acknowledgedSectionId !== activeSectionId ||
-        request.acknowledgedRevision !==
-          context.manuscript.getSection(activeSectionId).currentRevisionId
-      ) {
-        throw new Error('Manuscript mutation editor flush revision was not acknowledged')
-      }
-    } finally {
-      if (timer !== undefined) clearTimeout(timer)
-      pending.delete(closingToken)
-    }
+    await flushWithTimeout(context, sender, {
+      projectSessionId,
+      closingToken: randomUUID(),
+      purpose: 'mutation',
+      bodyRequired,
+      sectionId: section.sectionId,
+      sectionRevisionId: section.currentRevisionId
+    })
   }
 
   return {
@@ -508,7 +445,7 @@ export function registerEditorIpc(options: {
         !request ||
         request.acknowledgedRevision !== null ||
         request.senderId !== senderId ||
-        request.authorization.projectSessionId !== projectSessionId ||
+        request.request.projectSessionId !== projectSessionId ||
         active?.projectSessionId !== projectSessionId
       )
         throw new Error('Layout flush is not authorized')
@@ -519,9 +456,10 @@ export function registerEditorIpc(options: {
     flushForMutation,
     revokeSession(sessionId) {
       subscribers.delete(sessionId)
+      activeSections.delete(sessionId)
       importService.revokeSession(sessionId)
       for (const [token, request] of pending) {
-        if (request.authorization.projectSessionId === sessionId) {
+        if (request.request.projectSessionId === sessionId) {
           request.reject(new Error('Editor flush session was revoked'))
           pending.delete(token)
         }
@@ -533,7 +471,6 @@ export function registerEditorIpc(options: {
       for (const request of pending.values()) request.reject(new Error('Editor IPC unregistered'))
       pending.clear()
       for (const channel of [
-        IPC_CHANNELS.editorOpen,
         IPC_CHANNELS.editorLoadSection,
         IPC_CHANNELS.editorSetActiveSection,
         IPC_CHANNELS.editorSaveSectionDocument,
@@ -601,32 +538,29 @@ async function saveWithConflictResult(
   }
 }
 
-function activeRevision(
-  context: ProjectContext,
-  activeSections: Map<string, string>
-): string | null {
-  const activeSectionId = resolveActiveSection(context, activeSections)
-  return activeSectionId === undefined
-    ? null
-    : context.manuscript.getSection(activeSectionId).currentRevisionId
+function verifyFlush(
+  request: PendingFlush | undefined,
+  sectionId: string | null,
+  revisionId: string | null,
+  label: string
+): void {
+  if (request?.acknowledgedSectionId !== sectionId || request.acknowledgedRevision !== revisionId) {
+    throw new Error(`${label} revision was not acknowledged`)
+  }
 }
 
 function resolveActiveSection(
   context: ProjectContext,
   activeSections: Map<string, string>
-): string | undefined {
+): Section | undefined {
   const sections = context.manuscript.listSections()
   const activeSectionId = activeSections.get(context.projectSessionId)
-  if (
-    activeSectionId !== undefined &&
-    sections.some((section) => section.sectionId === activeSectionId)
-  ) {
-    return activeSectionId
-  }
-  const fallback = sections[0]?.sectionId
+  const activeSection = sections.find((section) => section.sectionId === activeSectionId)
+  if (activeSection !== undefined) return activeSection
+  const fallback = sections[0]
   if (activeSectionId !== undefined) {
     if (fallback === undefined) activeSections.delete(context.projectSessionId)
-    else activeSections.set(context.projectSessionId, fallback)
+    else activeSections.set(context.projectSessionId, fallback.sectionId)
   }
   return fallback
 }

@@ -48,6 +48,20 @@ import type { LogCollector } from '../observability/log-collector'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
 import { agentToolProfileAllows } from '../../shared/agent-tool-specs'
 
+type SessionCapability = Pick<
+  ReturnType<typeof agentRunStartSchema.parse>,
+  'requestId' | 'projectSessionId' | 'agentSessionId' | 'agentRunId'
+>
+
+function matchesSessionCapability(message: SessionCapability, request: SessionCapability): boolean {
+  return (
+    message.requestId === request.requestId &&
+    message.projectSessionId === request.projectSessionId &&
+    message.agentSessionId === request.agentSessionId &&
+    message.agentRunId === request.agentRunId
+  )
+}
+
 export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime {
   readonly #worker: PersistentUtilityProcess
   readonly #activeSessionRequests = new Set<string>()
@@ -212,78 +226,59 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
       toolBridge.close()
       await toolBridge.drain()
     })
+    const sendCommand = (
+      command: SessionCapability,
+      kind:
+        | 'queue command'
+        | 'queue action'
+        | 'Follow-up authorization'
+        | 'model-call authorization'
+    ): void => {
+      if (!matchesSessionCapability(command, request)) {
+        throw new Error(`Agent ${kind} does not belong to the active run`)
+      }
+      this.#worker.sendToRequest(command)
+    }
     const queue = (raw: unknown): void => {
       const parsed = agentQueueCommandSchema.parse(raw)
-      if (
-        parsed.projectSessionId !== request.projectSessionId ||
-        parsed.agentSessionId !== request.agentSessionId ||
-        parsed.agentRunId !== request.agentRunId
-      ) {
-        throw new Error('Agent queue command does not belong to the active run')
-      }
+      sendCommand(parsed, 'queue command')
       if (parsed.operation === 'steer') traceRequestIds.add(parsed.modelRequestId)
-      this.#worker.send(parsed)
     }
     return {
       requestId,
       completion,
-      steer: (command) => queue({ operation: 'steer', requestId, ...command }),
-      followUp: (command) => queue({ operation: 'follow_up', requestId, ...command }),
-      queueAction: (command) => {
-        const parsed = agentQueueActionCommandSchema.parse({ requestId, ...command })
-        if (
-          parsed.projectSessionId !== request.projectSessionId ||
-          parsed.agentSessionId !== request.agentSessionId ||
-          parsed.agentRunId !== request.agentRunId
-        ) {
-          return Promise.reject(new Error('Agent queue action does not belong to the active run'))
+      steer: (command) => queue({ ...command, operation: 'steer', requestId }),
+      followUp: (command) => queue({ ...command, operation: 'follow_up', requestId }),
+      queueAction: async (command) => {
+        const parsed = agentQueueActionCommandSchema.parse({ ...command, requestId })
+        if (pendingQueueActions.has(parsed.actionId)) {
+          throw new Error('Agent queue action ID is already pending')
         }
+        sendCommand(parsed, 'queue action')
         if (parsed.operation === 'commit_follow_up_steer') {
           traceRequestIds.add(parsed.modelRequestId)
         }
         return new Promise<'completed' | 'stale'>((resolve, reject) => {
           pendingQueueActions.set(parsed.actionId, { resolve, reject })
-          try {
-            this.#worker.send(parsed)
-          } catch (err) {
-            pendingQueueActions.delete(parsed.actionId)
-            reject(
-              err instanceof Error ? err : new Error('Agent queue action failed', { cause: err })
-            )
-          }
         })
       },
       authorizeFollowUpConsumption: (command) => {
         const parsed = agentFollowUpConsumptionAuthorizationSchema.parse({
+          ...command,
           operation: 'authorize_follow_up_consumption',
-          requestId,
-          ...command
+          requestId
         })
-        if (
-          parsed.projectSessionId !== request.projectSessionId ||
-          parsed.agentSessionId !== request.agentSessionId ||
-          parsed.agentRunId !== request.agentRunId
-        ) {
-          throw new Error('Agent Follow-up authorization does not belong to the active run')
-        }
+        sendCommand(parsed, 'Follow-up authorization')
         traceRequestIds.add(parsed.modelRequestId)
-        this.#worker.send(parsed)
       },
       authorizeModelCall: (command) => {
         const parsed = agentModelCallAuthorizationSchema.parse({
+          ...command,
           operation: 'authorize_model_call',
-          requestId,
-          ...command
+          requestId
         })
-        if (
-          parsed.projectSessionId !== request.projectSessionId ||
-          parsed.agentSessionId !== request.agentSessionId ||
-          parsed.agentRunId !== request.agentRunId
-        ) {
-          throw new Error('Agent model-call authorization does not belong to the active run')
-        }
+        sendCommand(parsed, 'model-call authorization')
         traceRequestIds.add(parsed.modelRequestId)
-        this.#worker.send(parsed)
       }
     }
   }
@@ -549,13 +544,7 @@ export class AgentModelClient implements AgentModelRuntime, AgentSessionRuntime 
     traceRequestIds: ReadonlySet<string>
   ): Promise<UtilityMessageDecision<AgentSessionRunResult>> {
     const parsed = agentRuntimeMessageSchema.safeParse(raw)
-    if (
-      !parsed.success ||
-      parsed.data.requestId !== request.requestId ||
-      parsed.data.projectSessionId !== request.projectSessionId ||
-      parsed.data.agentSessionId !== request.agentSessionId ||
-      parsed.data.agentRunId !== request.agentRunId
-    ) {
+    if (!parsed.success || !matchesSessionCapability(parsed.data, request)) {
       const err = parsed.success
         ? new Error('Agent run response capability mismatch')
         : parsed.error

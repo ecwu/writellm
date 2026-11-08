@@ -278,7 +278,11 @@ describe('runAgentSession', () => {
   })
 
   it('continues provider work when a trace capture is requested', async () => {
-    const fetchMock = vi.fn<typeof fetch>(async () => completionResponse('done', 'response-trace'))
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      const response = completionResponse('done', 'response-trace')
+      response.headers.set('set-cookie', 'private-trace-cookie')
+      return response
+    })
     vi.stubGlobal('fetch', fetchMock)
     const traceEvents: AgentRuntimeEvent[] = []
     const running = runAgentSession(
@@ -317,8 +321,14 @@ describe('runAgentSession', () => {
     expect(harness).not.toHaveProperty('tools')
     expect(traceEvents[1]).toMatchObject({
       type: 'model_trace_capture_requested',
-      documents: [{ kind: 'provider_response' }]
+      documents: [
+        {
+          kind: 'provider_response',
+          metadata: { responseHeaders: { 'x-request-id': 'response-trace' } }
+        }
+      ]
     })
+    expect(JSON.stringify(traceEvents)).not.toContain('private-trace-cookie')
   })
 
   it('counts system instructions once when Main supplies the remaining message budget', async () => {
@@ -715,6 +725,63 @@ describe('runAgentSession', () => {
     ).toEqual(['answer-1', 'answer-2', 'answer-3'])
     expect(JSON.stringify(events)).not.toContain('agent-secret')
   })
+
+  it.each(['follow_up_consumption_requested', 'model_call_requested'] as const)(
+    'stops the worker while it waits after %s',
+    async (eventType) => {
+      const response = Promise.withResolvers<Response>()
+      const requested = Promise.withResolvers<void>()
+      const fetchMock = vi.fn<typeof fetch>(() => response.promise)
+      vi.stubGlobal('fetch', fetchMock)
+      const controller = new AbortController()
+      const { port1, port2 } = createFakeMessageChannel()
+      port2.on('message', (event: { data: Record<string, unknown> }) => {
+        port2.postMessage({
+          type: 'tool_response',
+          ...responseCapability(event.data),
+          ok: true,
+          data: { mode: 'fts', rerankStatus: 'disabled', hits: [knowledgeHit()] }
+        })
+      })
+      let control: AgentSessionRunControl | undefined
+      const running = runAgentSession(
+        request,
+        (event) => {
+          if (event.type === eventType) requested.resolve()
+        },
+        (value) => {
+          control = value
+        },
+        controller.signal,
+        port1 as never
+      )
+      const result = Promise.allSettled([running])
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+      if (eventType === 'follow_up_consumption_requested') {
+        control?.enqueue({
+          operation: 'follow_up',
+          requestId: request.requestId,
+          projectSessionId: request.projectSessionId,
+          agentSessionId: request.agentSessionId,
+          agentRunId: request.agentRunId,
+          pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc421',
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc416',
+          content: 'Next question.',
+          timestamp: 5,
+          systemPrompt: request.systemPrompt
+        })
+        response.resolve(completionResponse('First answer', 'response-1'))
+      } else {
+        response.resolve(toolCallResponse('tool-search', 'search_knowledge', { query: 'evidence' }))
+      }
+      expect(
+        await Promise.race([requested.promise.then(() => true), result.then(() => false)])
+      ).toBe(true)
+      controller.abort()
+      expect(await result).toMatchObject([{ status: 'rejected', reason: { name: 'AbortError' } }])
+      expect(fetchMock).toHaveBeenCalledOnce()
+    }
+  )
 
   it('deletes and promotes individual Follow-ups and waits for consumption authorization', async () => {
     let resolveFirst: ((response: Response) => void) | undefined

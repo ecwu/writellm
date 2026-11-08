@@ -6,6 +6,9 @@ import {
   stripReadableCitations
 } from './readable-citation'
 
+const indexSections = (sections: Parameters<typeof buildManuscriptReferenceIndex>[0]['sections']) =>
+  buildManuscriptReferenceIndex({ outlineVersion: 3, sections })
+
 describe('readable citation utilities', () => {
   it('parses canonical English and Chinese labels and converts displayed pages to zero-based pages', () => {
     expect(findReadableCitations('[Source: Paper, p. 3] 【来源：白皮书，第 2 页】')).toEqual([
@@ -16,10 +19,11 @@ describe('readable citation utilities', () => {
   })
 
   it('groups by NFC plus trim and ignores page while preserving case', () => {
-    const index = buildManuscriptReferenceIndex([
+    const index = indexSections([
       document('section-a', 'revision-a', '[Source: Cafe\u0301, p. 1] [Source: Café, p. 8]'),
       document('section-b', 'revision-b', '【来源： Café ，第 3 页】 [Source: CAFÉ]')
     ])
+    expect(index.outlineVersion).toBe(3)
     expect(index.entries.map(({ number, title, count }) => ({ number, title, count }))).toEqual([
       { number: 1, title: 'Café', count: 3 },
       { number: 2, title: 'CAFÉ', count: 1 }
@@ -30,12 +34,14 @@ describe('readable citation utilities', () => {
   it('renumbers from manuscript order and tracks repeated occurrences', () => {
     const first = document('section-a', 'revision-a', '[Source: Alpha] [Source: Beta]')
     const second = document('section-b', 'revision-b', '[Source: Beta]')
-    expect(
-      buildManuscriptReferenceIndex([first, second]).entries.map((entry) => entry.title)
-    ).toEqual(['Alpha', 'Beta'])
-    expect(
-      buildManuscriptReferenceIndex([second, first]).entries.map((entry) => entry.title)
-    ).toEqual(['Beta', 'Alpha'])
+    expect(indexSections([first, second]).entries.map((entry) => entry.title)).toEqual([
+      'Alpha',
+      'Beta'
+    ])
+    expect(indexSections([second, first]).entries.map((entry) => entry.title)).toEqual([
+      'Beta',
+      'Alpha'
+    ])
   })
 
   it('replaces valid citations with boundary whitespace for authoritative counting', () => {
@@ -45,30 +51,32 @@ describe('readable citation utilities', () => {
   })
 
   it('does not form readable citations across an inline math boundary', () => {
-    const index = buildManuscriptReferenceIndex([
+    const index = indexSections([
       {
-        sectionId: 'section',
-        sectionRevisionId: 'revision',
-        content: [
-          {
-            id: 'paragraph',
-            type: 'paragraph',
-            props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
-            content: [
-              { type: 'text', text: '[Source: Re', styles: {} },
-              { type: 'math', content: 'x' },
-              { type: 'text', text: 'search]', styles: {} }
-            ],
-            children: []
-          }
-        ]
+        section: { sectionId: 'section' },
+        revision: {
+          sectionRevisionId: 'revision',
+          content: [
+            {
+              id: 'paragraph',
+              type: 'paragraph',
+              props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+              content: [
+                { type: 'text', text: '[Source: Re', styles: {} },
+                { type: 'math', content: 'x' },
+                { type: 'text', text: 'search]', styles: {} }
+              ],
+              children: []
+            }
+          ]
+        }
       }
     ])
     expect(index.entries).toEqual([])
   })
 
   it('counts citekey cluster items in manuscript order without changing legacy title identity', () => {
-    const index = buildManuscriptReferenceIndex([
+    const index = indexSections([
       document(
         'section-a',
         'revision-a',
@@ -93,16 +101,18 @@ describe('readable citation utilities', () => {
 
 function document(sectionId: string, sectionRevisionId: string, text: string) {
   return {
-    sectionId,
-    sectionRevisionId,
-    content: [
-      {
-        id: `${sectionId}-block`,
-        type: 'paragraph' as const,
-        props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
-        content: [{ type: 'text' as const, text, styles: {} }],
-        children: []
-      }
-    ]
+    section: { sectionId },
+    revision: {
+      sectionRevisionId,
+      content: [
+        {
+          id: `${sectionId}-block`,
+          type: 'paragraph' as const,
+          props: { backgroundColor: 'default', textColor: 'default', textAlignment: 'left' },
+          content: [{ type: 'text' as const, text, styles: {} }],
+          children: []
+        }
+      ]
+    }
   }
 }

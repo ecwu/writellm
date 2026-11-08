@@ -54,8 +54,7 @@ function harness() {
       activeProject: {
         projectId: '22222222-2222-4222-8222-222222222222',
         projectSessionId,
-        displayName: 'Project',
-        indexRebuildRequired: false
+        displayName: 'Project'
       }
     })),
     assertActiveSession: vi.fn((value: string) => {

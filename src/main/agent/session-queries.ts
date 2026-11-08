@@ -13,19 +13,145 @@ import {
   agentEventPageSchema,
   agentEventRecordSchema,
   agentRunRecordSchema,
+  agentSessionRecordSchema,
   type AgentEventPage,
   type AgentEventRecord,
-  type AgentRunRecord
+  type AgentRunRecord,
+  type AgentSessionRecord
 } from '../../shared/contracts/agent-ipc'
 import { readRunError } from './session-event-utils'
+import { deriveAgentWorkflowState } from '../../shared/agent-workflow-state'
+import { AGENT_EVENT_SCHEMA_VERSION } from '../../shared/contracts/agent'
+import { readForkMetadata } from './conversation-fork'
+import { messageEditState } from './message-replacement'
+import type { AgentRunCoordinator } from './session-run-coordinator'
+import type { WritingTaskService } from './writing-task-service'
 
 const AGENT_EVENT_PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 
 export class AgentSessionQueries {
   constructor(
     private readonly database: ProjectDatabase,
-    private readonly log: Pick<Logger, 'warn'>
+    private readonly log: Pick<Logger, 'warn'>,
+    private readonly coordinator: Pick<AgentRunCoordinator, 'sessionActivity'>,
+    private readonly writingTasks: Pick<WritingTaskService, 'getView'>
   ) {}
+
+  listSessions(status: 'active' | 'archived'): AgentSessionRecord[] {
+    return this.#querySessions({ status, limit: 200 })
+  }
+
+  requireSession(agentSessionId: string): AgentSessionRecord {
+    const session = this.#querySessions({ agentSessionId, limit: 1 })[0]
+    if (session === undefined) throw new Error('Agent session does not exist')
+    return session
+  }
+
+  #querySessions(input: {
+    status?: 'active' | 'archived'
+    agentSessionId?: string
+    limit: number
+  }): AgentSessionRecord[] {
+    const where: string[] = []
+    const values: Array<string | number> = []
+    if (input.status !== undefined) {
+      where.push('status = ?')
+      values.push(input.status)
+    }
+    if (input.agentSessionId !== undefined) {
+      where.push('agent_session_id = ?')
+      values.push(input.agentSessionId)
+    }
+    const whereSql = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`
+    values.push(input.limit)
+    return this.database.read((database) =>
+      (
+        database
+          .prepare(
+            `SELECT agent_session_id, title, event_schema_version,
+                    status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
+                    thinking_level, image_source_id, image_model_id,
+                    created_at, updated_at, archived_at,
+                    EXISTS (
+                      SELECT 1 FROM agent_runs
+                       WHERE agent_runs.agent_session_id = agent_sessions.agent_session_id
+                         AND agent_runs.status = 'running'
+                    ) AS has_running_run,
+                    EXISTS (
+                      SELECT 1 FROM mutation_proposals
+                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                         AND mutation_proposals.status = 'generating'
+                    ) AS has_generating_proposal,
+                    EXISTS (
+                      SELECT 1 FROM mutation_proposals
+                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
+                         AND mutation_proposals.status = 'pending'
+                    ) AS has_pending_proposal
+               FROM agent_sessions
+              ${whereSql}
+              ORDER BY updated_at DESC, agent_session_id DESC
+              LIMIT ?`
+          )
+          .all(...values) as Array<{
+          agent_session_id: string
+          title: string
+          event_schema_version: number
+          status: 'active' | 'archived'
+          approval_mode: AgentApprovalMode
+          interaction_mode: AgentInteractionMode
+          provider_preset_id: string | null
+          selected_model_id: string | null
+          thinking_level: AgentThinkingLevel
+          image_source_id: string | null
+          image_model_id: string | null
+          has_running_run: 0 | 1
+          has_generating_proposal: 0 | 1
+          has_pending_proposal: 0 | 1
+          created_at: string
+          updated_at: string
+          archived_at: string | null
+        }>
+      ).map((row) => {
+        const activity = this.coordinator.sessionActivity(row.agent_session_id)
+        return agentSessionRecordSchema.parse({
+          agentSessionId: row.agent_session_id,
+          title: row.title,
+          fork: readForkMetadata(database, row.agent_session_id),
+          lastReplacement:
+            database
+              .prepare(`SELECT from_sequence AS fromSequence, through_sequence AS throughSequence
+            FROM agent_message_replacements WHERE agent_session_id = ? ORDER BY through_sequence DESC LIMIT 1`)
+              .get(row.agent_session_id) ?? null,
+          messageEdit: messageEditState(database, row.agent_session_id, activity.busy),
+          status: row.status,
+          compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
+          approvalMode: row.approval_mode,
+          interactionMode: row.interaction_mode,
+          workflowState: deriveAgentWorkflowState({
+            awaitingInput: activity.awaitingInput,
+            compacting: activity.compacting,
+            running: row.has_running_run === 1,
+            generating: row.has_generating_proposal === 1,
+            awaitingReview: row.has_pending_proposal === 1
+          }),
+          modelSelection:
+            row.provider_preset_id === null || row.selected_model_id === null
+              ? null
+              : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
+          thinkingLevel: row.thinking_level,
+          imageModelSelection:
+            row.image_source_id === null || row.image_model_id === null
+              ? null
+              : { sourceId: row.image_source_id, modelId: row.image_model_id },
+          writingTask: this.writingTasks.getView(row.agent_session_id, database) ?? null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          archivedAt: row.archived_at
+        })
+      })
+    )
+  }
+
   listEvents(agentSessionId: string): AgentEventRecord[] {
     const events: AgentEventRecord[] = []
     let afterSequence = 0

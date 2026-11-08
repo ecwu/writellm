@@ -1,4 +1,10 @@
-import type { BlockNoteDocument, BlockNoteInlineContent } from './contracts/manuscript'
+import type {
+  BlockNoteDocument,
+  BlockNoteInlineContent,
+  ManuscriptReferenceIndex,
+  Section,
+  SectionRevision
+} from './contracts/manuscript'
 import { blockNoteInlinePlainText as inlinePlainText } from './blocknote-inline-text'
 import { findCitationClusters } from './citation-cluster'
 
@@ -37,8 +43,9 @@ export interface ManuscriptReferenceEntry {
   occurrences: ManuscriptReferenceOccurrence[]
 }
 
-export interface ManuscriptReferenceIndex {
-  entries: ManuscriptReferenceEntry[]
+type CitationSection = {
+  section: Pick<Section, 'sectionId'>
+  revision: Pick<SectionRevision, 'sectionRevisionId' | 'content'>
 }
 
 const READABLE_CITATION_PATTERN =
@@ -80,21 +87,29 @@ export function stripReadableCitations(text: string): string {
   return result + text.slice(cursor)
 }
 
-export function buildManuscriptReferenceIndex(
-  sections: readonly {
-    sectionId: string
-    sectionRevisionId: string
-    content: BlockNoteDocument
-  }[]
-): ManuscriptReferenceIndex {
-  return buildReferenceIndexFromOccurrences(
-    sections.flatMap((section) => findDocumentCitationOccurrences(section))
+export function buildManuscriptReferenceIndex(manuscript: {
+  outlineVersion: number
+  sections: readonly CitationSection[]
+}): ManuscriptReferenceIndex {
+  const index = buildReferenceIndexFromOccurrences(collectManuscriptCitations(manuscript.sections))
+  return { outlineVersion: manuscript.outlineVersion, ...index }
+}
+
+export function collectManuscriptCitations(
+  sections: readonly CitationSection[]
+): ManuscriptReferenceOccurrence[] {
+  return sections.flatMap(({ section, revision }) =>
+    findDocumentCitationOccurrences({
+      sectionId: section.sectionId,
+      sectionRevisionId: revision.sectionRevisionId,
+      content: revision.content
+    })
   )
 }
 
 export function buildReferenceIndexFromOccurrences(
   occurrences: readonly ManuscriptReferenceOccurrence[]
-): ManuscriptReferenceIndex {
+): Pick<ManuscriptReferenceIndex, 'entries'> {
   const byTitle = new Map<string, ManuscriptReferenceEntry>()
   for (const occurrence of occurrences) {
     const key = occurrence.citationKey ?? normalizeCitationTitle(occurrence.title)
@@ -115,7 +130,9 @@ export function buildReferenceIndexFromOccurrences(
   return { entries: [...byTitle.values()] }
 }
 
-export function referenceNumberMap(index: ManuscriptReferenceIndex): Map<string, number> {
+export function referenceNumberMap(
+  index: Pick<ManuscriptReferenceIndex, 'entries'>
+): Map<string, number> {
   return new Map(index.entries.map((entry) => [normalizeCitationTitle(entry.title), entry.number]))
 }
 

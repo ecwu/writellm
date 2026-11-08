@@ -18,7 +18,7 @@ import { ManuscriptService } from '../manuscript/manuscript-service'
 import { AgentContextBuilder } from './context'
 import { AgentAttachmentService } from './attachment-service'
 import { WritingTaskService } from './writing-task-service'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { pendingSkillSnapshot } from './session-event-utils'
 
 export const defaultModelSelection = { presetId: 'custom:fixture', modelId: 'writer' }
@@ -93,6 +93,7 @@ export interface FakeActiveRun {
     modelRequestId: string
     pendingMessageId?: string
   }>
+  followUpConsumptionIds: string[]
   authorizations: Array<{
     continuationId: string
     modelRequestId: string
@@ -160,12 +161,14 @@ export class FakeAgentRuntime implements AgentSessionRuntime {
       { once: true }
     )
     const commands: FakeActiveRun['commands'] = []
+    const followUpConsumptionIds: string[] = []
     const authorizations: FakeActiveRun['authorizations'] = []
     const active = {
       config: _config,
       credential,
       input,
       commands,
+      followUpConsumptionIds,
       authorizations,
       requestTool: (request) => {
         if (onToolRequest === undefined) throw new Error('No fake Agent tool handler')
@@ -189,7 +192,7 @@ export class FakeAgentRuntime implements AgentSessionRuntime {
           pendingMessageId: command.pendingMessageId
         }),
       queueAction: () => Promise.resolve('completed'),
-      authorizeFollowUpConsumption: () => undefined,
+      authorizeFollowUpConsumption: (command) => followUpConsumptionIds.push(command.consumptionId),
       authorizeModelCall: (command) =>
         authorizations.push({
           continuationId: command.continuationId,

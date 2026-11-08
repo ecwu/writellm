@@ -166,6 +166,12 @@ export const projectIpcEndpoints = {
     output: projectSelectionResultSchema,
     session: 'none'
   }),
+  rebuildMissingManifest: defineIpcEndpoint({
+    channel: IPC_CHANNELS.projectRecoveryRebuildManifest,
+    input: z.object({ mode: z.enum(['in-place', 'copy']) }).strict(),
+    output: projectSelectionResultSchema,
+    session: 'none'
+  }),
   exportRecoveryDiagnostics: defineIpcEndpoint({
     channel: IPC_CHANNELS.projectRecoveryExportDiagnostics,
     input: projectRecoveryActionInputSchema,

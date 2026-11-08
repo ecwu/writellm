@@ -18,11 +18,12 @@ import {
 } from '../../shared/contracts/manuscript-import'
 import {
   blockNoteDocumentSchema,
+  ManuscriptDomainError,
   type BlockNoteDocument,
   type ManuscriptAssetResult
 } from '../../shared/contracts/manuscript'
 import type { ProjectContext } from '../project/project-context'
-import { PROJECT_TEMP_DIRECTORY } from '../project/project-paths'
+import { MANUSCRIPT_IMPORT_STAGING_DIRECTORY } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
 import { extractBoundedZip } from '../storage/bounded-zip-extractor'
 import { extractSectionText } from './content'
@@ -30,7 +31,6 @@ import { parseMarkdownImport } from './markdown-import-adapter'
 import type { LatexImportWorkerResult } from '../../shared/contracts/latex-import'
 import { mapLatexImportResult } from './latex-import-mapper'
 
-const IMPORT_DIRECTORY = `${PROJECT_TEMP_DIRECTORY}/manuscript-import`
 const IMPORT_PLAN_TTL_MS = 30 * 60 * 1_000
 const MAX_IMPORT_RESOURCE_BYTES = 20 * 1024 * 1024
 const MAX_IMPORT_RESOURCE_TOTAL_BYTES = 100 * 1024 * 1024
@@ -82,7 +82,6 @@ interface StoredPlan {
 
 export class ManuscriptImportService {
   readonly #plans = new Map<string, StoredPlan>()
-  readonly #activatedSessions = new Set<string>()
 
   constructor(
     private readonly options: {
@@ -111,10 +110,9 @@ export class ManuscriptImportService {
     const startedAt = Date.now()
     const createId = this.options.createId ?? randomUUID
     const planId = createId()
-    const stageRelativePath = `${IMPORT_DIRECTORY}/${planId}`
+    const stageRelativePath = `${MANUSCRIPT_IMPORT_STAGING_DIRECTORY}/${planId}`
     let publishedAssetCount = 0
     try {
-      await this.#activate(input.context)
       input.signal?.throwIfAborted()
       await input.context.filesystem.ensureDirectory(stageRelativePath)
       const selected = await stageImportSource({
@@ -138,8 +136,7 @@ export class ManuscriptImportService {
         'Manuscript import source staged'
       )
       const sourceHash = selected.sourceHash
-      const workspace = input.context.manuscript.getWorkspace()
-      const active = input.context.editorPersistence.loadSection(input.activeSectionId)
+      const base = readImportBase(input.context, input.activeSectionId)
       const resourceRoot = selected.resourceRoot
       const resourceCache = new Map<string, Awaited<ReturnType<typeof captureImageResource>>>()
       let totalResourceBytes = 0
@@ -209,14 +206,7 @@ export class ManuscriptImportService {
           byteSize: selected.byteSize,
           sha256: sourceHash
         },
-        base: {
-          manuscriptId: workspace.manuscriptId,
-          briefVersion: workspace.brief.version,
-          outlineVersion: workspace.outlineVersion,
-          activeSectionId: active.section.sectionId,
-          activeRevisionId: active.revision.sectionRevisionId,
-          activeContentHash: active.revision.contentHash
-        },
+        base,
         proposedBrief: { title: parsed.proposedTitle },
         sections: parsed.sections.map((section) => ({
           ...section,
@@ -310,14 +300,14 @@ export class ManuscriptImportService {
     const stored = this.#requirePlan(context, input.planId)
     if (stored.plan.noOp) throw new Error('Empty import plan cannot be applied')
     await this.#verifyStage(context, stored)
-    const workspace = context.manuscript.getWorkspace()
-    const active = context.editorPersistence.loadSection(stored.plan.base.activeSectionId)
+    const { base } = stored.plan
+    const current = readImportBase(context, base.activeSectionId)
     if (
-      workspace.manuscriptId !== stored.plan.base.manuscriptId ||
-      workspace.brief.version !== stored.plan.base.briefVersion ||
-      workspace.outlineVersion !== stored.plan.base.outlineVersion ||
-      active.revision.sectionRevisionId !== stored.plan.base.activeRevisionId ||
-      active.revision.contentHash !== stored.plan.base.activeContentHash
+      current.manuscriptId !== base.manuscriptId ||
+      current.briefVersion !== base.briefVersion ||
+      current.outlineVersion !== base.outlineVersion ||
+      current.activeRevisionId !== base.activeRevisionId ||
+      current.activeContentHash !== base.activeContentHash
     ) {
       throw new Error('Manuscript changed after this import plan was created')
     }
@@ -325,8 +315,8 @@ export class ManuscriptImportService {
     let result: ManuscriptImportApplyResult
     if (input.mode === 'create_sections') {
       const imported = context.manuscript.importSectionsAtomic({
-        baseBriefVersion: stored.plan.base.briefVersion,
-        baseOutlineVersion: stored.plan.base.outlineVersion,
+        baseBriefVersion: base.briefVersion,
+        baseOutlineVersion: base.outlineVersion,
         sections: stored.plan.sections.map((section) => ({
           title: section.title,
           outlineLevel: section.outlineLevel,
@@ -365,9 +355,9 @@ export class ManuscriptImportService {
       const saved = await context.editorPersistence.save(
         {
           projectSessionId: context.projectSessionId,
-          sectionId: stored.plan.base.activeSectionId,
-          baseRevisionId: stored.plan.base.activeRevisionId,
-          baseContentHash: stored.plan.base.activeContentHash,
+          sectionId: base.activeSectionId,
+          baseRevisionId: base.activeRevisionId,
+          baseContentHash: base.activeContentHash,
           document,
           revisionSource: 'import'
         },
@@ -423,22 +413,6 @@ export class ManuscriptImportService {
         void this.#discard(stored.context, stored)
       }
     }
-    this.#activatedSessions.delete(projectSessionId)
-  }
-
-  async #activate(context: ProjectContext): Promise<void> {
-    if (this.#activatedSessions.has(context.projectSessionId)) return
-    await context.filesystem.removeTree(IMPORT_DIRECTORY)
-    await context.filesystem.ensureDirectory(IMPORT_DIRECTORY)
-    this.#activatedSessions.add(context.projectSessionId)
-    this.options.log.info(
-      {
-        event: 'manuscript.import.crash_staging_cleaned',
-        projectId: context.manifest.projectId,
-        projectSessionId: context.projectSessionId
-      },
-      'Stale manuscript import staging removed'
-    )
   }
 
   #requirePlan(context: ProjectContext, planId: string): StoredPlan {
@@ -578,6 +552,22 @@ export class ManuscriptImportService {
         'Manuscript import staging cleanup failed'
       )
     })
+  }
+}
+
+function readImportBase(context: ProjectContext, sectionId: string): ManuscriptImportPlan['base'] {
+  const workspace = context.manuscript.getWorkspace()
+  const active = workspace.sections.find(({ section }) => section.sectionId === sectionId)
+  if (active === undefined) {
+    throw new ManuscriptDomainError('section_not_found', 'Section does not exist')
+  }
+  return {
+    manuscriptId: workspace.manuscriptId,
+    briefVersion: workspace.brief.version,
+    outlineVersion: workspace.outlineVersion,
+    activeSectionId: sectionId,
+    activeRevisionId: active.revision.sectionRevisionId,
+    activeContentHash: active.revision.contentHash
   }
 }
 

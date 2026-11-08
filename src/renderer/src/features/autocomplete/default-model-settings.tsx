@@ -8,7 +8,15 @@ import {
   autocompleteStyleSchema,
   type AutocompleteSettings
 } from '../../../../shared/contracts/autocomplete'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel
+} from '@/components/ui/field'
+import { Pilcrow, Sparkles, Text, WholeWord } from 'lucide-react'
+import { SettingsPageHeader } from '@/components/settings-page-header'
 import {
   Select,
   SelectContent,
@@ -84,10 +92,12 @@ export function DefaultModelSettings({
   return (
     <ScrollArea className='h-full'>
       <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
-        <div className='flex items-center justify-between gap-2'>
-          <h2 className='text-xl font-semibold'>Default Models</h2>
-          {closeAction}
-        </div>
+        <SettingsPageHeader
+          icon={Sparkles}
+          title='Default Models'
+          description='Models used by editor features outside the Agent conversation.'
+          closeAction={closeAction}
+        />
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor='autocomplete-model'>FIM / Autocomplete</FieldLabel>
@@ -135,10 +145,16 @@ export function DefaultModelSettings({
           </Field>
           {settings ? (
             <>
-              <Field>
-                <FieldLabel htmlFor='autocomplete-auto-enable'>
-                  Automatically enable autocomplete
-                </FieldLabel>
+              <Field orientation='horizontal'>
+                <FieldContent>
+                  <FieldLabel htmlFor='autocomplete-auto-enable'>
+                    Automatically enable autocomplete
+                  </FieldLabel>
+                  <FieldDescription>
+                    Use autocomplete by default when a model is available. Applies across all
+                    projects.
+                  </FieldDescription>
+                </FieldContent>
                 <Switch
                   id='autocomplete-auto-enable'
                   checked={settings.defaultEnabled}
@@ -147,10 +163,6 @@ export function DefaultModelSettings({
                     void save(() => window.desktop.autocomplete.setDefaultEnabled(enabled))
                   }
                 />
-                <FieldDescription>
-                  Use autocomplete by default when a model is available. Applies across all
-                  projects.
-                </FieldDescription>
               </Field>
               <Field>
                 <FieldLabel id='autocomplete-default-length'>Default completion length</FieldLabel>
@@ -167,9 +179,15 @@ export function DefaultModelSettings({
                       )
                   }}
                 >
-                  <ToggleGroupItem value='word'>Words</ToggleGroupItem>
-                  <ToggleGroupItem value='sentence'>Sentence</ToggleGroupItem>
-                  <ToggleGroupItem value='paragraph'>Paragraph</ToggleGroupItem>
+                  <ToggleGroupItem value='word'>
+                    <WholeWord /> Words
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='sentence'>
+                    <Text /> Sentence
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='paragraph'>
+                    <Pilcrow /> Paragraph
+                  </ToggleGroupItem>
                 </ToggleGroup>
               </Field>
             </>

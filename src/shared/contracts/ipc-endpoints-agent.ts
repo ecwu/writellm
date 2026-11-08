@@ -74,7 +74,7 @@ import type {
   AgentRunRecord,
   AgentSessionRecord
 } from './agent-ipc'
-import type { MutationProposalChanged, MutationSectionChanged } from './agent-mutations'
+import type { MutationProposalChanged } from './agent-mutations'
 
 const undefinedOutput = z.undefined()
 
@@ -328,10 +328,6 @@ export type AgentIpcApi = Omit<
     activate: () => Promise<void>
     unsubscribe: () => void
   }>
-  subscribeSectionChanged(
-    input: { projectSessionId: string },
-    listener: (event: MutationSectionChanged) => void
-  ): Promise<() => void>
   subscribeMutations(
     input: { projectSessionId: string },
     listener: (event: MutationProposalChanged) => void

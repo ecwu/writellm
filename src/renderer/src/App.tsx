@@ -1,19 +1,7 @@
 import { reportRendererOperationError } from './diagnostics'
 import { matchesShortcut } from '@/lib/keyboard-shortcuts'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  AlertCircle,
-  Download,
-  FolderOpen,
-  MapPin,
-  Plus,
-  RefreshCcw,
-  RotateCcw,
-  Settings2,
-  Trash2,
-  X,
-  XCircle
-} from 'lucide-react'
+import { FolderOpen, FolderPlus, Plus, Settings2, X } from 'lucide-react'
 import type {
   ActiveProject,
   ProjectLifecycleEvent,
@@ -27,7 +15,6 @@ import { projectNameSchema } from '../../shared/contracts/projects'
 import { LayoutControlsProvider, useLayoutControls } from '@/features/workbench/layout-controls'
 import { AppMenubar } from '@/components/app-menubar'
 import { SettingsCommand } from '@/components/settings-command'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -45,6 +32,7 @@ import { WritingWorkspace } from '@/features/manuscript/writing-workspace'
 import { OnboardingFlow } from '@/features/onboarding/onboarding-flow'
 import { ProjectCreationFields } from '@/features/project/project-creation-fields'
 import { ProjectOpeningIndicator } from '@/features/project/project-opening-indicator'
+import { ProjectRecoveryPage } from '@/features/project/project-recovery-page'
 import {
   ProjectVersionHistory,
   type VersionHistoryView
@@ -547,7 +535,8 @@ function App(): React.JSX.Element {
 
   const runRecovery = useCallback(
     async (
-      action: () => Promise<ProjectLifecycleSnapshot | ProjectSelectionResult>
+      action: () => Promise<ProjectLifecycleSnapshot | ProjectSelectionResult>,
+      failureMessage = actionErrorMessages.recovery
     ): Promise<void> => {
       setActiveAction('recovery')
       try {
@@ -560,7 +549,7 @@ function App(): React.JSX.Element {
         }
       } catch (err) {
         reportRendererOperationError(err, 'App')
-        notifyActionError(actionErrorMessages.recovery)
+        notifyActionError(failureMessage)
         await refreshLifecycle()
       } finally {
         setActiveAction(null)
@@ -597,13 +586,6 @@ function App(): React.JSX.Element {
   const projectSelectionDisabled = snapshot.state !== 'closed'
   const activeProject = snapshot.activeProject
   const onboardingPending = onboardingState?.status === 'pending'
-  const recoveryKind = snapshot.recovery?.kind
-  const recoveryIsLockContended =
-    snapshot.recovery?.kind === 'open' && snapshot.recovery.reason === 'lock-contended'
-  const showOpenRecovery = recoveryKind === undefined || recoveryKind === 'open'
-  const showCloseRecovery = recoveryKind === undefined || recoveryKind === 'close'
-  const showCreateRecovery = recoveryKind === undefined || recoveryKind === 'create'
-
   useEffect(() => {
     if (!activeProject || !onboardingPending) return
     void persistOnboardingState({ schemaVersion: 1, status: 'completed' })
@@ -738,6 +720,14 @@ function App(): React.JSX.Element {
               onOpenProject={openProject}
               onError={notifyActionError}
             />
+          ) : snapshot.state === 'recovery-required' && !initialLoading ? (
+            <ProjectRecoveryPage
+              recovery={snapshot.recovery}
+              busy={isBusy}
+              runRecovery={runRecovery}
+              exportDiagnostics={exportRecoveryDiagnostics}
+              restoreSnapshot={restoreSnapshot}
+            />
           ) : (
             <main className='flex min-h-0 flex-1 overflow-auto p-6 lg:p-10' aria-busy={isBusy}>
               <div className='m-auto flex w-full max-w-6xl flex-col gap-6'>
@@ -749,83 +739,6 @@ function App(): React.JSX.Element {
                   </div>
                   {initialLoading ? <Spinner className='mt-1 text-muted-foreground' /> : null}
                 </header>
-
-                {snapshot.state === 'recovery-required' && !initialLoading ? (
-                  <Alert variant='destructive' role='status'>
-                    <AlertCircle />
-                    <AlertTitle>Recovery required</AlertTitle>
-                    <AlertDescription>
-                      {recoveryIsLockContended
-                        ? 'Another WriteLLM process still holds this project lock. Close that process and retry. If it ended unexpectedly, wait one minute, then recover the stale lock.'
-                        : 'Choose a recovery action below. WriteLLM keeps the project closed until the selected transition is verified.'}
-                    </AlertDescription>
-                    <div className='col-start-2 grid min-w-0 grid-cols-2 gap-2 border-t pt-4'>
-                      {showOpenRecovery && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() => void runRecovery(window.desktop.projects.retryOpen)}
-                        >
-                          <RefreshCcw /> Retry open
-                        </Button>
-                      )}
-                      {recoveryIsLockContended && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() => void runRecovery(window.desktop.projects.recoverStaleLock)}
-                        >
-                          <RotateCcw /> Recover stale lock
-                        </Button>
-                      )}
-                      {showCloseRecovery && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() => void runRecovery(window.desktop.projects.retryClose)}
-                        >
-                          <RotateCcw /> Retry close
-                        </Button>
-                      )}
-                      {showCreateRecovery && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() =>
-                            void runRecovery(window.desktop.projects.discardIncompleteCreate)
-                          }
-                        >
-                          <Trash2 /> Discard incomplete create
-                        </Button>
-                      )}
-                      {showOpenRecovery && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() => void runRecovery(window.desktop.projects.locateMoved)}
-                        >
-                          <MapPin /> Locate moved project
-                        </Button>
-                      )}
-                      <Button
-                        variant='outline'
-                        disabled={isBusy}
-                        onClick={() => void exportRecoveryDiagnostics()}
-                      >
-                        <Download /> Export diagnostics
-                      </Button>
-                      {showOpenRecovery && (
-                        <Button
-                          variant='outline'
-                          disabled={isBusy}
-                          onClick={() => void runRecovery(window.desktop.projects.returnToClosed)}
-                        >
-                          <XCircle /> Return to closed
-                        </Button>
-                      )}
-                    </div>
-                  </Alert>
-                ) : null}
 
                 {initialLoading ? (
                   <div className='grid min-h-80 place-items-center rounded-xl border bg-card'>
@@ -996,7 +909,10 @@ function App(): React.JSX.Element {
             }}
           >
             <DialogHeader>
-              <DialogTitle>Create project</DialogTitle>
+              <DialogTitle className='flex items-center gap-2'>
+                <FolderPlus className='size-4 text-muted-foreground' aria-hidden='true' />
+                Create project
+              </DialogTitle>
               <DialogDescription>
                 Choose a name first, then select where to create the project folder.
               </DialogDescription>
@@ -1021,7 +937,9 @@ function App(): React.JSX.Element {
                   Cancel
                 </Button>
               </DialogClose>
-              <Button type='submit'>Choose location</Button>
+              <Button type='submit'>
+                <FolderOpen /> Choose location
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

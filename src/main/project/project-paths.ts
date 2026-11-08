@@ -7,6 +7,7 @@ export const PROJECT_DATABASE_RELATIVE_PATH = '.writellm/project.sqlite'
 export const INDEX_DATABASE_RELATIVE_PATH = '.writellm/index.sqlite'
 export const PROJECT_LOCK_RELATIVE_PATH = '.writellm/write.lock'
 export const PROJECT_TEMP_DIRECTORY = '.writellm/temp'
+export const MANUSCRIPT_IMPORT_STAGING_DIRECTORY = `${PROJECT_TEMP_DIRECTORY}/manuscript-import`
 export const PROJECT_BACKUPS_DIRECTORY = '.writellm/backups'
 export const PROJECT_RECOVERY_DIRECTORY = '.writellm/recovery'
 export const PROJECT_HISTORY_RELATIVE_PATH = '.writellm/history.git'

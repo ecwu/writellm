@@ -677,18 +677,15 @@ export function useAgentPanelController(props: AgentPanelProps) {
           updateProposals(result.previousProposal, result.proposal)
         } else {
           updateProposals(result.proposal)
-          if (result.outcome === 'applied') {
-            const changed = result.sectionChanged
-            if (changed !== null) {
-              setRevisionTransitions((current) => ({
-                ...current,
-                [changed.sectionId]: {
-                  from: effectiveRevisionIds[changed.sectionId],
-                  to: changed.sectionRevisionId
-                }
-              }))
-            }
-            await props.refreshManuscript()
+          const changed = result.sectionChanged
+          if (result.outcome === 'applied' && changed !== null) {
+            setRevisionTransitions((current) => ({
+              ...current,
+              [changed.sectionId]: {
+                from: effectiveRevisionIds[changed.sectionId],
+                to: changed.sectionRevisionId
+              }
+            }))
           }
         }
         if (
@@ -771,7 +768,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
             }
           }))
         }
-        await props.refreshManuscript()
       }
     } catch (cause) {
       reportRendererOperationError(cause, 'agent-panel.operation')
@@ -804,7 +800,6 @@ export function useAgentPanelController(props: AgentPanelProps) {
         createCheckpoint: input.createCheckpoint
       })
       await refreshSessionTruth(activeSession.agentSessionId)
-      if (result.review.appliedCount > 0) await props.refreshManuscript()
       return result
     } catch (cause) {
       reportRendererOperationError(cause, 'agent-panel.operation')

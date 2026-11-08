@@ -1,6 +1,8 @@
 import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import {
+  Boxes,
   AlertCircle,
   Check,
   CheckCircle2,
@@ -280,8 +282,10 @@ export function ImageProviderWorkspace({
     <>
       <div className='grid h-full min-h-0 grid-cols-[18rem_minmax(0,1fr)] overflow-hidden'>
         <section className='flex min-h-0 flex-col border-r'>
+          <div className={panelHeaderClassName}>
+            <PanelTitle icon={ImageIcon} title='Image sources' />
+          </div>
           <div className='flex flex-col gap-3 border-b p-4'>
-            <h2 className='font-semibold'>Image sources</h2>
             <Field>
               <FieldLabel htmlFor='image-default-model'>Default image model</FieldLabel>
               <Select
@@ -506,7 +510,10 @@ export function ImageProviderWorkspace({
                     <section className='flex min-w-0 flex-col gap-4'>
                       <div className='flex flex-wrap items-end gap-3'>
                         <div className='min-w-0 flex-1'>
-                          <h3 className='font-semibold'>Models</h3>
+                          <h3 className='flex items-center gap-2 font-medium'>
+                            <Boxes className='size-4 text-muted-foreground' aria-hidden='true' />
+                            Models
+                          </h3>
                           <p className='text-sm text-muted-foreground'>
                             Built-in models for {selectedSource.label}, plus model IDs you add.
                           </p>

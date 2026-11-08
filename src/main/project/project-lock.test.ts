@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -10,7 +10,12 @@ import {
   recoverStaleProjectWriteLock,
   type ProjectLockDependencies
 } from './project-lock'
-import { WRITELLM_INTERNAL_DIRECTORY } from './project-paths'
+import { PROJECT_LOCK_RELATIVE_PATH, WRITELLM_INTERNAL_DIRECTORY } from './project-paths'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const fs = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...fs, rename: vi.fn(fs.rename), rm: vi.fn(fs.rm), rmdir: vi.fn(fs.rmdir) }
+})
 
 const temporaryDirectories: string[] = []
 
@@ -128,6 +133,69 @@ describe('project write lock', () => {
     expect(clearInterval).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    ['rename the owner file', rename],
+    ['remove the release marker', rm],
+    ['remove the lock directory', rmdir]
+  ] as const)('retries release if it fails to %s', async (_step, operation) => {
+    const root = await temporaryProject()
+    const log = logger()
+    const dependencies = deterministicDependencies()
+    const lock = await ProjectWriteLock.acquire(root, { logger: log, dependencies })
+    const failure = new Error('Temporary filesystem failure')
+    vi.mocked(operation).mockRejectedValueOnce(failure)
+
+    await expect(lock.release()).rejects.toMatchObject({ cause: failure })
+    await expect(ProjectWriteLock.acquire(root, { logger: log })).rejects.toThrow(
+      ProjectLockContendedError
+    )
+    await expect(lock.release()).resolves.toBe(true)
+    await expect(lock.release()).resolves.toBe(false)
+    await expect(inspectProjectWriteLock(root, { logger: log })).resolves.toBeNull()
+    expect(dependencies.clearInterval).toHaveBeenCalledOnce()
+  })
+
+  it('makes concurrent release callers wait for the same filesystem attempt', async () => {
+    const root = await temporaryProject()
+    const log = logger()
+    const lock = await ProjectWriteLock.acquire(root, { logger: log, heartbeatIntervalMs: 0 })
+    const entered = Promise.withResolvers<void>()
+    const removal = Promise.withResolvers<void>()
+    const failure = new Error('Temporary directory removal failure')
+    vi.mocked(rmdir).mockImplementationOnce(() => {
+      entered.resolve()
+      return removal.promise
+    })
+    const first = lock.release()
+    const second = lock.release()
+    const releasing = Promise.allSettled([first, second])
+    await entered.promise
+    removal.reject(failure)
+
+    expect(await releasing).toEqual([
+      { status: 'rejected', reason: expect.objectContaining({ cause: failure }) },
+      { status: 'rejected', reason: expect.objectContaining({ cause: failure }) }
+    ])
+    await expect(lock.release()).resolves.toBe(true)
+  })
+
+  it('does not retry directory removal against a replacement lock', async () => {
+    const root = await temporaryProject()
+    const log = logger()
+    const options = { logger: log, heartbeatIntervalMs: 0 }
+    const original = await ProjectWriteLock.acquire(root, options)
+    vi.mocked(rmdir).mockRejectedValueOnce(new Error('Temporary directory removal failure'))
+    await expect(original.release()).rejects.toThrow('Failed to release project lock')
+    await rename(join(root, PROJECT_LOCK_RELATIVE_PATH), join(root, 'abandoned-lock'))
+    const successor = await ProjectWriteLock.acquire(root, options)
+
+    await expect(original.release()).resolves.toBe(false)
+    await expect(inspectProjectWriteLock(root, options)).resolves.toMatchObject({
+      ownerToken: successor.metadata.ownerToken
+    })
+    await expect(successor.release()).resolves.toBe(true)
+  })
+
   it('requires explicit stale recovery and rejects recovery of a live lock', async () => {
     const root = await temporaryProject()
     const log = logger()
@@ -186,6 +254,37 @@ describe('project write lock', () => {
       { event: 'project_lock_stale_recovered' },
       'Explicitly recovered stale project lock'
     )
+  })
+
+  it('rejects a lock owner that points to another file', async () => {
+    const root = await temporaryProject()
+    const log = logger()
+    const options = {
+      logger: log,
+      heartbeatIntervalMs: 0,
+      dependencies: deterministicDependencies()
+    }
+    const lock = await ProjectWriteLock.acquire(root, options)
+    const metadataPath = join(root, PROJECT_LOCK_RELATIVE_PATH, `${lock.metadata.ownerToken}.json`)
+    const otherPath = join(root, WRITELLM_INTERNAL_DIRECTORY, 'other.json')
+    const tampered = JSON.stringify({ ...lock.metadata, ownerToken: '../other' })
+    await writeFile(metadataPath, tampered)
+    await writeFile(otherPath, tampered)
+
+    await expect(inspectProjectWriteLock(root, options)).rejects.toBeInstanceOf(
+      ProjectLockRecoveryError
+    )
+    await expect(
+      recoverStaleProjectWriteLock(root, {
+        ...options,
+        expectedOwnerToken: '../other',
+        staleBefore: new Date('2026-07-14T12:01:00.000Z')
+      })
+    ).rejects.toBeInstanceOf(ProjectLockRecoveryError)
+    await expect(readFile(metadataPath, 'utf8')).resolves.toBe(tampered)
+    await expect(readFile(otherPath, 'utf8')).resolves.toBe(tampered)
+    await writeFile(metadataPath, JSON.stringify(lock.metadata))
+    await expect(lock.release()).resolves.toBe(true)
   })
 
   it('prevents a stale owner release from deleting its successor', async () => {

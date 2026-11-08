@@ -1,5 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
+import type { WebContents } from 'electron'
 import { AgentEventBroker } from '../main/agent/event-broker'
+import { MutationEventBroker } from '../main/agent/mutation-event-broker'
+import type { MutationProposalChanged } from '../shared/contracts/agent-mutations'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import { agentApi } from './agent-api'
 
@@ -73,4 +76,54 @@ it('isolates simultaneous activity subscribers during snapshot activation and li
   expect(status).toHaveBeenCalledTimes(2)
   expect(panel).toHaveBeenCalledTimes(3)
   second.unsubscribe()
+})
+
+it('delivers one mutation to each listener when a window has two subscriptions', async () => {
+  const broker = new MutationEventBroker({ warn: vi.fn() })
+  const projectSessionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc422'
+  const proposalId = '019c6a5c-8d34-7a8e-a602-3d37a52dc424'
+  const send = vi.fn((channel: string, value: unknown) => {
+    for (const handler of ipc.handlers.get(channel) ?? []) handler({}, value)
+  })
+  const sender = { id: 7, isDestroyed: () => false, send } as unknown as WebContents
+  ipc.invoke.mockImplementation(async (channel, input) => {
+    if (channel === IPC_CHANNELS.agentSubscribeMutations) {
+      broker.subscribe(input.projectSessionId, input.subscriptionId, sender)
+    } else if (channel === IPC_CHANNELS.agentUnsubscribeMutations) {
+      broker.unsubscribe(input.projectSessionId, input.subscriptionId, sender.id)
+    }
+  })
+  const onMutation = vi.fn()
+  const onSecondMutation = vi.fn()
+  const releaseMutation = await agentApi.subscribeMutations({ projectSessionId }, onMutation)
+  const releaseSecondMutation = await agentApi.subscribeMutations(
+    { projectSessionId },
+    onSecondMutation
+  )
+  const event: MutationProposalChanged = {
+    projectSessionId,
+    agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc423',
+    proposalId,
+    kind: 'section_patch',
+    status: 'applied',
+    sectionChanged: {
+      projectSessionId,
+      proposalId,
+      sectionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc425',
+      sectionRevisionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc426',
+      reason: 'applied'
+    }
+  }
+  broker.publish(event)
+  expect(send).toHaveBeenCalledOnce()
+  expect(onMutation).toHaveBeenCalledExactlyOnceWith(event)
+  expect(onSecondMutation).toHaveBeenCalledExactlyOnceWith(event)
+
+  releaseSecondMutation()
+  broker.publish(event)
+  expect(onMutation).toHaveBeenCalledTimes(2)
+  expect(onSecondMutation).toHaveBeenCalledOnce()
+  releaseMutation()
+  broker.publish(event)
+  expect(send).toHaveBeenCalledTimes(2)
 })

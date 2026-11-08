@@ -14,6 +14,7 @@ import type { AgentSessionRunHandle } from '../providers/gateways'
 import type { SkillRunState } from '../skills/skill-router'
 import type { AgentSkillPromptInput, WritingSnapshot } from './context'
 import type { StartedAgentRun } from './session-service'
+import type { ToolContinuationRequests } from './tool-continuation-requests'
 
 export interface ActiveRun {
   readonly agentSessionId: string
@@ -21,6 +22,7 @@ export interface ActiveRun {
   readonly operationId: string
   readonly controller: AbortController
   handle: AgentSessionRunHandle | null
+  toolContinuations: ToolContinuationRequests
   phase: 'routing' | 'compacting' | 'running' | 'awaiting_input'
   readonly config: Extract<ProviderConfig, { role: 'agent' }>
   readonly editorContext: AgentEditorContext
@@ -36,6 +38,7 @@ export interface ActiveRun {
   readonly temperature?: number
   readonly authorizedModelRequestIds: Set<string>
   readonly pendingModelRequestIds: Set<string>
+  readonly queueRequestSaves: Set<Promise<string>>
   readonly pendingMessages: PendingFollowUpMessage[]
   activeToolGroups: WritingToolGroup[]
   citationRecoveryState: 'none' | 'searched' | 'expanded'
@@ -73,7 +76,7 @@ export interface PendingFollowUpMessage {
   readonly timestamp: number
   readonly queuedAt: string
   readonly systemPrompt: string
-  readonly snapshot?: WritingSnapshot
+  readonly snapshot: WritingSnapshot
 }
 
 export interface ActiveCompaction {
@@ -114,6 +117,24 @@ export class AgentRunCoordinator {
   }
   isBusy(agentSessionId: string): boolean {
     return this.#workBySession.has(agentSessionId)
+  }
+
+  sessionActivity(agentSessionId: string): {
+    busy: boolean
+    compacting: boolean
+    awaitingInput: boolean
+  } {
+    let compacting = false
+    let awaitingInput = false
+    for (const compaction of this.#compactions.values()) {
+      if (compaction.agentSessionId === agentSessionId) compacting = true
+    }
+    for (const run of this.#runs.values()) {
+      if (run.agentSessionId !== agentSessionId) continue
+      if (run.phase === 'compacting') compacting = true
+      if (run.pendingQuestion !== null) awaitingInput = true
+    }
+    return { busy: this.isBusy(agentSessionId), compacting, awaitingInput }
   }
 
   registerStarting(starting: StartingRun): void {

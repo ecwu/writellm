@@ -5,19 +5,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { openProjectDatabase } from '../project/project-database'
 import { ProjectFilesystem } from '../project/project-filesystem'
 import { AgentAttachmentService } from './attachment-service'
+import type { AgentSessionServiceOptions } from './session-service'
 import {
+  activateToolGroups,
+  contextOverflowError,
   createDatabase,
   createService,
   FakeAgentRuntime,
   log,
   assistant,
-  metadata
+  metadata,
+  proposalToolResult
 } from './session-service.test-support'
 import { imageFixture } from '../../workers/agent-image-fixtures.test-support'
 import { processAgentImage } from '../../workers/agent-image-process'
 import { buildNextCompactionMaterial, loadContinuousRuntimeHistory } from './context-checkpoint'
 
-async function fixture() {
+async function fixture(overrides?: Pick<AgentSessionServiceOptions, 'tools'>) {
   const database = await createDatabase()
   const projectRoot = database.immediate((db) => dirname(dirname(db.name)))
   const runtime = new FakeAgentRuntime()
@@ -45,7 +49,8 @@ async function fixture() {
   })
   const service = createService(database, runtime, undefined, {
     attachments,
-    agentCatalog: { resolve } as never
+    agentCatalog: { resolve } as never,
+    ...overrides
   })
   const session = service.createSession('Images', undefined, {
     presetId: 'custom:images',
@@ -338,6 +343,61 @@ describe('Agent attachment ownership, history and recovery', () => {
     ).toBe(true)
     f.database.close()
   })
+  it.each(['review', 'overflow'] as const)(
+    'releases an unconsumed queue image on %s',
+    async (end) => {
+      const f = await fixture({
+        tools: { execute: async () => proposalToolResult('brief_update') } as never
+      })
+      const run = await f.start([], 'Hold')
+      try {
+        const image = await f.importImage()
+        await f.service.followUp(run.agentRunId, '', [image.attachment_id])
+        f.advance()
+        expect(await f.attachments.cleanupOrphans()).toBe(0)
+        const active = f.runtime.active()
+        if (end === 'review') {
+          await activateToolGroups(active, ['brief'])
+          await active.emit({
+            type: 'model_call_finished',
+            modelRequestId: active.input.modelRequestId,
+            outcome: 'succeeded',
+            metadata: metadata('proposal-call')
+          })
+          await expect(
+            active.requestTool({
+              type: 'tool_request',
+              requestId: randomUUID(),
+              projectSessionId: active.input.projectSessionId,
+              agentSessionId: active.input.agentSessionId,
+              agentRunId: active.input.agentRunId,
+              toolCallId: 'review-queued-image',
+              modelRequestId: active.input.modelRequestId,
+              toolName: 'submit_brief_change',
+              args: { changes: { title: 'Revised title' }, citationIds: [] }
+            })
+          ).resolves.toMatchObject({ ok: true, data: { continuation: 'pause_for_review' } })
+          active.resolve('awaiting_review')
+        } else {
+          active.reject(contextOverflowError())
+        }
+        await run.completion
+        expect(f.service.requireRun(run.agentRunId).status).toBe(
+          end === 'review' ? 'completed' : 'failed'
+        )
+        expect(await f.attachments.cleanupOrphans()).toBe(0)
+        f.advance()
+        expect(await f.attachments.cleanupOrphans()).toBe(1)
+        expect(() => f.attachments.get(f.session.agentSessionId, image.attachment_id)).toThrow(
+          'does not exist'
+        )
+      } finally {
+        await f.service.abort(run.agentRunId)
+        f.database.close()
+      }
+    }
+  )
+
   it('sends selected old images to compaction material while preserving the recent raw turn', async () => {
     const f = await fixture()
     const row = await f.importImage()

@@ -2,6 +2,7 @@
 @import "dockview-react/dist/styles/dockview.css";
 @import "./typeset.css";
 @import "@blocknote/shadcn/style.css";
+@import "@blocknote/math-block/style.css";
 @import "katex/dist/katex.min.css";
 @source "../../../../node_modules/@blocknote/shadcn";
 

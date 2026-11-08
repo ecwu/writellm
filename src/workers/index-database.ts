@@ -1,21 +1,49 @@
-import { sha256 } from '../shared/hash'
+import { createHash } from 'node:crypto'
+import { INDEX_GENERATION_PREFIX, generationIdFor, hashSourceSet } from '../shared/index-generation'
 import Database from 'better-sqlite3'
 import {
   INDEX_SCHEMA_VERSION,
+  INDEX_MAPPING_CHUNK_LIMIT,
   type FtsSearchMode,
   type IndexCandidate,
   type IndexSnapshot,
   type IndexSource,
+  type VectorRefresh,
   type VectorGenerationContract
 } from '../shared/contracts/indexing'
 import type { KnowledgeSearchFilters } from '../shared/contracts/search'
 import { buildDeterministicChunks } from './index-chunker'
 import { FtsIndex, type FtsCandidate } from './fts-index'
 import { SqliteVecVectorIndex, type VectorIndex, vectorTableName } from './vector-index'
+import {
+  compileKnowledgeSearchFilters,
+  normalizeSearchHeading,
+  type SearchFilterSql
+} from './shared/knowledge-search-filter-sql'
 
 const INDEX_DATABASE_APPLICATION_ID = 0x574c4958
 const RETAINED_NON_ACTIVE_GENERATIONS = 3
 const EMBEDDING_CACHE_LIMIT = 50_000
+const MAPPING_SOURCE_ROW_LIMIT = 5_000
+
+interface CandidateSourceRow {
+  chunk_id: string
+  block_id: string
+  page: number | null
+  asset_refs_json: string
+}
+
+interface SourceLocationRow {
+  block_id: string
+  page: number | null
+  block_type: string
+  bbox_json: string
+  provider_block_id: string | null
+  segment_start: number
+  segment_end: number
+}
+
+type DetailedCandidateSourceRow = CandidateSourceRow & SourceLocationRow
 
 export interface IndexStartupReport {
   integrityMode: 'new' | 'full' | 'clean-shutdown-fast-path'
@@ -43,6 +71,9 @@ export class IndexDatabase {
       this.#database.pragma('foreign_keys = ON')
       this.#database.pragma('busy_timeout = 5000')
       if (extensionPath !== undefined) this.#database.loadExtension(extensionPath)
+      this.#database.function('search_heading_text', { deterministic: true }, (value: string) =>
+        normalizeSearchHeading(parseStringArray(value).join('\n'))
+      )
       const applicationId = this.#database.pragma('application_id', { simple: true }) as number
       if (applicationId !== 0 && applicationId !== INDEX_DATABASE_APPLICATION_ID) {
         throw new Error('Index database application ID is incompatible')
@@ -107,11 +138,7 @@ export class IndexDatabase {
   }
 
   inspect(): IndexSnapshot {
-    const active = this.#database
-      .prepare(
-        "SELECT generation_id, source_set_sha256 FROM index_generations WHERE state = 'active'"
-      )
-      .get() as { generation_id: string; source_set_sha256: string } | undefined
+    const active = this.#activeGeneration()
     const generationCount = this.#database
       .prepare('SELECT count(*) FROM index_generations')
       .pluck()
@@ -140,13 +167,28 @@ export class IndexDatabase {
     }
   }
 
+  #activeGeneration(): { generation_id: string; source_set_sha256: string } | undefined {
+    return this.#database
+      .prepare(
+        `SELECT generation_id, source_set_sha256 FROM index_generations
+          WHERE state = 'active' AND generation_id GLOB ?`
+      )
+      .get(`${INDEX_GENERATION_PREFIX}*`) as
+      | { generation_id: string; source_set_sha256: string }
+      | undefined
+  }
+
+  get activeGenerationId(): string | null {
+    return this.#activeGeneration()?.generation_id ?? null
+  }
+
   searchFts(
     query: string,
     limit: number,
     filters: KnowledgeSearchFilters = emptyFilters(),
     mode: FtsSearchMode = 'phrase'
   ): FtsCandidate[] {
-    const active = this.inspect().activeGenerationId
+    const active = this.activeGenerationId
     return active === null ? [] : this.#fts.search(active, query, limit, filters, mode)
   }
 
@@ -154,13 +196,11 @@ export class IndexDatabase {
     activeIndexGenerationId: string | null
     activeEmbeddingContract: VectorGenerationContract | null
   } {
-    const activeIndexGenerationId = this.inspect().activeGenerationId
-    if (activeIndexGenerationId === null) {
+    const active = this.#activeGeneration()
+    if (active === undefined) {
       return { activeIndexGenerationId: null, activeEmbeddingContract: null }
     }
-    const activeGeneration = this.#database
-      .prepare('SELECT source_set_sha256 FROM index_generations WHERE generation_id = ?')
-      .get(activeIndexGenerationId) as { source_set_sha256: string } | undefined
+    const activeIndexGenerationId = active.generation_id
     const row = this.#database
       .prepare(
         `SELECT embedding_generation_id, index_generation_id, provider_id, model_id,
@@ -184,7 +224,7 @@ export class IndexDatabase {
           content_fingerprint: string
         }
       | undefined
-    if (row !== undefined && row.content_fingerprint !== activeGeneration?.source_set_sha256) {
+    if (row !== undefined && row.content_fingerprint !== active.source_set_sha256) {
       throw new Error('Active embedding source fingerprint is incompatible')
     }
     return {
@@ -208,22 +248,63 @@ export class IndexDatabase {
     }
   }
 
+  searchCandidates(
+    input: {
+      indexGenerationId: string
+      filters: KnowledgeSearchFilters
+      limit: number
+    } & (
+      | { query: string; mode: FtsSearchMode }
+      | { embeddingGenerationId: string; vector: number[] }
+    )
+  ): IndexCandidate[] | null {
+    const active = this.activeGenerationId
+    if (active !== input.indexGenerationId) return null
+    const { filters, limit } = input
+    const matches =
+      'query' in input
+        ? this.#fts.search(active, input.query, limit, filters, input.mode)
+        : this.#vectors.query(input.embeddingGenerationId, input.vector, limit, filters)
+    return this.#hydrateCandidates(
+      active,
+      matches.map((match) => match.chunkId),
+      false
+    )
+  }
+
   hydrateCandidates(
     chunkIds: string[],
     filters: KnowledgeSearchFilters,
     includeSourceDetails = false
   ): IndexCandidate[] {
-    const active = this.inspect().activeGenerationId
-    if (active === null || chunkIds.length === 0) return []
+    const active = this.activeGenerationId
+    return active === null
+      ? []
+      : this.#hydrateCandidates(
+          active,
+          chunkIds,
+          includeSourceDetails,
+          compileKnowledgeSearchFilters(filters)
+        )
+  }
+
+  #hydrateCandidates(
+    active: string,
+    chunkIds: string[],
+    includeSourceDetails: boolean,
+    filter?: SearchFilterSql
+  ): IndexCandidate[] {
+    if (chunkIds.length === 0) return []
     const placeholders = chunkIds.map(() => '?').join(', ')
     const chunks = this.#database
       .prepare(
         `SELECT chunk_id, knowledge_item_id, display_name, extension, parse_revision_id,
                 text, heading_path_json
            FROM chunks
-          WHERE generation_id = ? AND chunk_id IN (${placeholders})`
+          WHERE generation_id = ? AND chunk_id IN (${placeholders})
+            ${filter?.clause ?? ''}`
       )
-      .all(active, ...chunkIds) as Array<{
+      .all(active, ...chunkIds, ...(filter?.parameters ?? [])) as Array<{
       chunk_id: string
       knowledge_item_id: string
       display_name: string
@@ -232,25 +313,19 @@ export class IndexDatabase {
       text: string
       heading_path_json: string
     }>
+    if (chunks.length === 0) return []
+    const matchedIds = chunks.map((chunk) => chunk.chunk_id)
+    const detailColumns = includeSourceDetails
+      ? ', block_type, bbox_json, provider_block_id, segment_start, segment_end'
+      : ''
     const sources = this.#database
       .prepare(
-        `SELECT chunk_id, block_id, block_type, page, bbox_json, asset_refs_json,
-                provider_block_id, segment_start, segment_end
+        `SELECT chunk_id, block_id, page, asset_refs_json${detailColumns}
            FROM chunk_sources
-          WHERE generation_id = ? AND chunk_id IN (${placeholders})
+          WHERE generation_id = ? AND chunk_id IN (${matchedIds.map(() => '?').join(', ')})
           ORDER BY chunk_id, source_ordinal`
       )
-      .all(active, ...chunkIds) as Array<{
-      chunk_id: string
-      block_id: string
-      block_type: string
-      page: number | null
-      bbox_json: string
-      asset_refs_json: string
-      provider_block_id: string | null
-      segment_start: number
-      segment_end: number
-    }>
+      .all(active, ...matchedIds) as Array<CandidateSourceRow | DetailedCandidateSourceRow>
     const sourcesByChunk = new Map<string, typeof sources>()
     for (const source of sources) {
       const group = sourcesByChunk.get(source.chunk_id) ?? []
@@ -258,51 +333,27 @@ export class IndexDatabase {
       sourcesByChunk.set(source.chunk_id, group)
     }
     const chunkById = new Map(chunks.map((chunk) => [chunk.chunk_id, chunk]))
-    const knowledgeItems = new Set(filters.knowledgeItemIds)
-    const extensions = new Set<string>(filters.fileExtensions)
-    const revisions = new Set(filters.parseRevisionIds)
-    const headingFilter = filters.heading?.normalize('NFC').toLocaleLowerCase()
     const result: IndexCandidate[] = []
     for (const chunkId of chunkIds) {
       const chunk = chunkById.get(chunkId)
       if (chunk === undefined) continue
-      if (knowledgeItems.size > 0 && !knowledgeItems.has(chunk.knowledge_item_id)) continue
-      if (extensions.size > 0 && (chunk.extension === null || !extensions.has(chunk.extension))) {
-        continue
-      }
-      if (revisions.size > 0 && !revisions.has(chunk.parse_revision_id)) continue
       const headingPath = parseStringArray(chunk.heading_path_json)
-      if (
-        headingFilter !== undefined &&
-        !headingPath.join('\n').normalize('NFC').toLocaleLowerCase().includes(headingFilter)
-      ) {
-        continue
+      const sourceBlockIds: string[] = []
+      const assetRefs = new Set<string>()
+      const sourceDetails: IndexCandidate['sources'] = []
+      let page: number | undefined
+      for (const source of sourcesByChunk.get(chunkId) ?? []) {
+        sourceBlockIds.push(source.block_id)
+        if (source.page !== null) page = Math.min(page ?? source.page, source.page)
+        const sourceAssetRefs = parseStringArray(source.asset_refs_json)
+        for (const ref of sourceAssetRefs) assetRefs.add(ref)
+        if ('bbox_json' in source) {
+          sourceDetails.push({
+            ...readSourceLocation(source),
+            assetRefs: sourceAssetRefs
+          })
+        }
       }
-      const chunkSources = sourcesByChunk.get(chunkId) ?? []
-      if (
-        (filters.pageFrom !== undefined || filters.pageTo !== undefined) &&
-        !chunkSources.some(
-          (source) =>
-            source.page !== null &&
-            (filters.pageFrom === undefined || source.page >= filters.pageFrom) &&
-            (filters.pageTo === undefined || source.page <= filters.pageTo)
-        )
-      ) {
-        continue
-      }
-      const sourceValues = chunkSources.map((source) => ({
-        blockId: source.block_id,
-        blockType: source.block_type,
-        page: source.page,
-        bbox: JSON.parse(source.bbox_json) as [number, number, number, number] | null,
-        assetRefs: parseStringArray(source.asset_refs_json),
-        providerBlockId: source.provider_block_id,
-        segmentStart: source.segment_start,
-        segmentEnd: source.segment_end
-      }))
-      const pages = sourceValues
-        .map((source) => source.page)
-        .filter((page): page is number => page !== null)
       result.push({
         citationId: citationIdForChunk(chunkId),
         chunkId,
@@ -311,11 +362,11 @@ export class IndexDatabase {
         title: chunk.display_name,
         extension: chunk.extension,
         text: chunk.text,
-        ...(pages.length === 0 ? {} : { page: Math.min(...pages) }),
+        ...(page === undefined ? {} : { page }),
         headingPath,
-        sourceBlockIds: sourceValues.map((source) => source.blockId),
-        assetRefs: [...new Set(sourceValues.flatMap((source) => source.assetRefs))],
-        sources: includeSourceDetails ? sourceValues : []
+        sourceBlockIds,
+        assetRefs: [...assetRefs],
+        sources: sourceDetails
       })
     }
     return result
@@ -360,11 +411,8 @@ export class IndexDatabase {
       } | null
     }>
   } {
-    const active = this.#database
-      .prepare("SELECT generation_id FROM index_generations WHERE state = 'active'")
-      .pluck()
-      .get() as string | undefined
-    if (active === undefined) {
+    const active = this.activeGenerationId
+    if (active === null) {
       return {
         state: 'unavailable',
         activeIndexGenerationId: null,
@@ -394,37 +442,55 @@ export class IndexDatabase {
         ? ''
         : ` OR (chunk_sources.page IS NULL
                   AND chunk_sources.block_ordinal IN (${fallbackPlaceholders}))`
-    const pageChunkRows = this.#database
+    const chunkIds = this.#database
       .prepare(
-        `SELECT DISTINCT chunks.chunk_id
+        `SELECT chunks.chunk_id
            FROM chunks
-           JOIN chunk_sources
-             ON chunk_sources.generation_id = chunks.generation_id
-            AND chunk_sources.chunk_id = chunks.chunk_id
           WHERE chunks.generation_id = ?
             AND chunks.knowledge_item_id = ?
             AND chunks.parse_revision_id = ?
-            AND (chunk_sources.page = ?${fallbackPredicate})`
+            AND EXISTS (
+              SELECT 1 FROM chunk_sources
+               WHERE chunk_sources.generation_id = chunks.generation_id
+                 AND chunk_sources.chunk_id = chunks.chunk_id
+                 AND (chunk_sources.page = ?${fallbackPredicate})
+            )
+          LIMIT ?`
       )
+      .pluck()
       .all(
         active,
         input.knowledgeItemId,
         input.parseRevisionId,
         input.pageIndex,
-        ...fallbackBlockOrdinals
-      ) as Array<{
-      chunk_id: string
-    }>
-    if (pageChunkRows.length === 0) {
+        ...fallbackBlockOrdinals,
+        INDEX_MAPPING_CHUNK_LIMIT + 1
+      ) as string[]
+    if (chunkIds.length === 0 || chunkIds.length > INDEX_MAPPING_CHUNK_LIMIT) {
       return {
-        state: 'ready',
+        state: chunkIds.length === 0 ? 'ready' : 'too_complex',
         activeIndexGenerationId: active,
         activeEmbeddingGenerationId: this.#activeEmbeddingGenerationId(active),
         chunks: []
       }
     }
-    const chunkIds = pageChunkRows.map((row) => row.chunk_id)
-    if (chunkIds.length > 5_000) {
+    const placeholders = chunkIds.map(() => '?').join(', ')
+    const sources = this.#database
+      .prepare(
+        `SELECT chunk_id, block_id, block_ordinal, block_type, page, bbox_json,
+                provider_block_id, segment_start, segment_end
+           FROM chunk_sources
+          WHERE generation_id = ? AND chunk_id IN (${placeholders})
+          ORDER BY chunk_id, source_ordinal
+          LIMIT ?`
+      )
+      .all(active, ...chunkIds, MAPPING_SOURCE_ROW_LIMIT + 1) as Array<
+      SourceLocationRow & {
+        chunk_id: string
+        block_ordinal: number
+      }
+    >
+    if (sources.length > MAPPING_SOURCE_ROW_LIMIT) {
       return {
         state: 'too_complex',
         activeIndexGenerationId: active,
@@ -432,7 +498,12 @@ export class IndexDatabase {
         chunks: []
       }
     }
-    const placeholders = chunkIds.map(() => '?').join(', ')
+    const sourcesByChunk = new Map<string, typeof sources>()
+    for (const source of sources) {
+      const current = sourcesByChunk.get(source.chunk_id) ?? []
+      current.push(source)
+      sourcesByChunk.set(source.chunk_id, current)
+    }
     const chunks = this.#database
       .prepare(
         `SELECT chunk_id, ordinal, text, heading_path_json, source_block_start, source_block_end
@@ -448,39 +519,6 @@ export class IndexDatabase {
       source_block_start: number
       source_block_end: number
     }>
-    const sources = this.#database
-      .prepare(
-        `SELECT chunk_id, block_id, block_ordinal, block_type, page, bbox_json,
-                provider_block_id, segment_start, segment_end
-           FROM chunk_sources
-          WHERE generation_id = ? AND chunk_id IN (${placeholders})
-          ORDER BY chunk_id, source_ordinal`
-      )
-      .all(active, ...chunkIds) as Array<{
-      chunk_id: string
-      block_id: string
-      block_ordinal: number
-      block_type: string
-      page: number | null
-      bbox_json: string
-      provider_block_id: string | null
-      segment_start: number
-      segment_end: number
-    }>
-    if (sources.length > 5_000) {
-      return {
-        state: 'too_complex',
-        activeIndexGenerationId: active,
-        activeEmbeddingGenerationId: this.#activeEmbeddingGenerationId(active),
-        chunks: []
-      }
-    }
-    const sourcesByChunk = new Map<string, typeof sources>()
-    for (const source of sources) {
-      const current = sourcesByChunk.get(source.chunk_id) ?? []
-      current.push(source)
-      sourcesByChunk.set(source.chunk_id, current)
-    }
     const embedding = this.#database
       .prepare(
         `SELECT embedding_generation_id, provider_id, model_id, model_revision,
@@ -519,14 +557,8 @@ export class IndexDatabase {
         sourceBlockStart: chunk.source_block_start,
         sourceBlockEnd: chunk.source_block_end,
         sources: (sourcesByChunk.get(chunk.chunk_id) ?? []).map((source) => ({
-          blockId: source.block_id,
-          blockOrdinal: source.block_ordinal,
-          blockType: source.block_type,
-          page: source.page,
-          bbox: parseNullableBbox(source.bbox_json),
-          providerBlockId: source.provider_block_id,
-          segmentStart: source.segment_start,
-          segmentEnd: source.segment_end
+          ...readSourceLocation(source),
+          blockOrdinal: source.block_ordinal
         })),
         embedding:
           embedding === undefined
@@ -560,11 +592,7 @@ export class IndexDatabase {
   expandCitations(citationIds: string[]): IndexCandidate[] {
     return this.hydrateCandidates(
       citationIds.map((citationId) => `chunk-${citationId.slice('citation-'.length)}`),
-      {
-        knowledgeItemIds: [],
-        fileExtensions: [],
-        parseRevisionIds: []
-      },
+      emptyFilters(),
       true
     )
   }
@@ -614,19 +642,37 @@ export class IndexDatabase {
     return { values, total }
   }
 
-  beginEmbedding(contract: VectorGenerationContract): boolean {
-    return this.#vectors.begin(contract)
+  beginEmbedding(
+    contract: VectorGenerationContract,
+    refresh?: VectorRefresh
+  ): { alreadyActive: boolean; clearedCount: number | null } {
+    return this.#database.transaction(() => {
+      const alreadyActive = this.#vectors.begin(contract)
+      if (alreadyActive || refresh === undefined) return { alreadyActive, clearedCount: null }
+
+      // Older builds can stop after creating the generation but before clearing the cache.
+      // A saved vector proves that the refresh passed that boundary.
+      const hasProgress =
+        this.#database
+          .prepare('SELECT 1 FROM chunk_vectors WHERE embedding_generation_id = ? LIMIT 1')
+          .pluck()
+          .get(contract.embeddingGenerationId) === 1
+      const clearedCount = hasProgress
+        ? null
+        : this.#clearEmbeddingCache(
+            contract.indexGenerationId,
+            contract.contractSha256,
+            refresh.scope === 'item' ? refresh.knowledgeItemId : undefined
+          )
+      return { alreadyActive, clearedCount }
+    })()
   }
 
-  clearEmbeddingCache(
+  #clearEmbeddingCache(
     indexGenerationId: string,
     contractSha256: string,
     knowledgeItemId?: string
   ): number {
-    const activeGenerationId = this.inspect().activeGenerationId
-    if (activeGenerationId !== indexGenerationId) {
-      throw new Error('Embedding cache can only be refreshed for the active index generation')
-    }
     const itemPredicate = knowledgeItemId === undefined ? '' : 'AND knowledge_item_id = ?'
     const parameters =
       knowledgeItemId === undefined
@@ -653,7 +699,10 @@ export class IndexDatabase {
   }
 
   activateEmbedding(embeddingGenerationId: string, contractSha256: string): void {
-    this.#vectors.activate(embeddingGenerationId, contractSha256)
+    this.#database.transaction(() => {
+      this.#vectors.activate(embeddingGenerationId, contractSha256)
+      this.#pruneObsoleteEmbeddings()
+    })()
   }
 
   queryVectors(
@@ -663,10 +712,6 @@ export class IndexDatabase {
     filters: KnowledgeSearchFilters = emptyFilters()
   ) {
     return this.#vectors.query(embeddingGenerationId, vector, limit, filters)
-  }
-
-  deleteVectors(embeddingGenerationId: string): void {
-    this.#vectors.delete(embeddingGenerationId)
   }
 
   async build(input: {
@@ -715,16 +760,14 @@ export class IndexDatabase {
     }
 
     const chunks = await buildDeterministicChunks(input.sources, input.chunkerVersion)
-    const chunkSetSha256 = sha256(
-      Buffer.from(
-        JSON.stringify(
-          chunks.map((chunk) => ({
-            chunkId: chunk.chunkId,
-            contentSha256: chunk.contentSha256,
-            sources: chunk.sources.map((source) => source.blockId)
-          }))
-        )
-      )
+    const chunkSetSha256 = hashChunkSet(
+      chunks.map(({ knowledgeItemId, ordinal, chunkId, contentSha256, sources }) => ({
+        knowledgeItemId,
+        ordinal,
+        chunkId,
+        contentSha256,
+        sources: sources.map((source) => source.blockId)
+      }))
     )
     const now = new Date().toISOString()
     this.#database.transaction(() => {
@@ -884,7 +927,7 @@ export class IndexDatabase {
     const sources = this.#database
       .prepare(
         `SELECT knowledge_item_id, extension, parse_revision_id, normalization_run_id, manifest_sha256
-           FROM index_sources WHERE generation_id = ? ORDER BY knowledge_item_id`
+           FROM index_sources WHERE generation_id = ?`
       )
       .all(active.generation_id) as Array<{
       knowledge_item_id: string
@@ -896,11 +939,9 @@ export class IndexDatabase {
     const sourceFingerprint = hashSourceSet(
       sources.map((source) => ({
         knowledgeItemId: source.knowledge_item_id,
-        displayName: 'derived',
         extension: source.extension,
         parseRevisionId: source.parse_revision_id,
         normalizationRunId: source.normalization_run_id,
-        normalizationRoot: 'derived',
         manifestSha256: source.manifest_sha256
       })),
       active.chunker_version
@@ -910,30 +951,35 @@ export class IndexDatabase {
     }
     const chunks = this.#database
       .prepare(
-        `SELECT chunk_id, content_sha256 FROM chunks
-          WHERE generation_id = ? ORDER BY knowledge_item_id, ordinal, chunk_id`
+        `SELECT knowledge_item_id, ordinal, chunk_id, content_sha256 FROM chunks
+          WHERE generation_id = ?`
       )
-      .all(active.generation_id) as Array<{ chunk_id: string; content_sha256: string }>
+      .all(active.generation_id) as Array<{
+      knowledge_item_id: string
+      ordinal: number
+      chunk_id: string
+      content_sha256: string
+    }>
     const sourceIds = this.#database
       .prepare(
         `SELECT chunk_id, block_id FROM chunk_sources
           WHERE generation_id = ? ORDER BY chunk_id, source_ordinal`
       )
-      .all(active.generation_id) as Array<{ chunk_id: string; block_id: string }>
+      .iterate(active.generation_id) as IterableIterator<{ chunk_id: string; block_id: string }>
     const blocks = new Map<string, string[]>()
     for (const source of sourceIds) {
-      blocks.set(source.chunk_id, [...(blocks.get(source.chunk_id) ?? []), source.block_id])
+      const group = blocks.get(source.chunk_id)
+      if (group === undefined) blocks.set(source.chunk_id, [source.block_id])
+      else group.push(source.block_id)
     }
-    const chunkFingerprint = sha256(
-      Buffer.from(
-        JSON.stringify(
-          chunks.map((chunk) => ({
-            chunkId: chunk.chunk_id,
-            contentSha256: chunk.content_sha256,
-            sources: blocks.get(chunk.chunk_id) ?? []
-          }))
-        )
-      )
+    const chunkFingerprint = hashChunkSet(
+      chunks.map((chunk) => ({
+        knowledgeItemId: chunk.knowledge_item_id,
+        ordinal: chunk.ordinal,
+        chunkId: chunk.chunk_id,
+        contentSha256: chunk.content_sha256,
+        sources: blocks.get(chunk.chunk_id) ?? []
+      }))
     )
     if (
       active.chunk_set_sha256 === null ||
@@ -944,19 +990,21 @@ export class IndexDatabase {
     }
   }
 
-  #cleanupDerivedStorage(): IndexStartupReport['cleanup'] {
-    let removedEmbeddingGenerations = 0
-    const obsolete = this.#database
+  #pruneObsoleteEmbeddings(): number {
+    const expired = this.#database
       .prepare(
         `SELECT embedding_generation_id FROM embedding_generations
           WHERE state = 'obsolete'
-          ORDER BY COALESCE(activated_at, created_at) DESC`
+          ORDER BY COALESCE(activated_at, created_at) DESC, created_at DESC, embedding_generation_id DESC
+          LIMIT -1 OFFSET ?`
       )
-      .all() as Array<{ embedding_generation_id: string }>
-    for (const generation of obsolete.slice(RETAINED_NON_ACTIVE_GENERATIONS)) {
-      this.#vectors.delete(generation.embedding_generation_id)
-      removedEmbeddingGenerations += 1
-    }
+      .all(RETAINED_NON_ACTIVE_GENERATIONS) as Array<{ embedding_generation_id: string }>
+    for (const generation of expired) this.#vectors.delete(generation.embedding_generation_id)
+    return expired.length
+  }
+
+  #cleanupDerivedStorage(): IndexStartupReport['cleanup'] {
+    let removedEmbeddingGenerations = this.#pruneObsoleteEmbeddings()
     const inactiveIndex = this.#database
       .prepare(
         `SELECT generation_id FROM index_generations
@@ -1241,6 +1289,18 @@ function decodeVector(bytes: Buffer): number[] {
   return values
 }
 
+function readSourceLocation(source: SourceLocationRow) {
+  return {
+    blockId: source.block_id,
+    blockType: source.block_type,
+    page: source.page,
+    bbox: parseNullableBbox(source.bbox_json),
+    providerBlockId: source.provider_block_id,
+    segmentStart: source.segment_start,
+    segmentEnd: source.segment_end
+  }
+}
+
 function parseNullableBbox(value: string): [number, number, number, number] | null {
   const parsed: unknown = JSON.parse(value)
   if (
@@ -1268,27 +1328,29 @@ function citationIdForChunk(chunkId: string): string {
   return `citation-${match[1]}`
 }
 
-export function hashSourceSet(sources: readonly IndexSource[], chunkerVersion: number): string {
-  return sha256(
-    Buffer.from(
-      JSON.stringify({
-        chunkerVersion,
-        sources: [...sources]
-          .sort((a, b) => a.knowledgeItemId.localeCompare(b.knowledgeItemId))
-          .map((source) => ({
-            knowledgeItemId: source.knowledgeItemId,
-            extension: source.extension,
-            parseRevisionId: source.parseRevisionId,
-            normalizationRunId: source.normalizationRunId,
-            manifestSha256: source.manifestSha256
-          }))
-      })
-    )
+function hashChunkSet(
+  chunks: Array<{
+    knowledgeItemId: string
+    ordinal: number
+    chunkId: string
+    contentSha256: string
+    sources: string[]
+  }>
+): string {
+  chunks.sort(
+    (a, b) =>
+      a.knowledgeItemId.localeCompare(b.knowledgeItemId) ||
+      a.ordinal - b.ordinal ||
+      a.chunkId.localeCompare(b.chunkId)
   )
-}
-
-export function generationIdFor(sourceSetSha256: string, chunkerVersion: number): string {
-  return `generation-${sha256(Buffer.from(`${chunkerVersion}\0${sourceSetSha256}`)).slice(0, 40)}`
+  // Keep the JSON array encoding used by existing index generations.
+  const hash = createHash('sha256').update('[')
+  let separator = ''
+  for (const { chunkId, contentSha256, sources } of chunks) {
+    hash.update(separator).update(JSON.stringify({ chunkId, contentSha256, sources }))
+    separator = ','
+  }
+  return hash.update(']').digest('hex')
 }
 
 function emptyFilters(): KnowledgeSearchFilters {

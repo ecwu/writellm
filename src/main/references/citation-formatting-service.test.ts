@@ -32,7 +32,7 @@ function harness() {
     manifest: { projectId: 'project-1' },
     projectSessionId: '11111111-1111-4111-8111-111111111111',
     manuscript: {
-      assemble: () => ({
+      assemble: vi.fn(() => ({
         sections: [
           {
             section: { sectionId: 'section-1' },
@@ -50,9 +50,9 @@ function harness() {
             }
           }
         ]
-      })
+      }))
     },
-    references: { list: () => references, formattingSettings: () => settings },
+    references: { list: vi.fn(() => references), formattingSettings: () => settings },
     filesystem: { assertExistingRegularFile: vi.fn(async (_relative: string) => '') }
   }
   const format = vi.fn(
@@ -118,6 +118,25 @@ describe('CitationFormattingService', () => {
       citations: [{ raw: '[@beta; @alpha, pp. 2-4]', formatted: '(Alpha; Beta)' }]
     })
     expect(snapshot.bibliography.map((entry) => entry.citationKey)).toEqual(['alpha', 'beta'])
+  })
+
+  it('formats a publication capture without reading the live manuscript or library again', async () => {
+    const fixture = harness()
+    const context = fixture.context as unknown as ProjectContext
+    const capture = {
+      manuscript: context.manuscript.assemble(),
+      referenceItems: context.references.list()
+    }
+    fixture.context.manuscript.assemble.mockClear()
+    fixture.context.references.list.mockClear()
+    fixture.setText('New draft [@uncited].')
+
+    const pending = fixture.service.format(context, capture)
+    await vi.advanceTimersByTimeAsync(300)
+    const snapshot = await pending
+    expect(snapshot.citations.map((citation) => citation.raw)).toEqual(['[@beta; @alpha, pp. 2-4]'])
+    expect(fixture.context.manuscript.assemble).not.toHaveBeenCalled()
+    expect(fixture.context.references.list).not.toHaveBeenCalled()
   })
 
   it('reuses unchanged citation snapshots across prose edits and invalidates changed metadata and locale', async () => {

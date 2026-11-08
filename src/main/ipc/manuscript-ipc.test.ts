@@ -103,19 +103,19 @@ function harness() {
     })),
     updateBrief: vi.fn(),
     createSection: vi.fn(() => workspace.sections[0]?.section),
+    getRevision: vi.fn((_revisionId: string) => ({
+      ...workspace.sections[0]?.revision,
+      content: []
+    })),
     updateSection: vi.fn(),
     moveSection: vi.fn(),
     deleteSection: vi.fn()
   }
   const editorPersistence = {
-    loadSection: vi.fn(() => ({
-      section: workspace.sections[0]?.section,
-      revision: { ...workspace.sections[0]?.revision, content: [] }
-    })),
     materialize: vi.fn(async () => undefined),
     removeMaterialization: vi.fn(async () => undefined)
   }
-  const context = { manuscript, editorPersistence }
+  const context = { projectSessionId, manuscript, editorPersistence }
   const manager = {
     assertActiveSession: vi.fn((value: string) => {
       if (value !== projectSessionId) throw new Error('stale')
@@ -220,7 +220,10 @@ describe('manuscript IPC', () => {
       }
     })
     expect(manuscript.createSection).toHaveBeenCalledOnce()
-    expect(editorPersistence.materialize).toHaveBeenCalledOnce()
+    expect(manuscript.getRevision).toHaveBeenCalledExactlyOnceWith('revision-1')
+    expect(editorPersistence.materialize).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ sectionRevisionId: 'revision-1' })
+    )
 
     await invoke(IPC_CHANNELS.manuscriptDeleteSection, {
       projectSessionId,

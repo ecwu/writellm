@@ -11,11 +11,27 @@ import type {
   ImageGenerationGateway,
   RerankGateway
 } from './gateways'
+import {
+  assertEmbeddingProviderContract,
+  embeddingContractSha256
+} from '../search/embedding-contract'
 import { ModelExecutionService } from './model-execution-service'
 import type { ProviderService } from './provider-service'
 
 const directories: string[] = []
 const log = pino({ level: 'silent' })
+
+const embeddingConfig: Extract<ProviderConfig, { role: 'embedding' }> = {
+  role: 'embedding',
+  providerId: 'openai-compatible',
+  baseUrl: 'https://embedding.example.test/v1',
+  model: 'embedder',
+  modelRevision: 'embedder-rev-1',
+  timeoutMs: 1_000,
+  embeddingDimension: 2,
+  batchLimit: 10,
+  fileSizeLimitMb: null
+}
 
 async function database(): Promise<ProjectDatabase> {
   const parent = await mkdtemp(join(tmpdir(), 'writellm-model-execution-'))
@@ -42,6 +58,7 @@ afterEach(async () => {
 function service(options?: {
   agent?: AgentModelRuntime
   images?: ImageGenerationGateway
+  embeddings?: EmbeddingGateway
   imageConfig?: Extract<ProviderConfig, { role: 'image' }>
 }): ModelExecutionService {
   const configs: Record<'agent' | 'embedding' | 'rerank' | 'image', ProviderConfig> = {
@@ -56,17 +73,7 @@ function service(options?: {
       batchLimit: 1,
       fileSizeLimitMb: null
     },
-    embedding: {
-      role: 'embedding',
-      providerId: 'openai-compatible',
-      baseUrl: 'https://embedding.example.test/v1',
-      model: 'embedder',
-      modelRevision: 'embedder-rev-1',
-      timeoutMs: 1_000,
-      embeddingDimension: 2,
-      batchLimit: 10,
-      fileSizeLimitMb: null
-    },
+    embedding: embeddingConfig,
     rerank: {
       role: 'rerank',
       providerId: 'cohere-compatible',
@@ -121,7 +128,7 @@ function service(options?: {
         metadata: metadata('writer')
       }))
     } as AgentModelRuntime)
-  const embeddings: EmbeddingGateway = {
+  const embeddings: EmbeddingGateway = options?.embeddings ?? {
     embedBatch: vi.fn(async (_config, credential) => {
       expect(credential).toBe('runtime-secret')
       return { embeddings: [[0, 1]], metadata: metadata('embedder') }
@@ -308,24 +315,30 @@ describe('ModelExecutionService', () => {
     project.close()
   })
 
-  it('rejects a query embedding provider contract change before recording or calling the gateway', async () => {
+  it('rejects a changed embedding endpoint before recording or calling the gateway', async () => {
     const project = await database()
-    const contractError = new Error('embedding contract changed')
-    await expect(
-      service().embedBatch(
-        project,
-        { values: ['query'] },
-        { operationId: 'guarded-query' },
-        new AbortController().signal,
-        () => {
-          throw contractError
-        }
-      )
-    ).rejects.toBe(contractError)
-    await expect(
-      project.kysely.selectFrom('model_requests').select('model_request_id').execute()
-    ).resolves.toEqual([])
-    project.close()
+    const expectedContract = embeddingContractSha256({
+      ...embeddingConfig,
+      baseUrl: 'https://previous-embedding.example.test/v1'
+    })
+    const embedBatch = vi.fn()
+    try {
+      await expect(
+        service({ embeddings: { embedBatch } }).embedBatch(
+          project,
+          { values: ['query', 'second input'] },
+          { operationId: 'guarded-embedding' },
+          new AbortController().signal,
+          (config) => assertEmbeddingProviderContract(config, expectedContract)
+        )
+      ).rejects.toThrow('Embedding provider changed before execution')
+      expect(embedBatch).not.toHaveBeenCalled()
+      await expect(
+        project.kysely.selectFrom('model_requests').select('model_request_id').execute()
+      ).resolves.toEqual([])
+    } finally {
+      project.close()
+    }
   })
 
   it('records request-scoped image generation without persisting prompt or bytes', async () => {

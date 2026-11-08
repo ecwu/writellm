@@ -48,7 +48,7 @@ parentPort.on('message', (event) => {
           type: 'ready',
           requestId: input.requestId,
           projectSessionId,
-          snapshot: database.inspect()
+          activeGenerationId: database.activeGenerationId
         })
       )
     } catch (err) {
@@ -87,24 +87,22 @@ parentPort.on('message', (event) => {
             snapshot: database.activate(request.generationId)
           }
           break
-        case 'inspect':
-          response = { type: 'snapshot', requestId, snapshot: database.inspect() }
+        case 'active-generation':
+          response = {
+            type: 'active-generation',
+            requestId,
+            activeGenerationId: database.activeGenerationId
+          }
           break
         case 'retrieval-state':
           response = { type: 'retrieval-state', requestId, ...database.retrievalState() }
           break
         case 'fts-candidates':
+        case 'query-vectors':
           response = {
-            type: 'fts-candidates',
+            type: 'search-candidates',
             requestId,
-            values: database.searchFts(request.query, request.limit, request.filters, request.mode)
-          }
-          break
-        case 'hydrate-candidates':
-          response = {
-            type: 'hydrated-candidates',
-            requestId,
-            values: database.hydrateCandidates(request.chunkIds, request.filters)
+            values: database.searchCandidates(request)
           }
           break
         case 'expand-citations':
@@ -141,18 +139,7 @@ parentPort.on('message', (event) => {
           response = {
             type: 'vectors-begun',
             requestId,
-            alreadyActive: database.beginEmbedding(request.contract)
-          }
-          break
-        case 'clear-embedding-cache':
-          response = {
-            type: 'embedding-cache-cleared',
-            requestId,
-            count: database.clearEmbeddingCache(
-              request.indexGenerationId,
-              request.contractSha256,
-              request.knowledgeItemId
-            )
+            ...database.beginEmbedding(request.contract, request.refresh)
           }
           break
         case 'upsert-vectors':
@@ -162,22 +149,6 @@ parentPort.on('message', (event) => {
         case 'activate-vectors':
           database.activateEmbedding(request.embeddingGenerationId, request.contractSha256)
           response = { type: 'vectors-activated', requestId }
-          break
-        case 'query-vectors':
-          response = {
-            type: 'vector-candidates',
-            requestId,
-            values: database.queryVectors(
-              request.embeddingGenerationId,
-              request.vector,
-              request.limit,
-              request.filters
-            )
-          }
-          break
-        case 'delete-vectors':
-          database.deleteVectors(request.embeddingGenerationId)
-          response = { type: 'vectors-deleted', requestId }
           break
         case 'close':
           database.close()

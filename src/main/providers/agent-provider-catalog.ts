@@ -207,6 +207,7 @@ export class AgentProviderCatalogService {
       | 'setDefaultAgentModelSelection'
       | 'getLastAgentThinkingLevel'
       | 'setLastAgentThinkingLevel'
+      | 'getOrCreateOAuthInstallationId'
     >,
     private readonly log: Pick<Logger, 'info' | 'warn' | 'error'>,
     private readonly now: () => Date = () => new Date()
@@ -275,6 +276,13 @@ export class AgentProviderCatalogService {
           provider: providerId,
           configJson: JSON.stringify(config)
         })
+    // Encrypt before the transaction: the operating-system key store may wait.
+    const ciphertext =
+      config.authMode !== 'none' && input.apiKey !== undefined
+        ? await this.credentials.encryptForPersistence(
+            JSON.stringify({ type: 'api_key', key: input.apiKey })
+          )
+        : undefined
     const now = this.now().toISOString()
     await this.database.kysely.transaction().execute(async (transaction) => {
       await transaction
@@ -307,13 +315,8 @@ export class AgentProviderCatalogService {
       }
       if (config.authMode === 'none') {
         await this.credentials.removeCredential(`agent:${presetId}`, transaction)
-      } else if (input.apiKey !== undefined) {
-        const serialized = JSON.stringify({ type: 'api_key', key: input.apiKey })
-        await this.credentials.persistEncrypted(
-          `agent:${presetId}`,
-          this.credentials.encryptForPersistence(serialized),
-          transaction
-        )
+      } else if (ciphertext !== undefined) {
+        await this.credentials.persistEncrypted(`agent:${presetId}`, ciphertext, transaction)
       } else if (securityIdentityChanged) {
         await this.credentials.removeCredential(`agent:${presetId}`, transaction)
       }
@@ -563,7 +566,9 @@ export class AgentProviderCatalogService {
     const provider = models.getProvider(providerId)
     if (provider === undefined) throw new Error('Agent provider preset does not exist')
     await this.#ensureProviderRecord(provider, parsed)
-    await models.login(providerId, type, interaction)
+    await models.login(providerId, type, interaction, {
+      getDeviceId: () => this.settings.getOrCreateOAuthInstallationId()
+    })
     this.log.info(
       {
         event: 'agent.provider_auth.login_completed',

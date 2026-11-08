@@ -30,6 +30,7 @@ import {
   type PublicationOptions
 } from '../../shared/contracts/publication'
 import { manuscriptToMarkdown, manuscriptToPandocMarkdown } from '../../shared/manuscript-markdown'
+import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
 import type { ProjectDatabase } from '../project/project-database'
 import type { SnapshotBarrier } from '../project/project-snapshot'
 import {
@@ -39,7 +40,7 @@ import {
 } from '../project/project-paths'
 import { writeAtomicFile } from '../storage/atomic-file'
 import { availableLegacyCitationLabels } from '../references/reference-availability'
-import type { ManuscriptAssetService } from './asset-service'
+import { collectReferencedAssetIds, type ManuscriptAssetService } from './asset-service'
 import type { ManuscriptService } from './manuscript-service'
 import { renderDocxPublication } from './docx-publication'
 import { renderLatexPublication } from './latex-publication'
@@ -156,7 +157,9 @@ export async function createManuscriptExport(options: {
       lossReportRecord = { ...publishedLosses, lossCount: lossReport.losses.length }
       if (options.kind === 'pandoc') {
         const citedKeys = new Set(
-          options.manuscript.getReferenceIndex().entries.flatMap((entry) => entry.citationKey ?? [])
+          buildManuscriptReferenceIndex(assembly).entries.flatMap(
+            (entry) => entry.citationKey ?? []
+          )
         )
         const cslItems = options.database.immediate((database) =>
           (
@@ -174,7 +177,7 @@ export async function createManuscriptExport(options: {
         )
       }
     } else {
-      const references = options.manuscript.getReferenceIndex()
+      const references = buildManuscriptReferenceIndex(assembly)
       const availableReferenceTitles = availableLegacyCitationLabels(options.database)
       const publication = buildPublicationAssembly({
         manuscript: assembly,
@@ -515,8 +518,7 @@ async function captureAssets(options: {
 }): Promise<CapturedAsset[]> {
   const references = new Map<string, Set<string>>()
   for (const item of options.assembly.sections) {
-    const ids = collectAssetIds(item.revision.content)
-    for (const assetId of ids) {
+    for (const assetId of collectReferencedAssetIds(item.revision.content)) {
       const revisions = references.get(assetId) ?? new Set<string>()
       revisions.add(item.revision.sectionRevisionId)
       references.set(assetId, revisions)
@@ -570,22 +572,6 @@ async function captureAssets(options: {
   }
   validateInventoryPaths(captured.map((item) => item.exportRecord))
   return captured
-}
-
-function collectAssetIds(
-  document: ManuscriptAssembly['sections'][number]['revision']['content']
-): Set<string> {
-  const assetIds = new Set<string>()
-  const visit = (blocks: typeof document): void => {
-    for (const block of blocks) {
-      if (block.type === 'image') {
-        assetIds.add((block.props.url as string).slice('writellm-asset:'.length))
-      }
-      if (block.children.length > 0) visit(block.children)
-    }
-  }
-  visit(document)
-  return assetIds
 }
 
 async function publishAssets(stage: string, assets: readonly CapturedAsset[]): Promise<void> {

@@ -46,10 +46,10 @@ import {
   writeWritingRules,
   type WritingRuleOperation
 } from '../../shared/contracts/writing-rules'
-import type { AgentContextBuilder, WritingSnapshot } from './context'
+import type { WritingSnapshot } from './context'
 import type { MutationProposalService } from './mutation-service'
 import type { AgentReadToolExecutor } from './read-tools'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { extractSectionAgentText } from '../manuscript/content'
 import {
   blockNoteDocumentSchema,
@@ -120,15 +120,11 @@ export interface AgentToolExecutor {
 
 export class MainAgentTools implements AgentToolExecutor {
   constructor(
-    private readonly readTools: AgentReadToolExecutor & { contextBuilder(): AgentContextBuilder },
+    private readonly readTools: AgentReadToolExecutor,
     readonly mutations: MutationProposalService,
     private readonly writingTasks?: WritingTaskService,
     private readonly comments?: ManuscriptCommentService
   ) {}
-
-  contextBuilder(): AgentContextBuilder {
-    return this.readTools.contextBuilder()
-  }
 
   approveProposalAutomatically(
     agentSessionId: string,

@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { citationIdSchema, citationSourceSchema, knowledgeSearchFiltersSchema } from './search'
+import {
+  KNOWLEDGE_CHUNK_ASSET_LIMIT,
+  citationIdSchema,
+  citationSourceSchema,
+  knowledgeSearchFiltersSchema
+} from './search'
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
 const identifierSchema = z
@@ -11,6 +16,7 @@ const internalPathSchema = z.string().min(1).max(32_768)
 
 export const INDEX_SCHEMA_VERSION = 5
 export const INDEX_CHUNKER_VERSION = 1
+export const INDEX_MAPPING_CHUNK_LIMIT = 5_000
 export const ftsSearchModeSchema = z.enum(['phrase', 'terms'])
 export type FtsSearchMode = z.infer<typeof ftsSearchModeSchema>
 
@@ -47,6 +53,12 @@ export const vectorGenerationContractSchema = z
   })
   .strict()
 export type VectorGenerationContract = z.infer<typeof vectorGenerationContractSchema>
+
+const vectorRefreshSchema = z.discriminatedUnion('scope', [
+  z.strictObject({ scope: z.literal('all') }),
+  z.strictObject({ scope: z.literal('item'), knowledgeItemId: z.uuid() })
+])
+export type VectorRefresh = z.infer<typeof vectorRefreshSchema>
 
 const embeddingValueSchema = z
   .object({
@@ -109,7 +121,7 @@ export const indexCandidateSchema = z
     page: z.number().int().nonnegative().optional(),
     headingPath: z.array(z.string().max(1_000)).max(20),
     sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000),
-    assetRefs: z.array(z.string().min(1).max(1_024)).max(2_000),
+    assetRefs: z.array(z.string().min(1).max(1_024)).max(KNOWLEDGE_CHUNK_ASSET_LIMIT),
     sources: z.array(citationSourceSchema).max(1_000)
   })
   .strict()
@@ -143,24 +155,17 @@ const indexUtilityRequestBodySchema = z.discriminatedUnion('operation', [
       generationId: identifierSchema
     })
     .strict(),
-  z.object({ operation: z.literal('inspect'), requestId: z.uuid() }).strict(),
+  z.object({ operation: z.literal('active-generation'), requestId: z.uuid() }).strict(),
   z.object({ operation: z.literal('retrieval-state'), requestId: z.uuid() }).strict(),
   z
     .object({
       operation: z.literal('fts-candidates'),
       requestId: z.uuid(),
+      indexGenerationId: identifierSchema,
       query: z.string().trim().min(1).max(2_000),
       limit: z.number().int().min(1).max(1_000),
       filters: knowledgeSearchFiltersSchema,
       mode: ftsSearchModeSchema.default('phrase')
-    })
-    .strict(),
-  z
-    .object({
-      operation: z.literal('hydrate-candidates'),
-      requestId: z.uuid(),
-      chunkIds: z.array(identifierSchema).max(1_000),
-      filters: knowledgeSearchFiltersSchema
     })
     .strict(),
   z
@@ -195,16 +200,8 @@ const indexUtilityRequestBodySchema = z.discriminatedUnion('operation', [
     .object({
       operation: z.literal('begin-vectors'),
       requestId: z.uuid(),
-      contract: vectorGenerationContractSchema
-    })
-    .strict(),
-  z
-    .object({
-      operation: z.literal('clear-embedding-cache'),
-      requestId: z.uuid(),
-      indexGenerationId: identifierSchema,
-      contractSha256: sha256Schema,
-      knowledgeItemId: z.uuid().optional()
+      contract: vectorGenerationContractSchema,
+      refresh: vectorRefreshSchema.optional()
     })
     .strict(),
   z
@@ -227,17 +224,11 @@ const indexUtilityRequestBodySchema = z.discriminatedUnion('operation', [
     .object({
       operation: z.literal('query-vectors'),
       requestId: z.uuid(),
+      indexGenerationId: identifierSchema,
       embeddingGenerationId: identifierSchema,
       vector: z.array(z.number().finite()).min(1).max(65_536),
       limit: z.number().int().min(1).max(1_000),
       filters: knowledgeSearchFiltersSchema
-    })
-    .strict(),
-  z
-    .object({
-      operation: z.literal('delete-vectors'),
-      requestId: z.uuid(),
-      embeddingGenerationId: identifierSchema
     })
     .strict(),
   z.object({ operation: z.literal('close'), requestId: z.uuid() }).strict()
@@ -269,7 +260,13 @@ const diagnosticSchema = z
   .strict()
 
 const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('ready'), requestId: z.uuid(), snapshot: snapshotSchema }).strict(),
+  z
+    .object({
+      type: z.literal('ready'),
+      requestId: z.uuid(),
+      activeGenerationId: identifierSchema.nullable()
+    })
+    .strict(),
   z
     .object({
       type: z.literal('built'),
@@ -289,7 +286,13 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
       snapshot: snapshotSchema
     })
     .strict(),
-  z.object({ type: z.literal('snapshot'), requestId: z.uuid(), snapshot: snapshotSchema }).strict(),
+  z
+    .object({
+      type: z.literal('active-generation'),
+      requestId: z.uuid(),
+      activeGenerationId: identifierSchema.nullable()
+    })
+    .strict(),
   z
     .object({
       type: z.literal('retrieval-state'),
@@ -300,26 +303,9 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
     .strict(),
   z
     .object({
-      type: z.literal('fts-candidates'),
+      type: z.literal('search-candidates'),
       requestId: z.uuid(),
-      values: z
-        .array(
-          z
-            .object({
-              chunkId: identifierSchema,
-              rank: z.number().finite(),
-              strategy: z.enum(['unicode61', 'trigram', 'substring'])
-            })
-            .strict()
-        )
-        .max(1_000)
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal('hydrated-candidates'),
-      requestId: z.uuid(),
-      values: z.array(indexCandidateSchema).max(1_000)
+      values: z.array(indexCandidateSchema).max(1_000).nullable()
     })
     .strict(),
   z
@@ -355,17 +341,15 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
       state: z.enum(['ready', 'indexing', 'unavailable', 'too_complex']),
       activeIndexGenerationId: identifierSchema.nullable(),
       activeEmbeddingGenerationId: identifierSchema.nullable(),
-      chunks: z.array(mappingChunkSchema).max(5_000)
+      chunks: z.array(mappingChunkSchema).max(INDEX_MAPPING_CHUNK_LIMIT)
     })
     .strict(),
   z
-    .object({ type: z.literal('vectors-begun'), requestId: z.uuid(), alreadyActive: z.boolean() })
-    .strict(),
-  z
     .object({
-      type: z.literal('embedding-cache-cleared'),
+      type: z.literal('vectors-begun'),
       requestId: z.uuid(),
-      count: z.number().int().nonnegative()
+      alreadyActive: z.boolean(),
+      clearedCount: z.number().int().nonnegative().nullable()
     })
     .strict(),
   z
@@ -376,16 +360,6 @@ const indexUtilityResponseBodySchema = z.discriminatedUnion('type', [
     })
     .strict(),
   z.object({ type: z.literal('vectors-activated'), requestId: z.uuid() }).strict(),
-  z
-    .object({
-      type: z.literal('vector-candidates'),
-      requestId: z.uuid(),
-      values: z
-        .array(z.object({ chunkId: identifierSchema, distance: z.number().finite() }).strict())
-        .max(1_000)
-    })
-    .strict(),
-  z.object({ type: z.literal('vectors-deleted'), requestId: z.uuid() }).strict(),
   z.object({ type: z.literal('closed'), requestId: z.uuid() }).strict(),
   z.object({ type: z.literal('error'), requestId: z.uuid(), error: diagnosticSchema }).strict()
 ])

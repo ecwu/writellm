@@ -37,6 +37,9 @@ projects require user consent. Renderer APIs are session-authorized and return o
 checkpoint metadata and sanitized errors. They never expose project paths, Git paths, temporary
 paths, or raw Git errors. Restore materializes and validates a selected commit, preserves the
 existing repository, and appends a new restore commit instead of rewriting history.
+Main keeps the original project lock through close and locks the candidate before either directory moves.
+Each lock moves with its directory. Reopen takes ownership of the installed directory's lock.
+If the candidate cannot reopen, journal replay moves the original directory back with its lock.
 
 ## Consequences
 

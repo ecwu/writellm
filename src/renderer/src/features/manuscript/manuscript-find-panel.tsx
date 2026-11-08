@@ -156,7 +156,7 @@ export function ManuscriptFindPanel(props: ManuscriptFindPanelProps): React.JSX.
 
   return (
     <Command shouldFilter={false} className='min-h-0 rounded-none bg-sidebar' loop>
-      <div className='flex shrink-0 flex-col gap-1 border-b p-2'>
+      <div className='flex shrink-0 flex-col gap-2 border-b px-2 py-3'>
         <div className='flex min-w-0 items-center gap-1'>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -211,7 +211,7 @@ export function ManuscriptFindPanel(props: ManuscriptFindPanelProps): React.JSX.
                         {filterCount > 0 ? (
                           <Badge
                             variant='secondary'
-                            className='absolute -top-1 -right-1 min-w-4 px-1 text-[10px] tabular-nums'
+                            className='absolute -top-1.5 -right-1.5 h-4 min-w-4 px-1 text-xs tabular-nums'
                           >
                             {filterCount}
                           </Badge>
@@ -492,7 +492,7 @@ function SearchResults(props: {
                           <TooltipContent side='right'>{hitPath}</TooltipContent>
                         </Tooltip>
                         {hit.target.kind !== 'block_inline' ? (
-                          <Badge variant='outline' className='shrink-0 text-[10px]'>
+                          <Badge variant='outline' className='shrink-0'>
                             {targetLabels[hit.target.kind]}
                           </Badge>
                         ) : null}
@@ -655,7 +655,7 @@ function ReplacementReview(props: {
                           Before: {candidate.beforePreview}
                         </span>
                         {candidate.targetKind !== 'block_inline' ? (
-                          <Badge variant='outline' className='shrink-0 text-[10px]'>
+                          <Badge variant='outline' className='shrink-0'>
                             {targetLabels[candidate.targetKind]}
                           </Badge>
                         ) : null}

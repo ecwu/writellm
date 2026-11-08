@@ -65,6 +65,9 @@ export const projectsApi: DesktopApi['projects'] = {
   async locateMoved() {
     return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.locateMoved, {})
   },
+  async rebuildMissingManifest(input) {
+    return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.rebuildMissingManifest, input)
+  },
   async exportRecoveryDiagnostics() {
     return invokeIpcEndpoint(ipcRenderer, projectIpcEndpoints.exportRecoveryDiagnostics, {})
   },

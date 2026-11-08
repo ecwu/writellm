@@ -237,32 +237,6 @@ export const agentApi: DesktopApi['agent'] = {
   async cancelImageGeneration(input) {
     return invokeIpcEndpoint(ipcRenderer, agentIpcEndpoints.cancelImageGeneration, input)
   },
-  async subscribeSectionChanged(input, listener) {
-    const subscription = mutationSubscriptionInputSchema.parse({
-      ...input,
-      subscriptionId: globalThis.crypto.randomUUID()
-    })
-    const handler = (_event: Electron.IpcRendererEvent, value: unknown): void => {
-      const changed = mutationProposalChangedSchema.parse(value)
-      if (
-        changed.projectSessionId === subscription.projectSessionId &&
-        changed.sectionChanged !== null
-      ) {
-        listener(changed.sectionChanged)
-      }
-    }
-    ipcRenderer.on(IPC_CHANNELS.agentMutationChanged, handler)
-    try {
-      await ipcRenderer.invoke(IPC_CHANNELS.agentSubscribeMutations, subscription)
-    } catch (err) {
-      ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
-      throw err
-    }
-    return () => {
-      ipcRenderer.removeListener(IPC_CHANNELS.agentMutationChanged, handler)
-      void ipcRenderer.invoke(IPC_CHANNELS.agentUnsubscribeMutations, subscription)
-    }
-  },
   async subscribeMutations(input, listener) {
     const subscription = mutationSubscriptionInputSchema.parse({
       ...input,

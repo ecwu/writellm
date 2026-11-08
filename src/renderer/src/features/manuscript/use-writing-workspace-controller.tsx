@@ -2,6 +2,9 @@ import { manuscriptFailureMessage, reportRendererOperationError } from '../../di
 import { useManuscriptReferences } from './use-manuscript-references'
 import { useManuscriptImport } from './use-manuscript-import'
 import { useManuscriptFind } from './use-manuscript-find'
+import { useWorkspaceFinalFlush } from './use-workspace-final-flush'
+import { useSectionTitleDraft } from './use-section-title-draft'
+import { useSectionNavigation } from './use-section-navigation'
 import {
   useWorkbench,
   tabId,
@@ -14,7 +17,6 @@ import type {
   SectionRevision,
   SectionStatus
 } from '../../../../shared/contracts/manuscript'
-import type { ManuscriptSearchTargetContract } from '../../../../shared/contracts/manuscript-search'
 import type { AgentQuickActionRequest } from '../../../../shared/contracts/agent-quick-actions'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -117,39 +119,18 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     storedIndex: referencesQuery.data
   })
   const [editorSaveState, setEditorSaveState] = useState<SaveState>('saved')
-  const [metadataTitle, setMetadataTitle] = useState('')
-  const [metadataError, setMetadataError] = useState(false)
   const [outlineEditOpen, setOutlineEditOpen] = useState(false)
-  const [outlineSearchFocus, setOutlineSearchFocus] = useState<{
-    sectionId: string
-    field: 'objective'
-    from: number
-    to: number
-  } | null>(null)
-  const [editorAutoFocus, setEditorAutoFocus] = useState(true)
   const editorRef = useRef<SectionEditorHandle>(null)
   const [pendingCitationInsert, setPendingCitationInsert] = useState<{
     citationKey: string
     sectionId: string
   } | null>(null)
-  const manuscriptScrollRef = useRef<HTMLElement>(null)
   const activeSectionIdRef = useRef<string | null>(null)
-  const pendingScrollSectionIdRef = useRef<string | null>(null)
-  const metadataDraftSectionIdRef = useRef<string | null>(null)
-  const metadataCanonicalUpdatedAtRef = useRef<string | null>(null)
-  const metadataCanonicalTitleRef = useRef<string | null>(null)
-  const metadataSaveRef = useRef<Promise<boolean> | null>(null)
   const outlineMutationLockRef = useRef<Promise<void>>(Promise.resolve())
-  const metadataDraftRef = useRef({ title: '' })
   const [selectionContext, setSelectionContext] = useState<AgentPanelSelection | null>(null)
   const [quickActionRequest, setQuickActionRequest] = useState<AgentPanelQuickActionRequest | null>(
     null
   )
-  const [pendingSearchTarget, setPendingSearchTarget] = useState<{
-    target: ManuscriptSearchTargetContract
-    revisionId: string | null
-  } | null>(null)
-  const sectionTitleRef = useRef<HTMLTextAreaElement>(null)
 
   const editorQuery = useQuery({
     queryKey: ['manuscript-section', props.projectSessionId, activeSectionId],
@@ -178,7 +159,43 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     }
   })
 
-  const activateSection = useCallback(
+  const activeSummary = workspace?.sections.find(
+    (item) => item.section.sectionId === activeSectionId
+  )
+
+  const runMutation = useCallback(
+    async (operation: () => Promise<ManuscriptWorkspace>): Promise<ManuscriptWorkspace | null> => {
+      try {
+        return await mutation.mutateAsync(operation)
+      } catch (err) {
+        reportRendererOperationError(err, 'use-writing-workspace-controller')
+        props.onError(
+          manuscriptFailureMessage(
+            err,
+            'The requested manuscript update failed. Try again or open Diagnostics.'
+          )
+        )
+        return null
+      }
+    },
+    [mutation, props]
+  )
+
+  const {
+    title: metadataTitle,
+    saveFailed: metadataError,
+    change: changeMetadataTitle,
+    reset: resetMetadataTitle,
+    save: saveMetadata
+  } = useSectionTitleDraft({
+    section: activeSummary?.section,
+    projectSessionId: props.projectSessionId,
+    workspaceKey,
+    runMutation,
+    onError: props.onError
+  })
+
+  const activateEditorSection = useCallback(
     async (sectionId: string): Promise<void> => {
       await window.desktop.editor.setActiveSection({
         projectSessionId: props.projectSessionId,
@@ -187,27 +204,26 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       const target = queryClient
         .getQueryData<ManuscriptWorkspace>(workspaceKey)
         ?.sections.find((item) => item.section.sectionId === sectionId)
-      if (target) {
-        setMetadataTitle(target.section.title)
-        metadataDraftRef.current = { title: target.section.title }
-        metadataDraftSectionIdRef.current = sectionId
-        metadataCanonicalUpdatedAtRef.current = target.section.updatedAt
-        metadataCanonicalTitleRef.current = target.section.title
-        setMetadataError(false)
-      }
+      if (target) resetMetadataTitle(target.section)
       activeSectionIdRef.current = sectionId
       references.changeCitationDraft(null)
       setSelectionContext(null)
       setActiveSectionId(sectionId)
-      workbench.didActivateSection(sectionId)
     },
     [
       props.projectSessionId,
       queryClient,
       workspaceKey,
-      workbench.didActivateSection,
-      references.changeCitationDraft
+      references.changeCitationDraft,
+      resetMetadataTitle
     ]
+  )
+  const activateSection = useCallback(
+    async (sectionId: string): Promise<void> => {
+      await activateEditorSection(sectionId)
+      workbench.didActivateSection(sectionId)
+    },
+    [activateEditorSection, workbench.didActivateSection]
   )
 
   const initialTabActivated = useRef(false)
@@ -240,9 +256,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     workbench.reconcileSections
   ])
 
-  const activeSummary = workspace?.sections.find(
-    (item) => item.section.sectionId === activeSectionId
-  )
   const currentRevisionIds = useMemo(
     () =>
       Object.fromEntries(
@@ -261,83 +274,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     [workspace]
   )
 
-  useEffect(() => {
-    if (!activeSummary) return
-    const sectionChanged = metadataDraftSectionIdRef.current !== activeSummary.section.sectionId
-    const canonicalChanged =
-      metadataCanonicalUpdatedAtRef.current !== activeSummary.section.updatedAt
-    const draft = metadataDraftRef.current
-    const draftDirty = draft.title !== metadataCanonicalTitleRef.current
-    const draftMatchesCanonical = draft.title === activeSummary.section.title
-    if (
-      !sectionChanged &&
-      (!canonicalChanged || (draftDirty && !draftMatchesCanonical) || metadataError)
-    )
-      return
-    setMetadataTitle(activeSummary.section.title)
-    metadataDraftRef.current = { title: activeSummary.section.title }
-    metadataDraftSectionIdRef.current = activeSummary.section.sectionId
-    metadataCanonicalUpdatedAtRef.current = activeSummary.section.updatedAt
-    metadataCanonicalTitleRef.current = activeSummary.section.title
-    setMetadataError(false)
-  }, [activeSummary, metadataError])
-
-  const runMutation = useCallback(
-    async (operation: () => Promise<ManuscriptWorkspace>): Promise<ManuscriptWorkspace | null> => {
-      try {
-        return await mutation.mutateAsync(operation)
-      } catch (err) {
-        reportRendererOperationError(err, 'use-writing-workspace-controller')
-        props.onError(
-          manuscriptFailureMessage(
-            err,
-            'The requested manuscript update failed. Try again or open Diagnostics.'
-          )
-        )
-        return null
-      }
-    },
-    [mutation, props]
-  )
-
-  const saveMetadata = useCallback(async (): Promise<boolean> => {
-    if (metadataSaveRef.current !== null) return metadataSaveRef.current
-    const operation = (async (): Promise<boolean> => {
-      if (!activeSummary) return true
-      const draft = metadataDraftRef.current
-      if (draft.title === activeSummary.section.title) return true
-      if (draft.title.trim().length === 0) {
-        props.onError('Section titles cannot be empty.')
-        return false
-      }
-      const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
-      const currentSummary = current?.sections.find(
-        (item) => item.section.sectionId === activeSummary.section.sectionId
-      )
-      if (!current || !currentSummary) return false
-      const result = await runMutation(() =>
-        window.desktop.manuscript.updateSection({
-          projectSessionId: props.projectSessionId,
-          update: {
-            baseOutlineVersion: current.outlineVersion,
-            sectionId: activeSummary.section.sectionId,
-            title: draft.title.trim()
-          }
-        })
-      )
-      setMetadataError(result === null)
-      return result !== null
-    })()
-    metadataSaveRef.current = operation
-    try {
-      return await operation
-    } finally {
-      if (metadataSaveRef.current === operation) metadataSaveRef.current = null
-    }
-  }, [activeSummary, props, queryClient, runMutation, workspaceKey])
-  const saveMetadataRef = useRef(saveMetadata)
-  saveMetadataRef.current = saveMetadata
-
   const flushCurrent = useCallback(async (): Promise<boolean> => {
     try {
       await editorRef.current?.flush()
@@ -352,7 +288,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
 
   workbenchActions.current = {
     flush: flushCurrent,
-    activateSection,
+    activateSection: activateEditorSection,
     setWorkspace: (kind) => setActiveWorkspaceRaw(kind === 'section' ? 'manuscript' : kind),
     clearSelection: () => setSelectionContext(null)
   }
@@ -382,67 +318,32 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     [flushCurrent, props]
   )
 
-  const switchSection = useCallback(
-    async (sectionId: string, source: 'user' | 'agent' | 'find'): Promise<boolean> => {
-      if (sectionId === activeSectionIdRef.current) {
-        workbench.didActivateSection(sectionId)
-        return true
-      }
-      if (!(await flushCurrent())) return false
-      try {
-        setEditorAutoFocus(source === 'user')
-        pendingScrollSectionIdRef.current = source === 'agent' ? sectionId : null
-        await activateSection(sectionId)
-        return true
-      } catch (err) {
-        reportRendererOperationError(err, 'use-writing-workspace-controller')
-        if (pendingScrollSectionIdRef.current === sectionId) {
-          pendingScrollSectionIdRef.current = null
-        }
-        props.onError('The selected section could not be activated.')
-        return false
-      }
-    },
-    [activateSection, flushCurrent, props, workbench.didActivateSection]
-  )
-
-  const enqueueSectionSwitch = useCallback(
-    (sectionId: string, source: 'user' | 'agent' | 'find'): Promise<boolean> => {
-      return workbench
-        .enqueue(() => switchSection(sectionId, source))
-        .then((result) => result ?? false)
-    },
-    [switchSection, workbench.enqueue]
-  )
-
-  const selectSection = useCallback(
-    (sectionId: string): Promise<boolean> => enqueueSectionSwitch(sectionId, 'user'),
-    [enqueueSectionSwitch]
-  )
-
-  const followAgentSection = useCallback(
-    (sectionId: string): Promise<boolean> => enqueueSectionSwitch(sectionId, 'agent'),
-    [enqueueSectionSwitch]
-  )
+  const {
+    editorAutoFocus,
+    setEditorAutoFocus,
+    outlineSearchFocus,
+    setOutlineSearchFocus,
+    sectionTitleRef,
+    manuscriptScrollRef,
+    selectSection,
+    followAgentSection,
+    navigateToHit,
+    clearSearchTarget
+  } = useSectionNavigation({
+    activeSectionId,
+    activeSectionIdRef,
+    editorRevision: editorQuery.data?.revision,
+    editorRef,
+    enqueue: workbench.enqueue,
+    flushCurrent,
+    activateSection,
+    showSectionTab: workbench.didActivateSection,
+    setOutlineEditOpen,
+    onError: props.onError
+  })
 
   const getActiveSectionId = useCallback(() => activeSectionIdRef.current, [])
   const releaseMutationBarrier = useCallback(() => editorRef.current?.releaseMutationBarrier(), [])
-  const clearSearchTarget = useCallback(() => {
-    editorRef.current?.clearSearchTarget()
-    setPendingSearchTarget(null)
-  }, [])
-  const navigateToHit = useCallback(
-    async (
-      sectionId: string,
-      target: ManuscriptSearchTargetContract,
-      revisionId: string | null
-    ) => {
-      if (!(await enqueueSectionSwitch(sectionId, 'find'))) return false
-      setPendingSearchTarget({ target, revisionId })
-      return true
-    },
-    [enqueueSectionSwitch]
-  )
   const find = useManuscriptFind({
     projectSessionId: props.projectSessionId,
     activeWorkspace,
@@ -472,253 +373,115 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     onError: props.onError
   })
 
+  useWorkspaceFinalFlush({
+    projectSessionId: props.projectSessionId,
+    workspaceKey,
+    editorRef,
+    activeSectionIdRef,
+    saveLayout: workbench.save,
+    saveMetadata,
+    onFailure: () => setEditorSaveState('failed')
+  })
+
   useEffect(() => {
-    if (
-      pendingSearchTarget === null ||
-      activeSectionId !== pendingSearchTarget.target.sectionId ||
-      editorQuery.data === undefined ||
-      (pendingSearchTarget.revisionId !== null &&
-        editorQuery.data.revision.sectionRevisionId !== pendingSearchTarget.revisionId)
-    ) {
-      return
-    }
-    const pending = pendingSearchTarget
-    const frame = window.requestAnimationFrame(() => {
-      if (pending.target.kind === 'section_title') {
-        const input = sectionTitleRef.current
-        input?.scrollIntoView({ block: 'center', behavior: 'auto' })
-      } else if (pending.target.kind === 'section_objective') {
-        setOutlineSearchFocus({
-          sectionId: pending.target.sectionId,
-          field: 'objective',
-          from: pending.target.range.from,
-          to: pending.target.range.to
-        })
-        setOutlineEditOpen(true)
-      } else if (!editorRef.current?.revealSearchTarget(pending.target)) {
-        props.onError('The validated result could not be revealed in the current editor.')
+    let disposed = false
+    const releases: Array<() => void> = []
+    const input = { projectSessionId: props.projectSessionId }
+
+    const refresh = async (selectFallback: boolean): Promise<void> => {
+      const nextWorkspace = await window.desktop.manuscript.workspace(input)
+      if (disposed) return
+      queryClient.setQueryData(workspaceKey, nextWorkspace)
+      void queryClient.invalidateQueries({
+        queryKey: ['manuscript-references', input.projectSessionId]
+      })
+      let sectionId = activeSectionIdRef.current
+      if (
+        selectFallback &&
+        !nextWorkspace.sections.some((item) => item.section.sectionId === sectionId)
+      ) {
+        sectionId = nextWorkspace.sections[0]?.section.sectionId ?? null
+        if (sectionId !== null) await activateSection(sectionId)
       }
-      setPendingSearchTarget(null)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [activeSectionId, editorQuery.data, pendingSearchTarget, props])
-
-  useEffect(() => {
-    if (
-      activeSectionId === null ||
-      pendingScrollSectionIdRef.current !== activeSectionId ||
-      editorQuery.data?.revision.sectionId !== activeSectionId
-    ) {
-      return
+      if (disposed || sectionId === null) return
+      const current = await window.desktop.editor.loadSection({ ...input, sectionId })
+      if (disposed || sectionId !== activeSectionIdRef.current) return
+      queryClient.setQueryData(['manuscript-section', input.projectSessionId, sectionId], current)
     }
-    pendingScrollSectionIdRef.current = null
-    const frame = window.requestAnimationFrame(() => {
-      manuscriptScrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [activeSectionId, editorQuery.data])
 
-  useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
-    void window.desktop.editor
-      .subscribeFlush({ projectSessionId: props.projectSessionId }, (request) => {
+    const watch = (
+      subscribe: (listener: () => void) => Promise<() => void>,
+      source: 'agent-mutation' | 'replacement',
+      refreshFailure: string,
+      subscriptionFailure: string
+    ): void => {
+      void subscribe(() => {
         if (disposed) return
-        void (async () => {
-          await workbench.save(request.closingToken)
-          if (request.purpose === 'mutation') {
-            if (!(await saveMetadataRef.current())) throw new Error('Section metadata flush failed')
-            if (!request.bodyRequired) {
-              if (request.sectionId === undefined || request.sectionRevisionId === undefined) {
-                throw new Error('Metadata-only flush is missing its active revision')
-              }
-              await window.desktop.editor.acknowledgeFlush({
-                ...request,
-                sectionId: request.sectionId,
-                sectionRevisionId: request.sectionRevisionId
-              })
-              return
-            }
-          }
-          if (
-            editorRef.current &&
-            editorRef.current.hasActiveEditor?.(request.sectionId) !== false
-          ) {
-            await editorRef.current.finalFlush(request)
-            return
-          }
-          if (request.sectionId !== undefined && request.sectionRevisionId !== undefined) {
-            await window.desktop.editor.acknowledgeFlush({
-              ...request,
-              sectionId: request.sectionId,
-              sectionRevisionId: request.sectionRevisionId
-            })
-            return
-          }
-          const currentWorkspace =
-            queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey) ??
-            (await window.desktop.manuscript.workspace({
-              projectSessionId: props.projectSessionId
-            }))
-          const sectionId =
-            activeSectionIdRef.current ?? currentWorkspace.sections[0]?.section.sectionId
-          if (sectionId === undefined) throw new Error('No section is available for final flush')
-          const current = await window.desktop.editor.loadSection({
-            projectSessionId: props.projectSessionId,
-            sectionId
+        void refresh(source === 'agent-mutation')
+          .catch((err) => {
+            reportRendererOperationError(err, `writing-workspace.${source}-refresh`)
+            if (!disposed) props.onError(refreshFailure)
           })
-          await window.desktop.editor.acknowledgeFlush({
-            ...request,
-            sectionId,
-            sectionRevisionId: current.revision.sectionRevisionId
+          .finally(() => {
+            if (!disposed) releaseMutationBarrier()
           })
-        })().catch((err: unknown) => {
-          reportRendererOperationError(err, 'writing-workspace.final-flush')
-          setEditorSaveState('failed')
+      })
+        .then((release) => {
+          if (disposed) release()
+          else releases.push(release)
         })
-      })
-      .then((release) => {
-        if (disposed) release()
-        else unsubscribe = release
-      })
-      .catch((err) => {
-        reportRendererOperationError(err, 'writing-workspace.flush-subscription')
-        setEditorSaveState('failed')
-      })
+        .catch((err) => {
+          reportRendererOperationError(err, `writing-workspace.${source}-subscription`)
+          if (!disposed) props.onError(subscriptionFailure)
+        })
+    }
+
+    watch(
+      (listener) => window.desktop.agent.subscribeMutations(input, listener),
+      'agent-mutation',
+      'The applied Agent section change could not be reloaded.',
+      'Agent section change notifications are unavailable.'
+    )
+    watch(
+      (listener) => window.desktop.manuscript.subscribeReplacementChanges(input, listener),
+      'replacement',
+      'The replacement was committed, but the editor could not refresh it.',
+      'Replacement change notifications are unavailable.'
+    )
     return () => {
       disposed = true
-      unsubscribe?.()
+      for (const release of releases) release()
     }
-  }, [props.projectSessionId, queryClient, workspaceKey, workbench.save])
-
-  useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
-    void window.desktop.agent
-      .subscribeMutations({ projectSessionId: props.projectSessionId }, () => {
-        void (async () => {
-          const nextWorkspace = await window.desktop.manuscript.workspace({
-            projectSessionId: props.projectSessionId
-          })
-          queryClient.setQueryData(workspaceKey, nextWorkspace)
-          void queryClient.invalidateQueries({
-            queryKey: ['manuscript-references', props.projectSessionId]
-          })
-          let activeSectionId = activeSectionIdRef.current
-          if (
-            activeSectionId === null ||
-            !nextWorkspace.sections.some((item) => item.section.sectionId === activeSectionId)
-          ) {
-            const fallback = nextWorkspace.sections[0]?.section.sectionId
-            if (fallback === undefined) return
-            await activateSection(fallback)
-            activeSectionId = fallback
-          }
-          const current = await window.desktop.editor.loadSection({
-            projectSessionId: props.projectSessionId,
-            sectionId: activeSectionId
-          })
-          if (disposed || activeSectionId !== activeSectionIdRef.current) return
-          queryClient.setQueryData(
-            ['manuscript-section', props.projectSessionId, activeSectionId],
-            current
-          )
-          editorRef.current?.releaseMutationBarrier()
-        })().catch((err) => {
-          reportRendererOperationError(err, 'writing-workspace.agent-mutation-refresh')
-          editorRef.current?.releaseMutationBarrier()
-          props.onError('The applied Agent section change could not be reloaded.')
-        })
-      })
-      .then((release) => {
-        if (disposed) release()
-        else unsubscribe = release
-      })
-      .catch((err) => {
-        reportRendererOperationError(err, 'writing-workspace.agent-mutation-subscription')
-        props.onError('Agent section change notifications are unavailable.')
-      })
-    return () => {
-      disposed = true
-      unsubscribe?.()
-    }
-  }, [activateSection, props.onError, props.projectSessionId, queryClient, workspaceKey])
-
-  useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
-    void window.desktop.manuscript
-      .subscribeReplacementChanges({ projectSessionId: props.projectSessionId }, () => {
-        void (async () => {
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: workspaceKey }),
-            queryClient.invalidateQueries({
-              queryKey: ['manuscript-references', props.projectSessionId]
-            })
-          ])
-          const sectionId = activeSectionIdRef.current
-          if (sectionId !== null) {
-            const current = await window.desktop.editor.loadSection({
-              projectSessionId: props.projectSessionId,
-              sectionId
-            })
-            if (!disposed && sectionId === activeSectionIdRef.current) {
-              queryClient.setQueryData(
-                ['manuscript-section', props.projectSessionId, sectionId],
-                current
-              )
-            }
-          }
-          editorRef.current?.releaseMutationBarrier()
-        })().catch((err) => {
-          reportRendererOperationError(err, 'writing-workspace.replacement-refresh')
-          editorRef.current?.releaseMutationBarrier()
-          props.onError('The replacement was committed, but the editor could not refresh it.')
-        })
-      })
-      .then((release) => {
-        if (disposed) release()
-        else unsubscribe = release
-      })
-      .catch((err) => {
-        reportRendererOperationError(err, 'writing-workspace.replacement-subscription')
-        props.onError('Replacement change notifications are unavailable.')
-      })
-    return () => {
-      disposed = true
-      unsubscribe?.()
-    }
-  }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
-
-  const refreshAfterAgentMutation = useCallback(async (): Promise<void> => {
-    try {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: workspaceKey }),
-        queryClient.invalidateQueries({
-          queryKey: ['manuscript-references', props.projectSessionId]
-        })
-      ])
-    } catch (err) {
-      reportRendererOperationError(err, 'use-writing-workspace-controller')
-      props.onError('The applied Agent change could not be refreshed.')
-    }
-  }, [props.onError, props.projectSessionId, queryClient, workspaceKey])
+  }, [
+    activateSection,
+    props.onError,
+    props.projectSessionId,
+    queryClient,
+    releaseMutationBarrier,
+    workspaceKey
+  ])
 
   const orderedIds = workspace?.sections.map((item) => item.section.sectionId) ?? []
   const activeIndex = activeSectionId === null ? -1 : orderedIds.indexOf(activeSectionId)
   const openFind = useCallback((): void => {
     setEditorAutoFocus(false)
     setActiveWorkspace('find')
-  }, [setActiveWorkspace])
+  }, [setActiveWorkspace, setEditorAutoFocus])
   const closeFind = useCallback((): void => {
     workbench.requestTool('find', false)
-    editorRef.current?.clearSearchTarget()
+    clearSearchTarget()
     find.closeReview()
-    setPendingSearchTarget(null)
     setEditorAutoFocus(true)
     if (workbench.activeId?.startsWith('section:')) setActiveWorkspaceRaw('manuscript')
     else setActiveWorkspace('manuscript')
-  }, [find.closeReview, setActiveWorkspace, workbench.activeId, workbench.requestTool])
+  }, [
+    clearSearchTarget,
+    find.closeReview,
+    setActiveWorkspace,
+    setEditorAutoFocus,
+    workbench.activeId,
+    workbench.requestTool
+  ])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -808,8 +571,12 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     return result
   }, [])
 
-  const refreshOutlineAfterFailure = async (): Promise<void> => {
-    await workspaceQuery.refetch()
+  const runOutlineMutation = async (
+    operation: () => Promise<ManuscriptWorkspace>
+  ): Promise<ManuscriptWorkspace | null> => {
+    const result = await runMutation(operation)
+    if (result === null) await workspaceQuery.refetch()
+    return result
   }
 
   const updateOutlineSection = (
@@ -820,7 +587,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     enqueueOutlineMutation(async () => {
       const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
       if (!current) return false
-      const result = await runMutation(() =>
+      const result = await runOutlineMutation(() =>
         window.desktop.manuscript.updateSection({
           projectSessionId: props.projectSessionId,
           update: {
@@ -830,9 +597,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
           }
         })
       )
-      if (result !== null) return true
-      await refreshOutlineAfterFailure()
-      return false
+      return result !== null
     })
 
   const moveOutlineSection = (
@@ -843,7 +608,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     enqueueOutlineMutation(async () => {
       const current = queryClient.getQueryData<ManuscriptWorkspace>(workspaceKey)
       if (!current) return false
-      const result = await runMutation(() =>
+      const result = await runOutlineMutation(() =>
         window.desktop.manuscript.moveSection({
           projectSessionId: props.projectSessionId,
           move: {
@@ -854,9 +619,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
           }
         })
       )
-      if (result !== null) return true
-      await refreshOutlineAfterFailure()
-      return false
+      return result !== null
     })
 
   const createOutlineSection = (
@@ -870,7 +633,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
       const position = current.sections.filter(
         (item) => item.section.parentSectionId === parentSectionId
       ).length
-      const result = await runMutation(() =>
+      const result = await runOutlineMutation(() =>
         window.desktop.manuscript.createSection({
           projectSessionId: props.projectSessionId,
           create: {
@@ -883,10 +646,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
           }
         })
       )
-      if (result === null) {
-        await refreshOutlineAfterFailure()
-        return null
-      }
+      if (result === null) return null
       return (
         result.sections.find((item) => !priorSectionIds.has(item.section.sectionId))?.section
           .sectionId ?? null
@@ -902,7 +662,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
         current.sections.map((item) => item.section),
         sectionId
       )
-      const result = await runMutation(() =>
+      const result = await runOutlineMutation(() =>
         window.desktop.manuscript.deleteSection({
           projectSessionId: props.projectSessionId,
           delete: {
@@ -911,10 +671,7 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
           }
         })
       )
-      if (result === null) {
-        await refreshOutlineAfterFailure()
-        return false
-      }
+      if (result === null) return false
       if (sectionId === activeSectionId && fallbackId !== null) {
         try {
           await activateSection(fallbackId)
@@ -1128,20 +885,16 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     (next: ManuscriptWorkspace) => queryClient.setQueryData(workspaceKey, next),
     [queryClient, workspaceKey]
   )
-  const changeMetadataTitle = useCallback((title: string) => {
-    metadataDraftRef.current.title = title
-    setMetadataTitle(title)
-  }, [])
   const editorActions = useMemo(
     () => ({
       captureSelection: () => editorRef.current?.captureSelection(),
       focus: () => editorRef.current?.focus(),
       revealComment: (threadId: string) => editorRef.current?.revealComment(threadId),
       revealBlock: (blockId: string) => editorRef.current?.revealBlock(blockId),
-      clearSearchTarget: () => editorRef.current?.clearSearchTarget(),
+      clearSearchTarget,
       releaseMutationBarrier: () => editorRef.current?.releaseMutationBarrier()
     }),
-    []
+    [clearSearchTarget]
   )
   return {
     workbench,
@@ -1170,7 +923,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     setEditorSaveState,
     metadataTitle,
     metadataError,
-    setMetadataError,
     outlineEditOpen,
     setOutlineEditOpen,
     outlineSearchFocus,
@@ -1194,7 +946,6 @@ export function useWritingWorkspaceController(props: WritingWorkspaceProps) {
     startQuickAction,
     selectSection,
     followAgentSection,
-    refreshAfterAgentMutation,
     openFind,
     closeFind,
     updateRevision,

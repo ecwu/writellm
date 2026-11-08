@@ -1,18 +1,27 @@
 import { sha256 } from '../shared/hash'
-import { open } from 'node:fs/promises'
-import {
-  normalizedKnowledgeBlockSchema,
-  normalizedKnowledgeManifestSchema,
-  type NormalizedKnowledgeBlock
-} from '../shared/contracts/knowledge'
+import { verifyNormalizedBlocks } from '../main/knowledge/normalized-blocks'
+import { readNormalizedManifest } from '../main/knowledge/normalized-manifest'
+import type { NormalizedKnowledgeBlock } from '../shared/contracts/knowledge'
 import type { IndexSource } from '../shared/contracts/indexing'
-import { searchableKnowledgeBlockText } from '../shared/knowledge-text'
+import { KNOWLEDGE_CHUNK_ASSET_LIMIT } from '../shared/contracts/search'
+import { captionMatchesImage } from '../shared/knowledge-block-provenance'
+import { KNOWLEDGE_BLOCK_SEPARATOR, searchableKnowledgeBlockText } from '../shared/knowledge-text'
 
-const MAX_MANIFEST_BYTES = 10 * 1024 * 1024
-const MAX_BLOCK_BYTES = 200 * 1024 * 1024
 const TARGET_CHARS = 1_600
 const MAX_CHARS = 2_000
 const OVERLAP_CHARS = 200
+const SEPARATOR_CODE_POINTS = Array.from(KNOWLEDGE_BLOCK_SEPARATOR).length
+
+interface BlockSpan {
+  block: NormalizedKnowledgeBlock
+  start: number
+  end: number
+}
+
+interface BlockGroup {
+  spans: BlockSpan[]
+  text: string
+}
 
 export interface DeterministicChunkSource {
   sourceOrdinal: number
@@ -52,9 +61,8 @@ export async function buildDeterministicChunks(
     a.knowledgeItemId.localeCompare(b.knowledgeItemId)
   )) {
     const blocks = await readVerifiedBlocks(source)
-    const groups = groupBlocks(blocks)
     let sourceChunkOrdinal = 0
-    for (const group of groups) {
+    for (const group of groupBlocks(blocks)) {
       for (const chunk of splitGroup(source, group, sourceChunkOrdinal, chunkerVersion)) {
         chunks.push(chunk)
         sourceChunkOrdinal += 1
@@ -65,147 +73,122 @@ export async function buildDeterministicChunks(
 }
 
 async function readVerifiedBlocks(source: IndexSource): Promise<NormalizedKnowledgeBlock[]> {
-  const manifestBytes = await readBounded(
+  const { manifest } = await readNormalizedManifest(
     `${source.normalizationRoot}/manifest.json`,
-    MAX_MANIFEST_BYTES
+    source
   )
-  if (sha256(manifestBytes) !== source.manifestSha256) {
-    throw new Error('Index source manifest hash does not match')
-  }
-  const manifest = normalizedKnowledgeManifestSchema.parse(
-    JSON.parse(manifestBytes.toString('utf8'))
-  )
-  if (
-    manifest.parseRevisionId !== source.parseRevisionId ||
-    manifest.normalizationRunId !== source.normalizationRunId
-  ) {
-    throw new Error('Index source provenance does not match')
-  }
-  const blockBytes = await readBounded(
+  const blocks: NormalizedKnowledgeBlock[] = []
+  await verifyNormalizedBlocks(
     `${source.normalizationRoot}/${manifest.blocks.relativePath}`,
-    MAX_BLOCK_BYTES
+    manifest.blocks,
+    (block) => {
+      blocks.push(block)
+    }
   )
-  if (sha256(blockBytes) !== manifest.blocks.sha256) {
-    throw new Error('Index source blocks hash does not match')
-  }
-  const blocks = blockBytes
-    .toString('utf8')
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => normalizedKnowledgeBlockSchema.parse(JSON.parse(line)))
-  if (
-    blocks.length !== manifest.blocks.count ||
-    blocks.some((block, ordinal) => block.ordinal !== ordinal)
-  ) {
-    throw new Error('Index source block order does not match its manifest')
-  }
   return blocks
 }
 
-export function groupBlocks(
-  blocks: readonly NormalizedKnowledgeBlock[]
-): NormalizedKnowledgeBlock[][] {
-  const groups: NormalizedKnowledgeBlock[][] = []
-  let current: NormalizedKnowledgeBlock[] = []
-  const flush = (): void => {
-    if (current.length > 0) groups.push(current)
+export function* groupBlocks(blocks: readonly NormalizedKnowledgeBlock[]): Generator<BlockGroup> {
+  let current: BlockSpan[] = []
+  let textParts: string[] = []
+  let textCodeUnits = 0
+  let image: NormalizedKnowledgeBlock | undefined
+  const assetRefs = new Set<string>()
+  const finish = (): BlockGroup => {
+    const group = { spans: current, text: textParts.join(KNOWLEDGE_BLOCK_SEPARATOR) }
     current = []
+    textParts = []
+    textCodeUnits = 0
+    image = undefined
+    assetRefs.clear()
+    return group
   }
   for (const block of blocks) {
     const value = searchableKnowledgeBlockText(block)
     if (value.length === 0) continue
     const atomic = ['table', 'formula', 'image', 'list'].includes(block.type)
-    const currentText = current.map(searchableKnowledgeBlockText).join('\n\n')
     const sameHeading =
       current.length === 0 ||
-      JSON.stringify(current.at(-1)?.headingPath) === JSON.stringify(block.headingPath)
-    let imageIndex = -1
-    for (let index = current.length - 1; index >= 0; index -= 1) {
-      if (current[index]?.type === 'image') {
-        imageIndex = index
-        break
-      }
-    }
-    const image = imageIndex >= 0 ? current[imageIndex] : undefined
-    const trailingBlocks = imageIndex >= 0 ? current.slice(imageIndex + 1) : []
-    const imageCaptionRun =
-      image !== undefined && trailingBlocks.every((candidate) => candidate.type === 'caption')
-    const captionForImage =
-      block.type === 'caption' && imageCaptionRun && image !== undefined
-        ? captionBelongsToImage(block, image)
-        : false
+      JSON.stringify(current.at(-1)?.block.headingPath) === JSON.stringify(block.headingPath)
+    const captionForImage = image !== undefined && captionMatchesImage(block, image)
+    const exceedsAssetLimit =
+      assetRefs.size + block.assetRefs.length > KNOWLEDGE_CHUNK_ASSET_LIMIT &&
+      assetRefs.size + new Set(block.assetRefs.filter((ref) => !assetRefs.has(ref))).size >
+        KNOWLEDGE_CHUNK_ASSET_LIMIT
     if (
-      current.length > 0 &&
-      !captionForImage &&
-      (imageCaptionRun ||
-        atomic ||
-        block.type === 'heading' ||
-        !sameHeading ||
-        currentText.length + value.length > TARGET_CHARS)
+      exceedsAssetLimit ||
+      (current.length > 0 &&
+        !captionForImage &&
+        (image !== undefined ||
+          atomic ||
+          block.type === 'heading' ||
+          !sameHeading ||
+          textCodeUnits + value.length > TARGET_CHARS))
     ) {
-      flush()
+      const continuedImage = captionForImage ? image : undefined
+      yield finish()
+      image = continuedImage
     }
-    current.push(block)
-    if (atomic && block.type !== 'image') flush()
+    if (current.length > 0) textCodeUnits += KNOWLEDGE_BLOCK_SEPARATOR.length
+    textCodeUnits += value.length
+    const previous = current.at(-1)
+    const start = previous === undefined ? 0 : previous.end + SEPARATOR_CODE_POINTS
+    let end = start
+    for (const _character of value) end += 1
+    current.push({ block, start, end })
+    textParts.push(value)
+    for (const ref of block.assetRefs) assetRefs.add(ref)
+    if (block.type === 'image') image = block
+    else if (atomic) yield finish()
   }
-  flush()
-  return groups
+  if (current.length > 0) yield finish()
 }
 
-function captionBelongsToImage(
-  caption: NormalizedKnowledgeBlock,
-  image: NormalizedKnowledgeBlock
-): boolean {
-  if (caption.type !== 'caption' || image.type !== 'image') return false
-  if (caption.assetRefs.some((asset) => image.assetRefs.includes(asset))) return true
-  return (
-    caption.sourceProviderBlockId !== undefined &&
-    caption.sourceProviderBlockId === image.sourceProviderBlockId
-  )
-}
-
-function splitGroup(
+function* splitGroup(
   source: IndexSource,
-  blocks: readonly NormalizedKnowledgeBlock[],
+  { spans, text }: BlockGroup,
   ordinal: number,
   chunkerVersion: number
-): DeterministicChunk[] {
-  const text = blocks.map(searchableKnowledgeBlockText).join('\n\n')
+): Generator<DeterministicChunk> {
   const characters = Array.from(text)
-  const segments: Array<{ text: string; start: number; end: number }> = []
-  if (characters.length <= MAX_CHARS) {
-    segments.push({ text, start: 0, end: characters.length })
-  } else {
-    for (let start = 0; start < characters.length; start += MAX_CHARS - OVERLAP_CHARS) {
-      const end = Math.min(characters.length, start + MAX_CHARS)
-      segments.push({ text: characters.slice(start, end).join(''), start, end })
-      if (end === characters.length) break
+  const groupStart = spans[0]?.block.ordinal ?? 0
+  const groupEnd = spans.at(-1)?.block.ordinal ?? groupStart
+  const headingPathJson = JSON.stringify(spans.at(-1)?.block.headingPath ?? [])
+  let firstSource = 0
+  let pastLastSource = 0
+  for (let start = 0; start < characters.length; start += MAX_CHARS - OVERLAP_CHARS) {
+    const end = Math.min(characters.length, start + MAX_CHARS)
+    while ((spans[firstSource]?.end ?? Infinity) <= start) firstSource += 1
+    while ((spans[pastLastSource]?.start ?? Infinity) < end) pastLastSource += 1
+    const selected = spans.slice(firstSource, pastLastSource)
+    const first = selected[0]
+    const last = selected.at(-1)
+    if (first === undefined || last === undefined) {
+      throw new Error('Index chunk has no source text')
     }
-  }
-  return segments.map((segment, segmentIndex) => {
-    const contentSha256 = sha256(Buffer.from(segment.text))
-    const start = blocks[0]?.ordinal ?? 0
-    const end = blocks.at(-1)?.ordinal ?? start
+    const segmentText =
+      start === 0 && end === characters.length ? text : characters.slice(start, end).join('')
+    const contentSha256 = sha256(Buffer.from(segmentText))
+    // IDs use group coordinates so rebuilding provenance preserves existing citations.
     const chunkId = `chunk-${sha256(
       Buffer.from(
-        `${source.parseRevisionId}\0${start}\0${end}\0${chunkerVersion}\0${contentSha256}\0${segment.start}\0${segment.end}`
+        `${source.parseRevisionId}\0${groupStart}\0${groupEnd}\0${chunkerVersion}\0${contentSha256}\0${start}\0${end}`
       )
     ).slice(0, 40)}`
-    return {
+    yield {
       chunkId,
       knowledgeItemId: source.knowledgeItemId,
       displayName: source.displayName,
       extension: source.extension,
       parseRevisionId: source.parseRevisionId,
       normalizationRunId: source.normalizationRunId,
-      ordinal: ordinal + segmentIndex,
-      text: segment.text,
+      ordinal,
+      text: segmentText,
       contentSha256,
-      headingPathJson: JSON.stringify(blocks.at(-1)?.headingPath ?? []),
-      sourceBlockStart: start,
-      sourceBlockEnd: end,
-      sources: blocks.map((block, sourceOrdinal) => ({
+      headingPathJson,
+      sourceBlockStart: first.block.ordinal,
+      sourceBlockEnd: last.block.ordinal,
+      sources: selected.map(({ block }, sourceOrdinal) => ({
         sourceOrdinal,
         blockId: block.id,
         blockOrdinal: block.ordinal,
@@ -214,22 +197,11 @@ function splitGroup(
         bboxJson: JSON.stringify(block.bbox ?? null),
         assetRefsJson: JSON.stringify(block.assetRefs),
         providerBlockId: block.sourceProviderBlockId ?? null,
-        segmentStart: segment.start,
-        segmentEnd: segment.end
+        segmentStart: Math.max(0, start - first.start),
+        segmentEnd: end - first.start
       }))
     }
-  })
-}
-
-async function readBounded(path: string, maxBytes: number): Promise<Buffer> {
-  const handle = await open(path, 'r')
-  try {
-    const stat = await handle.stat()
-    if (!stat.isFile() || stat.size <= 0 || stat.size > maxBytes) {
-      throw new Error('Index source file size is invalid')
-    }
-    return await handle.readFile()
-  } finally {
-    await handle.close()
+    if (end === characters.length) break
+    ordinal += 1
   }
 }

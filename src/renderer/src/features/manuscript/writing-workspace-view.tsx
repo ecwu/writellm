@@ -29,6 +29,7 @@ import {
   Upload
 } from 'lucide-react'
 import { AppSidebar } from '@/components/app-sidebar'
+import { panelToolbarClassName } from '@/components/panel-header'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -116,7 +117,6 @@ export function WritingWorkspaceView(input: {
     setEditorSaveState,
     metadataTitle,
     metadataError,
-    setMetadataError,
     outlineEditOpen,
     setOutlineEditOpen,
     outlineSearchFocus,
@@ -140,7 +140,6 @@ export function WritingWorkspaceView(input: {
     startQuickAction,
     selectSection,
     followAgentSection,
-    refreshAfterAgentMutation,
     openFind,
     closeFind,
     updateRevision,
@@ -349,7 +348,7 @@ export function WritingWorkspaceView(input: {
   )
   const manuscript = (
     <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
-      <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-3'>
+      <header className={panelToolbarClassName}>
         <SidebarTrigger className='mr-auto' />
         {editorQuery.data && activeSummary ? (
           <>
@@ -366,7 +365,7 @@ export function WritingWorkspaceView(input: {
             </Badge>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant='outline' size='icon-sm' aria-label='Section actions'>
+                <Button variant='ghost' size='icon-sm' aria-label='Section actions'>
                   <MoreHorizontal />
                 </Button>
               </DropdownMenuTrigger>
@@ -424,7 +423,6 @@ export function WritingWorkspaceView(input: {
                 onChange={(event) => {
                   const title = normalizeSectionTitleDraft(event.target.value)
                   changeMetadataTitle(title)
-                  setMetadataError(false)
                 }}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
@@ -491,7 +489,6 @@ export function WritingWorkspaceView(input: {
       }}
       onFollowSection={followAgentSection}
       flushCurrent={flushCurrent}
-      refreshManuscript={refreshAfterAgentMutation}
       onError={props.onError}
     />
   )

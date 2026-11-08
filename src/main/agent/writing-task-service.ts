@@ -18,7 +18,7 @@ import {
 } from '../../shared/contracts/writing-task'
 import type { ProjectDatabase } from '../project/project-database'
 import type { AgentWritingTaskTable } from '../project/database-types'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 
 interface TaskActor {
   agentSessionId: string

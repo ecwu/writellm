@@ -4,7 +4,6 @@ import {
   editorFlushAckInputSchema,
   editorFlushSubscriptionInputSchema,
   editorSectionSchema,
-  editorSessionInputSchema,
   exportMarkdownInputSchema,
   exportNativeJsonInputSchema,
   exportResultSchema,
@@ -13,7 +12,6 @@ import {
   manuscriptAssetPreviewInputSchema,
   manuscriptAssetPreviewResultSchema,
   manuscriptAssetResultSchema,
-  openEditorResultSchema,
   saveSectionDocumentInputSchema,
   saveSectionDocumentResponseSchema,
   uploadManuscriptAssetInputSchema
@@ -37,12 +35,6 @@ import type { EditorFlushRequest } from './manuscript'
 
 /** Typed editor IPC boundaries. Flush lifecycle channels keep explicit subscription semantics. */
 export const editorIpcEndpoints = {
-  open: defineIpcEndpoint({
-    channel: IPC_CHANNELS.editorOpen,
-    input: editorSessionInputSchema,
-    output: openEditorResultSchema,
-    session: 'active'
-  }),
   loadSection: defineIpcEndpoint({
     channel: IPC_CHANNELS.editorLoadSection,
     input: loadSectionInputSchema,
@@ -146,7 +138,7 @@ type EditorEndpointApi = IpcEndpointApi<typeof editorIpcEndpoints>
 
 export type EditorIpcApi = Omit<EditorEndpointApi, 'subscribeFlush' | 'unsubscribeFlush'> & {
   subscribeFlush(
-    input: IpcEndpointInput<typeof editorIpcEndpoints.open>,
+    input: Omit<IpcEndpointInput<typeof editorIpcEndpoints.subscribeFlush>, 'subscriptionId'>,
     listener: (request: EditorFlushRequest) => void
   ): Promise<() => void>
 }

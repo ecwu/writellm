@@ -1,9 +1,9 @@
 import { openAppMenu, clickAppMenuItem, expectAppMenuItem, expectAppMenu } from './application-menu'
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import {
   expect,
   expectActiveProject,
@@ -58,6 +58,56 @@ async function expectWindowMaximized(app: ElectronApplication, maximized: boolea
 async function manuallyRestoreWindow(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.unmaximize())
   await expectWindowMaximized(app, false)
+}
+
+async function signInWithChatGPT(app: ElectronApplication, settings: Locator): Promise<void> {
+  await app.evaluate(({ shell }) => {
+    const state = globalThis as typeof globalThis & { openAIAuthorizationUrl?: string }
+    shell.openExternal = async (url) => {
+      state.openAIAuthorizationUrl = url
+    }
+    const realFetch = globalThis.fetch
+    globalThis.fetch = (input, init) => {
+      if (String(input) !== 'https://auth.openai.com/api/accounts/oauth/token') {
+        return realFetch(input, init)
+      }
+      return Promise.resolve(
+        Response.json({
+          access_token: 'e2e-chatgpt-access',
+          refresh_token: 'e2e-chatgpt-refresh',
+          id_token: 'e2e-chatgpt-id',
+          expires_in: 3600,
+          scope: 'chatgpt.tokens.use.direct'
+        })
+      )
+    }
+  })
+
+  await settings
+    .getByTestId('agent-provider-list')
+    .locator('[data-agent-provider-preset-id="builtin:openai"]')
+    .click()
+  await settings.getByRole('button', { name: 'Sign in', exact: true }).click()
+  const signIn = settings.page().getByRole('dialog', { name: 'Provider sign-in' })
+  await expect(signIn).toContainText('Complete login in your browser')
+
+  const authorization = new URL(
+    await app.evaluate(
+      () =>
+        (globalThis as typeof globalThis & { openAIAuthorizationUrl?: string })
+          .openAIAuthorizationUrl ?? ''
+    )
+  )
+  expect(authorization.origin).toBe('https://auth.openai.com')
+  expect(authorization.searchParams.get('ext_agent_host_id')).toMatch(/^urn:uuid:[0-9a-f-]{36}$/)
+  const callback = new URL(authorization.searchParams.get('redirect_uri') ?? '')
+  expect(callback.origin).toBe('http://127.0.0.1:1455')
+  callback.searchParams.set('state', authorization.searchParams.get('state') ?? '')
+  callback.searchParams.set('code', 'e2e-chatgpt-code')
+  callback.searchParams.set('client_id', 'e2e-chatgpt-client')
+  expect((await fetch(callback)).status).toBe(200)
+  await expect(signIn).toHaveCount(0)
+  await expect(settings.getByText('Connected through OAuth', { exact: true })).toBeVisible()
 }
 
 test(
@@ -213,6 +263,7 @@ test(
         await signInErrorToast.getByRole('button', { name: 'Close toast' }).click()
         await expect(signInErrorToast).toHaveCount(0)
         await expect(dialog).toBeVisible()
+        await signInWithChatGPT(first.app, dialog)
         await dialog.getByRole('button', { name: 'Add provider' }).click()
         const addProvider = first.page.getByRole('dialog', { name: 'Add provider' })
         await addProvider.getByLabel('Provider name').fill('Loopback Agent')
@@ -437,6 +488,10 @@ test(
         const publicCatalog = await restarted.page.evaluate(
           async () => (await window.desktop.providers.snapshot()).agentCatalog
         )
+        expect(
+          publicCatalog.presets.find((preset) => preset.presetId === 'builtin:openai')
+        ).toMatchObject({ authConfigured: true, authSource: 'OAuth' })
+        expect(JSON.stringify(publicCatalog)).not.toContain('e2e-chatgpt-')
         expect(
           publicCatalog.presets.find((preset) => preset.name === 'Loopback Agent Renamed')
         ).toMatchObject({
@@ -805,6 +860,94 @@ test(
 )
 
 test(
+  'diagnoses a moved project and rebuilds its missing manifest in a copy',
+  scenario('project.recovers-missing-manifest', ['@packaged']),
+  async ({ testRoot }) => {
+    const name = 'Manifest recovery'
+    const originalRoot = join(testRoot, `${name}.writellm`)
+    const movedParent = join(testRoot, 'moved')
+    const movedRoot = join(movedParent, `${name}.writellm`)
+    const copyParent = join(testRoot, 'recovery-output')
+    await mkdir(movedParent)
+    await mkdir(copyParent)
+
+    const userData = join(testRoot, 'user-data')
+    const creating = await launchApp({ userData, dialogPaths: [testRoot] })
+    try {
+      await clickAndExpectProject(creating.page, 'Create project', name, name)
+    } finally {
+      await closeApp(creating.app)
+    }
+    const manifest = await readFile(join(originalRoot, 'writellm.project.json'), 'utf8')
+    await rename(originalRoot, movedRoot)
+    await rm(join(movedRoot, 'writellm.project.json'))
+    await writeFile(join(movedRoot, 'recovery-note.txt'), 'File kept with the recovered project')
+
+    const { app, page } = await launchApp({ userData, dialogPaths: [movedRoot, copyParent] })
+    try {
+      await page.getByRole('button', { name: `Open ${name}`, exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Project diagnostics' })).toBeVisible()
+      const diagnosis = page.getByRole('status').filter({ hasText: 'Recovery required' })
+      await expect(diagnosis).toContainText('Project folder not found')
+      await page.getByRole('button', { name: 'Locate project folder', exact: true }).click()
+      await expect(diagnosis).toContainText('Project manifest is missing')
+      await page.getByRole('button', { name: 'Rebuild manifest in a copy', exact: true }).click()
+
+      await expectActiveProject(page, name)
+      await expect(sectionEditor(page)).toBeVisible()
+      const recoveryFolders = await readdir(copyParent)
+      expect(recoveryFolders).toHaveLength(1)
+      const [recoveryFolder] = recoveryFolders
+      if (recoveryFolder === undefined) throw new Error('Recovery folder was not created')
+      const copyRoot = join(copyParent, recoveryFolder, `${name}.writellm`)
+      expect(await readFile(join(copyRoot, 'writellm.project.json'), 'utf8')).toBe(manifest)
+      expect(await readFile(join(copyRoot, 'recovery-note.txt'), 'utf8')).toBe(
+        'File kept with the recovered project'
+      )
+      await expect(readFile(join(movedRoot, 'writellm.project.json'))).rejects.toMatchObject({
+        code: 'ENOENT'
+      })
+    } finally {
+      await closeApp(app)
+    }
+  }
+)
+
+test(
+  'rebuilds a missing manifest in the original project and reopens it',
+  scenario('project.rebuilds-manifest-in-place', ['@packaged']),
+  async ({ testRoot }) => {
+    const name = 'Repair here'
+    const userData = join(testRoot, 'user-data')
+    const root = join(testRoot, `${name}.writellm`)
+    const manifestPath = join(root, 'writellm.project.json')
+    const checkpointRefPath = join(root, '.writellm', 'history.git', 'refs', 'heads', 'main')
+    const creating = await launchApp({ userData, dialogPaths: [testRoot] })
+    try {
+      await clickAndExpectProject(creating.page, 'Create project', name, name)
+    } finally {
+      await closeApp(creating.app)
+    }
+    const manifest = await readFile(manifestPath, 'utf8')
+    const checkpointRef = await readFile(checkpointRefPath, 'utf8')
+    await rm(manifestPath)
+
+    const { app, page } = await launchApp({ userData })
+    try {
+      await page.getByRole('button', { name: `Open ${name}`, exact: true }).click()
+      await expect(page.getByRole('heading', { name: 'Project diagnostics' })).toBeVisible()
+      await page.getByRole('button', { name: 'Rebuild manifest here', exact: true }).click()
+      await expectActiveProject(page, name)
+      await expect(sectionEditor(page)).toBeVisible()
+      expect(await readFile(manifestPath, 'utf8')).toBe(manifest)
+      expect(await readFile(checkpointRefPath, 'utf8')).toBe(checkpointRef)
+    } finally {
+      await closeApp(app)
+    }
+  }
+)
+
+test(
   'recovers a stale project lock and reopens the project',
   scenario('project.recovers-stale-lock', ['@packaged']),
   async ({ testRoot }) => {
@@ -845,7 +988,7 @@ test(
         .getByRole('status')
         .filter({ hasText: 'Recovery required' })
       await expect(recoveryAlert).toContainText('Another WriteLLM process still holds')
-      await recoveryAlert.getByRole('button', { name: 'Recover stale lock', exact: true }).click()
+      await recovering.page.getByRole('button', { name: 'Recover stale lock', exact: true }).click()
 
       await expectActiveProject(recovering.page, projectName)
       await expect(sectionEditor(recovering.page)).toBeVisible()
@@ -883,7 +1026,7 @@ test(
           errorToast(contender.page, 'WriteLLM could not open the project')
         ).toContainText('Action failed')
         await expect(
-          contender.page.getByRole('heading', { name: /Open a workspace/ })
+          contender.page.getByRole('heading', { name: 'Project diagnostics' })
         ).toBeVisible()
         await expect(
           contender.page.getByRole('status').filter({ hasText: 'Recovery required' })
