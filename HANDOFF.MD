@@ -684,3 +684,6 @@ A tag alone does not set the release version. Set package.json release.version b
 The first v0.2026.11.2 build stopped before dependency installation because release.version still specified 0.2026.11.1.
 The user authorizes updating this failed tag to the correction commit and publishing through the existing four-platform workflow.
 Run verify-release-source.mjs in a clean checkout at the tagged revision before pushing. Keep local browser diagnostics outside that checkout.
+
+Release notes must exist at docs/releases/<release.version>.md before publication. Otherwise the publisher uses a generic source-changes sentence.
+The 0.2026.11.2 notes now describe concrete user changes and final evidence, following 0.2026.11.1. The public Release body is updated without changing assets or the tag.
