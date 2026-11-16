@@ -677,3 +677,10 @@ Merge the existing untangle commit into main before the current feature branch.
 The feature branch is codex/speech-model-discovery. Preserve both merge commits and do not squash the prior maintenance history.
 Browser snapshots under .playwright-mcp remain local diagnostics and are excluded from this delivery.
 The Pi completion package gate covers the unchanged product source for this integration.
+
+## 2026-11-16 release tag version repair
+
+A tag alone does not set the release version. Set package.json release.version before creating its matching tag.
+The first v0.2026.11.2 build stopped before dependency installation because release.version still specified 0.2026.11.1.
+The user authorizes updating this failed tag to the correction commit and publishing through the existing four-platform workflow.
+Run verify-release-source.mjs in a clean checkout at the tagged revision before pushing. Keep local browser diagnostics outside that checkout.

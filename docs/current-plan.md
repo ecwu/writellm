@@ -10,6 +10,9 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
+Release 0.2026.11.2 is in progress. The first tag build failed because release.version remained 0.2026.11.1.
+The release metadata now matches the tag. The user authorizes moving the failed tag and repeating the build and publication workflows.
+
 Pi now uses 1.5.2 for pi-ai, pi-agent-core, pi-schema, and pi-telemetry.
 The Agent provider wrapper preserves the new catalog authentication policy for manual model overlays.
 Static analysis, 69 focused tests, twelve packaged runtime scenarios, and all 52 packaged interactions pass on macOS arm64.
