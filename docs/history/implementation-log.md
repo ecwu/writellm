@@ -3233,3 +3233,15 @@ Twelve runtime scenarios pass in 40.2 seconds. All 52 packaged interactions pass
 The tested App produces DMG and ZIP artifacts. Database version 12 passes integrity checks.
 Reports reside in `.cache/verification/1794832599713-88242-c6ec7678` and `.cache/verification/1794832604253-88372-03e4ba9d`.
 Windows, Linux, x64, live provider calls, and signed distribution remain outside this evidence.
+
+## 2026-11-16 release 0.2026.11.2 publication
+
+Commit `98427bd` corrects package.json release.version. The user authorizes moving the failed v0.2026.11.2 tag to this commit.
+The first run fails before dependency installation because the tag and release version differ.
+The canonical release-source check passes in a clean checkout before the corrected tag push. Formatting and diff checks pass.
+[Build 43882871189](https://github.com/ecwu/writellm/actions/runs/43882871189) passes static checks and all four platform builds in 15 minutes 19 seconds.
+[Publication 43885518647](https://github.com/ecwu/writellm/actions/runs/43885518647) passes in 82 seconds. Neither corrected workflow needs a retry.
+[Release v0.2026.11.2](https://github.com/ecwu/writellm/releases/tag/v0.2026.11.2) becomes public at 14:26:33 UTC.
+Its four uploaded assets are macOS arm64 DMG, macOS x64 DMG, Windows x64 EXE, and Linux x64 AppImage.
+CI proves package structure and artifact integrity, not cross-platform runtime behavior. Packages are unsigned distribution artifacts.
+The earlier macOS arm64 runtime acceptance remains the functional evidence. This record does not change the release tag.

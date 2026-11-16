@@ -1,6 +1,6 @@
 # WriteLLM Current Plan
 
-Status: The source-catalog extension passes local macOS arm64 gates and independent DeepSeek acceptance.
+Status: Release 0.2026.11.2 is public with four platform installers.
 Recorded: 2026-11-16
 
 This file owns current delivery state, acceptance gates, and platform gaps.
@@ -10,8 +10,10 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
-Release 0.2026.11.2 is in progress. The first tag build failed because release.version remained 0.2026.11.1.
-The release metadata now matches the tag. The user authorizes moving the failed tag and repeating the build and publication workflows.
+Release 0.2026.11.2 is public at tag `v0.2026.11.2`, revision `98427bd`.
+The corrected tag build and automatic publication both pass. All four platform installers are uploaded.
+CI checks static rules and package structure. Runtime acceptance remains macOS arm64 only.
+[Release evidence](history/implementation-log.md#2026-11-16-release-02026112-publication) records the initial failure and successful correction.
 
 Pi now uses 1.5.2 for pi-ai, pi-agent-core, pi-schema, and pi-telemetry.
 The Agent provider wrapper preserves the new catalog authentication policy for manual model overlays.
