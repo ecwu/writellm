@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentProviderCatalog } from '../../../../shared/contracts/providers'
 import { AgentModelEffortPicker, modelEffortLabel } from './agent-model-effort-picker'
+import { AgentModelPickerPanel } from './agent-model-picker-panel'
 
 const presets: AgentProviderCatalog['presets'] = [
   {
@@ -63,5 +64,42 @@ describe('AgentModelEffortPicker', () => {
 
   it('does not advertise an effort choice for a non-reasoning model', () => {
     expect(modelEffortLabel('Writer model', 'off', ['off'])).toBe('Writer model')
+  })
+})
+
+describe('AgentModelPickerPanel', () => {
+  const secondPreset = {
+    ...presets[0],
+    presetId: 'local-writer',
+    providerId: 'openai-compatible',
+    name: 'Local Writer',
+    logoId: null,
+    models: [{ ...presets[0].models[0], id: 'draft-model', name: 'Draft model' }]
+  } satisfies AgentProviderCatalog['presets'][number]
+
+  it('shows a provider rail and every provider model grouped by provider', () => {
+    const html = renderToStaticMarkup(
+      <AgentModelPickerPanel
+        presets={[...presets, secondPreset]}
+        selection={{ presetId: 'local-writer', modelId: 'draft-model' }}
+        onModelSelect={vi.fn()}
+      />
+    )
+
+    expect(html).toContain('aria-label="Providers"')
+    expect(html).toContain('aria-label="All providers"')
+    expect(html).toContain('aria-label="Local Writer"')
+    expect(html).toContain('GPT 5.6 Sol')
+    expect(html).toContain('Draft model')
+    expect(html).toContain('placeholder="Search models…"')
+  })
+
+  it('omits the provider rail when only one provider is available', () => {
+    const html = renderToStaticMarkup(
+      <AgentModelPickerPanel presets={presets} selection={null} onModelSelect={vi.fn()} />
+    )
+
+    expect(html).not.toContain('aria-label="Providers"')
+    expect(html).toContain('GPT 5.6 Sol')
   })
 })

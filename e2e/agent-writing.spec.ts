@@ -201,7 +201,6 @@ test(
       const panel = launched.page.getByTestId('agent-panel')
       await panel.getByTestId('agent-model-selector').click()
       const picker = launched.page.getByTestId('agent-model-picker')
-      await picker.getByRole('option', { name: /E2E Agent/ }).click()
       await picker.getByRole('option', { name: /Writer model/ }).click()
       const composer = panel.getByLabel('Agent message')
       const send = panel.getByRole('button', { name: 'Send', exact: true })
@@ -597,7 +596,9 @@ test(
       await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
       await setupPanel.getByTestId('agent-model-selector').click()
       await expect(
-        launched.page.getByTestId('agent-model-picker').getByRole('option', { name: /E2E Agent/ })
+        launched.page
+          .getByTestId('agent-model-picker')
+          .getByRole('option', { name: /Writer model/ })
       ).toHaveCount(0)
       await launched.page.keyboard.press('Escape')
       await configureProvider(launched.page, {
@@ -612,7 +613,9 @@ test(
       ).toBeVisible()
       await setupPanel.getByTestId('agent-model-selector').click()
       await expect(
-        launched.page.getByTestId('agent-model-picker').getByRole('option', { name: /E2E Agent/ })
+        launched.page
+          .getByTestId('agent-model-picker')
+          .getByRole('option', { name: /Writer model/ })
       ).toBeVisible()
       await launched.page.keyboard.press('Escape')
       await launched.page.getByLabel('Close writing agent').click()
@@ -718,7 +721,7 @@ test(
       await expect.poll(() => launched.page.evaluate(() => window.innerWidth)).toBeGreaterThan(1279)
       const agentTrigger = agentToggle(launched.page)
       await expect(agentTrigger).toBeVisible()
-      await expect(launched.page.getByRole('button', { name: 'Agent', exact: true })).toHaveCount(1)
+      await expect(agentToggle(launched.page)).toHaveCount(1)
       if ((await agentTrigger.getAttribute('aria-pressed')) !== 'true') await agentTrigger.click()
       const panel = launched.page.getByTestId('agent-panel')
       await expect(panel).toBeVisible()
@@ -729,7 +732,6 @@ test(
       await expect(panel.getByLabel('Agent message')).toHaveCount(0)
       await panel.getByTestId('agent-model-selector').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await expect(panel.getByTestId('agent-model-selector')).toContainText('Writer model')
       const approvalSelector = panel.getByTestId('agent-approval-selector')
@@ -790,12 +792,13 @@ test(
         }
         await expect(modelEffortPicker).toBeVisible({ timeout: 2_000 })
       }).toPass({ timeout: 60_000 })
-      await expect(
-        modelEffortPicker.getByRole('option', { name: /Model Writer model/ })
-      ).toBeVisible({ timeout: 60_000 })
-      await expect(
-        modelEffortPicker.getByRole('option', { name: /Effort Unavailable/ })
-      ).toBeVisible({ timeout: 60_000 })
+      await expect(modelEffortPicker.getByRole('option', { name: /Writer model/ })).toBeVisible({
+        timeout: 60_000
+      })
+      await expect(modelEffortPicker.getByTestId('agent-effort-options')).toContainText(
+        'This model has no reasoning levels.',
+        { timeout: 60_000 }
+      )
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
           path: join(screenshotDirectory, 'cp48-agent-model-effort.png'),
@@ -1165,7 +1168,7 @@ Continue only the original user request that remains unresolved after this appro
       await launched.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
       await expectActiveProject(launched.page, projectName)
       if (!(await launched.page.getByTestId('agent-panel').isVisible()))
-        await launched.page.getByRole('button', { name: 'Agent', exact: true }).click()
+        await agentToggle(launched.page).click()
       await expect(launched.page.getByLabel('Section title')).toHaveValue('Agent revision target')
       await expect(panel.getByTestId('agent-conversation-switcher')).toContainText(
         'Grounded evidence proposal'

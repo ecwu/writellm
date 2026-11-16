@@ -47,8 +47,10 @@ mac:
     - dmg
     - zip
   artifactName: ${productName}-${env.WRITELLM_RELEASE_VERSION}-${arch}.${ext}
+  entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
+    - NSMicrophoneUsageDescription: WriteLLM uses the microphone to transcribe speech into your draft.
     - NSDocumentsFolderUsageDescription: WriteLLM opens projects selected by the user.
     - NSDownloadsFolderUsageDescription: WriteLLM exports files to locations selected by the user.
   notarize: false

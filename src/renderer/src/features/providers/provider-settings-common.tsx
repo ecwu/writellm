@@ -21,7 +21,8 @@ export const roleLabels: Record<ProviderRole, string> = {
   embedding: 'Embedding API',
   rerank: 'Reranking API',
   mineru: 'MinerU API',
-  image: 'Image API'
+  image: 'Image API',
+  speech: 'Speech input'
 }
 
 export const customTransports: Array<{ value: CustomAgentPiApi; label: string }> = [
@@ -33,7 +34,7 @@ export const customTransports: Array<{ value: CustomAgentPiApi; label: string }>
   { value: 'azure-openai-responses', label: 'Azure OpenAI Responses' }
 ]
 
-export type SingletonProviderRole = Exclude<ProviderRole, 'agent' | 'image'>
+export type SingletonProviderRole = Exclude<ProviderRole, 'agent' | 'image' | 'speech'>
 
 export type SingletonProviderConfig = Extract<ProviderConfig, { role: SingletonProviderRole }>
 

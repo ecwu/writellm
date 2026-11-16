@@ -64,7 +64,8 @@ describe('application database', () => {
       'publication_presets',
       'recent_projects',
       'schema_manifest',
-      'schema_migrations'
+      'schema_migrations',
+      'source_model_catalogs'
     ])
     expect(applicationId.rows[0]?.application_id).toBe(APP_DATABASE_APPLICATION_ID)
     expect(manifest).toEqual({

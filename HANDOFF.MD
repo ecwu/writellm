@@ -454,3 +454,226 @@ The earlier DMG, ZIP, and package evidence stay together in the target directory
 
 Keep the space prefix on context lines in unified diff files.
 If Git flags these lines during staging, check added lines inside the patch separately.
+
+
+## 2026-11-09 Editor status controls
+
+The Agent toggle now lives in the status bar. Use the shared `agentToggle` test helper instead of the removed rail trigger.
+The left status control toggles Outline through the existing layout controls. Other docked tools retain their own close controls.
+Keep section actions and save failures available when removing the editor toolbar.
+Direct Node verification entry points passed with the existing toolchain.
+
+## 2026-11-14 Speech planning issue publication
+
+The GitHub connector rejected the detailed speech planning issue twice through automatic approval review.
+The first rejection required repository ownership evidence. The authenticated login and repository owner both resolve to `ecwu`.
+The second rejection requires explicit consent to publish the detailed plan because `ecwu/writellm` is public.
+Do not retry publication through another tool. Obtain consent for the reviewed issue body before another attempt.
+No issue was created during these attempts. No speech implementation or live API test ran.
+
+The user then explicitly approved public publication of the complete reviewed plan.
+The same connector created [issue 20](https://github.com/ecwu/writellm/issues/20), and its returned body matches the approved draft.
+The publication blocker is resolved. Implementation remains deferred.
+
+The user reviewed the plan, and issue 20 now records the revised design.
+Keep speech traffic in a dedicated instance of the existing background-worker entrypoint.
+The shared instance runs synchronous parsing, image processing, and citation work that can block audio forwarding.
+Treat a 120-second single turn and the finalization timeout as untested assumptions until a real API probe passes.
+Use the configured endpoint loopback policy for local file transcription services.
+This revision changed planning artifacts only. No speech implementation or real audio API test ran.
+
+## 2026-11-15 Speech composer planning
+
+Issue 20 now includes the voice interaction states and the shadcn component review.
+The current composer switches Stop to Follow-up when the prompt contains text.
+During dictation, keep Stop Agent available independently of transcript previews and speech controls.
+The existing InputGroup and chat primitives already match the official composition approach.
+The legacy AI SDK Elements SpeechInput selects its own recognition path. Do not connect it unchanged to the planned provider pipeline.
+Reuse one microphone stream for transcription and the waveform. Keep finish-recording and task submission separate.
+This task updated planning artifacts only. No component installation, product change, microphone recording, or real audio API test ran.
+
+## 2026-11-15 Speech interaction prototype
+
+The Sol subagent built an isolated prototype in `.cache/speech-ui-prototype/` with the existing shadcn controls.
+Run `node .cache/speech-ui-prototype/build.mjs` to rebuild its standalone HTML artifact.
+The prototype uses simulated audio and agent state. It requests no microphone permission and calls no speech service.
+Browser checks covered both modes, cancel restoration, independent Agent stop, finalization without submission, explicit send, and keyboard guards.
+The browser tool blocks file URLs. A static server bound to loopback provides the preview.
+The screenshot tool writes inside the repository, not the visualization directory. Use `.playwright-mcp/` for its captures.
+Product source and delivery state remain unchanged by this prototype task.
+
+The user rejected explanatory copy such as “only stop Agent, without affecting recording.”
+Keep visible action names concise. Remove redundant tooltips and secondary descriptions when the layout already communicates the action.
+The prototype now keeps brief lifecycle announcements available to screen readers without a visible explanatory footer.
+
+Recognition mode belongs in global speech settings, not the Agent composer.
+The prototype uses the existing Command dialog for this setting. Issue 20 records the same rule for provider configuration.
+
+The user accepted the final interaction on 2026-11-15. Issue 20 marks the prototype review complete and records it as the UI baseline.
+Production integration and real audio validation remain pending.
+
+
+## 2026-11-15 Speech API preflight
+
+The official transcription connection accepted `gpt-live-transcribe` with manual commit and `languages: ['zh', 'en']`.
+A synthetic 120-second sample completed with one commit and all 12 numbered passages in order.
+First text arrived after 1,244 ms. Final text arrived 745 ms after recording stopped.
+A 10-second control completed with first text at 1,216 ms and final text 593 ms after stop.
+The 100 ms and 1 second silence samples returned empty final text successfully. These are tested durations, not documented provider limits.
+Probe scripts, synthetic references, and machine-readable results are under `.cache/speech-api-probe/`.
+The probes use the existing environment credential without printing or persisting it. They send no microphone recording or project content.
+The production waveform must read the same microphone stream as transcription through an AnalyserNode.
+The accepted prototype still uses simulated audio. Do not treat it as microphone or packaged-runtime evidence.
+
+## 2026-11-15 Speech implementation integration
+
+Speech implementation is in progress. Focused tests do not establish packaged or real microphone acceptance.
+Serve the Worklet from the Renderer public directory. Existing CSP rejects blob loading.
+Flush the tail PCM before its MessagePort acknowledgement and before finish. Bound both acknowledgement and IPC drain waits.
+Scope stale-start cleanup to its own recording so that it cannot clear a newer recording's timers.
+Use `--composite false` for the direct Renderer TypeScript command, as the package script does.
+
+The dependency installer rejected the child command to add `ws@8.21.3`.
+Automatic review reported that approval was required while AskForApproval was Never.
+The parent requested explicit approval for a frozen install after preparing package.json and the lockfile.
+Do not bypass this rejection with manual node_modules links. Protocol and package gates remain pending installation.
+
+The independent DeepSeek acceptance review found two test registration omissions.
+Register speech scenario IDs in e2e/scenario-manifest.json and include speech in the accessibility settings order.
+Both records now match the speech spec and settings menu.
+Disable dictation for archived sessions and unavailable Agent models.
+Do not grant asynchronous clipboard-read through the microphone permission handler. Existing clipboard IPC owns that access.
+The affected permission suite passes five tests in 0.7 seconds with zero retries.
+Broader permission E2E, official HTTPS adapter coverage, and worker isolation evidence remain pending.
+
+The user completed dependency installation. Runtime ws is 8.21.3 and its types are 8.18.1.
+Main type analysis excludes worker source. Use an isolated speech TypeScript configuration to cover the adapters.
+SDK WebSocket options reject undefined header values. Use direct ws for unauthenticated connections and loopback HTTP.
+Authenticated HTTPS retains the SDK adapter. Four mocked transport tests cover both choices without external requests.
+The first package interaction run exposed two remaining old Agent button locators in agent-writing.spec.ts.
+Use the existing agentToggle helper for those assertions and interactions.
+
+Final speech integration passes the macOS arm64 package gate: twelve runtime scenarios and 49 interactions, including both speech modes.
+The second complete attempt takes 297.6 seconds and uses zero interaction retries.
+The first attempt fails only at the old Agent locator. Keep real microphone and native permission prompts marked untested.
+The separate speech type analysis passes. Broad worker analysis also reports existing errors outside this feature and is not a passing gate.
+
+## 2026-11-16 Missing speech configuration
+
+The user reported an immediate dictation failure. Local read-only inspection found no speech provider row.
+Main failed in getConfiguredProvider before microphone capture. Renderer replaced the setup error with a generic microphone/network message.
+Use SpeechFailure with the fixed SPEECH_SETUP_REQUIRED message for this case. Renderer accepts only that known message across IPC.
+The new recovery scenario must respect the existing 400 ms cancellation guard before starting again.
+Source static/build and 17 focused tests pass. Both speech interactions pass across the initial run and one focused rerun.
+The realtime rerun takes 8.0 seconds with zero retries. The first attempt starts before the cancellation guard expires.
+The corrected source is not included in the earlier DMG. Real microphone acceptance remains pending.
+
+## 2026-11-16 Realtime language-hint compatibility
+
+The user saved gpt-4o-transcribe with realtime mode, then reported a failed connection test.
+A no-audio official probe returns invalid_parameter for session.audio.input.transcription.languages.
+The same model accepts the request without languages. The default gpt-live-transcribe accepts languages.
+Keep optional language hints model-specific. Never replace the saved model or silently retry the request.
+The SDK emits protocol errors before the adapter's raw-message listener. Preserve safe error metadata through that SDK callback.
+Do not replace safe speech failures with the generic Settings connection-test toast.
+No microphone audio or project content was sent in these probes.
+
+Electron serializes the custom error prefix as SpeechFailure, not always Error. Accept only these known prefixes before matching fixed messages.
+The first focused packaged run exposed that prefix mismatch in both error UI paths. The corrected run passes both scenarios in 15.2 seconds.
+Final compatibility evidence includes 42 focused tests, twelve error tests after the prefix repair, and isolated worker/Main types.
+The refreshed macOS arm64 DMG and ZIP pass inventory and artifact checks after an 86.0-second build.
+These are focused repair gates; the full package acceptance remains the November 15 baseline.
+
+## 2026-11-16 Speech preparation stall
+
+The user reports a successful connection test followed by indefinite Preparing during dictation.
+Main logs show provider readiness. Controlled Renderer probes stop at unresolved getUserMedia before AudioContext or Worklet creation.
+Removing autoplay overrides, direct-click acquisition, and a disposable synthetic permission allowance do not resolve the stall.
+Do not identify autoplay or permission policy as the cause without new evidence. Production permission policy remains unchanged.
+Each capture preparation stage now has a ten-second deadline. Cancellation settles immediately and stops late streams.
+Diagnostics retain the stage, duration, context state, and original cause without audio or device names.
+Fifteen capture tests pass in 0.6 seconds. The packaged timeout recovery scenario passes in 17.8 seconds with zero retries.
+Static analysis passes in 3.8 seconds. The refreshed App, DMG, and ZIP build takes 86.4 seconds.
+One earlier E2E selection matches no tests because its grep uses the wrong title. The corrected selection uses bounds pending.
+Current native synthetic happy paths remain blocked at getUserMedia. These recovery tests do not establish successful microphone capture.
+The user authorized one visible local microphone diagnostic. It returned granted OS permission but no getUserMedia result within 20 seconds.
+The isolated packaged App closed after the deadline. The diagnostic saved no audio and made no transcription request.
+Do not reset OS permissions or kill audio services.
+Controlled probe evidence lives in .cache/speech-preparing-diagnosis/.
+
+## 2026-11-16 Authorized local microphone diagnostic
+
+The visible macOS arm64 probe uses the packaged App, isolated userData, and unchanged production permission handlers.
+It uses no synthetic microphone flags. OS microphone permission is granted before and after the probe.
+The getUserMedia request remains unresolved for 20,001 ms. The whole diagnostic takes 21,666 ms, with one attempt and no retries.
+The diagnostic closes its App and saves only status, permission, and timing. It saves or uploads no audio.
+Selected system logs show no matching CoreAudio error or microphone denial. Absence of a log does not establish correct system behavior.
+The bundle uses the existing ad-hoc/linker signature. These observations do not establish a signing or permission-handler cause.
+The script and safe result are in .cache/speech-preparing-diagnosis/local-microphone.mjs and local-microphone-result.json.
+
+## 2026-11-16 User resolves microphone authorization
+
+The user found a microphone authorization prompt on another display. Speech works after the user grants that prompt.
+The earlier granted status from Electron systemPreferences did not establish that all capture authorization was complete.
+For multi-display stalls, ask the user to inspect every display for a pending permission prompt before changing capture or permission policy.
+Keep the preparation deadline and cancellation cleanup. Do not reset OS permissions or weaken the trusted-frame rules.
+This is user-reported real-device success, not an automated recording-quality or transcription-accuracy result.
+
+## 2026-11-16 Speech sources and current model catalogs
+
+Speech now stores independent source configurations and one active source ID in Settings. The composer has no source selector.
+Migration 0012 preserves the legacy speech row ID, encrypted credential, and binding fingerprint. It also creates source_model_catalogs.
+Do not rename the legacy row when migrating credentials. Runtime speech resolves and snapshots a source before capture.
+A connection test targets its saved source without activating it. Tests are optional and never gate save, activation, or model use.
+
+models.dev v1 omits some current models marked v2_only. Use the filtered experimental v2 directory for this feature.
+The published URL is https://models.dev/experimental/v2.0/api.json?type=image,transcription.
+The v2 api keys distinguish images, transcriptions, realtime, and generate-content. MIME modality strings alone do not establish a transcription interface.
+The speech type means text-to-speech, and realtime can mean voice conversation. Do not treat either as transcription without explicit metadata.
+Image dimension bounds do not establish discrete 2K output support. Keep the existing explicit size declaration.
+Public metadata never receives credentials and cannot replace configured endpoints or load SDK code.
+Unknown source-advertised IDs remain selectable. Public fallback is provider-matched and does not conceal authentication errors.
+
+A refresh must bind the source input and credential fingerprint before network access. Recheck after credential resolution.
+Fence both successful and failed cache writes in a transaction. Endpoint/key edits also advance the generation so A-to-B-to-A changes reject old results.
+E2E metadata fixtures intercept the fixed public URL in Electron Main, not Renderer request routing. Keep these tests independent of the public service.
+
+The source-catalog build passes static analysis, 242 integrated tests, and the final changed-file regression tests.
+The refreshed macOS arm64 App passes twelve runtime checks and all 52 packaged interactions with zero retries.
+Runtime checks confirm app.sqlite version 12 and integrity. Independent DeepSeek acceptance follows these gates.
+
+DeepSeek final acceptance finds no blocking defects and independently passes 145 tests plus static analysis.
+The parent accepts null Gemini pagination and improves Speech key-clearing and per-operation error guidance.
+A six-entry sample from the live public models.dev v2 response is stored under src/main/providers/fixtures with source metadata.
+The offline sample test confirms actual v2 parsing. Final corrections pass 57 focused tests and five packaged scenarios without retries.
+Snapshot payload size remains a bounded performance follow-up. Do not repeat the reviewer's illustrative latency estimates as measured benchmarks.
+Pi 1.5.2 is available in npm, but dependency upgrades are not part of this completed feature. Installed Pi remains 1.5.0.
+
+## 2026-11-16 Pi 1.5.2 upgrade preparation
+
+The user authorizes the Pi patch upgrade. The package-manager lockfile update command is rejected before execution.
+Automatic review requires approval while AskForApproval is Never. Do not bypass this rejection by installing packages through another tool or editing node_modules.
+The two direct package pins and four Pi lock entries are prepared for 1.5.2 from live npm integrity metadata.
+Registry comparison confirms that external dependencies, engines, binaries, and peer declarations remain unchanged.
+Installed dependencies and the packaged App still use 1.5.0. Run pnpm install --frozen-lockfile through the authorized host workflow before verification.
+After installation, preserve Provider.refreshModelsAuth through the Agent provider wrapper and inspect session cleanup for the new Anthropic continuation state.
+Check the OpenAI-compatible empty-tools change, authentication, cancellation, and packaged OAuth loading. Reuse the canonical Electron runners.
+No new-version test, build, or runtime claim is valid until frozen installation completes.
+
+## 2026-11-16 Pi 1.5.2 upgrade completion
+
+Installed package inspection now confirms Pi 1.5.2 for both direct packages and their schema/telemetry dependencies.
+The earlier installation blocker no longer describes the installed workspace. No installation bypass was used.
+Preserve refreshModelsAuth when wrapping a Provider for manual models. Otherwise public catalogs can trigger an unnecessary OAuth refresh.
+Current Agent calls omit sessionId, so the new Anthropic continuation cache does not require session cleanup here.
+Both streaming paths retain maxRetries: 0 so application retry policy remains authoritative.
+The canonical Electron runner passes 69 focused tests in 4.3 seconds without retries.
+The complete package gate passes in 319.1 seconds with twelve runtime scenarios and 52 interactions, without retries.
+DMG and ZIP contain Pi 1.5.2. macOS arm64 only. Live providers and other platforms remain untested.
+
+## 2026-11-16 branch integration
+
+Merge the existing untangle commit into main before the current feature branch.
+The feature branch is codex/speech-model-discovery. Preserve both merge commits and do not squash the prior maintenance history.
+Browser snapshots under .playwright-mcp remain local diagnostics and are excluded from this delivery.
+The Pi completion package gate covers the unchanged product source for this integration.

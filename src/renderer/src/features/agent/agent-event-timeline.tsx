@@ -1,5 +1,5 @@
 import { AgentHistoryImages } from './agent-image-attachments'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   MessageCopyButton,
   MessageEditButton,
@@ -74,6 +74,7 @@ export function EventTimeline(props: {
   busy: boolean
   messageEdit?: AgentMessageEditState | null
   editingDisabled?: boolean
+  onEditingChange?(editing: boolean): void
   onEdit?(targetEventId: string, content: string): Promise<boolean>
   forkBoundary?: number
   forkBusy?: boolean
@@ -109,6 +110,7 @@ export function EventTimeline(props: {
                     busy={props.busy}
                     messageEdit={props.messageEdit}
                     editingDisabled={props.editingDisabled}
+                    onEditingChange={props.onEditingChange}
                     onEdit={props.onEdit}
                     onFork={props.onFork}
                     forkBusy={props.forkBusy}
@@ -147,6 +149,7 @@ function TimelineItem(props: {
   busy: boolean
   messageEdit?: AgentMessageEditState | null
   editingDisabled?: boolean
+  onEditingChange?(editing: boolean): void
   onEdit?(targetEventId: string, content: string): Promise<boolean>
   forkBoundary?: number
   forkBusy?: boolean
@@ -160,6 +163,11 @@ function TimelineItem(props: {
 }): React.JSX.Element | null {
   const { item } = props
   const [editing, setEditing] = useState(false)
+  useEffect(() => {
+    if (!editing) return
+    props.onEditingChange?.(true)
+    return () => props.onEditingChange?.(false)
+  }, [editing, props.onEditingChange])
   const editable = props.onEdit !== undefined && props.messageEdit?.targetEventId === item.id
   const editReason = props.editingDisabled
     ? 'Choose an available model in an active conversation to edit.'

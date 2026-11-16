@@ -1,3 +1,4 @@
+import { useSpeechDraft } from '../speech/use-speech-draft'
 import { useAgentImageDraft } from './use-agent-image-draft'
 import type { MutationProposalRecord } from '../../../../shared/contracts/agent-mutations'
 import type { AskUserAnswer } from '../../../../shared/contracts/agent-tools'
@@ -277,6 +278,24 @@ export function useAgentPanelController(props: AgentPanelProps) {
       openSession
     })
 
+  const [messageEditing, setMessageEditing] = useState(false)
+  const speech = useSpeechDraft({
+    projectSessionId: props.projectSessionId,
+    draftKey: activeSessionId ?? 'new',
+    prompt,
+    setPrompt,
+    textarea: composerTextareaRef,
+    enabled:
+      modelReady &&
+      props.open &&
+      !loading &&
+      !activeSessionArchived &&
+      activeSession?.compatible !== false &&
+      !conversationLocked &&
+      !messageEditing &&
+      !choosingSkill
+  })
+
   const startRun = async (
     content: string,
     approvedProposalId?: string,
@@ -288,6 +307,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
     quickActionSelection?: AgentPanelSelection,
     commentThreadIds?: readonly string[]
   ): Promise<boolean> => {
+    if (speech.blocksSubmit()) return false
     const trimmed = content.trim()
     const attachmentIds =
       quickAction === undefined &&
@@ -585,6 +605,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
   }
 
   const queueMessage = async (delivery: 'steer' | 'follow_up'): Promise<void> => {
+    if (speech.blocksSubmit()) return
     if (
       activeRun === null ||
       (prompt.trim().length === 0 && imageDraft.attachmentIds.length === 0) ||
@@ -815,7 +836,7 @@ export function useAgentPanelController(props: AgentPanelProps) {
       ? null
       : (proposals.find((proposal) => proposal.proposalId === continuationFailure.proposalId) ??
         null)
-  const composerSettingsDisabled = busy || activeRun !== null || conversationLocked
+  const composerSettingsDisabled = speech.active || busy || activeRun !== null || conversationLocked
   const interactionModeSwitchDisabled =
     busy || activeSessionArchived || activeRun !== null || activeCompaction !== null
   const composerCommands = buildComposerCommands({
@@ -892,6 +913,9 @@ export function useAgentPanelController(props: AgentPanelProps) {
   return {
     props,
     imageDraft,
+    speech,
+    messageEditing,
+    setMessageEditing,
     sessions,
     events,
     runs,

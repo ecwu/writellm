@@ -18,7 +18,6 @@ async function openAgentForSection(page: Page): Promise<ReturnType<Page['getByTe
   if (await panel.getByTestId('agent-model-recovery').isVisible()) {
     await panel.getByTestId('agent-model-selector').click()
     const picker = page.getByTestId('agent-model-picker')
-    await picker.getByRole('option', { name: /Table Agent/ }).click()
     await picker.getByRole('option', { name: /Table E2E model/ }).click()
   }
   await panel.getByTestId('agent-add-menu-trigger').click()

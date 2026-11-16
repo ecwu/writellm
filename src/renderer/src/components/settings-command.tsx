@@ -18,6 +18,7 @@ import {
   Keyboard,
   KeyRound,
   Monitor,
+  Mic,
   Moon,
   Hand,
   Hash,
@@ -111,6 +112,7 @@ export const settingsSections: Array<{
   { id: 'rerank', label: 'Reranking API', icon: ArrowDownWideNarrow },
   { id: 'mineru', label: 'MinerU API', icon: ScanText },
   { id: 'image', label: 'Image API', icon: ImageIcon },
+  { id: 'speech', label: 'Speech input', icon: Mic },
   { id: 'publication', label: 'Publication', icon: FileOutput },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
   { id: 'about', label: 'About & Diagnostics', icon: Info }
@@ -753,5 +755,5 @@ function capitalize(value: string): string {
 }
 
 function isProviderSection(section: SettingsSection): section is ProviderRole {
-  return ['agent', 'embedding', 'rerank', 'mineru', 'image'].includes(section)
+  return ['agent', 'embedding', 'rerank', 'mineru', 'image', 'speech'].includes(section)
 }

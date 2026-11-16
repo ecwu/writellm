@@ -69,7 +69,6 @@ test(
       const details = launched.page.getByRole('dialog', { name: 'Agent details' })
       await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /Quick action Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Quick Writer/ }).click()
       await details.getByRole('button', { name: 'Close', exact: true }).click()
       const composer = panel.locator('#agent-message')

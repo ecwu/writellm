@@ -5,6 +5,9 @@ import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import type { Logger } from 'pino'
 import {
   agentCustomPresetInputSchema,
+  speechSourceSaveInputSchema,
+  speechSourceInputSchema,
+  speechActiveSourceInputSchema,
   agentAuthFlowInputSchema,
   agentAuthInteractionEventSchema,
   agentAuthPromptResponseSchema,
@@ -84,6 +87,31 @@ export function registerProviderIpc({
       prompts: Map<string, { resolve: (value: string) => void; reject: (err: Error) => void }>
     }
   >()
+  handle(IPC_CHANNELS.providersSaveSpeechSource, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.saveSpeechSource(speechSourceSaveInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersRemoveSpeechSource, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.removeSpeechSource(speechSourceInputSchema.parse(raw).sourceId)
+    )
+  )
+  handle(IPC_CHANNELS.providersSetActiveSpeechSource, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.setActiveSpeechSource(speechActiveSourceInputSchema.parse(raw).sourceId)
+    )
+  )
+  handle(IPC_CHANNELS.providersRefreshSpeechModels, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.refreshSpeechModels(speechSourceInputSchema.parse(raw).sourceId)
+    )
+  )
+  handle(IPC_CHANNELS.providersRefreshImageModels, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.refreshImageModels(imageSourceInputSchema.parse(raw).sourceId)
+    )
+  )
   handle(IPC_CHANNELS.providersSnapshot, async (event) => {
     authorizeSender(event.senderFrame, developmentUrl)
     return providerSettingsSnapshotSchema.parse(await providers.snapshot())
@@ -321,6 +349,11 @@ export function registerProviderIpc({
 
   return () => {
     for (const channel of [
+      IPC_CHANNELS.providersSaveSpeechSource,
+      IPC_CHANNELS.providersRemoveSpeechSource,
+      IPC_CHANNELS.providersSetActiveSpeechSource,
+      IPC_CHANNELS.providersRefreshSpeechModels,
+      IPC_CHANNELS.providersRefreshImageModels,
       IPC_CHANNELS.providersSnapshot,
       IPC_CHANNELS.providersSave,
       IPC_CHANNELS.providersRemove,

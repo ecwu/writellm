@@ -1,3 +1,4 @@
+import type { SpeechApi } from '../shared/contracts/speech'
 import type { ApplicationMenuApi } from '../shared/contracts/application-menu'
 import type { WorkbenchApi } from '../shared/contracts/workbench'
 import type { AutocompleteApi } from '../shared/contracts/autocomplete'
@@ -35,6 +36,9 @@ import type { UpdateWritingRulesIpcInput } from '../shared/contracts/writing-rul
 import type { ManuscriptWorkspace } from '../shared/contracts/manuscript'
 import type {
   ProviderConnectionTestResult,
+  SpeechSourceSaveInput,
+  SpeechSourceInput,
+  SpeechActiveSourceInput,
   ImageManualModelInput,
   ImageModelEnabledInput,
   ImageModelInput,
@@ -66,6 +70,7 @@ import type {
   NotebookSourceScope
 } from '../shared/contracts/notebook'
 export interface DesktopApi {
+  speech: SpeechApi
   menu: ApplicationMenuApi
   autocomplete: AutocompleteApi
   app: AppIpcApi
@@ -130,6 +135,11 @@ export interface DesktopApi {
     ): Promise<{ snapshot: NotebookChatSnapshot; unsubscribe: () => void }>
   }
   providers: {
+    saveSpeechSource(input: SpeechSourceSaveInput): Promise<ProviderSettingsSnapshot>
+    removeSpeechSource(input: SpeechSourceInput): Promise<ProviderSettingsSnapshot>
+    setActiveSpeechSource(input: SpeechActiveSourceInput): Promise<ProviderSettingsSnapshot>
+    refreshSpeechModels(input: SpeechSourceInput): Promise<ProviderSettingsSnapshot>
+    refreshImageModels(input: ImageSourceInput): Promise<ProviderSettingsSnapshot>
     snapshot(): Promise<ProviderSettingsSnapshot>
     save(input: ProviderSaveInput): Promise<ProviderSettingsSnapshot>
     remove(input: ProviderRoleInput): Promise<ProviderSettingsSnapshot>

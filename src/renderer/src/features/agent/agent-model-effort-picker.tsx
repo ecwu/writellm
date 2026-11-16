@@ -1,28 +1,19 @@
-import { ArrowLeft, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type {
   AgentModelSelection,
   AgentThinkingLevel
 } from '../../../../shared/contracts/providers'
 import { ProviderLogo } from '@/components/provider-logo'
-import { Button } from '@/components/ui/button'
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from '@/components/ui/command'
+import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 import { InputGroupButton } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { thinkingLevelLabel } from './agent-thinking-picker'
+import { AgentModelPickerPanel, focusModelSearch } from './agent-model-picker-panel'
 import {
   type AvailableAgentPreset as AvailablePreset,
   findAgentModelSelection as findSelection
 } from './agent-model-selection'
-
-type PickerView = 'summary' | 'models' | 'effort'
+import { thinkingLevelLabel } from './agent-thinking-picker'
 
 export function AgentModelEffortPicker({
   presets,
@@ -42,18 +33,12 @@ export function AgentModelEffortPicker({
   onEffortSelect: (level: AgentThinkingLevel) => void | Promise<void>
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const [view, setView] = useState<PickerView>('summary')
   const selected = useMemo(() => findSelection(presets, selection), [presets, selection])
-  const effortUnavailable = levels.length === 1 && levels[0] === 'off'
+  const label = modelEffortLabel(selected?.model.name ?? null, effort, levels)
 
-  const changeOpen = (next: boolean): void => {
-    if (next) setView('summary')
-    setOpen(next)
-  }
-
-  const chooseModel = (presetId: string, modelId: string): void => {
-    setOpen(false)
-    void onModelSelect({ presetId, modelId })
+  // Choosing a model keeps the picker open so its reasoning level can be chosen next.
+  const chooseModel = (next: AgentModelSelection): void => {
+    void onModelSelect(next)
   }
 
   const chooseEffort = (level: AgentThinkingLevel): void => {
@@ -62,114 +47,102 @@ export function AgentModelEffortPicker({
   }
 
   return (
-    <Popover open={open} onOpenChange={changeOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <InputGroupButton
           size='sm'
-          className='min-w-0 max-w-48 flex-1 justify-start'
-          aria-label={`Model and effort: ${modelEffortLabel(selected?.model.name ?? null, effort, levels)}`}
+          className='min-w-0 max-w-56 flex-1 justify-start'
+          aria-label={`Model and effort: ${label}`}
           data-testid='agent-model-selector'
           disabled={disabled}
         >
-          <span className='min-w-0 flex-1 truncate text-left'>
-            {modelEffortLabel(selected?.model.name ?? null, effort, levels)}
-          </span>
+          {selected === null ? null : (
+            <ProviderLogo logoId={selected.preset.logoId} name={selected.preset.name} size='sm' />
+          )}
+          <span className='min-w-0 flex-1 truncate text-left'>{label}</span>
           <ChevronDown data-icon='inline-end' />
         </InputGroupButton>
       </PopoverTrigger>
       <PopoverContent
         align='end'
         side='top'
-        className='w-80 max-w-[calc(100vw-2rem)] p-0'
+        className='w-xl max-w-[calc(100vw-2rem)] overflow-hidden p-0'
         data-testid='agent-model-effort-picker'
+        onOpenAutoFocus={focusModelSearch}
       >
-        {view === 'summary' ? (
-          <Command>
-            <CommandList>
-              <CommandGroup heading='Model and effort'>
-                <CommandItem value='choose model' onSelect={() => setView('models')}>
-                  <span className='min-w-0 flex-1'>Model</span>
-                  <span className='max-w-44 truncate text-muted-foreground'>
-                    {selected?.model.name ?? 'Choose a model'}
-                  </span>
-                  <ChevronRight />
-                </CommandItem>
-                <CommandItem
-                  value='choose effort'
-                  disabled={effortUnavailable}
-                  onSelect={() => setView('effort')}
-                  data-testid='agent-thinking-selector'
-                >
-                  <span className='min-w-0 flex-1'>Effort</span>
-                  <span className='text-muted-foreground'>
-                    {effortUnavailable ? 'Unavailable' : effort}
-                  </span>
-                  {effortUnavailable ? null : <ChevronRight />}
-                </CommandItem>
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        ) : view === 'models' ? (
-          <Command>
-            <PickerHeader label='Model' onBack={() => setView('summary')} />
-            <CommandInput placeholder='Search models…' />
-            <CommandList>
-              <CommandEmpty>No available models.</CommandEmpty>
-              {presets.map((preset) => (
-                <CommandGroup key={preset.presetId} heading={preset.name}>
-                  {preset.models.map((model) => {
-                    const isSelected =
-                      selection?.presetId === preset.presetId && selection.modelId === model.id
-                    return (
-                      <CommandItem
-                        key={model.id}
-                        value={`${model.name} ${model.id} ${preset.name} ${preset.providerId}`}
-                        onSelect={() => chooseModel(preset.presetId, model.id)}
-                      >
-                        <ProviderLogo logoId={preset.logoId} name={preset.name} size='sm' />
-                        <span className='min-w-0 flex-1'>
-                          <span className='block truncate'>{model.name}</span>
-                          <span className='block truncate text-xs text-muted-foreground'>
-                            {model.id}
-                          </span>
-                        </span>
-                        {isSelected ? <Check /> : null}
-                      </CommandItem>
-                    )
-                  })}
-                </CommandGroup>
-              ))}
-            </CommandList>
-          </Command>
-        ) : (
-          <Command>
-            <PickerHeader label='Effort' onBack={() => setView('summary')} />
-            <CommandList>
-              <CommandGroup heading='Effort'>
-                {levels.map((level) => (
-                  <CommandItem key={level} value={level} onSelect={() => chooseEffort(level)}>
-                    <span className='min-w-0 flex-1'>{thinkingLevelLabel(level)}</span>
-                    {level === effort ? <Check /> : null}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        )}
+        <AgentModelPickerPanel
+          presets={presets}
+          selection={selection}
+          onModelSelect={chooseModel}
+          trailing={
+            <EffortColumn
+              modelName={selected?.model.name ?? null}
+              levels={levels}
+              effort={effort}
+              onSelect={chooseEffort}
+            />
+          }
+        />
       </PopoverContent>
     </Popover>
   )
 }
 
-function PickerHeader(props: { label: string; onBack(): void }): React.JSX.Element {
+function EffortColumn(props: {
+  modelName: string | null
+  levels: readonly AgentThinkingLevel[]
+  effort: AgentThinkingLevel
+  onSelect(level: AgentThinkingLevel): void
+}): React.JSX.Element {
+  const unavailable = props.modelName === null || effortUnavailable(props.levels)
   return (
-    <div className='flex min-w-0 items-center gap-2 border-b p-2'>
-      <Button size='icon-sm' variant='ghost' aria-label='Back' onClick={props.onBack}>
-        <ArrowLeft />
-      </Button>
-      <span className='min-w-0 flex-1 truncate text-sm font-medium'>{props.label}</span>
+    <div
+      className='flex w-44 shrink-0 flex-col border-l bg-muted/30'
+      data-testid='agent-effort-options'
+    >
+      <div className='flex h-9 shrink-0 items-center gap-2 border-b px-3'>
+        <span className='text-sm font-medium'>Reasoning</span>
+        <span className='min-w-0 flex-1 truncate text-right text-xs text-muted-foreground'>
+          {props.modelName}
+        </span>
+      </div>
+      {unavailable ? (
+        <p className='p-3 text-sm text-muted-foreground'>
+          {props.modelName === null
+            ? 'Choose a model first.'
+            : 'This model has no reasoning levels.'}
+        </p>
+      ) : (
+        <Command
+          key={props.levels.join(',')}
+          label='Reasoning'
+          defaultValue={props.effort}
+          tabIndex={0}
+          className='rounded-none bg-transparent'
+        >
+          <CommandList className='max-h-none'>
+            <CommandGroup>
+              {props.levels.map((level) => (
+                <CommandItem
+                  key={level}
+                  value={level}
+                  data-checked={level === props.effort}
+                  onSelect={() => props.onSelect(level)}
+                >
+                  <span className='min-w-0 flex-1'>{thinkingLevelLabel(level)}</span>
+                  {level === props.effort ? <Check /> : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      )}
     </div>
   )
+}
+
+function effortUnavailable(levels: readonly AgentThinkingLevel[]): boolean {
+  return levels.length === 1 && levels[0] === 'off'
 }
 
 export function modelEffortLabel(
@@ -178,6 +151,5 @@ export function modelEffortLabel(
   levels: readonly AgentThinkingLevel[]
 ): string {
   if (modelName === null) return 'Choose a model'
-  const effortUnavailable = levels.length === 1 && levels[0] === 'off'
-  return effortUnavailable ? modelName : `${modelName} ${effort}`
+  return effortUnavailable(levels) ? modelName : `${modelName} ${effort}`
 }

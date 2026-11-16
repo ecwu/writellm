@@ -31,6 +31,7 @@ describe('SettingsCommand', () => {
       ['rerank', 'Reranking API'],
       ['mineru', 'MinerU API'],
       ['image', 'Image API'],
+      ['speech', 'Speech input'],
       ['publication', 'Publication'],
       ['shortcuts', 'Keyboard Shortcuts'],
       ['about', 'About & Diagnostics']

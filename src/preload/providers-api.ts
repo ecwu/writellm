@@ -2,6 +2,9 @@ import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
   agentCustomPresetInputSchema,
+  speechSourceSaveInputSchema,
+  speechSourceInputSchema,
+  speechActiveSourceInputSchema,
   agentAuthFlowInputSchema,
   agentAuthInteractionEventSchema,
   agentAuthPromptResponseSchema,
@@ -28,6 +31,47 @@ import {
 import type { DesktopApi } from './desktop-api'
 
 export const providersApi: DesktopApi['providers'] = {
+  async saveSpeechSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSaveSpeechSource,
+        speechSourceSaveInputSchema.parse(input)
+      )
+    )
+  },
+  async removeSpeechSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRemoveSpeechSource,
+        speechSourceInputSchema.parse(input)
+      )
+    )
+  },
+  async setActiveSpeechSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSetActiveSpeechSource,
+        speechActiveSourceInputSchema.parse(input)
+      )
+    )
+  },
+  async refreshSpeechModels(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRefreshSpeechModels,
+        speechSourceInputSchema.parse(input)
+      )
+    )
+  },
+  async refreshImageModels(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRefreshImageModels,
+        imageSourceInputSchema.parse(input)
+      )
+    )
+  },
+
   async snapshot() {
     return providerSettingsSnapshotSchema.parse(
       await ipcRenderer.invoke(IPC_CHANNELS.providersSnapshot)

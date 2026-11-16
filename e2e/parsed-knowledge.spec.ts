@@ -494,8 +494,9 @@ test(
       await expect(notebook.getByText('1/1', { exact: true })).toBeVisible()
       await notebook.getByTestId('agent-model-selector').click()
       const modelPicker = launched.page.getByTestId('agent-model-effort-picker')
-      await modelPicker.getByRole('option', { name: /Model/ }).click()
       await modelPicker.getByRole('option', { name: /Notebook model/ }).click()
+      await launched.page.keyboard.press('Escape')
+      await expect(modelPicker).toHaveCount(0)
       const privateQuestion = 'What exact phrase appears in the normalized body? notebook-q-66'
       const privateAnswer = 'The source says Normalized body from MinerU.'
       await notebook.getByLabel('Ask selected Knowledge sources').fill(privateQuestion)
@@ -706,8 +707,9 @@ test(
       ).toBeVisible()
       await notebook.getByTestId('agent-model-selector').click()
       const picker = launched.page.getByTestId('agent-model-effort-picker')
-      await picker.getByRole('option', { name: /Model/ }).click()
       await picker.getByRole('option', { name: /Notebook model/ }).click()
+      await launched.page.keyboard.press('Escape')
+      await expect(picker).toHaveCount(0)
       await notebook.getByLabel('Ask selected Knowledge sources').fill('Read the selected evidence')
       await notebook.getByRole('button', { name: 'Ask Notebook' }).click()
       await expect(

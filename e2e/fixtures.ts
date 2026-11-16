@@ -27,6 +27,7 @@ export interface AppLaunchOptions {
   windowPresentation?: WindowPresentation
   onboarding?: 'complete' | 'show'
   env?: Record<string, string>
+  chromiumArgs?: string[]
 }
 
 export async function launchApp(options: AppLaunchOptions): Promise<{
@@ -48,7 +49,8 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
   const launchArguments = [
     `--user-data-dir=${options.userData}`,
     '--lang=en-IE',
-    '--writellm-e2e-artifact-loopback'
+    '--writellm-e2e-artifact-loopback',
+    ...(options.chromiumArgs ?? [])
   ]
   if (process.platform === 'linux') {
     const passwordStore = process.env['WRITELLM_E2E_PASSWORD_STORE']

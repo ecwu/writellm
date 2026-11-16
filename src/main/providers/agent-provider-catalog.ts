@@ -759,6 +759,9 @@ export class AgentProviderCatalogService {
       ...(provider.headers === undefined ? {} : { headers: provider.headers }),
       auth: provider.auth,
       getModels,
+      ...(provider.refreshModelsAuth === undefined
+        ? {}
+        : { refreshModelsAuth: provider.refreshModelsAuth }),
       ...(provider.refreshModels === undefined
         ? {}
         : { refreshModels: (context) => provider.refreshModels?.(context) ?? Promise.resolve() }),

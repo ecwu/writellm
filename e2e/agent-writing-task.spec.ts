@@ -400,7 +400,6 @@ async function selectAgentModel(page: Page): Promise<void> {
   const details = page.getByRole('dialog', { name: 'Agent details' })
   await details.getByLabel('Agent model').click()
   const modelPicker = page.getByTestId('agent-model-picker')
-  await modelPicker.getByRole('option', { name: /Task Agent/ }).click()
   await modelPicker.getByRole('option', { name: /Task model/ }).click()
   await details.getByRole('button', { name: 'Close', exact: true }).click()
 }

@@ -10,9 +10,7 @@ function application(page: Page): ElectronApplication {
   return app
 }
 export function agentToggle(page: Page) {
-  return page.getByTestId(
-    process.platform === 'darwin' ? 'agent-rail-trigger' : 'agent-menubar-trigger'
-  )
+  return page.getByRole('button', { name: 'Toggle Agent', exact: true })
 }
 export async function openAppMenu(page: Page, name: string): Promise<void> {
   if (process.platform !== 'darwin') {

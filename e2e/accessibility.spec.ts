@@ -27,6 +27,7 @@ test(
         'rerank',
         'mineru',
         'image',
+        'speech',
         'publication',
         'shortcuts',
         'about'

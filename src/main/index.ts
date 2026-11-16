@@ -1,3 +1,7 @@
+import { prepareMicrophoneAccess } from './bootstrap/microphone-permissions'
+import { SpeechService } from './speech/speech-service'
+import { SpeechClient } from './speech/speech-client'
+import { registerSpeechIpc } from './ipc/speech-ipc'
 import { registerAgentAttachmentIpc } from './ipc/agent-attachment-ipc'
 import { AgentImageProcessClient } from './agent/image-process-client'
 import { ApplicationMenu } from './bootstrap/application-menu'
@@ -510,6 +514,33 @@ if (!hasSingleInstanceLock) {
         developmentUrl,
         ipc
       })
+      const speech = new SpeechService({
+        prepareCapture: prepareMicrophoneAccess,
+        providers,
+        client: new SpeechClient(
+          join(__dirname, 'background-worker.js'),
+          loggerSystem.createModuleLogger('worker', 'speech'),
+          utilityProcess,
+          logCollector
+        ),
+        log: loggerSystem.createModuleLogger('llm', 'speech'),
+        assertSession: (id) => projectManager.assertActiveSession(id),
+        emit: (senderId, event) => {
+          if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents.id === senderId)
+            mainWindow.webContents.send('speech:event', event)
+        }
+      })
+      const speechIpc = registerSpeechIpc({
+        service: speech,
+        manager: projectManager,
+        developmentUrl,
+        ipc,
+        trustedSender: (id) =>
+          mainWindow !== null &&
+          mainWindow !== undefined &&
+          !mainWindow.isDestroyed() &&
+          mainWindow.webContents.id === id
+      })
       const unregisterProviderIpc = registerProviderIpc({
         onConfigurationChanged: () => autocomplete.configurationChanged(),
         providers,
@@ -547,6 +578,7 @@ if (!hasSingleInstanceLock) {
         },
         revokeSubscriptions: async (projectSessionId) => {
           jobIpc.revokeSession(projectSessionId)
+          speechIpc.revokeSession(projectSessionId)
           autocompleteIpc.revokeSession(projectSessionId)
           editorIpc.revokeSession(projectSessionId)
           unregisterManuscriptIpc.revokeSession(projectSessionId)
@@ -608,6 +640,7 @@ if (!hasSingleInstanceLock) {
         unregisterProjectIpc: () => {
           nativeMenu?.dispose()
           unregisterSkillIpc()
+          speechIpc.unregister()
           autocompleteIpc.unregister()
           unregisterProviderIpc()
           unregisterSearchIpc()

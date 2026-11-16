@@ -1,0 +1,7 @@
+{
+  "url": "https://models.dev/experimental/v2.0/api.json?type=image,transcription",
+  "capturedAt": "2026-11-16T11:10:31.419Z",
+  "originalBytes": 396101,
+  "originalSha256": "d979348fb8a18eb7555509a80a8844d156d4b53ba1e2f6dd83b59722abd6d51e",
+  "selection": "Provider entries retain original fields; models maps contain six selected public entries."
+}

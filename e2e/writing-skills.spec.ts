@@ -142,7 +142,6 @@ test(
       let details = launched.page.getByRole('dialog', { name: 'Agent details' })
       await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /E2E Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await details.getByRole('button', { name: 'Close', exact: true }).click()
       await expect(details).toBeHidden()

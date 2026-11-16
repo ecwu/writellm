@@ -17,6 +17,7 @@ import {
   IMAGE_TRANSPORT_LABELS,
   OFFICIAL_IMAGE_BASE_URLS,
   type ImageModelDefinition,
+  type SourceModelCandidate,
   type ImageModelSelection,
   type ImageProviderId,
   type ImageSize,
@@ -73,6 +74,7 @@ import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { ConfigField, type ProviderSettingsWorkspaceProps } from './provider-settings-common'
+import { ModelCandidatePicker, ModelCatalogRefresh } from './model-candidate-controls'
 
 const IMAGE_TRANSPORTS: ImageProviderId[] = ['google-gemini', 'google-vertex', 'openai', 'xai']
 
@@ -506,6 +508,22 @@ export function ImageProviderWorkspace({
                       </Button>
                     </div>
 
+                    <ModelCatalogRefresh
+                      candidates={selectedSource.modelCandidates}
+                      catalog={selectedSource.catalog}
+                      busy={busy === 'refresh-models'}
+                      disabled={busy !== null || unsaved}
+                      onRefresh={() =>
+                        void updateSnapshot(
+                          'refresh-models',
+                          () =>
+                            window.desktop.providers.refreshImageModels({
+                              sourceId: selectedSource.sourceId
+                            }),
+                          'The image model catalog could not be refreshed.'
+                        )
+                      }
+                    />
                     <Separator />
                     <section className='flex min-w-0 flex-col gap-4'>
                       <div className='flex flex-wrap items-end gap-3'>
@@ -700,6 +718,7 @@ export function ImageProviderWorkspace({
       <ImageModelDialog
         open={modelDialog.open}
         initial={modelDialog.initial}
+        candidates={selectedSource?.modelCandidates ?? []}
         busy={busy !== null}
         onOpenChange={(open) => setModelDialog((current) => ({ ...current, open }))}
         onSave={async (model) => {
@@ -747,12 +766,14 @@ export function ImageProviderWorkspace({
 function ImageModelDialog({
   open,
   initial,
+  candidates,
   busy,
   onOpenChange,
   onSave
 }: {
   open: boolean
   initial: ImageModelDefinition | null
+  candidates: SourceModelCandidate[]
   busy: boolean
   onOpenChange: (open: boolean) => void
   onSave: (model: ImageModelDefinition) => Promise<void>
@@ -780,6 +801,17 @@ function ImageModelDialog({
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
+          {initial === null ? (
+            <ModelCandidatePicker
+              candidates={candidates}
+              purpose={{ capability: 'image' }}
+              disabled={busy}
+              onSelect={(candidate) => {
+                setId(candidate.id)
+                setName(candidate.name)
+              }}
+            />
+          ) : null}
           <ConfigField label='Model ID'>
             <Input
               value={id}

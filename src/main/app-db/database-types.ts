@@ -131,6 +131,14 @@ export interface BibliographyConnectorTable {
   updated_at: string
 }
 
+export interface SourceModelCatalogTable {
+  provider_config_id: string
+  fingerprint: string
+  models_json: string
+  checked_at: string | null
+  last_attempted_at: string
+  last_error_code: string | null
+}
 export interface AppDatabaseSchema {
   app_settings: AppSettingTable
   publication_presets: PublicationPresetTable
@@ -139,6 +147,7 @@ export interface AppDatabaseSchema {
   provider_configs: ProviderConfigTable
   encrypted_credentials: EncryptedCredentialTable
   agent_model_catalogs: AgentModelCatalogTable
+  source_model_catalogs: SourceModelCatalogTable
   agent_provider_preferences: AgentProviderPreferenceTable
   agent_model_preferences: AgentModelPreferenceTable
   agent_skills: AgentSkillTable
