@@ -7,7 +7,8 @@ import {
   type WritingRuleCategory
 } from '../../../../shared/contracts/writing-rules'
 import { useState } from 'react'
-import { ChevronDown, Plus, Trash2 } from 'lucide-react'
+import { BookMarked, ChevronDown, Plus, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -112,6 +113,14 @@ export function WritingRulesPanel(props: {
       className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'
       data-testid='writing-rules-panel'
     >
+      <div className={panelHeaderClassName}>
+        <PanelTitle icon={BookMarked} title='Writing rules' />
+        {rules.length > 0 ? (
+          <span className='shrink-0 text-xs text-muted-foreground tabular-nums'>
+            {rules.length}
+          </span>
+        ) : null}
+      </div>
       <div className='flex flex-col gap-3 border-b p-4'>
         <FieldGroup className='gap-3'>
           <Field>
@@ -133,7 +142,10 @@ export function WritingRulesPanel(props: {
         <Collapsible open={advanced} onOpenChange={setAdvanced}>
           <CollapsibleTrigger asChild>
             <Button variant='ghost' size='sm' className='w-full min-w-0 justify-between'>
-              <span className='truncate'>Advanced terminology fields</span>
+              <span className='flex min-w-0 items-center gap-2'>
+                <SlidersHorizontal className='size-4 shrink-0' aria-hidden='true' />
+                <span className='truncate'>Advanced terminology fields</span>
+              </span>
               <ChevronDown
                 data-icon='inline-end'
                 className={cn('transition-transform', advanced && 'rotate-180')}
@@ -166,7 +178,7 @@ export function WritingRulesPanel(props: {
           <Empty className='border-0 p-5'>
             <EmptyHeader>
               <EmptyMedia variant='icon'>
-                <Plus />
+                <BookMarked />
               </EmptyMedia>
               <EmptyTitle className='text-sm'>No Writing Rules</EmptyTitle>
               <EmptyDescription>

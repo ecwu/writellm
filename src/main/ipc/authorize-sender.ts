@@ -1,8 +1,6 @@
 import type { WebFrameMain } from 'electron'
 import { isTrustedRendererUrl } from '../../shared/security/urls'
 
-export { isTrustedRendererUrl } from '../../shared/security/urls'
-
 export function authorizeSender(
   frame: WebFrameMain | null,
   developmentUrl?: string

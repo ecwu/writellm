@@ -24,6 +24,7 @@ import {
   SUPPORTED_PROJECT_FORMAT_VERSION
 } from './project-manifest'
 import {
+  INDEX_DATABASE_RELATIVE_PATH,
   PROJECT_BACKUPS_DIRECTORY,
   PROJECT_DATABASE_RELATIVE_PATH,
   PROJECT_HISTORY_RELATIVE_PATH,
@@ -247,9 +248,9 @@ function validateSnapshotFilePaths(files: readonly ProjectSnapshotFile[]): void 
       normalized === PROJECT_DATABASE_RELATIVE_PATH ||
       normalized === `${PROJECT_DATABASE_RELATIVE_PATH}-wal` ||
       normalized === `${PROJECT_DATABASE_RELATIVE_PATH}-shm` ||
-      normalized === '.writellm/index.sqlite' ||
-      normalized === '.writellm/index.sqlite-wal' ||
-      normalized === '.writellm/index.sqlite-shm' ||
+      normalized === INDEX_DATABASE_RELATIVE_PATH ||
+      normalized === `${INDEX_DATABASE_RELATIVE_PATH}-wal` ||
+      normalized === `${INDEX_DATABASE_RELATIVE_PATH}-shm` ||
       normalized === PROJECT_MANIFEST_FILE ||
       normalized === PROJECT_SNAPSHOT_MANIFEST_FILE ||
       normalized.startsWith('.writellm/temp/') ||
@@ -309,7 +310,6 @@ export async function createProjectSnapshot(options: {
     database: Database.Database
   ) => Promise<readonly ProjectSnapshotFile[]> | readonly ProjectSnapshotFile[]
   barrier: SnapshotBarrier
-  indexIncluded?: false
   includeVersionHistory?: boolean
   log: Pick<Logger, 'info' | 'error'>
 }): Promise<ProjectSnapshotManifest> {
@@ -405,8 +405,8 @@ export async function createProjectSnapshot(options: {
       schemaMigrationsSha256: migrationHash,
       createdAt: new Date().toISOString(),
       sourceAppVersion: options.sourceAppVersion,
-      indexIncluded: options.indexIncluded ?? false,
-      indexRebuildRequired: !(options.indexIncluded ?? false),
+      indexIncluded: false,
+      indexRebuildRequired: true,
       database: { path: PROJECT_DATABASE_RELATIVE_PATH, ...databaseDigest },
       files,
       versionHistory: {

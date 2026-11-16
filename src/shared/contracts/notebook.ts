@@ -115,6 +115,15 @@ export const notebookChatMessageSchema = z.discriminatedUnion('role', [
 ])
 export type NotebookChatMessage = z.infer<typeof notebookChatMessageSchema>
 
+const chatTextEncoder = new TextEncoder()
+
+export function notebookChatTextBytes(messages: readonly NotebookChatMessage[]): number {
+  return messages.reduce(
+    (total, message) => total + chatTextEncoder.encode(message.content).byteLength,
+    0
+  )
+}
+
 export const notebookChatSnapshotSchema = z
   .object({
     projectSessionId: projectSessionIdSchema,
@@ -140,10 +149,7 @@ export const notebookChatSnapshotSchema = z
         message: 'Notebook active turn does not match its phase'
       })
     }
-    const bytes = new TextEncoder().encode(
-      snapshot.messages.map((message) => message.content).join('')
-    ).byteLength
-    if (bytes > NOTEBOOK_MAX_CHAT_BYTES) {
+    if (notebookChatTextBytes(snapshot.messages) > NOTEBOOK_MAX_CHAT_BYTES) {
       context.addIssue({
         code: 'custom',
         path: ['messages'],

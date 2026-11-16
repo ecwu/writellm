@@ -4,11 +4,16 @@ import { sha256 } from '../../shared/hash'
 import { readFile } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import type { CitationFormatterCluster } from '../../shared/contracts/citation-formatting'
+import type { ManuscriptAssembly } from '../../shared/contracts/manuscript'
 import {
   formattedReferenceSnapshotSchema,
-  type FormattedReferenceSnapshot
+  type FormattedReferenceSnapshot,
+  type ReferenceItem
 } from '../../shared/contracts/references'
-import { findDocumentCitationOccurrences } from '../../shared/readable-citation'
+import {
+  collectManuscriptCitations,
+  type ManuscriptReferenceOccurrence
+} from '../../shared/readable-citation'
 import type { ProjectContext } from '../project/project-context'
 import type { CitationFormatterClient } from './citation-formatter-client'
 
@@ -28,18 +33,15 @@ export class CitationFormattingService {
     this.#log = options.log
   }
 
-  async format(context: ProjectContext): Promise<FormattedReferenceSnapshot> {
-    const assembly = context.manuscript.assemble()
-    const occurrences = assembly.sections.flatMap(({ section, revision }) =>
-      findDocumentCitationOccurrences({
-        sectionId: section.sectionId,
-        sectionRevisionId: revision.sectionRevisionId,
-        content: revision.content
-      })
-    )
-    const clusters = clustersFromOccurrences(occurrences)
+  async format(
+    context: ProjectContext,
+    capture?: { manuscript: ManuscriptAssembly; referenceItems: readonly ReferenceItem[] }
+  ): Promise<FormattedReferenceSnapshot> {
+    const manuscript = capture?.manuscript ?? context.manuscript.assemble()
+    const clusters = clustersFromOccurrences(collectManuscriptCitations(manuscript.sections))
+    const referenceItems = capture?.referenceItems ?? context.references.list()
     const referenceByKey = new Map(
-      context.references.list().map((reference) => [reference.citationKey, reference])
+      referenceItems.map((reference) => [reference.citationKey, reference])
     )
     const completeClusters = clusters.filter((cluster) =>
       cluster.items.every((item) => referenceByKey.has(item.citationKey))
@@ -167,7 +169,7 @@ interface OrderedFormatterCluster extends CitationFormatterCluster {
 }
 
 function clustersFromOccurrences(
-  occurrences: ReturnType<typeof findDocumentCitationOccurrences>
+  occurrences: readonly ManuscriptReferenceOccurrence[]
 ): OrderedFormatterCluster[] {
   const clusters = new Map<string, OrderedFormatterCluster>()
   for (const occurrence of occurrences) {

@@ -9,6 +9,11 @@ import type { IndexUtilityResponse } from '../../shared/contracts/indexing'
 import type { LogCollector } from '../observability/log-collector'
 import { IndexClient, type IndexUtilityProcessFactory } from './index-client'
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...original, rm: vi.fn(original.rm) }
+})
+
 // The canonical runner executes with ELECTRON_RUN_AS_NODE=1, where the
 // `electron` module resolves to the binary-path shim instead of the main-process
 // API, so `MessageChannelMain` is undefined. The client only needs a log-port
@@ -47,7 +52,10 @@ class FakeUtilityProcess extends EventEmitter {
   }
 }
 
-function fixture(): {
+function fixture(
+  restartChild?: FakeUtilityProcess,
+  onRestart?: (activeGenerationId: string | null) => void
+): {
   client: IndexClient
   child: FakeUtilityProcess
   sessionId: string
@@ -55,7 +63,10 @@ function fixture(): {
   const child = new FakeUtilityProcess()
   const sessionId = randomUUID()
   const factory: IndexUtilityProcessFactory = {
-    fork: () => child as never
+    fork: vi
+      .fn()
+      .mockReturnValueOnce(child)
+      .mockReturnValue(restartChild ?? child)
   }
   const client = new IndexClient({
     modulePath: '/worker.js',
@@ -65,18 +76,10 @@ function fixture(): {
     projectSessionId: sessionId,
     collector: {} as LogCollector,
     log: pino({ level: 'silent' }),
+    onRestart,
     processFactory: factory
   })
   return { client, child, sessionId }
-}
-
-const snapshot = {
-  schemaVersion: 5 as const,
-  activeGenerationId: null,
-  generationCount: 0,
-  chunkCount: 0,
-  sourceCount: 0,
-  activeSourceSetSha256: null
 }
 
 async function initialize(client: IndexClient, child: FakeUtilityProcess, sessionId: string) {
@@ -86,7 +89,7 @@ async function initialize(client: IndexClient, child: FakeUtilityProcess, sessio
     type: 'ready',
     requestId: request.requestId,
     projectSessionId: sessionId,
-    snapshot
+    activeGenerationId: null
   } satisfies IndexUtilityResponse)
   await pending
 }
@@ -112,11 +115,39 @@ describe('IndexClient protocol boundaries', () => {
     const { client, child } = fixture()
     const pending = client.initialize()
 
-    client.terminate()
+    await client.terminate()
 
     await expect(pending).rejects.toThrow('Index utility terminated')
     expect(child.killed).toBe(true)
     expect(child.posts).toHaveLength(1)
+  })
+
+  it('shares graceful close and rejects requests that have not reached the worker', async () => {
+    const { client, child, sessionId } = fixture()
+    await initialize(client, child, sessionId)
+
+    const probe = client.activeGenerationId()
+    const closing = client.close()
+    const settled = Promise.allSettled([probe, closing])
+    try {
+      expect(client.close()).toBe(closing)
+      await expect(probe).rejects.toThrow('Index utility client is closed')
+      await expect(client.activeGenerationId()).rejects.toThrow('Index utility client is closed')
+      expect(child.posts).toHaveLength(2)
+      const request = child.posts[1] as { requestId: string }
+      expect(request).toMatchObject({ operation: 'close', projectSessionId: sessionId })
+      child.emit('message', {
+        type: 'closed',
+        requestId: request.requestId,
+        projectSessionId: sessionId
+      } satisfies IndexUtilityResponse)
+
+      await expect(closing).resolves.toBeUndefined()
+      expect(child.killed).toBe(true)
+    } finally {
+      await client.terminate()
+      await settled
+    }
   })
 
   it('removes a damaged derived database family and retries initialization once', async () => {
@@ -144,6 +175,8 @@ describe('IndexClient protocol boundaries', () => {
     })
     try {
       const pending = client.initialize()
+      const concurrent = client.initialize()
+      expect(concurrent).toBe(pending)
       const firstRequest = children[0]?.posts[0] as { requestId: string }
       children[0]?.emit('message', {
         type: 'error',
@@ -158,32 +191,145 @@ describe('IndexClient protocol boundaries', () => {
         type: 'ready',
         requestId: secondRequest.requestId,
         projectSessionId: sessionId,
-        snapshot
+        activeGenerationId: null
       } satisfies IndexUtilityResponse)
 
-      await expect(pending).resolves.toEqual(snapshot)
+      await expect(pending).resolves.toBeNull()
+      await expect(concurrent).resolves.toBeNull()
       await expect(access(indexPath)).rejects.toMatchObject({ code: 'ENOENT' })
       await expect(access(`${indexPath}-wal`)).rejects.toMatchObject({ code: 'ENOENT' })
       await expect(access(`${indexPath}-shm`)).rejects.toMatchObject({ code: 'ENOENT' })
       expect(forkCount).toBe(2)
     } finally {
-      client.terminate()
+      await client.terminate()
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it.each(['close', 'terminate'] as const)(
+    'waits for recovery file removal on %s',
+    async (stop) => {
+      const { client, child, sessionId } = fixture()
+      const removing = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const remove = vi
+        .mocked(rm)
+        .mockClear()
+        .mockImplementation(async (path) => {
+          if (path === '/index.sqlite') {
+            removing.resolve()
+            await release.promise
+          }
+        })
+      const pending = client.initialize()
+      const rejected = expect(pending).rejects.toThrow('Index utility client is closed')
+      try {
+        const firstRequest = child.posts[0] as { requestId: string }
+        child.emit('message', {
+          type: 'error',
+          requestId: firstRequest.requestId,
+          projectSessionId: sessionId,
+          error: { name: 'Error', message: 'Index database integrity check failed' }
+        } satisfies IndexUtilityResponse)
+        await removing.promise
+
+        const completions: string[] = []
+        const closed = [
+          client[stop]().then(() => completions.push(stop)),
+          client.close().then(() => completions.push('repeated close'))
+        ]
+        await flushRequestPosts()
+        expect(completions).toEqual([])
+
+        release.resolve()
+        await Promise.all(closed)
+        await rejected
+        expect(remove.mock.calls.map(([path]) => path)).toEqual([
+          '/index.sqlite',
+          '/index.sqlite-wal',
+          '/index.sqlite-shm'
+        ])
+        expect(child.posts).toHaveLength(1)
+      } finally {
+        release.resolve()
+        await client.terminate()
+        await Promise.allSettled([rejected])
+        remove.mockRestore()
+      }
+    }
+  )
+
+  it('waits for one new worker to initialize before posting concurrent requests', async () => {
+    const restarted = new FakeUtilityProcess()
+    const onRestart = vi.fn()
+    const { client, child, sessionId } = fixture(restarted, onRestart)
+    try {
+      await initialize(client, child, sessionId)
+      expect(onRestart).not.toHaveBeenCalled()
+      child.emit('exit', 1)
+      const first = client.activeGenerationId()
+      const second = client.activeGenerationId()
+      await flushRequestPosts()
+
+      expect(restarted.posts).toHaveLength(1)
+      const start = restarted.posts[0] as { requestId: string }
+      expect(start).toMatchObject({ type: 'initialize' })
+      restarted.emit('message', {
+        type: 'ready',
+        requestId: start.requestId,
+        projectSessionId: sessionId,
+        activeGenerationId: null
+      } satisfies IndexUtilityResponse)
+      await flushRequestPosts()
+      expect(restarted.posts).toHaveLength(3)
+      expect(onRestart).toHaveBeenCalledExactlyOnceWith(null)
+      for (const post of restarted.posts.slice(1)) {
+        const request = post as { requestId: string }
+        restarted.emit('message', {
+          type: 'active-generation',
+          requestId: request.requestId,
+          projectSessionId: sessionId,
+          activeGenerationId: null
+        } satisfies IndexUtilityResponse)
+      }
+      await expect(Promise.all([first, second])).resolves.toEqual([null, null])
+    } finally {
+      await client.terminate()
+    }
+  })
+
+  it('reads the active generation from a fresh worker reply', async () => {
+    const { client, child, sessionId } = fixture()
+    await initialize(client, child, sessionId)
+    const pending = client.activeGenerationId()
+    await flushRequestPosts()
+    const request = child.posts.at(-1) as { requestId: string }
+    expect(request).toMatchObject({
+      operation: 'active-generation',
+      projectSessionId: sessionId
+    })
+    child.emit('message', {
+      type: 'active-generation',
+      requestId: request.requestId,
+      projectSessionId: sessionId,
+      activeGenerationId: 'generation-current'
+    } satisfies IndexUtilityResponse)
+    await expect(pending).resolves.toBe('generation-current')
+    await client.terminate()
   })
 
   it('terminates and rejects stale-session responses', async () => {
     const { client, child, sessionId } = fixture()
     await initialize(client, child, sessionId)
-    const pending = client.inspect()
+    const pending = client.activeGenerationId()
     await flushRequestPosts()
     const request = child.posts.at(-1) as { requestId: string }
     expect(child.posts).toHaveLength(2)
     child.emit('message', {
-      type: 'snapshot',
+      type: 'active-generation',
       requestId: request.requestId,
       projectSessionId: randomUUID(),
-      snapshot
+      activeGenerationId: null
     } satisfies IndexUtilityResponse)
     await expect(pending).rejects.toThrow('stale project session')
     expect(child.killed).toBe(true)
@@ -192,14 +338,14 @@ describe('IndexClient protocol boundaries', () => {
   it('terminates and rejects unmatched responses', async () => {
     const { client, child, sessionId } = fixture()
     await initialize(client, child, sessionId)
-    const pending = client.inspect()
+    const pending = client.activeGenerationId()
     await flushRequestPosts()
     expect(child.posts).toHaveLength(2)
     child.emit('message', {
-      type: 'snapshot',
+      type: 'active-generation',
       requestId: randomUUID(),
       projectSessionId: sessionId,
-      snapshot
+      activeGenerationId: null
     } satisfies IndexUtilityResponse)
     await expect(pending).rejects.toThrow('request ID is not pending')
     expect(child.killed).toBe(true)
@@ -209,7 +355,7 @@ describe('IndexClient protocol boundaries', () => {
     const { client, child, sessionId } = fixture()
     await initialize(client, child, sessionId)
     const controller = new AbortController()
-    const pending = client.inspect(controller.signal)
+    const pending = client.activeGenerationId(controller.signal)
     await flushRequestPosts()
 
     controller.abort()

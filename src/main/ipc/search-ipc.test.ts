@@ -1,6 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron'
 import { describe, expect, it, vi } from 'vitest'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
+import { ProjectOperationRegistry } from '../project/project-operations'
 import { registerSearchIpc } from './search-ipc'
 
 const projectSessionId = '11111111-1111-4111-8111-111111111111'
@@ -10,8 +11,13 @@ function harness() {
   const handlers = new Map<string, (...args: never[]) => unknown>()
   let active = true
   let retrievalAvailable = true
+  const operations = new ProjectOperationRegistry()
   const retrieval = {
-    search: vi.fn(async () => ({ mode: 'none', rerankStatus: 'disabled', hits: [] })),
+    search: vi.fn(async (_input: unknown, _signal: AbortSignal) => ({
+      mode: 'none',
+      rerankStatus: 'disabled',
+      hits: []
+    })),
     expand: vi.fn(async () => [
       {
         citationId,
@@ -44,6 +50,8 @@ function harness() {
     assertActiveSession: vi.fn((value: string) => {
       if (!active || value !== projectSessionId) throw new Error('stale project session')
       return {
+        projectSessionId,
+        operations,
         retrieval,
         projectIndex: { isRetrievalAvailable: () => retrievalAvailable },
         database: {
@@ -69,9 +77,11 @@ function harness() {
     handlers,
     logger,
     manager,
+    operations,
     retrieval,
     revoke: () => {
       active = false
+      operations.abortAll()
     },
     setRetrievalAvailable: (value: boolean) => {
       retrievalAvailable = value
@@ -174,13 +184,16 @@ describe('search IPC', () => {
     expect(first.retrieval.search).not.toHaveBeenCalled()
 
     const second = harness()
-    second.retrieval.search.mockImplementationOnce(async () => {
+    second.retrieval.search.mockImplementationOnce(async (_input, signal) => {
+      expect(second.operations.size).toBe(1)
       second.revoke()
+      expect(signal.aborted).toBe(true)
       return { mode: 'none', rerankStatus: 'disabled', hits: [] }
     })
     await expect(
       second.invoke(IPC_CHANNELS.knowledgeSearch, { projectSessionId, query: 'evidence' })
     ).rejects.toThrow('Knowledge search could not be completed')
+    expect(second.operations.size).toBe(0)
   })
 
   it('rejects search explicitly while the project index is preparing', async () => {

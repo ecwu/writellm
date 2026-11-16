@@ -11,10 +11,9 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import Database from 'better-sqlite3'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createProject, INDEX_DATABASE_APPLICATION_ID } from './project-lifecycle'
+import { createProject } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
 import { readProjectManifest } from './project-manifest'
 import { inspectProjectWriteLock } from './project-lock'
@@ -74,7 +73,9 @@ describe('project creation lifecycle', () => {
       await expect(access(join(destination, relativeDirectory))).resolves.toBeUndefined()
     }
     await expect(access(join(destination, PROJECT_DATABASE_RELATIVE_PATH))).resolves.toBeUndefined()
-    await expect(access(join(destination, INDEX_DATABASE_RELATIVE_PATH))).resolves.toBeUndefined()
+    await expect(access(join(destination, INDEX_DATABASE_RELATIVE_PATH))).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
 
     const database = await openProjectDatabase({
       projectRoot: destination,
@@ -91,15 +92,6 @@ describe('project creation lifecycle', () => {
     ).toEqual({ title: '跨语言文章', version: 1 })
     expect(await database.kysely.selectFrom('sections').selectAll().execute()).toHaveLength(1)
     database.close()
-
-    const index = new Database(join(destination, INDEX_DATABASE_RELATIVE_PATH), { readonly: true })
-    expect(index.pragma('application_id', { simple: true })).toBe(INDEX_DATABASE_APPLICATION_ID)
-    const indexTables = index
-      .prepare("SELECT name FROM sqlite_schema WHERE type = 'table'")
-      .pluck()
-      .all()
-    expect(indexTables).toEqual([])
-    index.close()
 
     expect((await readdir(parent)).filter((name) => name.includes('writellm-staging'))).toEqual([])
     await created.writeLock.release()

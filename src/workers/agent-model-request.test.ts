@@ -104,7 +104,9 @@ describe('runAgentModelRequest', () => {
         headers: {
           'content-type': 'text/event-stream',
           'cache-control': 'no-cache',
-          'x-request-id': 'agent-response-1'
+          'x-request-id': 'agent-response-1',
+          'server-timing': 'x'.repeat(2_049),
+          'set-cookie': 'private-trace-cookie'
         }
       })
     })
@@ -188,6 +190,13 @@ describe('runAgentModelRequest', () => {
     ])
     expect(JSON.stringify(captures)).toContain('Write a line.')
     expect(JSON.stringify(captures)).not.toContain('agent-secret')
+    expect(captures.at(-1)?.documents[0]).toMatchObject({
+      kind: 'provider_response',
+      metadata: {
+        responseHeaders: { 'x-request-id': 'agent-response-1', 'server-timing': 'x'.repeat(2_048) }
+      }
+    })
+    expect(JSON.stringify(captures)).not.toContain('private-trace-cookie')
   })
 
   it('preserves the provider diagnostic when a utility request fails', async () => {

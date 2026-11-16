@@ -1,5 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, ArrowDownAZ, ChevronRight, File, FileUp, Plus, Search } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowDownAZ,
+  BookOpenText,
+  ChevronRight,
+  File,
+  FileUp,
+  Layers,
+  Plus,
+  Search,
+  TriangleAlert
+} from 'lucide-react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import type { KnowledgeIndexStatus, KnowledgeItem } from '../../../../shared/contracts/knowledge'
 import type { ReferenceItem } from '../../../../shared/contracts/references'
 import type { JobStatus } from '../../../../shared/contracts/jobs'
@@ -155,19 +167,19 @@ export function KnowledgeSidebar(props: {
         if (!props.busy) props.onDrop(Array.from(event.dataTransfer.files))
       }}
     >
+      <div className={panelHeaderClassName}>
+        <PanelTitle icon={BookOpenText} title='References' />
+        <Button
+          data-testid='knowledge-upload-button'
+          variant='outline'
+          size='sm'
+          disabled={props.busy}
+          onClick={props.onImport}
+        >
+          {props.busy ? <Spinner /> : <Plus />} Import
+        </Button>
+      </div>
       <div className='grid shrink-0 gap-3 p-4'>
-        <div className='flex items-center justify-between gap-2'>
-          <h2 className='text-base font-semibold'>References</h2>
-          <Button
-            data-testid='knowledge-upload-button'
-            variant='outline'
-            size='sm'
-            disabled={props.busy}
-            onClick={props.onImport}
-          >
-            {props.busy ? <Spinner /> : <Plus />} Import
-          </Button>
-        </div>
         <p className='text-xs text-muted-foreground'>
           {ready
             ? `${props.references.length} references · ${props.items.length} files`
@@ -199,9 +211,11 @@ export function KnowledgeSidebar(props: {
           aria-label='Filter references'
         >
           <ToggleGroupItem value='all'>
+            <Layers />
             All{ready ? ` ${props.references.length + library.unlinkedCount}` : ''}
           </ToggleGroupItem>
           <ToggleGroupItem value='attention'>
+            <TriangleAlert />
             Needs attention{ready ? ` ${library.attentionCount}` : ''}
           </ToggleGroupItem>
         </ToggleGroup>

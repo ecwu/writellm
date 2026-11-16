@@ -76,7 +76,10 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     manager: options.manager
   })
 
-  const selectFolder = async (purpose: 'create' | 'open'): Promise<string | null> => {
+  const selectFolder = async (
+    purpose: 'create' | 'open',
+    title?: string
+  ): Promise<string | null> => {
     if (projectDialogOpen) throw new Error('A project folder dialog is already open')
     projectDialogOpen = true
     try {
@@ -84,6 +87,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
 
       const owner = options.getWindow()
       const dialogOptions: Electron.OpenDialogOptions = {
+        ...(title === undefined ? {} : { title }),
         properties: purpose === 'create' ? ['openDirectory', 'createDirectory'] : ['openDirectory']
       }
       const result =
@@ -162,11 +166,11 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   }
 
-  const selectRestoreDestinationParent = async (): Promise<string | null> => {
+  const selectRestoreDestinationParent = async (title?: string): Promise<string | null> => {
     if (options.selectRestoreDestinationParentForTest) {
       return options.selectRestoreDestinationParentForTest()
     }
-    return selectFolder('open')
+    return title === undefined ? selectFolder('open') : selectFolder('create', title)
   }
 
   const selectCloneDestination = async (projectSessionId: string): Promise<string | null> => {
@@ -503,6 +507,24 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
     }
   })
 
+  handle(projectIpcEndpoints.rebuildMissingManifest, async ({ mode }) => {
+    try {
+      const snapshot = await options.manager.recoverMissingManifest(
+        mode === 'copy'
+          ? () => selectRestoreDestinationParent('Choose where to save the recovery copy')
+          : undefined
+      )
+      return { project: snapshot.activeProject }
+    } catch (err) {
+      reportIpcFailure(
+        options.logger,
+        { event: 'ipc.project_recovery.rebuild_manifest.failed', err },
+        'Missing manifest recovery failed'
+      )
+      throw operationError('Unable to rebuild or open the project', err)
+    }
+  })
+
   handle(projectIpcEndpoints.exportRecoveryDiagnostics, async (_input) => {
     try {
       return await options.manager.exportDiagnostics()
@@ -811,6 +833,7 @@ export function registerProjectIpc(options: RegisterProjectIpcOptions): () => vo
       IPC_CHANNELS.projectRecoveryRetryClose,
       IPC_CHANNELS.projectRecoveryDiscardIncompleteCreate,
       IPC_CHANNELS.projectRecoveryLocateMoved,
+      IPC_CHANNELS.projectRecoveryRebuildManifest,
       IPC_CHANNELS.projectRecoveryExportDiagnostics,
       IPC_CHANNELS.projectRecoveryReturnToClosed,
       IPC_CHANNELS.projectSnapshotCreate,

@@ -12,9 +12,15 @@ import {
   GitCompareArrows,
   ImageOff,
   Images,
+  LayoutGrid,
   Link2,
-  Trash2
+  type LucideIcon,
+  Sparkles,
+  Trash2,
+  Unlink,
+  Upload
 } from 'lucide-react'
+import { PanelTitle, panelHeaderClassName, panelToolbarClassName } from '@/components/panel-header'
 import { useState } from 'react'
 import { formatBytes } from '@/lib/utils'
 import { WorkspaceRail } from '@/components/app-sidebar'
@@ -33,7 +39,8 @@ import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbList,
-  BreadcrumbPage
+  BreadcrumbPage,
+  BreadcrumbSeparator
 } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -154,20 +161,17 @@ export function AssetWorkspace(props: {
           onOpenSettings={props.onOpenSettings}
         />
         <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
-          <SidebarHeader className='border-b p-4'>
-            <div className='flex items-center gap-2'>
-              <Images className='size-4' />
-              <span className='font-medium'>Images</span>
-            </div>
+          <SidebarHeader className={panelHeaderClassName}>
+            <PanelTitle icon={Images} title='Images' />
           </SidebarHeader>
           <SidebarContent>
             <FilterGroup
               label='Usage'
               value={usage}
               options={[
-                ['all', 'All'],
-                ['used', 'Used'],
-                ['unused', 'Unused']
+                ['all', 'All', LayoutGrid],
+                ['used', 'Used', Link2],
+                ['unused', 'Unused', Unlink]
               ]}
               onChange={(value) => setUsage(value as ManuscriptAssetUsageFilter)}
             />
@@ -175,9 +179,9 @@ export function AssetWorkspace(props: {
               label='Source'
               value={source}
               options={[
-                ['all', 'All'],
-                ['uploaded', 'Uploaded'],
-                ['generated', 'Generated']
+                ['all', 'All', LayoutGrid],
+                ['uploaded', 'Uploaded', Upload],
+                ['generated', 'Generated', Sparkles]
               ]}
               onChange={(value) => setSource(value as ManuscriptAssetSourceFilter)}
             />
@@ -213,14 +217,15 @@ export function AssetWorkspace(props: {
         </Sidebar>
       </Sidebar>
       <SidebarInset className='min-h-0 overflow-auto'>
-        <header className='sticky top-0 z-20 flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+        <header className={panelToolbarClassName}>
           <SidebarTrigger className='-ml-1' />
           <Separator orientation='vertical' className='mr-2 data-[orientation=vertical]:h-4' />
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbPage>{props.projectName}</BreadcrumbPage>
+                <span>{props.projectName}</span>
               </BreadcrumbItem>
+              <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbPage>Images</BreadcrumbPage>
               </BreadcrumbItem>
@@ -319,7 +324,7 @@ export function AssetWorkspace(props: {
 function FilterGroup<T extends string>(props: {
   label: string
   value: T
-  options: ReadonlyArray<readonly [T, string]>
+  options: ReadonlyArray<readonly [T, string, LucideIcon]>
   onChange(value: T): void
 }): React.JSX.Element {
   return (
@@ -327,12 +332,13 @@ function FilterGroup<T extends string>(props: {
       <SidebarGroupLabel>{props.label}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {props.options.map(([value, label]) => (
+          {props.options.map(([value, label, Icon]) => (
             <SidebarMenuItem key={value}>
               <SidebarMenuButton
                 isActive={props.value === value}
                 onClick={() => props.onChange(value)}
               >
+                <Icon />
                 <span>{label}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>

@@ -37,7 +37,12 @@ describe('bundled Citation.js network boundary', () => {
     if (!Array.isArray(result)) throw new Error('Expected library build output')
     const chunk = result[0]?.output.find((item) => item.type === 'chunk')
     if (chunk?.type !== 'chunk') throw new Error('Citation network probe chunk missing')
-    expect(chunk.code).not.toContain('sync-fetch-undici')
+    // Rolldown inlines Citation.js's whole package.json, so its dependency list may name the
+    // package. The boundary holds when no module code loads it.
+    expect(chunk.code).not.toMatch(
+      /require\(\s*["']sync-fetch-undici["']\s*\)|from\s*["']sync-fetch-undici["']|import\(\s*["']sync-fetch-undici["']\s*\)/
+    )
+    expect(chunk.code).toContain('Network access is unavailable in the LaTeX import worker')
     const module = { exports: {} }
     const evaluate = new Function('require', 'module', 'exports', chunk.code)
     evaluate(createRequire(import.meta.url), module, module.exports)

@@ -1,13 +1,16 @@
 import { useRef, useState } from 'react'
 import {
-  BookOpen,
   CircleStop,
   Download,
   GitBranch,
+  PackageCheck,
   RefreshCw,
   ShieldAlert,
-  Trash2
+  Store,
+  Trash2,
+  WandSparkles
 } from 'lucide-react'
+import { SettingsPageHeader } from '@/components/settings-page-header'
 import type {
   InspectGithubSkillResult,
   InstalledSkill,
@@ -162,17 +165,13 @@ export function WritingSkillsSettings({
 
   return (
     <ScrollArea className='h-full'>
-      <div className='mx-auto flex w-full max-w-5xl flex-col gap-8 p-6 lg:p-8'>
-        <header className='flex items-start gap-3'>
-          <div className='min-w-0 flex-1'>
-            <h2 className='text-xl font-semibold'>Writing Skills</h2>
-            <p className='max-w-[72ch] text-sm text-muted-foreground'>
-              Install global, read-only writing guidance. Skills cannot add tools, execute code, or
-              read project files.
-            </p>
-          </div>
-          <div className='flex shrink-0 items-center gap-2'>
-            {activeOperation !== null ? (
+      <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
+        <SettingsPageHeader
+          icon={WandSparkles}
+          title='Writing Skills'
+          description='Install global, read-only writing guidance. Skills cannot add tools, execute code, or read project files.'
+          actions={
+            activeOperation !== null ? (
               <Button
                 size='sm'
                 variant='outline'
@@ -182,14 +181,15 @@ export function WritingSkillsSettings({
                 {cancelling ? <Spinner /> : <CircleStop data-icon='inline-start' />}
                 {cancelling ? 'Cancelling…' : 'Cancel operation'}
               </Button>
-            ) : null}
-            {closeAction}
-          </div>
-        </header>
+            ) : null
+          }
+          closeAction={closeAction}
+        />
 
         <section className='flex flex-col gap-3' aria-labelledby='installed-skills-title'>
           <div>
-            <h3 id='installed-skills-title' className='font-medium'>
+            <h3 id='installed-skills-title' className='flex items-center gap-2 font-medium'>
+              <PackageCheck className='size-4 text-muted-foreground' aria-hidden='true' />
               Installed
             </h3>
             <p className='text-sm text-muted-foreground'>
@@ -200,7 +200,7 @@ export function WritingSkillsSettings({
             <Empty className='border'>
               <EmptyHeader>
                 <EmptyMedia variant='icon'>
-                  <BookOpen />
+                  <WandSparkles />
                 </EmptyMedia>
                 <EmptyTitle>No writing skills installed</EmptyTitle>
                 <EmptyDescription>
@@ -273,7 +273,8 @@ export function WritingSkillsSettings({
 
         <section className='flex flex-col gap-3' aria-labelledby='available-skills-title'>
           <div>
-            <h3 id='available-skills-title' className='font-medium'>
+            <h3 id='available-skills-title' className='flex items-center gap-2 font-medium'>
+              <Store className='size-4 text-muted-foreground' aria-hidden='true' />
               Available
             </h3>
             <p className='text-sm text-muted-foreground'>
@@ -325,7 +326,8 @@ export function WritingSkillsSettings({
 
         <section className='flex flex-col gap-3' aria-labelledby='github-skill-title'>
           <div>
-            <h3 id='github-skill-title' className='font-medium'>
+            <h3 id='github-skill-title' className='flex items-center gap-2 font-medium'>
+              <GitBranch className='size-4 text-muted-foreground' aria-hidden='true' />
               Add from GitHub
             </h3>
             <p className='text-sm text-muted-foreground'>

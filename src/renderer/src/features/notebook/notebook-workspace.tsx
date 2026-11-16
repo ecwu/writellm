@@ -12,17 +12,18 @@ import type { ExpandedCitation } from '../../../../shared/contracts/search'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowUp,
+  Eraser,
   FileQuestion,
   FileText,
   Info,
   LibraryBig,
-  NotebookPen,
   PanelLeft,
   ShieldCheck,
   Square
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { WorkspaceRail } from '@/components/app-sidebar'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Bubble, BubbleContent } from '@/components/ui/bubble'
@@ -71,6 +72,7 @@ import {
   useSidebar
 } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
+import { cn } from '@/lib/utils'
 import { AgentMarkdown } from '@/features/agent/agent-markdown'
 import { AgentModelEffortPicker } from '@/features/agent/agent-model-effort-picker'
 import { ExpandedCitationPreview } from '@/features/knowledge/citation-preview'
@@ -366,7 +368,7 @@ export function NotebookWorkspace(
         />
       </Sidebar>
       <SidebarInset className='flex min-h-0 min-w-0 flex-col overflow-hidden'>
-        <header className='flex shrink-0 items-center gap-2 border-b bg-background p-4'>
+        <header className={cn(panelHeaderClassName, 'bg-background')}>
           <SidebarTrigger className='-ml-1' />
           <div className='ml-auto flex min-w-0 items-center gap-2'>
             <NotebookSourceCount count={selectedIds.size} />
@@ -415,7 +417,7 @@ export function NotebookWorkspace(
                 )
               }
             >
-              Clear chat
+              <Eraser /> Clear chat
             </Button>
           </div>
         </header>
@@ -577,14 +579,13 @@ function NotebookSourcesSidebar(props: {
 
   return (
     <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
-      <SidebarHeader className='gap-3 border-b p-4'>
-        <div className='flex items-center gap-2'>
-          <NotebookPen className='size-4' aria-hidden='true' />
-          <span className='font-medium'>Sources</span>
-          <Badge variant='outline' className='ml-auto tabular-nums'>
-            {props.selectedIds.size}/{props.snapshot?.availableKnowledgeItemIds.length ?? 0}
-          </Badge>
-        </div>
+      <SidebarHeader className={panelHeaderClassName}>
+        <PanelTitle icon={LibraryBig} title='Sources' />
+        <Badge variant='outline' className='tabular-nums'>
+          {props.selectedIds.size}/{props.snapshot?.availableKnowledgeItemIds.length ?? 0}
+        </Badge>
+      </SidebarHeader>
+      <div className='border-b px-4 py-3'>
         <Field orientation='horizontal'>
           <Checkbox
             id='notebook-select-all'
@@ -606,7 +607,7 @@ function NotebookSourcesSidebar(props: {
             <FieldLabel htmlFor='notebook-select-all'>Select all indexed sources</FieldLabel>
           </FieldContent>
         </Field>
-      </SidebarHeader>
+      </div>
       <SidebarContent className='p-2'>
         {props.loading ? (
           <div className='flex items-center gap-2 p-3 text-sm text-muted-foreground'>

@@ -1,4 +1,5 @@
 import type { ProjectTemplateExtractionPreview } from '../../../../shared/contracts/project-templates'
+import { LayoutTemplate } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -44,7 +45,10 @@ export function ProjectTemplateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Save reusable project template</DialogTitle>
+          <DialogTitle className='flex items-center gap-2'>
+            <LayoutTemplate className='size-4 text-muted-foreground' aria-hidden='true' />
+            Save reusable project template
+          </DialogTitle>
           <DialogDescription>
             Review exactly what will be reusable. Project content and identity stay excluded.
           </DialogDescription>

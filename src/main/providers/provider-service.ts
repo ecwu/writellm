@@ -88,7 +88,7 @@ export class ProviderService {
       .orderBy('id')
       .execute()
     const byRole = new Map(rows.map((row) => [row.id, row]))
-    const credentialBackend = this.credentials.backendStatus()
+    const credentialBackend = await this.credentials.backendStatus()
     const imageSources = (
       await Promise.all(
         rows
@@ -709,7 +709,7 @@ export class ProviderService {
         configJson: previous.config_json
       }) !== credentialBindingFingerprint({ providerConfigId: configId, provider, configJson })
     const ciphertext =
-      apiKey === undefined ? undefined : this.credentials.encryptForPersistence(apiKey)
+      apiKey === undefined ? undefined : await this.credentials.encryptForPersistence(apiKey)
     const now = this.now()
     await this.database.kysely.transaction().execute(async (transaction) => {
       await transaction
@@ -788,7 +788,7 @@ export class ProviderService {
     if (config.providerId === 'google-vertex') return true
     return (
       (await this.credentials.hasCredential(configId)) &&
-      this.credentials.backendStatus().securePersistence
+      (await this.credentials.backendStatus()).securePersistence
     )
   }
 
@@ -806,7 +806,7 @@ export class ProviderService {
       )
       return null
     }
-    const credentialBackend = this.credentials.backendStatus()
+    const credentialBackend = await this.credentials.backendStatus()
     const config = this.#parseImageSource(row, sourceId)
     const issues: string[] = []
     if (config === null) issues.push('Stored image source configuration is invalid.')

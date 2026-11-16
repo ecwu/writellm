@@ -1,6 +1,8 @@
 import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import {
+  Boxes,
   ArrowLeft,
   Bot,
   Check,
@@ -433,13 +435,11 @@ export function AgentProviderWorkspace({
         <section
           className={cn('min-h-0 flex-col border-r', mobileDetail ? 'hidden lg:flex' : 'flex')}
         >
-          <div className='flex flex-col gap-3 border-b p-4'>
-            <div className='flex items-start gap-3'>
-              <div className='min-w-0 flex-1'>
-                <h2 className='font-semibold'>Agent providers</h2>
-              </div>
-              <div className='lg:hidden'>{closeAction}</div>
-            </div>
+          <div className={panelHeaderClassName}>
+            <PanelTitle icon={Bot} title='Agent providers' />
+            <div className='lg:hidden'>{closeAction}</div>
+          </div>
+          <div className='border-b p-4'>
             <InputGroup>
               <InputGroupAddon>
                 <Search />
@@ -452,14 +452,14 @@ export function AgentProviderWorkspace({
               />
             </InputGroup>
           </div>
-          <ScrollArea className='min-h-0 flex-1'>
+          <ScrollArea className='min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:block!'>
             <div className='flex flex-col gap-1 p-2' data-testid='agent-provider-list'>
               {presets.map((preset) => (
                 <Button
                   key={preset.presetId}
                   data-agent-provider-preset-id={preset.presetId}
                   variant={preset.presetId === selectedPresetId ? 'secondary' : 'ghost'}
-                  className='h-auto min-w-0 justify-start px-3 py-2'
+                  className='h-auto w-full min-w-0 justify-start px-3 py-2'
                   onClick={() => choosePreset(preset.presetId)}
                 >
                   <ProviderLogo
@@ -472,7 +472,7 @@ export function AgentProviderWorkspace({
                       {preset.models.filter((model) => model.enabled).length} enabled
                     </span>
                   </span>
-                  <Badge variant={preset.enabled ? 'default' : 'secondary'}>
+                  <Badge className='shrink-0' variant={preset.enabled ? 'default' : 'secondary'}>
                     {preset.enabled ? 'On' : 'Off'}
                   </Badge>
                 </Button>
@@ -694,7 +694,10 @@ export function AgentProviderWorkspace({
                     <section className='flex min-w-0 flex-col gap-4'>
                       <div className='flex flex-wrap items-end gap-3'>
                         <div className='min-w-0 flex-1'>
-                          <h3 className='font-semibold'>Models</h3>
+                          <h3 className='flex items-center gap-2 font-medium'>
+                            <Boxes className='size-4 text-muted-foreground' aria-hidden='true' />
+                            Models
+                          </h3>
                           <p className='text-sm text-muted-foreground'>
                             {selectedPreset.models.length} models · {selectedPreset.catalogStatus}
                             {selectedPreset.checkedAt

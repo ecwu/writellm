@@ -1,5 +1,5 @@
 import type { ManuscriptImportPlan } from '../../../../shared/contracts/manuscript-import'
-import { AlertTriangle, FileText, ImageIcon } from 'lucide-react'
+import { AlertTriangle, Check, FileInput, FileText, ImageIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -39,7 +39,10 @@ export function ManuscriptImportDialog(props: {
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className='max-h-[90vh] max-w-5xl! overflow-hidden'>
         <DialogHeader>
-          <DialogTitle>Review manuscript import</DialogTitle>
+          <DialogTitle className='flex items-center gap-2'>
+            <FileInput className='size-4 text-muted-foreground' aria-hidden='true' />
+            Review manuscript import
+          </DialogTitle>
           <DialogDescription>
             Nothing in the manuscript changes until you approve this captured, hashed plan.
           </DialogDescription>
@@ -172,7 +175,7 @@ export function ManuscriptImportDialog(props: {
             disabled={props.plan?.noOp !== false || props.loading || props.applying}
             onClick={() => void props.onApply(mode)}
           >
-            {props.applying ? <Spinner /> : null}
+            {props.applying ? <Spinner /> : <Check />}
             Apply reviewed import
           </Button>
         </DialogFooter>

@@ -3,7 +3,6 @@ import { open, readdir } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { Logger } from 'pino'
 import {
-  normalizedKnowledgeBlockSchema,
   normalizedKnowledgeManifestSchema,
   PARSED_KNOWLEDGE_BLOCK_PAGE_LIMIT,
   PARSED_KNOWLEDGE_MARKDOWN_MAX_BYTES,
@@ -18,21 +17,23 @@ import {
   type ParsedKnowledgeMarkdown,
   type ParsedKnowledgeMetadata
 } from '../../shared/contracts/knowledge'
-import { mineruRawManifestSchema } from '../../shared/contracts/mineru'
 import type { JobHandlerContext, JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
-import type { JobStore } from '../jobs/job-store'
 import type { NormalizationRunTable, ParseRevisionTable } from '../project/database-types'
 import type { ProjectDatabase } from '../project/project-database'
 import { sha256 as hashSha256 } from '../../shared/hash'
 import { ProjectFilesystem } from '../project/project-filesystem'
 import { readBounded, writeDurable } from '../storage/durable-sync'
 import type { MineruGateway, MineruNormalizedResult } from './mineru-gateway'
+import { readMineruRawManifest } from './mineru-raw-manifest'
+import {
+  NORMALIZED_BLOCKS_MAX_BYTES,
+  readNormalizedBlocks,
+  verifyNormalizedBlocks
+} from './normalized-blocks'
+import { readNormalizedManifest } from './normalized-manifest'
 
 const MAX_ASSET_BYTES = 10 * 1024 * 1024
-const MAX_MANIFEST_BYTES = 10 * 1024 * 1024
-const MAX_BLOCKS_BYTES = 200 * 1024 * 1024
 const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
-const MAX_BLOCK_LINE_BYTES = 2 * 1024 * 1024
 const PAGE_ENVELOPE_RESERVE_BYTES = 8 * 1024
 
 type ActiveNormalizationRow = ParseRevisionTable & {
@@ -40,7 +41,7 @@ type ActiveNormalizationRow = ParseRevisionTable & {
   normalization_run_id: string
   normalizer_version: number
   normalization_relative_path: string
-  normalization_manifest_sha256: string
+  normalization_manifest_sha256: string | null
 }
 
 type VerifiedNormalization = {
@@ -61,7 +62,7 @@ export class KnowledgeNormalizationService {
   readonly #now: () => Date
   readonly #createId: () => string
   readonly #normalizeInUtility: MineruGateway['normalize']
-  readonly #jobs?: JobStore
+  readonly #requestIndexRefresh?: () => void
   readonly #verificationCache = new Map<
     string,
     {
@@ -85,7 +86,7 @@ export class KnowledgeNormalizationService {
     now?: () => Date
     createId?: () => string
     normalizeInUtility: MineruGateway['normalize']
-    jobs?: JobStore
+    requestIndexRefresh?: () => void
   }) {
     this.#filesystem = options.filesystem ?? new ProjectFilesystem(options.projectRoot)
     this.#projectId = options.projectId
@@ -95,7 +96,7 @@ export class KnowledgeNormalizationService {
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
     this.#normalizeInUtility = options.normalizeInUtility
-    this.#jobs = options.jobs
+    this.#requestIndexRefresh = options.requestIndexRefresh
   }
 
   async handle(context: JobHandlerContext): Promise<void> {
@@ -187,9 +188,8 @@ export class KnowledgeNormalizationService {
     let nextCursor = Math.max(0, Math.floor(cursor))
     let returnedBytes = 0
     let stoppedForBudget = false
-    for await (const entry of readJsonlLines(verified.blocksPath, nextCursor)) {
-      if (entry.bytes.byteLength === 0) continue
-      const block = normalizedKnowledgeBlockSchema.parse(JSON.parse(entry.bytes.toString('utf8')))
+    for await (const entry of readNormalizedBlocks(verified.blocksPath, nextCursor)) {
+      const { block } = entry
       const blockBytes = Buffer.byteLength(JSON.stringify(block))
       if (
         blocks.length > 0 &&
@@ -260,9 +260,7 @@ export class KnowledgeNormalizationService {
     const verified = await this.#requireVerifiedActive(knowledgeItemId, parseRevisionId)
     const blocks: NormalizedKnowledgeBlock[] = []
     let bytes = 0
-    for await (const entry of readJsonlLines(verified.blocksPath, 0)) {
-      if (entry.bytes.byteLength === 0) continue
-      const block = normalizedKnowledgeBlockSchema.parse(JSON.parse(entry.bytes.toString('utf8')))
+    for await (const { block } of readNormalizedBlocks(verified.blocksPath)) {
       if (!select(block)) continue
       const encodedBytes = Buffer.byteLength(JSON.stringify(block))
       if (blocks.length >= limits.maxBlocks || bytes + encodedBytes > limits.maxBytes) {
@@ -332,26 +330,17 @@ export class KnowledgeNormalizationService {
     const documentPath = await this.#filesystem.assertExistingRegularFile(
       `${active.normalization_relative_path}/document.md`
     )
-    const manifestBytes = await readBounded(manifestPath, MAX_MANIFEST_BYTES, {
-      invalidMessage: 'Normalized input file size is invalid'
+    const { manifest, manifestHash } = await readNormalizedManifest(manifestPath, {
+      knowledgeItemId: active.knowledge_item_id,
+      parseRevisionId: active.parse_revision_id,
+      normalizationRunId: active.normalization_run_id,
+      manifestSha256: active.normalization_manifest_sha256
     })
-    if (hashSha256(manifestBytes) !== active.normalization_manifest_sha256) {
-      throw new Error('Active normalization manifest hash does not match')
-    }
-    const manifest = normalizedKnowledgeManifestSchema.parse(
-      JSON.parse(manifestBytes.toString('utf8'))
-    )
-    if (
-      manifest.parseRevisionId !== active.parse_revision_id ||
-      manifest.normalizationRunId !== active.normalization_run_id
-    ) {
-      throw new Error('Active normalization manifest provenance does not match')
-    }
-    const blocksMetadata = await fileMetadata(blocksPath, MAX_BLOCKS_BYTES)
+    const blocksMetadata = await fileMetadata(blocksPath, NORMALIZED_BLOCKS_MAX_BYTES)
     const documentMetadata = await fileMetadata(documentPath, MAX_DOCUMENT_BYTES, true)
     const cached = this.#verificationCache.get(active.normalization_run_id)
     if (
-      cached?.manifestSha256 !== active.normalization_manifest_sha256 ||
+      cached?.manifestSha256 !== manifestHash ||
       cached.blocksIdentity !== blocksMetadata.identity ||
       cached.blocksSize !== blocksMetadata.size ||
       cached.blocksMtimeMs !== blocksMetadata.mtimeMs ||
@@ -359,20 +348,15 @@ export class KnowledgeNormalizationService {
       cached.documentSize !== documentMetadata.size ||
       cached.documentMtimeMs !== documentMetadata.mtimeMs
     ) {
-      const [blocksSha256, documentSha256, blockCount] = await Promise.all([
-        hashFile(blocksPath),
+      const [documentSha256] = await Promise.all([
         hashFile(documentPath),
-        validateBlocksJsonl(blocksPath)
+        verifyNormalizedBlocks(blocksPath, manifest.blocks)
       ])
-      if (
-        blocksSha256 !== manifest.blocks.sha256 ||
-        documentSha256 !== manifest.document.sha256 ||
-        blockCount !== manifest.blocks.count
-      ) {
-        throw new Error('Active normalized document hash or block count does not match')
+      if (documentSha256 !== manifest.document.sha256) {
+        throw new Error('Active normalized document hash does not match')
       }
       this.#verificationCache.set(active.normalization_run_id, {
-        manifestSha256: active.normalization_manifest_sha256,
+        manifestSha256: manifestHash,
         blocksIdentity: blocksMetadata.identity,
         blocksSize: blocksMetadata.size,
         blocksMtimeMs: blocksMetadata.mtimeMs,
@@ -396,37 +380,42 @@ export class KnowledgeNormalizationService {
     parseRevisionId: string,
     assetRef: string
   ): Promise<{ mimeType: string; dataBase64: string }> {
-    const row = this.#database.immediate(
+    const row = this.#database.read(
       (database) =>
         database
           .prepare(
-            `SELECT normalization_runs.relative_path, normalization_runs.manifest_sha256
+            `SELECT normalization_runs.relative_path, normalization_runs.manifest_sha256,
+                    normalization_runs.normalization_run_id
                FROM parse_revisions
                JOIN normalization_runs USING (parse_revision_id, knowledge_item_id)
+               LEFT JOIN active_parse_revisions
+                 ON active_parse_revisions.normalization_run_id = normalization_runs.normalization_run_id
               WHERE parse_revisions.knowledge_item_id = ?
                 AND parse_revisions.parse_revision_id = ?
-                AND normalization_runs.state = 'published'`
+                AND normalization_runs.state = 'published'
+              ORDER BY active_parse_revisions.normalization_run_id IS NOT NULL DESC,
+                       normalization_runs.normalizer_version DESC
+              LIMIT 1`
           )
           .get(knowledgeItemId, parseRevisionId) as
-          | { relative_path: string; manifest_sha256: string }
+          | { relative_path: string; manifest_sha256: string | null; normalization_run_id: string }
           | undefined
     )
     if (row === undefined) throw new Error('Active parsed document is unavailable')
-    const manifestBytes = await readBounded(
+    const { manifest } = await readNormalizedManifest(
       await this.#filesystem.assertExistingRegularFile(`${row.relative_path}/manifest.json`),
-      MAX_MANIFEST_BYTES,
-      { invalidMessage: 'Normalized input file size is invalid' }
-    )
-    if (hashSha256(manifestBytes) !== row.manifest_sha256) {
-      throw new Error('Active normalization manifest hash does not match')
-    }
-    const manifest = normalizedKnowledgeManifestSchema.parse(
-      JSON.parse(manifestBytes.toString('utf8'))
+      {
+        knowledgeItemId,
+        parseRevisionId,
+        normalizationRunId: row.normalization_run_id,
+        manifestSha256: row.manifest_sha256
+      }
     )
     const record =
       manifest.assets.find((asset) => asset.relativePath === assetRef) ??
       manifest.assets.find((asset) => asset.sourceRelativePath === `raw/extracted/${assetRef}`)
-    if (record === undefined) throw new Error('Parsed asset is not in the active manifest')
+    if (record === undefined)
+      throw new Error('Parsed asset is not in the selected normalization manifest')
     const bytes = await readBounded(
       await this.#filesystem.assertExistingRegularFile(
         `${row.relative_path}/${record.relativePath}`
@@ -448,28 +437,16 @@ export class KnowledgeNormalizationService {
       throw new Error('Raw parse revision is not ready for normalization')
     }
     const rawRoot = await this.#filesystem.assertExistingDirectory(revision.relative_path)
-    const rawManifestBytes = await readBounded(
-      await this.#filesystem.assertExistingRegularFile(`${revision.relative_path}/manifest.json`),
-      10 * 1024 * 1024,
-      { invalidMessage: 'Normalized input file size is invalid' }
+    const { manifest: rawManifest, manifestHash: rawManifestHash } = await readMineruRawManifest(
+      this.#filesystem,
+      revision
     )
-    const rawManifestHash = hashSha256(rawManifestBytes)
-    if (rawManifestHash !== revision.manifest_sha256) {
-      throw new Error('Raw parse manifest hash does not match the database')
-    }
-    const rawManifest = mineruRawManifestSchema.parse(JSON.parse(rawManifestBytes.toString('utf8')))
-    if (
-      rawManifest.parseRevisionId !== revision.parse_revision_id ||
-      rawManifest.sourceSha256 !== revision.source_sha256
-    ) {
-      throw new Error('Raw parse manifest provenance does not match the revision')
-    }
     const run = this.#ensureRun(revision, rawManifestHash)
     // A cancelled run stays failed; a later parse creates a new revision and run.
     if (run.state === 'failed') return run.normalization_run_id
     const finalRelativePath = run.relative_path
     if (await this.#reconcile(finalRelativePath, run, revision)) {
-      this.#requestIndex(revision.knowledge_item_id, run.normalization_run_id)
+      this.#requestIndexRefresh?.()
       return run.normalization_run_id
     }
 
@@ -519,7 +496,7 @@ export class KnowledgeNormalizationService {
         await this.#filesystem.removeTree(finalRelativePath)
         return run.normalization_run_id
       }
-      this.#requestIndex(revision.knowledge_item_id, run.normalization_run_id)
+      this.#requestIndexRefresh?.()
       this.#log.info(
         {
           event: 'knowledge.normalization.completed',
@@ -644,21 +621,25 @@ export class KnowledgeNormalizationService {
   ): Promise<boolean> {
     try {
       const finalPath = await this.#filesystem.assertExistingDirectory(finalRelativePath)
-      const bytes = await readBounded(
+      const { manifest, manifestHash } = await readNormalizedManifest(
         await this.#filesystem.assertExistingRegularFile(`${finalRelativePath}/manifest.json`),
-        10 * 1024 * 1024,
-        { invalidMessage: 'Normalized input file size is invalid' }
+        {
+          knowledgeItemId: revision.knowledge_item_id,
+          parseRevisionId: revision.parse_revision_id,
+          normalizationRunId: run.normalization_run_id,
+          manifestSha256: run.manifest_sha256
+        },
+        'publication-recovery'
       )
-      const manifest = normalizedKnowledgeManifestSchema.parse(JSON.parse(bytes.toString('utf8')))
       if (
-        manifest.normalizationRunId !== run.normalization_run_id ||
-        manifest.parseRevisionId !== revision.parse_revision_id ||
-        manifest.normalizerVersion !== this.#normalizerVersion
+        manifest.normalizerVersion !== this.#normalizerVersion ||
+        manifest.sourceSha256 !== revision.source_sha256 ||
+        manifest.sourceManifestSha256 !== run.source_manifest_sha256
       ) {
         throw new Error('Published normalization provenance does not match')
       }
       await verifyPublished(finalPath, manifest)
-      this.#activate(run, revision, manifest, hashSha256(bytes))
+      this.#activate(run, revision, manifest, manifestHash)
       return true
     } catch (err) {
       if (
@@ -740,15 +721,6 @@ export class KnowledgeNormalizationService {
       return true
     })
   }
-
-  #requestIndex(_knowledgeItemId: string, _normalizationRunId: string): void {
-    this.#jobs?.enqueue({
-      type: 'rebuild_index',
-      payload: { generationId: 'requested' },
-      deduplicationKey: 'index-rebuild:pending',
-      maxAttempts: 8
-    })
-  }
 }
 
 export function registerNormalizationHandler(
@@ -800,16 +772,20 @@ async function verifyUtilityOutput(path: string, output: MineruNormalizedResult)
   }
   const blocksPath = `${path}/blocks.jsonl`
   const documentPath = `${path}/document.md`
-  const [blocksSha256, documentSha256, blockCount] = await Promise.all([
-    hashFile(blocksPath),
+  const [documentSha256] = await Promise.all([
     hashFile(documentPath),
-    validateBlocksJsonl(blocksPath, expectedImages)
+    verifyNormalizedBlocks(
+      blocksPath,
+      { sha256: output.blocksSha256, count: output.blockCount },
+      (block) => {
+        if (block.assetRefs.some((asset) => !expectedImages.has(asset.slice(7)))) {
+          throw new Error('Normalized block asset reference is invalid')
+        }
+      }
+    )
   ])
-  if (blocksSha256 !== output.blocksSha256 || documentSha256 !== output.documentSha256) {
+  if (documentSha256 !== output.documentSha256) {
     throw new Error('Normalized content hash does not match the utility response')
-  }
-  if (blockCount !== output.blockCount) {
-    throw new Error('Normalized block provenance does not match the utility response')
   }
   for (const asset of output.assets) {
     const bytes = await readBounded(`${path}/${asset.relativePath}`, MAX_ASSET_BYTES, {
@@ -855,86 +831,6 @@ async function hashFile(path: string): Promise<string> {
       position += bytesRead
     }
     return hash.digest('hex')
-  } finally {
-    await handle.close()
-  }
-}
-
-async function validateBlocksJsonl(
-  path: string,
-  expectedImages?: ReadonlySet<string>
-): Promise<number> {
-  let count = 0
-  for await (const entry of readJsonlLines(path, 0)) {
-    if (entry.bytes.byteLength === 0) throw new Error('Normalized block line is empty')
-    const block = normalizedKnowledgeBlockSchema.parse(JSON.parse(entry.bytes.toString('utf8')))
-    if (block.ordinal !== count) throw new Error('Normalized block ordinal is invalid')
-    if (
-      expectedImages !== undefined &&
-      block.assetRefs.some((asset) => !expectedImages.has(asset.slice(7)))
-    ) {
-      throw new Error('Normalized block asset reference is invalid')
-    }
-    count += 1
-  }
-  return count
-}
-
-async function* readJsonlLines(
-  path: string,
-  startOffset: number
-): AsyncGenerator<{ bytes: Buffer; startOffset: number; nextOffset: number }> {
-  const handle = await open(path, 'r')
-  try {
-    const metadata = await handle.stat()
-    const start = Math.floor(startOffset)
-    if (!Number.isSafeInteger(start) || start < 0 || start > metadata.size) {
-      throw new Error('Normalized block cursor is invalid')
-    }
-    if (start > 0) {
-      const previous = Buffer.allocUnsafe(1)
-      const { bytesRead } = await handle.read(previous, 0, 1, start - 1)
-      if (bytesRead !== 1 || previous[0] !== 0x0a) {
-        throw new Error('Normalized block cursor is not on a line boundary')
-      }
-    }
-    let position = start
-    let pending = Buffer.alloc(0)
-    while (position < metadata.size) {
-      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, metadata.size - position))
-      const { bytesRead } = await handle.read(chunk, 0, chunk.byteLength, position)
-      if (bytesRead === 0) break
-      const current = chunk.subarray(0, bytesRead)
-      const combined = pending.length === 0 ? current : Buffer.concat([pending, current])
-      const combinedStart = position - pending.length
-      position += bytesRead
-      let lineStartIndex = 0
-      while (true) {
-        const newlineIndex = combined.indexOf(0x0a, lineStartIndex)
-        if (newlineIndex < 0) break
-        const bytes = combined.subarray(lineStartIndex, newlineIndex)
-        if (bytes.byteLength > MAX_BLOCK_LINE_BYTES) {
-          throw new Error('Normalized block line exceeds the size limit')
-        }
-        yield {
-          bytes,
-          startOffset: combinedStart + lineStartIndex,
-          nextOffset: combinedStart + newlineIndex + 1
-        }
-        lineStartIndex = newlineIndex + 1
-      }
-      pending = Buffer.from(combined.subarray(lineStartIndex))
-      if (pending.byteLength > MAX_BLOCK_LINE_BYTES) {
-        throw new Error('Normalized block line exceeds the size limit')
-      }
-    }
-    if (pending.byteLength > 0) {
-      yield {
-        bytes: pending,
-        startOffset: metadata.size - pending.byteLength,
-        nextOffset: metadata.size
-      }
-    }
   } finally {
     await handle.close()
   }

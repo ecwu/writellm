@@ -7,10 +7,10 @@ import {
   indexUtilityInitSchema,
   indexUtilityRequestSchema,
   indexUtilityResponseSchema,
-  type IndexSnapshot,
   type IndexCandidate,
   type IndexSource,
   type FtsSearchMode,
+  type VectorRefresh,
   type VectorGenerationContract,
   type IndexUtilityRequestBody,
   type IndexUtilityResponse
@@ -29,10 +29,12 @@ export type IndexUtilityProcessFactory = PersistentUtilityProcessFactory
 
 export class IndexClient {
   readonly #worker: PersistentUtilityProcess
-  #ready: Promise<IndexSnapshot> | undefined
+  #ready: Promise<string | null> | undefined
   #initializing = false
+  #hasOpened = false
   #detachLogs: (() => void) | undefined
-  #recovering = false
+  #recoveryCleanup: Promise<void> | undefined
+  #closePending: Promise<void> | undefined
   #closed = false
 
   constructor(
@@ -44,6 +46,7 @@ export class IndexClient {
       projectSessionId: string
       collector: LogCollector
       log: Logger
+      onRestart?: (activeGenerationId: string | null) => void
       processFactory?: IndexUtilityProcessFactory
     }
   ) {
@@ -58,23 +61,60 @@ export class IndexClient {
     })
   }
 
-  async initialize(): Promise<IndexSnapshot> {
+  initialize(): Promise<string | null> {
+    if (this.#closed) return Promise.reject(new Error('Index utility client is closed'))
+    if (this.#ready !== undefined && (this.#initializing || this.#worker.running)) {
+      return this.#ready
+    }
+    this.#initializing = true
+    this.#ready = this.#startWithRecovery()
+      .then((activeGenerationId) => {
+        if (this.#closed) throw createAbortError('Index utility request aborted')
+        if (this.#hasOpened) this.options.onRestart?.(activeGenerationId)
+        this.#hasOpened = true
+        return activeGenerationId
+      })
+      .then(
+        (activeGenerationId) => {
+          this.#initializing = false
+          return activeGenerationId
+        },
+        (err) => {
+          if (!this.#closed) {
+            this.options.log.error(
+              { event: 'index.utility.start_failed', err, projectId: this.options.projectId },
+              'Index utility did not become ready'
+            )
+          }
+          this.#initializing = false
+          this.#ready = undefined
+          this.#detachLogs?.()
+          this.#detachLogs = undefined
+          this.#worker.reset(new Error('Index utility initialization failed', { cause: err }))
+          throw err
+        }
+      )
+    return this.#ready
+  }
+
+  async #startWithRecovery(): Promise<string | null> {
     try {
-      return await this.#ensureReady()
+      return await this.#startWorker()
     } catch (err) {
-      if (this.#recovering || this.#closed) throw err
-      this.#recovering = true
+      if (this.#closed) throw err
       this.options.log.error(
         { event: 'index.utility.initialization_failed', err, projectId: this.options.projectId },
         'Index utility initialization failed; recreating derived index'
       )
       this.#worker.reset(new Error('Index utility initialization recovery'))
+      const cleanup = this.#removeDatabaseFamily()
+      this.#recoveryCleanup = cleanup
       try {
-        await this.#removeDatabaseFamily()
-        return await this.#ensureReady()
+        await cleanup
       } finally {
-        this.#recovering = false
+        this.#recoveryCleanup = undefined
       }
+      return await this.#startWorker()
     }
   }
 
@@ -102,10 +142,15 @@ export class IndexClient {
     return response
   }
 
-  async inspect(signal = new AbortController().signal): Promise<IndexSnapshot> {
-    const response = await this.#send({ operation: 'inspect', requestId: randomUUID() }, signal)
-    if (response.type !== 'snapshot') throw new Error('Index inspect response type mismatch')
-    return response.snapshot
+  async activeGenerationId(signal = new AbortController().signal): Promise<string | null> {
+    const response = await this.#send(
+      { operation: 'active-generation', requestId: randomUUID() },
+      signal
+    )
+    if (response.type !== 'active-generation') {
+      throw new Error('Index active generation response type mismatch')
+    }
+    return response.activeGenerationId
   }
 
   async retrievalState(
@@ -127,37 +172,17 @@ export class IndexClient {
   }
 
   async ftsCandidates(
+    indexGenerationId: string,
     query: string,
     limit: number,
     filters: KnowledgeSearchFilters,
     signal: AbortSignal,
     mode: FtsSearchMode = 'phrase'
-  ): Promise<
-    Array<{ chunkId: string; rank: number; strategy: 'unicode61' | 'trigram' | 'substring' }>
-  > {
-    const response = await this.#send(
-      { operation: 'fts-candidates', requestId: randomUUID(), query, limit, filters, mode },
+  ): Promise<IndexCandidate[] | null> {
+    return this.#searchCandidates(
+      { operation: 'fts-candidates', indexGenerationId, query, limit, filters, mode },
       signal
     )
-    if (response.type !== 'fts-candidates') {
-      throw new Error('FTS candidates response type mismatch')
-    }
-    return response.values
-  }
-
-  async hydrateCandidates(
-    chunkIds: string[],
-    filters: KnowledgeSearchFilters,
-    signal: AbortSignal
-  ): Promise<IndexCandidate[]> {
-    const response = await this.#send(
-      { operation: 'hydrate-candidates', requestId: randomUUID(), chunkIds, filters },
-      signal
-    )
-    if (response.type !== 'hydrated-candidates') {
-      throw new Error('Hydrate candidates response type mismatch')
-    }
-    return response.values
   }
 
   async expandCitations(citationIds: string[], signal: AbortSignal): Promise<IndexCandidate[]> {
@@ -221,35 +246,17 @@ export class IndexClient {
     return response
   }
 
-  async beginVectors(contract: VectorGenerationContract, signal: AbortSignal): Promise<boolean> {
+  async beginVectors(
+    contract: VectorGenerationContract,
+    signal: AbortSignal,
+    refresh?: VectorRefresh
+  ): Promise<{ alreadyActive: boolean; clearedCount: number | null }> {
     const response = await this.#send(
-      { operation: 'begin-vectors', requestId: randomUUID(), contract },
+      { operation: 'begin-vectors', requestId: randomUUID(), contract, refresh },
       signal
     )
     if (response.type !== 'vectors-begun') throw new Error('Begin vectors response type mismatch')
-    return response.alreadyActive
-  }
-
-  async clearEmbeddingCache(
-    indexGenerationId: string,
-    contractSha256: string,
-    knowledgeItemId: string | undefined,
-    signal: AbortSignal
-  ): Promise<number> {
-    const response = await this.#send(
-      {
-        operation: 'clear-embedding-cache',
-        requestId: randomUUID(),
-        indexGenerationId,
-        contractSha256,
-        ...(knowledgeItemId === undefined ? {} : { knowledgeItemId })
-      },
-      signal
-    )
-    if (response.type !== 'embedding-cache-cleared') {
-      throw new Error('Clear embedding cache response type mismatch')
-    }
-    return response.count
+    return { alreadyActive: response.alreadyActive, clearedCount: response.clearedCount }
   }
 
   async upsertVectors(
@@ -286,16 +293,17 @@ export class IndexClient {
   }
 
   async queryVectors(
+    indexGenerationId: string,
     embeddingGenerationId: string,
     vector: number[],
     limit: number,
     filters: KnowledgeSearchFilters,
     signal: AbortSignal
-  ): Promise<Array<{ chunkId: string; distance: number }>> {
-    const response = await this.#send(
+  ): Promise<IndexCandidate[] | null> {
+    return this.#searchCandidates(
       {
         operation: 'query-vectors',
-        requestId: randomUUID(),
+        indexGenerationId,
         embeddingGenerationId,
         vector,
         limit,
@@ -303,41 +311,39 @@ export class IndexClient {
       },
       signal
     )
-    if (response.type !== 'vector-candidates') {
-      throw new Error('Vector query response type mismatch')
-    }
+  }
+
+  async #searchCandidates(
+    request:
+      | Omit<Extract<IndexUtilityRequestBody, { operation: 'fts-candidates' }>, 'requestId'>
+      | Omit<Extract<IndexUtilityRequestBody, { operation: 'query-vectors' }>, 'requestId'>,
+    signal: AbortSignal
+  ): Promise<IndexCandidate[] | null> {
+    const response = await this.#send({ ...request, requestId: randomUUID() }, signal)
+    if (response.type !== 'search-candidates')
+      throw new Error('Search candidates response type mismatch')
     return response.values
   }
 
-  async deleteVectors(embeddingGenerationId: string, signal: AbortSignal): Promise<void> {
-    const response = await this.#send(
-      { operation: 'delete-vectors', requestId: randomUUID(), embeddingGenerationId },
-      signal
-    )
-    if (response.type !== 'vectors-deleted') {
-      throw new Error('Delete vectors response type mismatch')
-    }
+  close(): Promise<void> {
+    this.#closePending ??= this.#closeWorker().finally(() => {
+      this.#closePending = undefined
+    })
+    return this.#closePending
   }
 
-  async close(): Promise<void> {
-    if (this.#closed) return
+  async #closeWorker(): Promise<void> {
     if (this.#initializing) {
-      this.#closed = true
-      this.#detachLogs?.()
-      this.#detachLogs = undefined
-      this.#worker.terminate(createAbortError('Index utility request aborted'))
-      return
+      return this.#stopWorker(createAbortError('Index utility request aborted'))
     }
-    if (!this.#worker.running) {
-      this.#closed = true
-      this.#worker.terminate(new Error('Index utility closed'))
-      return
+    if (this.#closed || !this.#worker.running) {
+      return this.#stopWorker(new Error('Index utility closed'))
     }
+    this.#closed = true
     try {
-      const response = await this.#send(
+      const response = await this.#postRequest(
         { operation: 'close', requestId: randomUUID() },
-        new AbortController().signal,
-        true
+        new AbortController().signal
       )
       if (response.type !== 'closed') throw new Error('Index close response type mismatch')
     } catch (err) {
@@ -347,32 +353,40 @@ export class IndexClient {
       )
       throw new Error('Index utility close failed', { cause: err })
     } finally {
-      this.#closed = true
-      this.#detachLogs?.()
-      this.#detachLogs = undefined
-      this.#worker.terminate(new Error('Index utility closed'))
+      await this.#stopWorker(new Error('Index utility closed'))
     }
   }
 
-  terminate(): void {
+  terminate(): Promise<void> {
+    return this.#stopWorker(new Error('Index utility terminated'))
+  }
+
+  async #stopWorker(reason: Error): Promise<void> {
     this.#closed = true
     this.#detachLogs?.()
     this.#detachLogs = undefined
-    this.#worker.terminate(new Error('Index utility terminated'))
+    this.#worker.terminate(reason)
+    if (this.#recoveryCleanup !== undefined) {
+      // Startup receives the cleanup error. Shutdown only needs the file work to finish.
+      await Promise.allSettled([this.#recoveryCleanup])
+    }
   }
 
   async #send(
     request: IndexUtilityRequestBody,
-    signal: AbortSignal,
-    allowClosed = false
+    signal: AbortSignal
   ): Promise<IndexUtilityResponse> {
     if (signal.aborted) throw createAbortError('Index utility request aborted')
-    if (this.#closed && !allowClosed) throw new Error('Index utility client is closed')
     await this.initialize()
-    if (!this.#worker.running) {
-      this.#ready = undefined
-      await this.initialize()
-    }
+    if (this.#closed) throw new Error('Index utility client is closed')
+    return this.#postRequest(request, signal)
+  }
+
+  #postRequest(
+    request: IndexUtilityRequestBody,
+    signal: AbortSignal
+  ): Promise<IndexUtilityResponse> {
+    if (!this.#worker.running) throw new Error('Index utility stopped before the request')
     const parsed = indexUtilityRequestSchema.parse({
       ...request,
       projectSessionId: this.options.projectSessionId
@@ -382,16 +396,14 @@ export class IndexClient {
       payload: parsed,
       signal,
       rejectOnAbort: createAbortError('Index utility request aborted'),
-      terminateOnAbort: !allowClosed,
+      terminateOnAbort: true,
       onMessage: (raw) => this.#handleMessage(raw)
     })
   }
 
-  #ensureReady(): Promise<IndexSnapshot> {
-    if (this.#closed) return Promise.reject(new Error('Index utility client is closed'))
-    if (this.#ready !== undefined) return this.#ready
+  async #startWorker(): Promise<string | null> {
+    if (this.#closed) throw new Error('Index utility client is closed')
     const requestId = randomUUID()
-    this.#initializing = true
     this.#detachLogs?.()
     this.#detachLogs = undefined
     const { port1, port2 } = new MessageChannelMain()
@@ -404,40 +416,16 @@ export class IndexClient {
       indexPath: this.options.indexPath,
       extensionPath: this.options.extensionPath
     })
-    const ready = this.#worker
-      .request<IndexUtilityResponse>({
-        requestId,
-        payload: request,
-        signal: new AbortController().signal,
-        rejectOnAbort: createAbortError('Index utility request aborted'),
-        transfer: [port2],
-        onMessage: (raw) => this.#handleMessage(raw)
-      })
-      .then((response) => {
-        if (response.type !== 'ready')
-          throw new Error('Index utility initialization response mismatch')
-        return response.snapshot
-      })
-      .then(
-        (snapshot) => snapshot,
-        (err) => {
-          this.#initializing = false
-          this.#ready = undefined
-          this.#detachLogs?.()
-          this.#detachLogs = undefined
-          throw err
-        }
-      )
-    ready.then(
-      () => {
-        this.#initializing = false
-      },
-      () => {
-        this.#initializing = false
-      }
-    )
-    this.#ready = ready
-    return ready
+    const response = await this.#worker.request<IndexUtilityResponse>({
+      requestId,
+      payload: request,
+      signal: new AbortController().signal,
+      rejectOnAbort: createAbortError('Index utility request aborted'),
+      transfer: [port2],
+      onMessage: (raw) => this.#handleMessage(raw)
+    })
+    if (response.type !== 'ready') throw new Error('Index utility initialization response mismatch')
+    return response.activeGenerationId
   }
 
   #handleMessage(raw: unknown): UtilityMessageDecision<IndexUtilityResponse> {

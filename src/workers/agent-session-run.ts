@@ -1,3 +1,4 @@
+import { safeProviderResponseHeaders } from './agent-provider-trace'
 import { providerErrorMessage } from './agent-provider-errors'
 import { traceJsonValue as jsonValue } from '../shared/trace-image-redaction'
 import { createHash, randomUUID } from 'node:crypto'
@@ -61,7 +62,6 @@ export interface AgentSessionRunControl {
   queueAction(command: AgentQueueActionCommand): void
   authorizeFollowUpConsumption(command: AgentFollowUpConsumptionAuthorization): void
   authorizeModelCall(command: AgentModelCallAuthorization): void
-  abort(): void
 }
 
 export async function runAgentSession(
@@ -125,6 +125,19 @@ export async function runAgentSession(
       reject: (error: Error) => void
     }
   >()
+  const assertRunActive = (): void => {
+    if (externalSignal?.aborted) throw createAbortError('Agent session run aborted')
+  }
+  const rejectPendingAuthorizations = (): void => {
+    for (const pending of pendingModelCallAuthorizations.values()) {
+      pending.reject(createAbortError('Agent run ended before model-call authorization'))
+    }
+    pendingModelCallAuthorizations.clear()
+    for (const pending of pendingFollowUpConsumptions.values()) {
+      pending.reject(createAbortError('Agent run ended before Follow-up consumption authorization'))
+    }
+    pendingFollowUpConsumptions.clear()
+  }
   const callCompletions: Promise<void>[] = []
   let outputLimitError: AgentOutputLimitError | undefined
   const modelRequestByToolCallId = new Map<string, string>()
@@ -198,12 +211,14 @@ export async function runAgentSession(
       return undefined
     },
     prepareRequest: async ({ context }) => {
+      assertRunActive()
       let modelRequestId = modelRequestIds[0]
       if (modelRequestId === undefined) {
         const authorization = await requestModelCallAuthorization(
           onEvent,
           pendingModelCallAuthorizations
         )
+        assertRunActive()
         if (authorization.interactionMode !== interactionMode) {
           throw new Error('Agent model-call authorization changed the immutable interaction mode')
         }
@@ -450,6 +465,14 @@ export async function runAgentSession(
     toolExecution: 'parallel'
   })
 
+  const enqueueSteering = (entry: QueueEntry): void => {
+    steeringEntries.push(entry)
+    modelRequestIds.push(entry.modelRequestId)
+    modelRequestPurposes.set(entry.modelRequestId, 'agent_steer')
+    systemPromptByModelRequestId.set(entry.modelRequestId, entry.systemPrompt)
+    agent.steer(entry.message)
+  }
+
   const loadFollowUpHead = (): void => {
     if (loadedFollowUpId !== null) return
     const head = followUpEntries[0]
@@ -478,12 +501,14 @@ export async function runAgentSession(
       }
       followUpEntries.shift()
       loadedFollowUpId = null
+      assertRunActive()
       const authorization = await requestFollowUpConsumption(
         onEvent,
         pendingFollowUpConsumptions,
         followUp.pendingMessageId,
         followUp.modelRequestId
       )
+      assertRunActive()
       modelRequestIds.push(authorization.modelRequestId)
       systemPromptByModelRequestId.set(authorization.modelRequestId, followUp.systemPrompt)
       loadFollowUpHead()
@@ -607,17 +632,12 @@ export async function runAgentSession(
         timestamp: parsed.timestamp
       }
       if (parsed.operation === 'steer') {
-        const entry: QueueEntry = {
+        enqueueSteering({
           pendingMessageId: null,
           modelRequestId: parsed.modelRequestId,
           message,
           systemPrompt: parsed.systemPrompt
-        }
-        steeringEntries.push(entry)
-        modelRequestIds.push(parsed.modelRequestId)
-        modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
-        systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        agent.steer(message)
+        })
       } else {
         followUpEntries.push({
           pendingMessageId: parsed.pendingMessageId,
@@ -649,16 +669,11 @@ export async function runAgentSession(
           return
         }
         reservedFollowUps.delete(parsed.reservationId)
-        const entry: QueueEntry = {
+        enqueueSteering({
           ...reserved,
           modelRequestId: parsed.modelRequestId,
           systemPrompt: parsed.systemPrompt
-        }
-        steeringEntries.push(entry)
-        modelRequestIds.push(parsed.modelRequestId)
-        modelRequestPurposes.set(parsed.modelRequestId, 'agent_steer')
-        systemPromptByModelRequestId.set(parsed.modelRequestId, parsed.systemPrompt)
-        agent.steer(entry.message)
+        })
         onEvent({
           type: 'queue_action_completed',
           actionId: parsed.actionId,
@@ -715,17 +730,17 @@ export async function runAgentSession(
       if (pending === undefined) throw new Error('Agent model-call authorization is stale')
       pendingModelCallAuthorizations.delete(parsed.continuationId)
       pending.resolve(parsed)
-    },
-    abort() {
-      agent.abort()
     }
   })
 
-  const abortExternal = (): void => agent.abort()
-  if (externalSignal?.aborted) agent.abort()
-  else externalSignal?.addEventListener('abort', abortExternal, { once: true })
+  const abortExternal = (): void => {
+    agent.abort()
+    rejectPendingAuthorizations()
+  }
+  externalSignal?.addEventListener('abort', abortExternal, { once: true })
   let runError: unknown
   try {
+    assertRunActive()
     await agent.prompt(
       request.prompt,
       request.images?.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
@@ -734,6 +749,7 @@ export async function runAgentSession(
     while (true) {
       const completedCallCount = callCompletions.length
       await Promise.all(callCompletions)
+      assertRunActive()
       if (
         lastAssistant?.stopReason === 'error' ||
         lastAssistant?.stopReason === 'aborted' ||
@@ -747,6 +763,7 @@ export async function runAgentSession(
         waitForIdle: () => agent.waitForIdle(),
         log
       })
+      assertRunActive()
       if (callCompletions.length > completedCallCount) continue
       break
     }
@@ -754,14 +771,7 @@ export async function runAgentSession(
     runError = err
   } finally {
     await Promise.allSettled(callCompletions)
-    for (const pending of pendingModelCallAuthorizations.values()) {
-      pending.reject(createAbortError('Agent run ended before model-call authorization'))
-    }
-    pendingModelCallAuthorizations.clear()
-    for (const pending of pendingFollowUpConsumptions.values()) {
-      pending.reject(createAbortError('Agent run ended before Follow-up consumption authorization'))
-    }
-    pendingFollowUpConsumptions.clear()
+    rejectPendingAuthorizations()
     toolBridge.close()
     externalSignal?.removeEventListener('abort', abortExternal)
   }
@@ -1034,31 +1044,6 @@ function reportTraceCaptureFailure(
 
 function serializableHarnessContext(context: { messages: unknown[] }): JSONType {
   return jsonValue({ messages: context.messages })
-}
-
-function safeProviderResponseHeaders(
-  headers: Readonly<Record<string, string>>
-): Record<string, string> {
-  const allowed = new Set([
-    'request-id',
-    'x-request-id',
-    'openai-request-id',
-    'retry-after',
-    'retry-after-ms',
-    'server-timing',
-    'x-ratelimit-limit-requests',
-    'x-ratelimit-limit-tokens',
-    'x-ratelimit-remaining-requests',
-    'x-ratelimit-remaining-tokens',
-    'x-ratelimit-reset-requests',
-    'x-ratelimit-reset-tokens'
-  ])
-  return Object.fromEntries(
-    Object.entries(headers)
-      .map(([name, value]) => [name.toLowerCase(), value] as const)
-      .filter(([name]) => allowed.has(name))
-      .map(([name, value]) => [name, value.slice(0, 2_048)])
-  )
 }
 
 function isMutationTool(toolName: string): boolean {

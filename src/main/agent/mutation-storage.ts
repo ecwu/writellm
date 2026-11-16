@@ -27,7 +27,7 @@ import type {
 } from '../project/database-types'
 import { assetIdFromUrl } from '../manuscript/asset-service'
 import { SectionRepository } from '../manuscript/section-repository'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { MutationSimulationError } from './mutation-simulator'
 import { MutationProposalError, type ProposalToolExecutionContext } from './mutation-errors'
 import { truncateUtf8 } from './session-history'

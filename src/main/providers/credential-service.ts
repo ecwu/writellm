@@ -5,10 +5,11 @@ import type { AppDatabase } from '../app-db/connection'
 import type { AppDatabaseSchema } from '../app-db/database-types'
 import { expectedCredentialBinding } from './credential-binding'
 
+/** Electron's asynchronous safeStorage API. The synchronous methods are removed in Electron 46. */
 export interface SafeStorageAdapter {
-  isEncryptionAvailable(): boolean
-  encryptString(value: string): Buffer
-  decryptString(value: Buffer): string
+  isAsyncEncryptionAvailable(): Promise<boolean>
+  encryptStringAsync(value: string): Promise<Buffer>
+  decryptStringAsync(value: Buffer): Promise<{ result: string; shouldReEncrypt: boolean }>
   getSelectedStorageBackend?(): string
 }
 
@@ -28,8 +29,8 @@ export class CredentialService {
     private readonly now: () => string = () => new Date().toISOString()
   ) {}
 
-  backendStatus(): CredentialBackendStatus {
-    const encryptionAvailable = this.storage.isEncryptionAvailable()
+  async backendStatus(): Promise<CredentialBackendStatus> {
+    const encryptionAvailable = await this.storage.isAsyncEncryptionAvailable()
     const platform = normalizePlatform(this.platform)
     const backend =
       platform === 'linux'
@@ -70,26 +71,31 @@ export class CredentialService {
     return this.bindingMatches(providerConfigId, row.binding_fingerprint)
   }
 
-  encryptForPersistence(plainText: string): string {
+  /** Call before opening a database transaction: the operating-system key store may wait. */
+  async encryptForPersistence(plainText: string): Promise<string> {
     if (plainText.length === 0 || plainText.length > 16_384) {
       throw new CredentialUnavailableError('Credential length is invalid')
     }
-    const status = this.backendStatus()
+    const status = await this.backendStatus()
     if (!status.persistenceAllowed) {
       throw new CredentialUnavailableError(status.warning ?? 'Credential encryption is unavailable')
     }
-    return this.storage.encryptString(plainText).toString('base64')
+    return (await this.storage.encryptStringAsync(plainText)).toString('base64')
   }
 
-  decryptPersistedValue(ciphertext: string): string {
-    const status = this.backendStatus()
+  async decryptPersistedValue(ciphertext: string): Promise<string> {
+    return (await this.#decrypt(ciphertext)).result
+  }
+
+  async #decrypt(ciphertext: string): Promise<{ result: string; shouldReEncrypt: boolean }> {
+    const status = await this.backendStatus()
     if (!status.securePersistence) {
       throw new CredentialUnavailableError(
         status.warning ?? 'Secure value decryption is unavailable'
       )
     }
     try {
-      return this.storage.decryptString(Buffer.from(ciphertext, 'base64'))
+      return await this.storage.decryptStringAsync(Buffer.from(ciphertext, 'base64'))
     } catch (err) {
       this.log.error(
         { event: 'credential.persisted_value.decrypt_failed', err },
@@ -149,7 +155,7 @@ export class CredentialService {
     if (!(await this.bindingMatches(providerConfigId, row.binding_fingerprint))) {
       throw new CredentialUnavailableError('Provider credential is missing')
     }
-    const status = this.backendStatus()
+    const status = await this.backendStatus()
     if (!status.securePersistence) {
       throw new CredentialUnavailableError(
         status.warning ?? 'Secure credential decryption is unavailable'
@@ -158,7 +164,11 @@ export class CredentialService {
 
     let credential: string
     try {
-      credential = this.decryptPersistedValue(row.ciphertext)
+      const decrypted = await this.#decrypt(row.ciphertext)
+      credential = decrypted.result
+      if (decrypted.shouldReEncrypt) {
+        await this.#reEncrypt(providerConfigId, row.ciphertext, credential)
+      }
     } catch (err) {
       this.log.error(
         { event: 'credential.decrypt.failed', err, providerConfigId },
@@ -181,7 +191,37 @@ export class CredentialService {
     ) {
       return undefined
     }
-    return this.decryptPersistedValue(row.ciphertext)
+    const decrypted = await this.#decrypt(row.ciphertext)
+    if (decrypted.shouldReEncrypt) {
+      await this.#reEncrypt(providerConfigId, row.ciphertext, decrypted.result)
+    }
+    return decrypted.result
+  }
+
+  /**
+   * Rewrites a value Electron reports under a rotated or stronger key. The read already succeeded,
+   * so a failure is logged and the old ciphertext stays usable. The update only replaces the
+   * ciphertext that was read, so a credential saved concurrently is never overwritten.
+   */
+  async #reEncrypt(providerConfigId: string, previous: string, plainText: string): Promise<void> {
+    try {
+      const ciphertext = (await this.storage.encryptStringAsync(plainText)).toString('base64')
+      await this.database.kysely
+        .updateTable('encrypted_credentials')
+        .set({ ciphertext, updated_at: this.now() })
+        .where('provider_config_id', '=', providerConfigId)
+        .where('ciphertext', '=', previous)
+        .execute()
+      this.log.info(
+        { event: 'credential.persisted_value.re_encrypted', providerConfigId },
+        'Re-encrypted a persisted sensitive value under the current key'
+      )
+    } catch (err) {
+      this.log.error(
+        { event: 'credential.persisted_value.re_encrypt_failed', err, providerConfigId },
+        'Failed to re-encrypt a persisted sensitive value; the previous ciphertext remains valid'
+      )
+    }
   }
 
   private async bindingMatches(

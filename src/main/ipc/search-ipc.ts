@@ -4,6 +4,7 @@ import type { Logger } from 'pino'
 import { IPC_CHANNELS } from '../../shared/contracts/channels'
 import { knowledgeIpcEndpoints } from '../../shared/contracts/ipc-endpoints-knowledge'
 import type { ProjectManager } from '../project/project-manager'
+import { runCancellableProjectRequest } from '../project/project-operations'
 import { resolveReadableCitation } from '../search/readable-citation-resolver'
 import { createEndpointRegistrar } from './endpoint'
 
@@ -22,12 +23,10 @@ export function registerSearchIpc(options: {
     if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge search is still preparing')
     }
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
     try {
-      const result = await context.retrieval.search(input, controller.signal)
-      options.manager.assertActiveSession(input.projectSessionId)
-      return result
+      return await runCancellableProjectRequest(context, options.manager, (signal) =>
+        context.retrieval.search(input, signal)
+      )
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -39,20 +38,16 @@ export function registerSearchIpc(options: {
         'Knowledge search failed'
       )
       throw new Error('Knowledge search could not be completed', { cause: err })
-    } finally {
-      release?.()
     }
   })
   handle(knowledgeIpcEndpoints.expandCitations, async (input, context) => {
     if (!context.projectIndex.isRetrievalAvailable()) {
       throw new Error('Knowledge citations are still preparing')
     }
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
     try {
-      const result = await context.retrieval.expand(input.citationIds, controller.signal)
-      options.manager.assertActiveSession(input.projectSessionId)
-      return result
+      return await runCancellableProjectRequest(context, options.manager, (signal) =>
+        context.retrieval.expand(input.citationIds, signal)
+      )
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -64,42 +59,38 @@ export function registerSearchIpc(options: {
         'Knowledge citation expansion failed'
       )
       throw new Error('Knowledge citation could not be expanded', { cause: err })
-    } finally {
-      release?.()
     }
   })
   handle(knowledgeIpcEndpoints.resolveReadableCitation, async (input, context) => {
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
     const startedAt = Date.now()
     try {
-      const result = await resolveReadableCitation({
-        database: context.database,
-        retrieval: context.retrieval,
-        retrievalAvailable: context.projectIndex.isRetrievalAvailable() === true,
-        input,
-        signal: controller.signal
-      })
-      options.manager.assertActiveSession(input.projectSessionId)
-      const parsed = result
+      const result = await runCancellableProjectRequest(context, options.manager, (signal) =>
+        resolveReadableCitation({
+          database: context.database,
+          retrieval: context.retrieval,
+          retrievalAvailable: context.projectIndex.isRetrievalAvailable() === true,
+          input,
+          signal
+        })
+      )
       options.logger.info(
         {
           event: 'knowledge.readable_citation_resolution.completed',
           projectSessionId: input.projectSessionId,
           sectionRevisionId: input.sectionRevisionId,
           blockId: input.blockId,
-          status: parsed.status,
+          status: result.status,
           candidateCount:
-            parsed.status === 'resolved'
+            result.status === 'resolved'
               ? 1
-              : parsed.status === 'ambiguous'
-                ? parsed.citations.length
+              : result.status === 'ambiguous'
+                ? result.citations.length
                 : 0,
           durationMs: Date.now() - startedAt
         },
         'Resolved a readable manuscript citation'
       )
-      return parsed
+      return result
     } catch (err) {
       reportIpcFailure(
         options.logger,
@@ -114,8 +105,6 @@ export function registerSearchIpc(options: {
         'Readable manuscript citation resolution failed'
       )
       throw new Error('Readable citation could not be resolved', { cause: err })
-    } finally {
-      release?.()
     }
   })
   return () => {

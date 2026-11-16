@@ -13,7 +13,7 @@ async function verifyLinuxSafeStorage() {
 
   const requestedPasswordStore = app.commandLine.getSwitchValue('password-store')
   const backend = safeStorage.getSelectedStorageBackend()
-  const available = safeStorage.isEncryptionAvailable()
+  const available = await safeStorage.isAsyncEncryptionAvailable()
 
   if (requestedPasswordStore !== EXPECTED_PASSWORD_STORE) {
     throw new Error(
@@ -26,8 +26,8 @@ async function verifyLinuxSafeStorage() {
     )
   }
 
-  const encrypted = safeStorage.encryptString(PROBE_VALUE)
-  const roundTrip = safeStorage.decryptString(encrypted) === PROBE_VALUE
+  const encrypted = await safeStorage.encryptStringAsync(PROBE_VALUE)
+  const roundTrip = (await safeStorage.decryptStringAsync(encrypted)).result === PROBE_VALUE
   if (!roundTrip) {
     throw new Error('Linux safeStorage encrypted round-trip failed')
   }

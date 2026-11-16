@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { workbenchLayoutSchema, type WorkbenchLayout } from '../../../shared/contracts/workbench'
 import {
   autocompleteSelectionSchema,
@@ -42,6 +43,7 @@ const AGENT_APPROVAL_MODE_KEY = 'agent.default-approval-mode'
 const AGENT_MODEL_LIMITS_CACHE_KEY = 'agent.model-limits-cache.v1'
 const AGENT_DEFAULT_MODEL_SELECTION_KEY = 'agent.default-model-selection.v1'
 const AGENT_LAST_THINKING_LEVEL_KEY = 'agent.last-thinking-level.v1'
+const OAUTH_INSTALLATION_ID_KEY = 'oauth.installation-id.v1'
 export const IMAGE_DEFAULT_SELECTION_KEY = 'image.default-selection.v1'
 const ACCENT_PREFERENCE_KEY = 'theme.accent'
 const CITATION_DISPLAY_MODE_KEY = 'editor.citation-display-mode.v1'
@@ -291,6 +293,26 @@ export class AppSettingsRepository {
     const value = agentThinkingLevelSchema.parse(level)
     await this.#writeSetting(AGENT_LAST_THINKING_LEVEL_KEY, value)
     return value
+  }
+
+  getOrCreateOAuthInstallationId(): string {
+    return this.database.immediate((database) => {
+      const existing = database
+        .prepare<[string], { value_json: string }>(
+          'SELECT value_json FROM app_settings WHERE key = ?'
+        )
+        .get(OAUTH_INSTALLATION_ID_KEY)
+      if (existing !== undefined) return z.uuid().parse(JSON.parse(existing.value_json))
+
+      const id = randomUUID()
+      const now = this.now()
+      database
+        .prepare(
+          'INSERT INTO app_settings (key, value_json, created_at, updated_at) VALUES (?, ?, ?, ?)'
+        )
+        .run(OAUTH_INSTALLATION_ID_KEY, JSON.stringify(id), now, now)
+      return id
+    })
   }
 
   async getImageDefaultSelection(): Promise<ImageModelSelection | null> {

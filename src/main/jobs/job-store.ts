@@ -124,6 +124,7 @@ export interface EnqueueJobInput {
   maxAttempts?: number
   runAfter?: Date
   deduplicationKey?: string
+  deduplicateByType?: boolean
 }
 
 export interface EnqueueJobResult {
@@ -203,14 +204,17 @@ export class JobStore {
     const runAfter = (input.runAfter ?? new Date(now)).toISOString()
 
     const result = this.#database.immediate((database) => {
-      if (deduplicationKey !== null) {
+      if (input.deduplicateByType || deduplicationKey !== null) {
+        const keyCondition = input.deduplicateByType ? '' : 'AND deduplication_key = ?'
+        const parameters = input.deduplicateByType ? [type] : [type, deduplicationKey]
         const existing = database
           .prepare(
             `SELECT * FROM jobs
-             WHERE type = ? AND deduplication_key = ?
-               AND state IN ('queued', 'running')`
+             WHERE type = ? ${keyCondition}
+               AND state IN ('queued', 'running')
+             LIMIT 1`
           )
-          .get(type, deduplicationKey) as JobTable | undefined
+          .get(...parameters) as JobTable | undefined
         if (existing !== undefined) return { job: parseRow(existing), created: false }
       }
       const jobId = this.#createId()

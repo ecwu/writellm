@@ -17,6 +17,9 @@ export interface LayoutControls {
   canCreateNotebook: boolean
   setTool(tool: WorkbenchTool, open: boolean): void
   setPage(page: LayoutPage, open: boolean): void
+  /** Toggles against the live layout, so a command that races a republish keeps its intent. */
+  toggleTool(tool: WorkbenchTool): void
+  togglePage(page: LayoutPage): void
   newNotebook(): void
   reset(): void
 }

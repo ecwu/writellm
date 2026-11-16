@@ -821,12 +821,7 @@ export function assetIdFromUrl(url: string): string {
   return manuscriptAssetIdSchema.parse(parsed.slice('writellm-asset:'.length))
 }
 
-export function recordRevisionAssetReferences(
-  database: Database.Database,
-  revisionId: string,
-  document: BlockNoteDocument,
-  now: string
-): void {
+export function collectReferencedAssetIds(document: BlockNoteDocument): Set<string> {
   const assetIds = new Set<string>()
   const visit = (blocks: BlockNoteDocument): void => {
     for (const block of blocks) {
@@ -837,7 +832,16 @@ export function recordRevisionAssetReferences(
     }
   }
   visit(document)
-  for (const assetId of assetIds) {
+  return assetIds
+}
+
+export function recordRevisionAssetReferences(
+  database: Database.Database,
+  revisionId: string,
+  document: BlockNoteDocument,
+  now: string
+): void {
+  for (const assetId of collectReferencedAssetIds(document)) {
     const exists = cachedStatement(
       database,
       "SELECT 1 FROM manuscript_assets WHERE asset_id = ? AND deletion_state = 'active'",

@@ -1,6 +1,20 @@
 import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
-import { AlertCircle, CheckCircle2, ShieldAlert, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowDownWideNarrow,
+  Binary,
+  CheckCircle2,
+  CircleCheck,
+  CircleDashed,
+  type LucideIcon,
+  PlugZap,
+  Save,
+  ScanText,
+  ShieldAlert,
+  Trash2
+} from 'lucide-react'
+import { SettingsPageHeader } from '@/components/settings-page-header'
 import type { ProviderConnectionTestResult } from '../../../../shared/contracts/providers'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -24,6 +38,12 @@ import {
   type SingletonProviderConfig,
   type SingletonProviderRole
 } from './provider-settings-common'
+
+const roleIcons: Record<SingletonProviderRole, LucideIcon> = {
+  embedding: Binary,
+  rerank: ArrowDownWideNarrow,
+  mineru: ScanText
+}
 
 export function defaultConfig(role: SingletonProviderRole): SingletonProviderConfig {
   if (role === 'mineru') {
@@ -139,22 +159,22 @@ export function SingletonProviderWorkspace({
     <>
       <ScrollArea className='h-full'>
         <div className='mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 lg:p-8'>
-          <header className='flex flex-wrap items-start justify-between gap-3'>
-            <div>
-              <h2 className='text-xl font-semibold'>{roleLabels[role]}</h2>
-              <p className='text-sm text-muted-foreground'>Applies to all projects.</p>
-            </div>
-            <div className='flex shrink-0 items-center gap-2'>
+          <SettingsPageHeader
+            icon={roleIcons[role]}
+            title={roleLabels[role]}
+            description='Applies to all projects.'
+            actions={
               <Badge variant={status?.available ? 'default' : 'secondary'}>
+                {status?.available ? <CircleCheck /> : <CircleDashed />}
                 {status?.available
                   ? 'Ready'
                   : status?.configured
                     ? 'Unavailable'
                     : 'Not configured'}
               </Badge>
-              {closeAction}
-            </div>
-          </header>
+            }
+            closeAction={closeAction}
+          />
 
           {snapshot.credentialBackend.warning ? (
             <Alert variant='destructive'>
@@ -202,11 +222,19 @@ export function SingletonProviderWorkspace({
                 disabled={!status?.config || busy !== null}
                 onClick={() => void testConnection()}
               >
-                {busy === 'test' ? <Spinner data-icon='inline-start' /> : null}
+                {busy === 'test' ? (
+                  <Spinner data-icon='inline-start' />
+                ) : (
+                  <PlugZap data-icon='inline-start' />
+                )}
                 Test connection
               </Button>
               <Button disabled={config === null || busy !== null} onClick={() => void save()}>
-                {busy === 'save' ? <Spinner data-icon='inline-start' /> : null}
+                {busy === 'save' ? (
+                  <Spinner data-icon='inline-start' />
+                ) : (
+                  <Save data-icon='inline-start' />
+                )}
                 Save
               </Button>
             </div>

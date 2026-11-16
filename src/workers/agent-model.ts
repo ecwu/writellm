@@ -69,7 +69,6 @@ parentPort.on('message', (event) => {
       active.agentRunId === sessionCancel.data.agentRunId
     ) {
       active.controller.abort(new Error('Agent session run cancelled'))
-      active.control?.abort()
     }
     return
   }

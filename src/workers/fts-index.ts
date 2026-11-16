@@ -2,8 +2,8 @@ import type Database from 'better-sqlite3'
 import type { FtsSearchMode } from '../shared/contracts/indexing'
 import type { KnowledgeSearchFilters } from '../shared/contracts/search'
 import {
-  knowledgeSearchFilterParams as filterParams,
-  knowledgeSearchFilterSql as filterSql
+  compileKnowledgeSearchFilters,
+  type SearchFilterSql
 } from './shared/knowledge-search-filter-sql'
 
 export interface FtsCandidate {
@@ -24,19 +24,20 @@ export class FtsIndex {
   ): FtsCandidate[] {
     const query = rawQuery.normalize('NFC').trim()
     if (query.length === 0 || limit < 1 || limit > 1_000) return []
-    if (mode === 'terms') return this.searchTerms(generationId, query, limit, filters)
-    return this.searchPhrase(generationId, query, limit, filters)
+    const filter = compileKnowledgeSearchFilters(filters)
+    if (mode === 'terms') return this.searchTerms(generationId, query, limit, filter)
+    return this.searchPhrase(generationId, query, limit, filter)
   }
 
   private searchTerms(
     generationId: string,
     query: string,
     limit: number,
-    filters: KnowledgeSearchFilters
+    filter: SearchFilterSql
   ): FtsCandidate[] {
     const best = new Map<string, FtsCandidate>()
     for (const term of lexicalTerms(query)) {
-      for (const candidate of this.searchPhrase(generationId, term, limit, filters)) {
+      for (const candidate of this.searchPhrase(generationId, term, limit, filter)) {
         const prior = best.get(candidate.chunkId)
         if (prior === undefined || candidate.rank < prior.rank)
           best.set(candidate.chunkId, candidate)
@@ -51,9 +52,9 @@ export class FtsIndex {
     generationId: string,
     query: string,
     limit: number,
-    filters: KnowledgeSearchFilters
+    filter: SearchFilterSql
   ): FtsCandidate[] {
-    if (isShortHanQuery(query)) return this.searchSubstring(generationId, query, limit, filters)
+    if (isShortHanQuery(query)) return this.searchSubstring(generationId, query, limit, filter)
     const short = Array.from(query).length < 3
     const strategies = short ? (['unicode61'] as const) : (['unicode61', 'trigram'] as const)
     const best = new Map<string, FtsCandidate>()
@@ -66,10 +67,10 @@ export class FtsIndex {
             JOIN chunks ON chunks.generation_id = ${table}.generation_id
                        AND chunks.chunk_id = ${table}.chunk_id
             WHERE ${table} MATCH ? AND ${table}.generation_id = ?
-              ${filterSql(filters)}
+              ${filter.clause}
             ORDER BY rank, ${table}.chunk_id LIMIT ?`
         )
-        .all(expression, generationId, ...filterParams(filters), limit) as Array<{
+        .all(expression, generationId, ...filter.parameters, limit) as Array<{
         chunk_id: string
         rank: number
       }>
@@ -88,7 +89,7 @@ export class FtsIndex {
     generationId: string,
     query: string,
     limit: number,
-    filters: KnowledgeSearchFilters
+    filter: SearchFilterSql
   ): FtsCandidate[] {
     const rows = this.database
       .prepare(
@@ -99,11 +100,11 @@ export class FtsIndex {
            FROM chunks
           WHERE chunks.generation_id = ?
             AND instr(chunks.text, ?) > 0
-            ${filterSql(filters)}
+            ${filter.clause}
           ORDER BY rank, chunks.chunk_id
           LIMIT ?`
       )
-      .all(query, generationId, query, ...filterParams(filters), limit) as Array<{
+      .all(query, generationId, query, ...filter.parameters, limit) as Array<{
       chunk_id: string
       rank: number
     }>

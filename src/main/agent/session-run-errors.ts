@@ -16,7 +16,7 @@ import {
   type MutationProposalOutcome
 } from '../../shared/contracts/agent-mutations'
 import { SkillReadError } from '../skills/skill-router'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { CommentDomainError } from '../manuscript/comment-service'
 
 export type AgentRunTermination =

@@ -59,13 +59,7 @@ export class KnowledgeCitationCoverageService {
 
     signal.throwIfAborted()
     const assembly = this.options.manuscript.assemble()
-    const references = buildManuscriptReferenceIndex(
-      assembly.sections.map(({ section, revision }) => ({
-        sectionId: section.sectionId,
-        sectionRevisionId: revision.sectionRevisionId,
-        content: revision.content
-      }))
-    )
+    const references = buildManuscriptReferenceIndex(assembly)
     const referenceItems = this.options.references.list()
     const snapshotId = fingerprint(indexed.generationId, assembly, referenceItems)
     const coverage = matchCoverage(indexed.sources, references.entries, referenceItems)

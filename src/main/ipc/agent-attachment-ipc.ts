@@ -49,7 +49,7 @@ export function registerAgentAttachmentIpc(options: {
   }
   const service = (projectSessionId: string) =>
     attachmentsOf(options.manager.assertActiveSession(projectSessionId))
-  const describe = (
+  const describeAttachment = (
     scope: { projectSessionId: string; agentSessionId: string },
     id: string
   ): AgentAttachment => {
@@ -116,7 +116,7 @@ export function registerAgentAttachmentIpc(options: {
         controller.signal
       )
       controller.signal.throwIfAborted()
-      return describe(scope, row.attachment_id)
+      return describeAttachment(scope, row.attachment_id)
     } catch (err) {
       reportIpcFailure(
         options.log,
@@ -190,7 +190,7 @@ export function registerAgentAttachmentIpc(options: {
     }
     return null
   })
-  handle(agentIpcEndpoints.getImage, (input) => describe(input, input.attachmentId))
+  handle(agentIpcEndpoints.getImage, (input) => describeAttachment(input, input.attachmentId))
   handle(agentIpcEndpoints.releaseImage, (input, context) => {
     const attachments = attachmentsOf(context)
     attachments.get(input.agentSessionId, input.attachmentId)

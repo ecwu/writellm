@@ -14,14 +14,24 @@ export async function readBounded(
   const handle = await open(path, 'r')
   try {
     const metadata = await handle.stat()
+    const invalidMessage = options.invalidMessage ?? 'Input file size is invalid'
     if (
       !metadata.isFile() ||
       (!options.allowEmpty && metadata.size <= 0) ||
       metadata.size > maxBytes
     ) {
-      throw new Error(options.invalidMessage ?? 'Input file size is invalid')
+      throw new Error(invalidMessage)
     }
-    return await handle.readFile()
+    // Read one extra byte to detect growth without allocating for the new size.
+    const bytes = Buffer.allocUnsafe(metadata.size + 1)
+    let offset = 0
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    if (offset !== metadata.size) throw new Error(invalidMessage)
+    return bytes.subarray(0, offset)
   } finally {
     await handle.close()
   }

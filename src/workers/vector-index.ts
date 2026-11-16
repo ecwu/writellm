@@ -1,24 +1,8 @@
 import { createHash } from 'node:crypto'
 import type Database from 'better-sqlite3'
+import type { VectorGenerationContract } from '../shared/contracts/indexing'
 import type { KnowledgeSearchFilters } from '../shared/contracts/search'
-import {
-  knowledgeSearchFilterParams as filterParams,
-  knowledgeSearchFilterSql as filterSql
-} from './shared/knowledge-search-filter-sql'
-
-export interface VectorGenerationContract {
-  embeddingGenerationId: string
-  indexGenerationId: string
-  providerId: string
-  modelId: string
-  modelRevision: string
-  dimension: number
-  metric: 'cosine' | 'l2'
-  normalization: 'none' | 'l2'
-  chunkerVersion: number
-  contractSha256: string
-  contentFingerprint: string
-}
+import { compileKnowledgeSearchFilters } from './shared/knowledge-search-filter-sql'
 
 export interface VectorIndex {
   begin(contract: VectorGenerationContract): boolean
@@ -77,16 +61,28 @@ export class SqliteVecVectorIndex implements VectorIndex {
     }
     const existing = this.database
       .prepare(
-        'SELECT state, contract_sha256 FROM embedding_generations WHERE embedding_generation_id = ?'
+        `SELECT state, index_generation_id, contract_sha256, content_fingerprint
+           FROM embedding_generations WHERE embedding_generation_id = ?`
       )
-      .get(contract.embeddingGenerationId) as { state: string; contract_sha256: string } | undefined
-    if (existing?.state === 'active' && existing.contract_sha256 === contract.contractSha256) {
-      return true
+      .get(contract.embeddingGenerationId) as
+      | {
+          state: string
+          index_generation_id: string
+          contract_sha256: string
+          content_fingerprint: string
+        }
+      | undefined
+    if (existing !== undefined) {
+      if (
+        existing.index_generation_id !== contract.indexGenerationId ||
+        existing.contract_sha256 !== contract.contractSha256 ||
+        existing.content_fingerprint !== contract.contentFingerprint ||
+        (existing.state !== 'active' && existing.state !== 'building')
+      ) {
+        throw new Error('Embedding generation ID contract collision')
+      }
+      return existing.state === 'active'
     }
-    if (existing?.contract_sha256 === contract.contractSha256 && existing.state === 'building') {
-      return false
-    }
-    if (existing !== undefined) throw new Error('Embedding generation ID contract collision')
     const table = vectorTableName(contract.embeddingGenerationId)
     const metric = contract.metric === 'cosine' ? 'cosine' : 'L2'
     this.database.transaction(() => {
@@ -127,71 +123,104 @@ export class SqliteVecVectorIndex implements VectorIndex {
     if (generation.state !== 'building') throw new Error('Embedding generation is not writable')
     const table = vectorTableName(embeddingGenerationId)
     this.database.transaction(() => {
+      const sourceChunk = this.database
+        .prepare('SELECT content_sha256 FROM chunks WHERE generation_id = ? AND chunk_id = ?')
+        .pluck()
+      const readCached = this.database
+        .prepare(
+          `SELECT vector_blob FROM embedding_vector_cache
+            WHERE contract_sha256 = ? AND content_sha256 = ? AND dimension = ?`
+        )
+        .pluck()
+      const insertCache = this.database.prepare(
+        `INSERT OR IGNORE INTO embedding_vector_cache
+          (contract_sha256, content_sha256, dimension, vector_blob) VALUES (?, ?, ?, ?)`
+      )
+      // sqlite-vec rejects INSERT OR REPLACE when the row already exists.
+      const deletePrevious = this.database.prepare(
+        `DELETE FROM "${table}" WHERE rowid = (
+           SELECT vector_rowid FROM chunk_vectors
+            WHERE embedding_generation_id = ? AND chunk_id = ?
+         )`
+      )
       const insertVector = this.database.prepare(
-        `INSERT OR REPLACE INTO "${table}" (rowid, embedding) VALUES (?, ?)`
+        `INSERT INTO "${table}" (rowid, embedding) VALUES (?, ?)`
       )
       const insertMap = this.database.prepare(
-        `INSERT OR REPLACE INTO chunk_vectors
-          (embedding_generation_id, chunk_id, vector_rowid, content_sha256) VALUES (?, ?, ?, ?)`
+        `INSERT INTO chunk_vectors
+          (embedding_generation_id, chunk_id, vector_rowid, content_sha256) VALUES (?, ?, ?, ?)
+         ON CONFLICT(embedding_generation_id, chunk_id) DO UPDATE SET
+           vector_rowid = excluded.vector_rowid, content_sha256 = excluded.content_sha256`
       )
       for (const value of values) {
+        if (
+          sourceChunk.get(generation.index_generation_id, value.chunkId) !== value.contentSha256
+        ) {
+          throw new Error('Embedding input does not match its source chunk')
+        }
         const vector = normalizeAndValidate(
           value.vector,
           generation.dimension,
           generation.normalization
         )
-        const cached = this.database
-          .prepare(
-            'SELECT vector_blob FROM embedding_vector_cache WHERE contract_sha256 = ? AND content_sha256 = ? AND dimension = ?'
-          )
-          .pluck()
-          .get(generation.contract_sha256, value.contentSha256, generation.dimension) as
-          | Buffer
-          | undefined
+        const cached = readCached.get(
+          generation.contract_sha256,
+          value.contentSha256,
+          generation.dimension
+        ) as Buffer | undefined
         const blob = cached ?? vectorBlob(vector)
         const rowid = stableRowid(value.chunkId)
+        deletePrevious.run(embeddingGenerationId, value.chunkId)
         insertVector.run(rowid, blob)
         insertMap.run(embeddingGenerationId, value.chunkId, rowid, value.contentSha256)
-        this.database
-          .prepare(
-            'INSERT OR IGNORE INTO embedding_vector_cache (contract_sha256, content_sha256, dimension, vector_blob) VALUES (?, ?, ?, ?)'
-          )
-          .run(generation.contract_sha256, value.contentSha256, generation.dimension, blob)
+        insertCache.run(generation.contract_sha256, value.contentSha256, generation.dimension, blob)
       }
     })()
   }
 
   activate(embeddingGenerationId: string, expectedContractSha256: string): void {
-    const generation = this.#requireGeneration(embeddingGenerationId)
-    if (generation.contract_sha256 !== expectedContractSha256)
-      throw new Error('Embedding contract is incompatible')
-    if (generation.state === 'active') return
-    const activeIndexGenerationId = this.database
-      .prepare("SELECT generation_id FROM index_generations WHERE state = 'active'")
-      .pluck()
-      .get() as string | undefined
-    if (activeIndexGenerationId !== generation.index_generation_id) {
-      throw new Error('Embedding source index generation is no longer active')
-    }
-    const expected = this.database
-      .prepare('SELECT count(*) FROM chunks WHERE generation_id = ?')
-      .pluck()
-      .get(generation.index_generation_id) as number
-    const actual = this.database
-      .prepare('SELECT count(*) FROM chunk_vectors WHERE embedding_generation_id = ?')
-      .pluck()
-      .get(embeddingGenerationId) as number
-    if (actual !== expected) throw new Error('Embedding generation is incomplete')
-    const now = new Date().toISOString()
     this.database.transaction(() => {
+      const generation = this.#requireGeneration(embeddingGenerationId)
+      if (generation.contract_sha256 !== expectedContractSha256)
+        throw new Error('Embedding contract is incompatible')
+      this.#assertSourceIndexIsActive(generation.index_generation_id)
+      if (generation.state === 'active') return
+      if (generation.state !== 'building' && generation.state !== 'built') {
+        throw new Error('Embedding generation is not ready for activation')
+      }
+
+      const expected = this.database
+        .prepare('SELECT count(*) FROM chunks WHERE generation_id = ?')
+        .pluck()
+        .get(generation.index_generation_id) as number
+      const { actual, matched } = this.database
+        .prepare(
+          `SELECT count(*) AS actual, count(chunks.chunk_id) AS matched
+             FROM chunk_vectors
+             LEFT JOIN chunks
+               ON chunks.generation_id = ?
+              AND chunks.chunk_id = chunk_vectors.chunk_id
+              AND chunks.content_sha256 = chunk_vectors.content_sha256
+            WHERE chunk_vectors.embedding_generation_id = ?`
+        )
+        .get(generation.index_generation_id, embeddingGenerationId) as {
+        actual: number
+        matched: number
+      }
+      if (actual !== matched) {
+        throw new Error('Embedding generation contains vectors for invalid source chunks')
+      }
+      if (matched !== expected) throw new Error('Embedding generation is incomplete')
+
+      const now = new Date().toISOString()
       this.database
         .prepare("UPDATE embedding_generations SET state = 'obsolete' WHERE state = 'active'")
         .run()
       this.database
         .prepare(
-          "UPDATE embedding_generations SET state = 'active', vector_count = ?, built_at = COALESCE(built_at, ?), activated_at = ? WHERE embedding_generation_id = ? AND state IN ('building', 'built')"
+          "UPDATE embedding_generations SET state = 'active', vector_count = ?, built_at = COALESCE(built_at, ?), activated_at = ? WHERE embedding_generation_id = ?"
         )
-        .run(actual, now, now, embeddingGenerationId)
+        .run(matched, now, now, embeddingGenerationId)
     })()
   }
 
@@ -201,13 +230,13 @@ export class SqliteVecVectorIndex implements VectorIndex {
     limit: number,
     filters: KnowledgeSearchFilters
   ) {
-    const generation = this.#requireGeneration(embeddingGenerationId)
-    if (generation.state !== 'active') throw new Error('Embedding generation is not active')
+    const generation = this.#requireReadableGeneration(embeddingGenerationId)
     if (limit < 1 || limit > 1_000) throw new Error('Vector query limit is invalid')
     const normalized = normalizeAndValidate(vector, generation.dimension, generation.normalization)
     const table = vectorTableName(embeddingGenerationId)
     const queryBlob = vectorBlob(normalized)
-    if (hasFilters(filters)) {
+    const filter = compileKnowledgeSearchFilters(filters)
+    if (filter.clause !== '') {
       const distanceFunction =
         generation.metric === 'cosine' ? 'vec_distance_cosine' : 'vec_distance_L2'
       return this.database
@@ -219,7 +248,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
              JOIN chunks ON chunks.generation_id = ?
                         AND chunks.chunk_id = chunk_vectors.chunk_id
             WHERE chunk_vectors.embedding_generation_id = ?
-              ${filterSql(filters)}
+              ${filter.clause}
             ORDER BY distance, chunk_vectors.chunk_id
             LIMIT ?`
         )
@@ -227,7 +256,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
           queryBlob,
           generation.index_generation_id,
           embeddingGenerationId,
-          ...filterParams(filters),
+          ...filter.parameters,
           limit
         ) as Array<{
         chunkId: string
@@ -241,7 +270,6 @@ export class SqliteVecVectorIndex implements VectorIndex {
            JOIN chunk_vectors ON chunk_vectors.vector_rowid = matches.rowid
            JOIN chunks ON chunks.generation_id = ? AND chunks.chunk_id = chunk_vectors.chunk_id
           WHERE chunk_vectors.embedding_generation_id = ?
-            ${filterSql(filters)}
           ORDER BY matches.distance, chunk_vectors.chunk_id
           LIMIT ?`
       )
@@ -262,8 +290,7 @@ export class SqliteVecVectorIndex implements VectorIndex {
     chunkIds: string[],
     dimensions: number
   ): Array<{ chunkId: string; norm: number; preview: number[] }> {
-    const generation = this.#requireGeneration(embeddingGenerationId)
-    if (generation.state !== 'active') throw new Error('Embedding generation is not active')
+    const generation = this.#requireReadableGeneration(embeddingGenerationId)
     if (dimensions < 1 || dimensions > 16) throw new Error('Vector preview dimension is invalid')
     if (chunkIds.length > 5_000) throw new Error('Vector preview chunk count is invalid')
     if (chunkIds.length === 0) return []
@@ -303,6 +330,21 @@ export class SqliteVecVectorIndex implements VectorIndex {
     })()
   }
 
+  #requireReadableGeneration(id: string): GenerationRow {
+    const generation = this.#requireGeneration(id)
+    if (generation.state !== 'active') throw new Error('Embedding generation is not active')
+    this.#assertSourceIndexIsActive(generation.index_generation_id)
+    return generation
+  }
+
+  #assertSourceIndexIsActive(indexGenerationId: string): void {
+    const active = this.database
+      .prepare("SELECT 1 FROM index_generations WHERE generation_id = ? AND state = 'active'")
+      .pluck()
+      .get(indexGenerationId)
+    if (active !== 1) throw new Error('Embedding source index generation is no longer active')
+  }
+
   #requireGeneration(id: string): GenerationRow {
     const row = this.database
       .prepare(
@@ -312,17 +354,6 @@ export class SqliteVecVectorIndex implements VectorIndex {
     if (row === undefined) throw new Error('Embedding generation is missing')
     return row
   }
-}
-
-function hasFilters(filters: KnowledgeSearchFilters): boolean {
-  return (
-    filters.knowledgeItemIds.length > 0 ||
-    filters.fileExtensions.length > 0 ||
-    filters.parseRevisionIds.length > 0 ||
-    filters.pageFrom !== undefined ||
-    filters.pageTo !== undefined ||
-    filters.heading !== undefined
-  )
 }
 
 function decodeVector(bytes: Buffer): number[] {

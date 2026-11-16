@@ -115,38 +115,33 @@ export function useWorkbench(
     // error-handling: allow owner=workbench reason=queue-recovery
     return next.catch(() => undefined)
   }, [])
+  const showTab = useCallback(
+    (tab: ContentTab) => {
+      actions.current.setWorkspace(tab.kind === 'section' ? 'manuscript' : tab.kind)
+      const current = state.current
+      const id = tabId(tab)
+      commit(
+        current.tabs.some((item) => tabId(item) === id) ? current.tabs : [...current.tabs, tab],
+        id
+      )
+    },
+    [actions, commit]
+  )
   const activate = useCallback(
     async (tab: ContentTab, flushed = false) => {
       if ((!flushed && !(await actions.current.flush())) || !live.current) return false
       if (tab.kind === 'section') await actions.current.activateSection(tab.sectionId)
       if (!live.current) return false
       if (tab.kind !== 'section') actions.current.clearSelection()
-      actions.current.setWorkspace(tab.kind === 'section' ? 'manuscript' : tab.kind)
-      const current = state.current
-      commit(
-        current.tabs.some((item) => tabId(item) === tabId(tab))
-          ? current.tabs
-          : [...current.tabs, tab],
-        tabId(tab)
-      )
+      showTab(tab)
       return true
     },
-    [actions, commit]
+    [actions, showTab]
   )
   const open = useCallback((tab: ContentTab) => enqueue(() => activate(tab)), [activate, enqueue])
   const didActivateSection = useCallback(
-    (sectionId: string) => {
-      const tab: ContentTab = { kind: 'section', sectionId }
-      const current = state.current
-      actions.current.setWorkspace('manuscript')
-      commit(
-        current.tabs.some((item) => tabId(item) === tabId(tab))
-          ? current.tabs
-          : [...current.tabs, tab],
-        tabId(tab)
-      )
-    },
-    [actions, commit]
+    (sectionId: string) => showTab({ kind: 'section', sectionId }),
+    [showTab]
   )
   const newNotebook = useCallback(
     () =>

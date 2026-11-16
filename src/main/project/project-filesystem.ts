@@ -103,49 +103,29 @@ export class ProjectFilesystem {
     return { path, handle: await open(path, 'wx', mode) }
   }
 
-  async removeFile(relativePath: string): Promise<void> {
-    const normalized = normalizeProjectRelativePath(relativePath)
-    try {
-      await this.#assertDirectorySegments(dirname(normalized).replaceAll('\\', '/'))
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw err
-    }
-    const path = resolveProjectPath(this.#root, normalized)
-    let metadata: Awaited<ReturnType<typeof lstat>>
-    try {
-      metadata = await lstat(path)
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw err
-    }
-    if (metadata.isSymbolicLink()) this.#reject('path_symbolic_link', normalized)
-    if (!metadata.isFile()) this.#reject('path_not_file', normalized)
-    await unlink(path)
+  removeFile(relativePath: string): Promise<void> {
+    return this.#remove(relativePath, 'file')
   }
 
-  async removeTree(relativePath: string): Promise<void> {
+  removeTree(relativePath: string): Promise<void> {
+    return this.#remove(relativePath, 'tree')
+  }
+
+  async #remove(relativePath: string, kind: 'file' | 'tree'): Promise<void> {
     const normalized = normalizeProjectRelativePath(relativePath)
-    try {
-      await this.#assertDirectorySegments(dirname(normalized).replaceAll('\\', '/'))
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw err
-    }
     const path = resolveProjectPath(this.#root, normalized)
     let metadata: Awaited<ReturnType<typeof lstat>>
     try {
+      await this.#assertDirectorySegments(dirname(normalized).replaceAll('\\', '/'))
       metadata = await lstat(path)
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return
       throw err
     }
     if (metadata.isSymbolicLink()) this.#reject('path_symbolic_link', normalized)
-    if (!metadata.isDirectory()) {
-      await unlink(path)
-      return
-    }
-    await removeDirectoryNoFollow(path)
+    if (kind === 'file' && !metadata.isFile()) this.#reject('path_not_file', normalized)
+    if (metadata.isDirectory()) await removeDirectoryNoFollow(path)
+    else await unlink(path)
   }
 
   async publish(relativeSource: string, relativeDestination: string): Promise<string> {

@@ -20,13 +20,23 @@ import { JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
 import { ProjectRuntime } from '../jobs/scheduler/project-runtime'
 import { createProject, ProjectCreateError } from './project-lifecycle'
 import { openProjectDatabase } from './project-database'
-import { inspectProjectWriteLock } from './project-lock'
+import { inspectProjectWriteLock, ProjectWriteLock } from './project-lock'
 import type { PdfPublicationRenderer } from '../manuscript/pdf-publication'
 import { ProjectManager, ProjectSessionError } from './project-manager'
-import { recoverIncompleteHistoryRestore } from './history-restore-recovery'
+import {
+  createProjectManifest,
+  readProjectManifest,
+  writeProjectManifest
+} from './project-manifest'
+import { historyRestorePaths, recoverIncompleteHistoryRestore } from './history-restore-recovery'
 import {
   INDEX_DATABASE_RELATIVE_PATH,
+  MANUSCRIPT_IMPORT_STAGING_DIRECTORY,
+  PROJECT_HISTORY_IGNORE_RELATIVE_PATH,
+  PROJECT_HISTORY_RELATIVE_PATH,
+  PROJECT_DATABASE_RELATIVE_PATH,
   PROJECT_LOCK_RELATIVE_PATH,
+  PROJECT_MANIFEST_FILE,
   resolveProjectPath
 } from './project-paths'
 
@@ -75,6 +85,49 @@ afterEach(async () => {
 })
 
 describe('ProjectManager', () => {
+  it('diagnoses open failures and rejects an unsafe missing-manifest repair', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    try {
+      await expect(manager.open(join(parent, 'moved-project'))).rejects.toThrow()
+      expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'folder-missing' })
+
+      const { projectRoot, manifest } = await existingProject(parent, 'incomplete-project')
+      const manifestPath = join(projectRoot, PROJECT_MANIFEST_FILE)
+      await writeFile(manifestPath, '{invalid')
+      await expect(manager.locateMovedProject(projectRoot)).rejects.toThrow()
+      expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'manifest-invalid' })
+
+      await rm(manifestPath)
+      await expect(manager.retryOpen()).rejects.toThrow()
+      expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'manifest-missing' })
+      await expect(manager.recoverMissingManifest(async () => projectRoot)).rejects.toThrow(
+        'Choose a recovery location outside the original project'
+      )
+      expect(await inspectProjectWriteLock(projectRoot, { logger: silentLog })).toBeNull()
+      await expect(readFile(manifestPath)).rejects.toMatchObject({ code: 'ENOENT' })
+
+      await writeProjectManifest(projectRoot, manifest)
+      await expect(manager.recoverMissingManifest()).rejects.toThrow(
+        'The source already has a project manifest'
+      )
+      await expect(readProjectManifest(projectRoot)).resolves.toEqual(manifest)
+      await rm(manifestPath)
+
+      const databasePath = join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH)
+      await writeFile(databasePath, 'not a database')
+      await expect(manager.recoverMissingManifest()).rejects.toThrow()
+      expect(await inspectProjectWriteLock(projectRoot, { logger: silentLog })).toBeNull()
+      await expect(readFile(manifestPath)).rejects.toMatchObject({ code: 'ENOENT' })
+
+      await rm(databasePath)
+      await writeProjectManifest(projectRoot, createProjectManifest())
+      await expect(manager.retryOpen()).rejects.toThrow()
+      expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'database-unavailable' })
+    } finally {
+      await appDatabase.close()
+    }
+  })
+
   it('requires the feature factory and releases project resources when assembly fails', async () => {
     const { parent, recentProjects, appDatabase, manager } = await testEnvironment()
     expect(
@@ -208,7 +261,7 @@ describe('ProjectManager', () => {
   })
 
   it('restores an older checkpoint and appends a history-preserving restore commit', async () => {
-    const { parent, appDatabase, manager } = await testEnvironment()
+    const { parent, appDatabase, manager, recentProjects } = await testEnvironment()
     const opened = await manager.create({ parentDirectory: parent, name: 'restore-history' })
     const sessionId = opened.activeProject?.projectSessionId
     if (sessionId === undefined) throw new Error('Missing project session')
@@ -227,13 +280,33 @@ describe('ProjectManager', () => {
       .execute()
     const changed = await manager.createCheckpoint(sessionId, { name: 'Changed state' })
 
+    const contender = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 }
+    })
+    const moveOriginal = context.writeLock.moveProjectRoot.bind(context.writeLock)
+    const move = vi.spyOn(context.writeLock, 'moveProjectRoot').mockImplementation(async (path) => {
+      await moveOriginal(path)
+      await expect(contender.open(context.projectRoot)).rejects.toThrow('Failed to open project')
+      expect(contender.snapshot().recovery).toEqual({ kind: 'open', reason: 'lock-contended' })
+    })
     const restored = await manager.restoreCheckpoint(sessionId, initial.oid)
+    expect(move).toHaveBeenCalledOnce()
     const restoredSessionId = restored.snapshot.activeProject?.projectSessionId
     expect(restoredSessionId).toBeDefined()
     expect(restoredSessionId).not.toBe(sessionId)
     expect(restored.checkpoint.parentOid).toBe(changed.oid)
     expect(restored.checkpoint.name).toBe('Restored Initial checkpoint')
     const restoredContext = manager.assertActiveSession(restoredSessionId as string)
+    expect(restoredContext.writeLock).not.toBe(context.writeLock)
+    await expect(
+      inspectProjectWriteLock(context.projectRoot, { logger: silentLog })
+    ).resolves.toMatchObject({
+      ownerToken: restoredContext.writeLock.metadata.ownerToken
+    })
     await expect(
       restoredContext.database.kysely
         .selectFrom('project_meta')
@@ -249,6 +322,78 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it('replays the journal and reopens the original project when candidate open fails', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const openDatabase = vi.fn(openProjectDatabase)
+    const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      dependencies: { openDatabase }
+    })
+    const opened = await manager.create({ parentDirectory: parent, name: 'restore-rollback' })
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const initial = (await manager.listCheckpoints(sessionId, { limit: 50 })).checkpoints[0]
+    if (initial === undefined) throw new Error('Missing initial checkpoint')
+    const {
+      projectRoot,
+      database,
+      writeLock: originalLock
+    } = manager.assertActiveSession(sessionId)
+    await database.kysely
+      .updateTable('project_meta')
+      .set({ updated_at: '2099-01-01T00:00:00.000Z' })
+      .where('singleton_id', '=', 1)
+      .execute()
+    const changed = await manager.createCheckpoint(sessionId, { name: 'Keep this checkpoint' })
+    const ignorePath = resolveProjectPath(projectRoot, PROJECT_HISTORY_IGNORE_RELATIVE_PATH)
+    const ignore = await readFile(ignorePath, 'utf8')
+    const candidateFailure = new Error('Candidate could not open')
+    const candidateOpen = vi.fn(async () => {
+      expect(originalLock.projectRoot).not.toBe(projectRoot)
+      await expect(
+        inspectProjectWriteLock(originalLock.projectRoot, { logger: silentLog })
+      ).resolves.toMatchObject({
+        ownerToken: originalLock.metadata.ownerToken
+      })
+      await expect(
+        inspectProjectWriteLock(projectRoot, { logger: silentLog })
+      ).resolves.not.toBeNull()
+      await expect(
+        ProjectWriteLock.acquire(projectRoot, { logger: silentLog, heartbeatIntervalMs: 0 })
+      ).rejects.toMatchObject({ projectRoot })
+      throw candidateFailure
+    })
+    openDatabase.mockImplementationOnce(candidateOpen)
+
+    await expect(manager.restoreCheckpoint(sessionId, initial.oid)).rejects.toMatchObject({
+      message: 'Failed to restore the project checkpoint',
+      cause: {
+        cause: expect.objectContaining({
+          reason: 'database-open-failed',
+          cause: candidateFailure
+        })
+      }
+    })
+    const reopened = manager.snapshot().activeProject?.projectSessionId
+    if (reopened === undefined) throw new Error('Original project did not reopen')
+    expect(candidateOpen).toHaveBeenCalledOnce()
+    expect(manager.assertActiveSession(reopened).writeLock).toBe(originalLock)
+    expect(reopened).not.toBe(sessionId)
+    expect((await manager.listCheckpoints(reopened, { limit: 50 })).checkpoints[0]?.oid).toBe(
+      changed.oid
+    )
+    await expect(readFile(ignorePath, 'utf8')).resolves.toBe(ignore)
+    await expect(
+      access(join(parent, `.writellm-restore-${opened.activeProject?.projectId}.json`))
+    ).rejects.toMatchObject({ code: 'ENOENT' })
+    await manager.close()
+    appDatabase.close()
+  })
+
   it('recovers interrupted restore rename boundaries from the durable journal', async () => {
     const parent = await mkdtemp(join(tmpdir(), 'writellm-restore-journal-'))
     temporaryDirectories.push(parent)
@@ -259,9 +404,12 @@ describe('ProjectManager', () => {
     const prefix = `.${projectRootName}.${token}`
     const rollback = join(parent, `${prefix}.rollback`)
     const candidate = join(parent, `${prefix}.candidate`)
+    const failed = join(parent, `${prefix}.failed`)
     const materialized = join(parent, `${prefix}.git-restore`)
     const journal = join(parent, `.writellm-restore-${projectId}.json`)
+    const manifest = createProjectManifest({ projectId })
     await mkdir(join(rollback, '.writellm', 'history.git'), { recursive: true })
+    await writeProjectManifest(rollback, manifest)
     await writeFile(join(rollback, 'original.txt'), 'original')
     await mkdir(candidate)
     await mkdir(materialized)
@@ -287,6 +435,7 @@ describe('ProjectManager', () => {
     await rename(projectRoot, rollback)
     await rm(join(rollback, '.writellm', 'history.git'), { recursive: true })
     await mkdir(join(projectRoot, '.writellm', 'history.git'), { recursive: true })
+    await writeProjectManifest(projectRoot, manifest)
     await writeFile(join(projectRoot, '.writellm', 'history.git', 'HEAD'), 'restored-history')
     await writeFile(
       journal,
@@ -306,6 +455,159 @@ describe('ProjectManager', () => {
     expect(await readFile(join(projectRoot, '.writellm', 'history.git', 'HEAD'), 'utf8')).toBe(
       'restored-history'
     )
+
+    await rename(projectRoot, rollback)
+    await mkdir(join(failed, '.writellm'), { recursive: true })
+    await writeProjectManifest(failed, manifest)
+    await rename(
+      resolveProjectPath(rollback, PROJECT_HISTORY_RELATIVE_PATH),
+      resolveProjectPath(failed, PROJECT_HISTORY_RELATIVE_PATH)
+    )
+    await writeFile(
+      resolveProjectPath(failed, PROJECT_HISTORY_IGNORE_RELATIVE_PATH),
+      'preserved ignore rules'
+    )
+    const interruptedRollback = JSON.stringify({
+      format: 'writellm-history-restore',
+      formatVersion: 1,
+      projectId,
+      projectRootName,
+      token,
+      phase: 'history-moved',
+      targetOid: 'c'.repeat(40)
+    })
+    await writeFile(journal, interruptedRollback)
+
+    await recoverIncompleteHistoryRestore(projectRoot, silentLog)
+    await expect(readFile(join(projectRoot, 'original.txt'), 'utf8')).resolves.toBe('original')
+    await expect(
+      readFile(join(projectRoot, PROJECT_HISTORY_RELATIVE_PATH, 'HEAD'), 'utf8')
+    ).resolves.toBe('restored-history')
+    await expect(
+      readFile(resolveProjectPath(projectRoot, PROJECT_HISTORY_IGNORE_RELATIVE_PATH), 'utf8')
+    ).resolves.toBe('preserved ignore rules')
+    await expect(access(failed)).rejects.toMatchObject({ code: 'ENOENT' })
+
+    await mkdir(failed)
+    await writeFile(journal, interruptedRollback)
+    await recoverIncompleteHistoryRestore(projectRoot, silentLog)
+    await expect(access(failed)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(access(journal)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(['another project', 'a symbolic link'])(
+    'does not move the selected directory when it is %s',
+    async (kind) => {
+      const parent = await mkdtemp(join(tmpdir(), 'writellm-restore-ownership-'))
+      temporaryDirectories.push(parent)
+      const manifest = createProjectManifest()
+      const journal = {
+        format: 'writellm-history-restore',
+        formatVersion: 1,
+        projectId: manifest.projectId,
+        projectRootName: 'selected.writellm',
+        token: crypto.randomUUID(),
+        phase: 'candidate-installed',
+        targetOid: 'a'.repeat(40)
+      }
+      const paths = historyRestorePaths(parent, journal)
+      const symbolic = kind === 'a symbolic link'
+      const existing = symbolic ? join(parent, 'target.writellm') : paths.projectRoot
+      await mkdir(join(existing, '.writellm'), { recursive: true })
+      await writeProjectManifest(existing, symbolic ? manifest : createProjectManifest())
+      await writeFile(join(existing, 'sentinel.txt'), 'current project')
+      if (symbolic) await symlink(existing, paths.projectRoot, 'junction')
+      await mkdir(join(paths.rollback, '.writellm'), { recursive: true })
+      await writeProjectManifest(paths.rollback, manifest)
+      await writeFile(paths.journal, JSON.stringify(journal))
+
+      await expect(recoverIncompleteHistoryRestore(paths.projectRoot, silentLog)).rejects.toThrow(
+        'Failed to recover an interrupted project history restore'
+      )
+      await expect(readFile(join(paths.projectRoot, 'sentinel.txt'), 'utf8')).resolves.toBe(
+        'current project'
+      )
+      await expect(readProjectManifest(paths.rollback)).resolves.toEqual(manifest)
+      await expect(access(paths.journal)).resolves.toBeUndefined()
+      await expect(access(paths.failed)).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  )
+
+  it('blocks journal replay while another manager has the installed candidate open', async () => {
+    const { parent, appDatabase, recentProjects, manager } = await testEnvironment()
+    const current = await existingProject(parent, 'live-restore-candidate.writellm')
+    const opened = await manager.open(current.projectRoot)
+    const sessionId = opened.activeProject?.projectSessionId
+    if (sessionId === undefined) throw new Error('Missing project session')
+    const journal = {
+      format: 'writellm-history-restore',
+      formatVersion: 1,
+      projectId: current.manifest.projectId,
+      projectRootName: basename(current.projectRoot),
+      token: crypto.randomUUID(),
+      phase: 'history-moved',
+      targetOid: 'a'.repeat(40)
+    }
+    const paths = historyRestorePaths(parent, journal)
+    await mkdir(join(paths.rollback, '.writellm'), { recursive: true })
+    await writeProjectManifest(paths.rollback, current.manifest)
+    await writeFile(paths.journal, JSON.stringify(journal))
+    const alias = join(parent, 'alias.writellm')
+    await symlink(current.projectRoot, alias, 'junction')
+    const second = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 }
+    })
+
+    await expect(second.open(alias)).rejects.toThrow('Failed to open project')
+    expect(second.snapshot().recovery).toEqual({ kind: 'open', reason: 'lock-contended' })
+    await expect(second.recoverStaleLockAndRetryOpen()).rejects.toThrow(
+      'Failed to recover the stale project lock'
+    )
+    const context = manager.assertActiveSession(sessionId)
+    expect(context.database.read((db) => db.prepare('SELECT 1').pluck().get())).toBe(1)
+    await expect(access(paths.journal)).resolves.toBeUndefined()
+    await expect(access(paths.rollback)).resolves.toBeUndefined()
+    await expect(access(paths.failed)).rejects.toMatchObject({ code: 'ENOENT' })
+    await manager.close()
+    appDatabase.close()
+  })
+
+  it('recovers a stale rollback lock when the selected project root is missing', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'missing-restore-root.writellm')
+    const journal = {
+      format: 'writellm-history-restore',
+      formatVersion: 1,
+      projectId: created.manifest.projectId,
+      projectRootName: basename(created.projectRoot),
+      token: crypto.randomUUID(),
+      phase: 'original-moved',
+      targetOid: 'a'.repeat(40)
+    }
+    const paths = historyRestorePaths(parent, journal)
+    await rename(created.projectRoot, paths.rollback)
+    await writeFile(paths.journal, JSON.stringify(journal))
+    const stale = await ProjectWriteLock.acquire(paths.rollback, {
+      logger: silentLog,
+      heartbeatIntervalMs: 0,
+      dependencies: { now: () => new Date('2000-01-01T00:00:00.000Z') }
+    })
+
+    await expect(manager.open(paths.projectRoot)).rejects.toThrow('Failed to open project')
+    expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'lock-contended' })
+    await expect(access(paths.projectRoot)).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(manager.recoverStaleLockAndRetryOpen()).resolves.toMatchObject({
+      state: 'open',
+      activeProject: { projectId: created.manifest.projectId }
+    })
+    await expect(stale.release()).resolves.toBe(false)
+    await expect(access(paths.journal)).rejects.toMatchObject({ code: 'ENOENT' })
+    await manager.close()
+    appDatabase.close()
   })
 
   it('keeps ambiguous create failures in recovery-required', async () => {
@@ -460,6 +762,112 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
+  it.each(['open', 'create'] as const)(
+    'keeps the lock for close retry when %s fails after runtime start',
+    async (entry) => {
+      const { parent, appDatabase, recentProjects } = await testEnvironment()
+      const name = 'failed-index-start'
+      const projectRoot =
+        entry === 'open'
+          ? (await existingProject(parent, `${name}.writellm`)).projectRoot
+          : join(parent, `${name}.writellm`)
+      const original = new Error('Index startup failed')
+      const features = createTestKnowledgeRuntime()
+      vi.mocked(features.projectIndex.startInitialization).mockImplementationOnce(() => {
+        throw original
+      })
+      const stopWorkersAndIndex = vi.fn().mockRejectedValueOnce(new Error('Index did not stop'))
+      const parkWorkers = vi.fn()
+      const revokeSubscriptions = vi.fn()
+      const manager = new ProjectManager({
+        createKnowledgeRuntime: () => features,
+        applicationVersion: 'test',
+        logger: silentLog,
+        recentProjects,
+        lockOptions: { heartbeatIntervalMs: 0 },
+        closeParticipants: { parkWorkers, stopWorkersAndIndex, revokeSubscriptions }
+      })
+      const opening =
+        entry === 'open'
+          ? manager.open(projectRoot)
+          : manager.create({ parentDirectory: parent, name })
+
+      await expect(opening).rejects.toMatchObject({ cause: original })
+      expect(manager.snapshot()).toEqual({
+        state: 'recovery-required',
+        activeProject: null,
+        recovery: { kind: 'close' }
+      })
+      expect(await inspectProjectWriteLock(projectRoot, { logger: silentLog })).not.toBeNull()
+      expect(parkWorkers).toHaveBeenCalledOnce()
+      expect(revokeSubscriptions).toHaveBeenCalledOnce()
+
+      await expect(manager.retryClose()).resolves.toMatchObject({ state: 'closed' })
+      expect(stopWorkersAndIndex).toHaveBeenCalledTimes(2)
+      expect(parkWorkers).toHaveBeenCalledOnce()
+      expect(revokeSubscriptions).toHaveBeenCalledOnce()
+      expect(await inspectProjectWriteLock(projectRoot, { logger: silentLog })).toBeNull()
+      appDatabase.close()
+    }
+  )
+
+  it('keeps the lock when database cleanup fails before workers start', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const created = await existingProject(parent, 'assembly-close-failure')
+    const original = new Error('Feature assembly failed')
+    const stopWorkersAndIndex = vi.fn()
+    const manager = new ProjectManager({
+      createKnowledgeRuntime: () => {
+        throw original
+      },
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      closeParticipants: { stopWorkersAndIndex },
+      dependencies: {
+        openDatabase: async (options) => {
+          const database = await openProjectDatabase(options)
+          vi.spyOn(database, 'close').mockImplementationOnce(() => {
+            throw new Error('Database did not close')
+          })
+          return database
+        }
+      }
+    })
+    await expect(manager.open(created.projectRoot)).rejects.toMatchObject({ cause: original })
+    expect(manager.snapshot()).toMatchObject({ recovery: { kind: 'close' } })
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).not.toBeNull()
+    await expect(manager.retryClose()).resolves.toMatchObject({ state: 'closed' })
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).toBeNull()
+    expect(stopWorkersAndIndex).not.toHaveBeenCalled()
+    appDatabase.close()
+  })
+
+  it('releases the transferred create lock if the first manifest read fails', async () => {
+    const { parent, appDatabase, recentProjects } = await testEnvironment()
+    const original = new Error('Manifest read failed')
+    const manager = new ProjectManager({
+      createKnowledgeRuntime: createTestKnowledgeRuntime,
+      applicationVersion: 'test',
+      logger: silentLog,
+      recentProjects,
+      lockOptions: { heartbeatIntervalMs: 0 },
+      dependencies: { readManifest: vi.fn(readProjectManifest).mockRejectedValueOnce(original) }
+    })
+    const name = 'read-manifest-retry'
+    await expect(manager.create({ parentDirectory: parent, name })).rejects.toMatchObject({
+      cause: original
+    })
+    expect(manager.snapshot()).toMatchObject({ recovery: { kind: 'open' } })
+    expect(
+      await inspectProjectWriteLock(join(parent, `${name}.writellm`), { logger: silentLog })
+    ).toBeNull()
+    await expect(manager.retryOpen()).resolves.toMatchObject({ state: 'open' })
+    await manager.close()
+    appDatabase.close()
+  })
+
   it('recovers expired job leases before publishing an open project session', async () => {
     const { parent, appDatabase, manager } = await testEnvironment()
     const created = await existingProject(parent, 'lease-recovery')
@@ -498,21 +906,24 @@ describe('ProjectManager', () => {
     appDatabase.close()
   })
 
-  it('opens without an index and reports rebuild required without rebuilding it', async () => {
+  it('publishes the project identity before the index worker creates a missing index', async () => {
     const { parent, appDatabase, manager } = await testEnvironment()
     const created = await existingProject(parent, 'missing-index')
     const indexPath = resolveProjectPath(created.projectRoot, INDEX_DATABASE_RELATIVE_PATH)
-    await rm(indexPath, { force: true })
 
     const opened = await manager.open(created.projectRoot)
-    expect(opened.activeProject?.indexRebuildRequired).toBe(true)
+    expect(opened.activeProject).toEqual({
+      projectId: created.manifest.projectId,
+      projectSessionId: expect.any(String),
+      displayName: 'missing-index'
+    })
     await expect(realpath(indexPath)).rejects.toMatchObject({ code: 'ENOENT' })
 
     await manager.close()
     appDatabase.close()
   })
 
-  it('opens with an incompatible index role and reports rebuild required', async () => {
+  it('opens a manuscript while an incompatible index awaits worker recovery', async () => {
     const { parent, appDatabase, manager } = await testEnvironment()
     const created = await existingProject(parent, 'incompatible-index')
     const indexPath = resolveProjectPath(created.projectRoot, INDEX_DATABASE_RELATIVE_PATH)
@@ -521,7 +932,7 @@ describe('ProjectManager', () => {
     index.close()
 
     const opened = await manager.open(created.projectRoot)
-    expect(opened.activeProject?.indexRebuildRequired).toBe(true)
+    expect(opened.state).toBe('open')
 
     await manager.close()
     appDatabase.close()
@@ -540,6 +951,32 @@ describe('ProjectManager', () => {
     await expect(readFile(join(outside, 'sentinel.txt'), 'utf8')).resolves.toBe('unchanged')
     await expect(access(join(outside, 'project.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
 
+    appDatabase.close()
+  })
+
+  it('cleans stale import staging only after acquiring the project lock', async () => {
+    const { parent, appDatabase, manager } = await testEnvironment()
+    const created = await existingProject(parent, 'import-staging-lock')
+    const staging = resolveProjectPath(created.projectRoot, MANUSCRIPT_IMPORT_STAGING_DIRECTORY)
+    const plan = join(staging, 'plan')
+    const stagedSource = join(plan, 'source.md')
+    const lock = await ProjectWriteLock.acquire(created.projectRoot, {
+      heartbeatIntervalMs: 0,
+      logger: silentLog
+    })
+    try {
+      await mkdir(plan, { recursive: true })
+      await writeFile(stagedSource, 'Active import source')
+      await expect(manager.open(created.projectRoot)).rejects.toThrow('Failed to open project')
+      expect(manager.snapshot().recovery).toEqual({ kind: 'open', reason: 'lock-contended' })
+      await expect(readFile(stagedSource, 'utf8')).resolves.toBe('Active import source')
+    } finally {
+      await lock.release()
+    }
+
+    await expect(manager.retryOpen()).resolves.toMatchObject({ state: 'open' })
+    await expect(access(staging)).rejects.toMatchObject({ code: 'ENOENT' })
+    await manager.close()
     appDatabase.close()
   })
 
@@ -853,21 +1290,77 @@ describe('ProjectManager', () => {
     const { parent, appDatabase, recentProjects } = await testEnvironment()
     const created = await existingProject(parent, 'retry-close')
     const stopWorkers = vi.fn().mockRejectedValueOnce(new Error('worker stop failed'))
+    const revoke = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('initial subscription revoke failed'))
+      .mockRejectedValueOnce(new Error('retry subscription revoke failed'))
     const manager = new ProjectManager({
       createKnowledgeRuntime: createTestKnowledgeRuntime,
       applicationVersion: 'test',
       logger: silentLog,
       recentProjects,
       lockOptions: { heartbeatIntervalMs: 0 },
-      closeParticipants: { stopWorkersAndIndex: stopWorkers }
+      closeParticipants: { stopWorkersAndIndex: stopWorkers, revokeSubscriptions: revoke }
     })
-    await manager.open(created.projectRoot)
+    const opened = await manager.open(created.projectRoot)
+    const context = manager.assertActiveSession(opened.activeProject?.projectSessionId as string)
     await expect(manager.close()).rejects.toThrow('Failed to close project cleanly')
     expect(manager.snapshot().state).toBe('recovery-required')
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).not.toBeNull()
+    expect(context.database.read((database) => database.prepare('SELECT 1').pluck().get())).toBe(1)
+    expect(revoke).toHaveBeenCalledOnce()
+    await expect(manager.locateMovedProject(created.projectRoot)).rejects.toThrow(
+      'Retry the pending project close first'
+    )
+    await expect(manager.retryClose()).rejects.toThrow('Failed to retry closing the project')
+    expect(manager.snapshot().state).toBe('recovery-required')
+    expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).toBeNull()
     await expect(manager.retryClose()).resolves.toEqual({ state: 'closed', activeProject: null })
     expect(stopWorkers).toHaveBeenCalledTimes(2)
+    expect(revoke).toHaveBeenCalledTimes(3)
     appDatabase.close()
   })
+
+  it.each(['stopJobClaims', 'parkWorkers'] as const)(
+    'keeps the database and lock until %s succeeds on retry',
+    async (step) => {
+      const { parent, appDatabase, recentProjects } = await testEnvironment()
+      const created = await existingProject(parent, 'retry-drain')
+      const original = new Error('Could not drain project work')
+      const participants = {
+        stopJobClaims: vi.fn(),
+        parkWorkers: vi.fn(),
+        stopWorkersAndIndex: vi.fn(),
+        revokeSubscriptions: vi.fn()
+      }
+      participants[step].mockRejectedValueOnce(original)
+      const manager = new ProjectManager({
+        createKnowledgeRuntime: createTestKnowledgeRuntime,
+        applicationVersion: 'test',
+        logger: silentLog,
+        recentProjects,
+        lockOptions: { heartbeatIntervalMs: 0 },
+        closeParticipants: participants
+      })
+      const opened = await manager.open(created.projectRoot)
+      const context = manager.assertActiveSession(opened.activeProject?.projectSessionId as string)
+      await expect(manager.close()).rejects.toMatchObject({ cause: original })
+      expect(participants.stopWorkersAndIndex).not.toHaveBeenCalled()
+      expect(participants.revokeSubscriptions).toHaveBeenCalledOnce()
+      expect(context.database.read((db) => db.prepare('SELECT 1').pluck().get())).toBe(1)
+      expect(
+        await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })
+      ).not.toBeNull()
+
+      await expect(manager.retryClose()).resolves.toMatchObject({ state: 'closed' })
+      expect(participants[step]).toHaveBeenCalledTimes(2)
+      expect(participants.stopJobClaims).toHaveBeenCalledTimes(step === 'stopJobClaims' ? 2 : 1)
+      expect(participants.stopWorkersAndIndex).toHaveBeenCalledOnce()
+      expect(participants.revokeSubscriptions).toHaveBeenCalledOnce()
+      expect(await inspectProjectWriteLock(created.projectRoot, { logger: silentLog })).toBeNull()
+      appDatabase.close()
+    }
+  )
 
   it('supports retry-open, locate-moved, diagnostics export, return-to-closed, and create discard exits', async () => {
     const { parent, appDatabase, recentProjects } = await testEnvironment()

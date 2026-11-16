@@ -1,39 +1,41 @@
-diff --git a/dist/confirmDiscardUnsavedComment-BLTco3jJ.js b/dist/confirmDiscardUnsavedComment-BLTco3jJ.js
---- a/dist/confirmDiscardUnsavedComment-BLTco3jJ.js
-+++ b/dist/confirmDiscardUnsavedComment-BLTco3jJ.js
-@@ -226,21 +226,21 @@
- 	}), { isMounted: b, styles: S } = _(v, e.useTransitionStylesProps), { status: C } = ne(v, e.useTransitionStatusProps), w = f(v, e.useDismissProps), T = m(v, {
+diff --git a/dist/confirmDiscardUnsavedComment-DXWqp4rZ.js b/dist/confirmDiscardUnsavedComment-DXWqp4rZ.js
+index 7b8cf2f61a6aaf42ec5857617eb986e99c0fe1c5..95f429df5c648f22dadae6c0e7e43d0fd78005e4 100644
+--- a/dist/confirmDiscardUnsavedComment-DXWqp4rZ.js
++++ b/dist/confirmDiscardUnsavedComment-DXWqp4rZ.js
+@@ -36,21 +36,21 @@ var I = (e) => {
+ 	}), { isMounted: O, styles: k } = C(E, e.useTransitionStylesProps), { status: A } = S(E, e.useTransitionStatusProps), j = _(E, e.useDismissProps), M = y(E, {
  		enabled: !1,
  		...e.useHoverProps
--	}), { getFloatingProps: E } = h([w, T]), D = c(""), O = c(null), k = g([O, s.setFloating]);
-+	}), { getFloatingProps: E } = h([w, T]), D = c(""), O = c(null), k = g([O, s.setFloating]), referenceSetter = c(s.setReference), positionSetter = c(s.setPositionReference), appliedElement = c(), appliedPosition = c(), positionSource = c(); referenceSetter.current = s.setReference, positionSetter.current = s.setPositionReference;
- 	if (i(() => {
+-	}), { getFloatingProps: N } = b([j, M]), I = d(""), L = d(null), R = x([L, f.setFloating]);
++	}), { getFloatingProps: N } = b([j, M]), I = d(""), L = d(null), R = x([L, f.setFloating]), referenceSetter = d(f.setReference), positionSetter = d(f.setPositionReference), appliedElement = d(), appliedPosition = d(), positionSource = d(); referenceSetter.current = f.setReference, positionSetter.current = f.setPositionReference;
+ 	if (l(() => {
  		if (e.reference) {
- 			let n = "element" in e.reference ? e.reference.element : void 0;
--			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && s.setReference(n);
-+			n !== void 0 && (e.focusManagerProps?.disabled || !t.isWithinEditor(n)) && appliedElement.current !== n && (appliedElement.current = n, referenceSetter.current(n));
- 			let r = "getClientRects" in e.reference ? e.reference.getClientRects : void 0;
--			s.setPositionReference({
--				getBoundingClientRect: X(e.reference),
+ 			let t = "element" in e.reference ? e.reference.element : void 0;
+-			t !== void 0 && (e.focusManagerProps?.disabled || !n.isWithinEditor(t)) && f.setReference(t);
++			t !== void 0 && appliedElement.current !== t && (e.focusManagerProps?.disabled || !n.isWithinEditor(t)) && (appliedElement.current = t, referenceSetter.current(t));
+ 			let r = "getClientRects" in e.reference ? e.reference.getClientRects : t ? () => t.getClientRects() : void 0;
+-			f.setPositionReference({
+-				getBoundingClientRect: P(e.reference),
 -				...r ? { getClientRects: r } : {},
-+			let getRect = X(e.reference), rect = getRect(), clientRects = r ? Array.from(r(), (value) => `${value.x}:${value.y}:${value.width}:${value.height}`).join(";") : "", nextPosition = { element: n, x: rect.x, y: rect.y, width: rect.width, height: rect.height, clientRects }, previousPosition = appliedPosition.current; positionSource.current = { getBoundingClientRect: getRect, getClientRects: r };
++			let getRect = P(e.reference), rect = getRect(), clientRects = r ? Array.from(r(), (value) => `${value.x}:${value.y}:${value.width}:${value.height}`).join(";") : "", nextPosition = { element: t, x: rect.x, y: rect.y, width: rect.width, height: rect.height, clientRects }, previousPosition = appliedPosition.current; positionSource.current = { getBoundingClientRect: getRect, getClientRects: r };
 +			(!previousPosition || previousPosition.element !== nextPosition.element || previousPosition.x !== nextPosition.x || previousPosition.y !== nextPosition.y || previousPosition.width !== nextPosition.width || previousPosition.height !== nextPosition.height || previousPosition.clientRects !== nextPosition.clientRects) && (appliedPosition.current = nextPosition, positionSetter.current({
 +				getBoundingClientRect: () => positionSource.current.getBoundingClientRect(),
 +				...r ? { getClientRects: () => positionSource.current.getClientRects() } : {},
- 				contextElement: n
+ 				contextElement: t
 -			});
 +			}));
  		}
  	}, [
  		e.reference,
--		s,
+-		f,
  		e.focusManagerProps?.disabled,
- 		t
- 	]), i(() => {
+ 		n
+ 	]), l(() => {
 diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popovers/GenericPopover.tsx
+index 8f715b4e14fd3c05f4c15f4703fb3642f848e6f9..1dca7f6d2d2a3d35e9cbd5e8f38f67743ba65623 100644
 --- a/src/components/Popovers/GenericPopover.tsx
 +++ b/src/components/Popovers/GenericPopover.tsx
-@@ -165,6 +165,25 @@
+@@ -166,6 +166,25 @@ export const GenericPopover = (
  
    const innerHTML = useRef<string>("");
    const ref = useRef<HTMLDivElement>(null);
@@ -59,7 +61,7 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
    const mergedRefs = useMergeRefs([ref, refs.setFloating]);
  
    useEffect(() => {
-@@ -174,6 +193,7 @@
+@@ -175,6 +194,7 @@ export const GenericPopover = (
  
        if (
          element !== undefined &&
@@ -67,7 +69,7 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
          (props.focusManagerProps?.disabled || !editor.isWithinEditor(element))
        ) {
          // Only set domReference when FloatingFocusManager is disabled.
-@@ -183,7 +203,8 @@
+@@ -184,7 +204,8 @@ export const GenericPopover = (
          // inserting a focus-return <span> into the PM contenteditable. This
          // triggers PM's MutationObserver and resets the editor selection.
          // (issue #2525)
@@ -77,14 +79,15 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
        }
  
        // Forward `getClientRects` when provided, so floating-ui's `inline()`
-@@ -194,15 +215,60 @@
-           ? props.reference.getClientRects
-           : undefined;
+@@ -197,15 +218,60 @@ export const GenericPopover = (
+             ? () => element.getClientRects()
+             : undefined;
  
 -      refs.setPositionReference({
 -        getBoundingClientRect: getMountedBoundingClientRectCache(
 -          props.reference,
 -        ),
+-        ...(getClientRects ? { getClientRects } : {}),
 +      const getBoundingClientRect = getMountedBoundingClientRectCache(
 +        props.reference,
 +      );
@@ -96,7 +99,8 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
 +          ).join(";")
 +        : "";
 +      const nextPositionReference = {
-+        contextElement: element,
+         contextElement: element,
+-      });
 +        x: rect.x,
 +        y: rect.y,
 +        width: rect.width,
@@ -106,9 +110,7 @@ diff --git a/src/components/Popovers/GenericPopover.tsx b/src/components/Popover
 +      const appliedPositionReference = appliedPositionReferenceRef.current;
 +      positionReferenceSourceRef.current = {
 +        getBoundingClientRect,
-         ...(getClientRects ? { getClientRects } : {}),
--        contextElement: element,
--      });
++        ...(getClientRects ? { getClientRects } : {}),
 +      };
 +      if (
 +        appliedPositionReference === undefined ||

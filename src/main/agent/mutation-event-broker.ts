@@ -26,8 +26,10 @@ export class MutationEventBroker {
 
   publish(raw: MutationProposalChanged): void {
     const event = mutationProposalChangedSchema.parse(raw)
+    const notified = new Set<number>()
     for (const sender of this.#subscribers.get(event.projectSessionId)?.values() ?? []) {
-      if (sender.isDestroyed()) continue
+      if (sender.isDestroyed() || notified.has(sender.id)) continue
+      notified.add(sender.id)
       try {
         sender.send(IPC_CHANNELS.agentMutationChanged, event)
       } catch (err) {

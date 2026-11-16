@@ -299,16 +299,18 @@ describe('AgentModelClient', () => {
       () => undefined
     )
     const actionId = '019c6a5c-8d34-7a8e-a602-3d37a52dc461'
-    const outcome = handle.queueAction({
+    const command = {
       operation: 'delete_follow_up',
       actionId,
       projectSessionId: input.projectSessionId,
       agentSessionId: input.agentSessionId,
       agentRunId: input.agentRunId,
       pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc462'
-    })
+    } as const
+    const outcome = handle.queueAction(command)
 
     await vi.waitFor(() => expect(child.queueActions).toHaveLength(1))
+    await expect(handle.queueAction(command)).rejects.toThrow('queue action ID is already pending')
     let settled = false
     void outcome.then(() => {
       settled = true
@@ -321,6 +323,77 @@ describe('AgentModelClient', () => {
     child.complete(input.agentRunId)
     await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
   })
+
+  it.each(['finished', 'aborted'] as const)(
+    'rejects queue commands and authorizations after a run is %s',
+    async (end) => {
+      const child = new ControlledSessionUtilityProcess()
+      const client = new AgentModelClient(
+        '/private/agent-model.js',
+        pino({ level: 'silent' }),
+        { fork: () => child } as never,
+        undefined,
+        () => createFakeMessageChannel() as never
+      )
+      const input = sessionInput()
+      const controller = new AbortController()
+      const handle = client.beginSessionRun(
+        config,
+        'process-secret',
+        input,
+        controller.signal,
+        () => undefined
+      )
+      const capability = {
+        projectSessionId: input.projectSessionId,
+        agentSessionId: input.agentSessionId,
+        agentRunId: input.agentRunId
+      }
+      if (end === 'finished') {
+        child.complete(input.agentRunId)
+        await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
+      } else {
+        controller.abort()
+      }
+      const posts = child.postMessage.mock.calls.length
+      expect(() =>
+        handle.steer({
+          ...capability,
+          content: 'Late Steer',
+          modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc464',
+          timestamp: 1,
+          systemPrompt: input.systemPrompt
+        })
+      ).toThrow('Utility request is no longer active')
+      const action = handle.queueAction({
+        ...capability,
+        operation: 'delete_follow_up',
+        actionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc465',
+        pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc466'
+      })
+      expect(() =>
+        handle.authorizeFollowUpConsumption({
+          ...capability,
+          consumptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc467',
+          pendingMessageId: '019c6a5c-8d34-7a8e-a602-3d37a52dc466',
+          modelRequestId: input.modelRequestId
+        })
+      ).toThrow('Utility request is no longer active')
+      expect(() =>
+        handle.authorizeModelCall({
+          ...capability,
+          continuationId: '019c6a5c-8d34-7a8e-a602-3d37a52dc468',
+          modelRequestId: input.modelRequestId,
+          systemPrompt: input.systemPrompt,
+          interactionMode: 'write'
+        })
+      ).toThrow('Utility request is no longer active')
+      expect(child.postMessage).toHaveBeenCalledTimes(posts)
+      await expect(action).rejects.toThrow('Utility request is no longer active')
+      if (end === 'aborted')
+        await expect(handle.completion).rejects.toMatchObject({ name: 'AbortError' })
+    }
+  )
 
   it('authorizes trace capture for a committed Follow-up steer without delaying the next request', async () => {
     const child = new ControlledSessionUtilityProcess()
@@ -376,6 +449,90 @@ describe('AgentModelClient', () => {
     child.complete(input.agentRunId)
     await expect(handle.completion).resolves.toMatchObject({ outcome: 'finished' })
     expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('keeps another run active when a stopped run reports a late event failure', async () => {
+    const child = new ControlledSessionUtilityProcess()
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork: () => child } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const input = sessionInput()
+    const handling = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const controller = new AbortController()
+    const stopped = client.beginSessionRun(
+      config,
+      'process-secret',
+      input,
+      controller.signal,
+      async () => {
+        handling.resolve()
+        await release.promise
+        throw new Error('Late event could not be delivered')
+      }
+    )
+    const otherInput = {
+      ...input,
+      agentSessionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc455',
+      agentRunId: '019c6a5c-8d34-7a8e-a602-3d37a52dc456',
+      modelRequestId: '019c6a5c-8d34-7a8e-a602-3d37a52dc457'
+    }
+    const other = client.beginSessionRun(
+      config,
+      'process-secret',
+      otherInput,
+      new AbortController().signal,
+      () => undefined
+    )
+    child.emit('message', {
+      type: 'event',
+      requestId: stopped.requestId,
+      projectSessionId: input.projectSessionId,
+      agentSessionId: input.agentSessionId,
+      agentRunId: input.agentRunId,
+      event: { type: 'assistant_delta', delta: 'Draft' }
+    })
+    await handling.promise
+    controller.abort()
+    await expect(stopped.completion).rejects.toMatchObject({ name: 'AbortError' })
+    child.complete(otherInput.agentRunId)
+    release.resolve()
+    await expect(other.completion).resolves.toMatchObject({ outcome: 'finished' })
+    expect(child.kill).not.toHaveBeenCalled()
+  })
+
+  it('ignores messages from a replaced worker process', async () => {
+    const exited = new ControlledSessionUtilityProcess()
+    const replacement = new ControlledSessionUtilityProcess()
+    const fork = vi.fn().mockReturnValueOnce(exited).mockReturnValueOnce(replacement)
+    const client = new AgentModelClient(
+      '/private/agent-model.js',
+      pino({ level: 'silent' }),
+      { fork } as never,
+      undefined,
+      () => createFakeMessageChannel() as never
+    )
+    const input = sessionInput()
+    const begin = () =>
+      client.beginSessionRun(
+        config,
+        'process-secret',
+        input,
+        new AbortController().signal,
+        () => undefined
+      )
+    const oldRun = begin()
+    exited.emit('exit', 1)
+    await expect(oldRun.completion).rejects.toThrow('exited before responding')
+    const newRun = begin()
+    exited.emit('message', { type: 'invalid_old_message' })
+    replacement.complete(input.agentRunId)
+    await expect(newRun.completion).resolves.toMatchObject({ outcome: 'finished' })
+    expect(replacement.kill).not.toHaveBeenCalled()
   })
 
   it('rejects every active session run when the shared worker exits', async () => {

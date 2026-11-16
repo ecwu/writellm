@@ -10,9 +10,6 @@ import type { DesktopApi } from './desktop-api'
 import { invokeIpcEndpoint } from './ipc-endpoint'
 
 export const editorApi: DesktopApi['editor'] = {
-  async open(input) {
-    return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.open, input)
-  },
   async loadSection(input) {
     return invokeIpcEndpoint(ipcRenderer, editorIpcEndpoints.loadSection, input)
   },

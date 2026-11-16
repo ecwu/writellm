@@ -13,6 +13,7 @@ import { PublicationService } from '../manuscript/publication-service'
 import { manuscriptIpcEndpoints } from '../../shared/contracts/ipc-endpoints-manuscript'
 import { createEndpointRegistrar } from './endpoint'
 import type { ProjectContext } from '../project/project-context'
+import { runCancellableProjectRequest } from '../project/project-operations'
 import type { PublicationPresetRepository } from '../app-db/repositories/publication-presets'
 import type { CitationFormattingService } from '../references/citation-formatting-service'
 import { ManuscriptCommentService } from '../manuscript/comment-service'
@@ -93,7 +94,6 @@ export function registerManuscriptIpc(options: {
     }
   }
   // Endpoint output schemas validate the workspace returned by every outline operation.
-  const workspace = (context: ProjectContext) => context.manuscript.getWorkspace()
   const lifecycle =
     <Input extends { projectSessionId: string }>(
       event: string,
@@ -169,7 +169,7 @@ export function registerManuscriptIpc(options: {
     manuscriptIpcEndpoints.workspace,
     (parsed, context) => {
       const startedAt = Date.now()
-      const result = workspace(context)
+      const result = context.manuscript.getWorkspace()
       options.logger.info(
         {
           event: 'manuscript.workspace.loaded',
@@ -222,7 +222,7 @@ export function registerManuscriptIpc(options: {
     manuscriptIpcEndpoints.updateBrief,
     (parsed, context) => {
       context.manuscript.updateBrief(parsed.update)
-      return workspace(context)
+      return context.manuscript.getWorkspace()
     },
     {
       around: lifecycle('manuscript.brief.update', (parsed) => ({
@@ -237,7 +237,7 @@ export function registerManuscriptIpc(options: {
       const created = context.manuscript.createSection(parsed.create)
       try {
         await context.editorPersistence.materialize(
-          context.editorPersistence.loadSection(created.sectionId).revision
+          context.manuscript.getRevision(created.currentRevisionId)
         )
       } catch (err) {
         reportIpcFailure(
@@ -251,7 +251,7 @@ export function registerManuscriptIpc(options: {
           'New section canonical revision exists but its materialization is pending repair'
         )
       }
-      return workspace(options.manager.assertActiveSession(parsed.projectSessionId))
+      return options.manager.assertActiveSession(parsed.projectSessionId).manuscript.getWorkspace()
     },
     {
       around: lifecycle('manuscript.section.create', (parsed) => ({
@@ -264,7 +264,7 @@ export function registerManuscriptIpc(options: {
     manuscriptIpcEndpoints.updateSection,
     (parsed, context) => {
       context.manuscript.updateSection(parsed.update)
-      return workspace(context)
+      return context.manuscript.getWorkspace()
     },
     {
       around: lifecycle('manuscript.section.update', (parsed) => ({
@@ -278,7 +278,7 @@ export function registerManuscriptIpc(options: {
     manuscriptIpcEndpoints.moveSection,
     (parsed, context) => {
       context.manuscript.moveSection(parsed.move)
-      return workspace(context)
+      return context.manuscript.getWorkspace()
     },
     {
       around: lifecycle('manuscript.section.move', (parsed) => ({
@@ -306,7 +306,7 @@ export function registerManuscriptIpc(options: {
           'Deleted section materialization cleanup failed'
         )
       }
-      return workspace(options.manager.assertActiveSession(parsed.projectSessionId))
+      return options.manager.assertActiveSession(parsed.projectSessionId).manuscript.getWorkspace()
     },
     {
       around: lifecycle('manuscript.section.delete', (parsed) => ({
@@ -317,51 +317,36 @@ export function registerManuscriptIpc(options: {
   )
 
   handle(manuscriptIpcEndpoints.search, async (parsed, context) => {
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
-    try {
-      const service = new ManuscriptSearchService({
-        manuscript: context.manuscript,
-        log: options.logger
-      })
-      const result = await service.search(parsed, controller.signal)
-      options.manager.assertActiveSession(parsed.projectSessionId)
-      const { metrics: _metrics, ...bounded } = result
-      return bounded
-    } finally {
-      release?.()
-    }
+    const service = new ManuscriptSearchService({
+      manuscript: context.manuscript,
+      log: options.logger
+    })
+    const { metrics: _metrics, ...bounded } = await runCancellableProjectRequest(
+      context,
+      options.manager,
+      (signal) => service.search(parsed, signal)
+    )
+    return bounded
   })
 
-  handle(manuscriptIpcEndpoints.revalidateSearch, async (parsed, context) => {
-    const controller = new AbortController()
-    const release = context.operations?.track(controller)
-    try {
-      const result = await new ManuscriptSearchService({
-        manuscript: context.manuscript,
-        log: options.logger
-      }).revalidate(parsed, controller.signal)
-      options.manager.assertActiveSession(parsed.projectSessionId)
-      return result
-    } finally {
-      release?.()
-    }
+  handle(manuscriptIpcEndpoints.revalidateSearch, (parsed, context) => {
+    const service = new ManuscriptSearchService({
+      manuscript: context.manuscript,
+      log: options.logger
+    })
+    return runCancellableProjectRequest(context, options.manager, (signal) =>
+      service.revalidate(parsed, signal)
+    )
   })
 
   handle(manuscriptIpcEndpoints.createReplacementPlan, async (input, context) => {
     const service = replacementService(input.projectSessionId, context)
     const sectionIds = service.scopeSectionIds(input)
     await options.flushForMutation?.(input.projectSessionId, sectionIds, true)
-    options.manager.assertMutationSession(input.projectSessionId)
-    const controller = new AbortController()
-    const release = options.manager
-      .assertActiveSession(input.projectSessionId)
-      .operations?.track(controller)
-    try {
-      return await service.createPlan(input, controller.signal)
-    } finally {
-      release?.()
-    }
+    const current = options.manager.assertMutationSession(input.projectSessionId)
+    return runCancellableProjectRequest(current, options.manager, (signal) =>
+      service.createPlan(input, signal)
+    )
   })
 
   handle(manuscriptIpcEndpoints.replacementPage, (input, context) => {

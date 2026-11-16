@@ -1,4 +1,4 @@
-import { cachedStatement } from '../db/statement-cache'
+import { completeModelCall, type ModelCallFinishedEvent } from './model-call-completion'
 import {
   AgentRunCoordinator,
   type ActiveRun,
@@ -10,6 +10,7 @@ import {
 import { AgentSessionCompactor } from './session-compactor'
 import { AgentSessionTitles } from './session-titles'
 import { AgentSessionQueries } from './session-queries'
+import { ToolContinuationRequests } from './tool-continuation-requests'
 import {
   agentAttachmentIdsSchema,
   AGENT_IMAGES_MAX_BASE64,
@@ -17,11 +18,9 @@ import {
   type AgentImageContent
 } from '../../shared/contracts/agent-attachments'
 import type { AgentAttachmentService } from './attachment-service'
-import { readForkMetadata } from './conversation-fork'
 import {
   assertMessageReplacement,
   commitMessageReplacement,
-  messageEditState,
   type MessageReplacement
 } from './message-replacement'
 import { randomUUID } from 'node:crypto'
@@ -37,7 +36,6 @@ import {
   AGENT_EVENT_SCHEMA_VERSION,
   AGENT_RUNTIME_VERSION,
   agentAssistantMessagePayloadSchema,
-  agentCompactionFailedPayloadSchema,
   agentEditorContextSchema,
   agentHistorySchema,
   agentUserMessagePayloadSchema,
@@ -61,7 +59,6 @@ import {
   estimateAgentTokens
 } from '../../shared/agent-context-budget'
 import { agentModelVisibleToolSpecs, agentToolEnvelope } from '../../shared/agent-tool-specs'
-import { deriveAgentWorkflowState } from '../../shared/agent-workflow-state'
 import {
   AGENT_LIVE_PARTIAL_MAX_BYTES,
   AGENT_EVENT_PAGE_LIMIT,
@@ -120,7 +117,7 @@ import {
 import { SKILL_COMPANION_NOTE } from './prompts/skill-companion'
 import { formatPromptBlock } from './prompts/prompt-block'
 import { SkillRouteError, type WritingSkillRuntime } from '../skills/skill-router'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import type { WritingTaskService } from './writing-task-service'
 import type { AgentToolExecutor } from './tools'
 import {
@@ -215,13 +212,21 @@ type ReservedRunInput = {
   controller: AbortController
 }
 
+type QueueableRun = ActiveRun & { handle: AgentSessionRunHandle }
+
+type QueuedUserMessage = Pick<AgentUserMessagePayload, 'content' | 'attachmentIds' | 'timestamp'>
+
+type QueuedMessageDelivery = { modelRequestId: string } & (
+  | { kind: 'steer'; message: QueuedUserMessage & { images: AgentImageContent[] } }
+  | { kind: 'promote'; message: PendingFollowUpMessage; reservationId: string }
+  | { kind: 'consume'; message: PendingFollowUpMessage; consumptionId: string }
+)
+
 type PreparedReservedRun = {
   active: ActiveRun
   automaticTitle: string | null
   reasoningModel: boolean
 }
-
-type ModelCallFinishedEvent = Extract<AgentRuntimeEvent, { type: 'model_call_finished' }>
 
 function traceCompletion(event: ModelCallFinishedEvent): {
   modelRequestId: string
@@ -237,13 +242,6 @@ function traceCompletion(event: ModelCallFinishedEvent): {
     ...(event.ttftMs === undefined ? {} : { ttftMs: event.ttftMs }),
     ...(event.totalDurationMs === undefined ? {} : { totalDurationMs: event.totalDurationMs })
   }
-}
-
-function traceFailure(
-  event: ModelCallFinishedEvent,
-  failureCode: string
-): ReturnType<typeof traceCompletion> & { failureCode: string } {
-  return { ...traceCompletion(event), failureCode }
 }
 
 export interface AgentSessionServiceOptions {
@@ -309,6 +307,7 @@ export class AgentSessionService {
   readonly #titles: AgentSessionTitles
   readonly #compactor: AgentSessionCompactor
   readonly #contextPlanner = new AgentContextPlanner()
+  readonly #modelRequestAborts = new Map<string, Promise<void>>()
 
   constructor(private readonly options: AgentSessionServiceOptions) {
     for (const dependency of [
@@ -324,7 +323,12 @@ export class AgentSessionService {
     }
     this.#now = options.now ?? (() => new Date())
     this.#createId = options.createId ?? randomUUID
-    this.#queries = new AgentSessionQueries(options.database, options.log)
+    this.#queries = new AgentSessionQueries(
+      options.database,
+      options.log,
+      this.#coordinator,
+      options.writingTasks
+    )
     this.#titles = new AgentSessionTitles({
       database: options.database,
       log: options.log,
@@ -332,7 +336,7 @@ export class AgentSessionService {
       generateTitle: options.generateTitle,
       now: this.#now,
       createId: this.#createId,
-      requireSession: (id) => this.#requireSessionRecord(id),
+      requireSession: (id) => this.#queries.requireSession(id),
       publishSession: (session, titleGenerating) => this.#publishSession(session, titleGenerating)
     })
     this.#compactor = new AgentSessionCompactor({
@@ -418,7 +422,7 @@ export class AgentSessionService {
           throw new Error('Fork request was already used for another message')
         return existing.agent_session_id
       }
-      const source = this.#requireSessionRecord(input.sourceSessionId)
+      const source = this.#queries.requireSession(input.sourceSessionId)
       if (!source.compatible)
         throw new Error('Agent session is incompatible with the current runtime')
       const target = database
@@ -473,7 +477,7 @@ export class AgentSessionService {
         insert.run(this.#createId(), created.agentSessionId, row.source_event_id, row.sequence)
       return created.agentSessionId
     })
-    const session = this.#requireSessionRecord(agentSessionId)
+    const session = this.#queries.requireSession(agentSessionId)
     this.options.log.info(
       {
         event: 'agent.session.forked',
@@ -488,119 +492,11 @@ export class AgentSessionService {
   }
 
   getSession(agentSessionId: string): AgentSessionRecord {
-    return this.#requireSessionRecord(agentSessionId)
+    return this.#queries.requireSession(agentSessionId)
   }
 
   listSessions(status: 'active' | 'archived' = 'active'): AgentSessionRecord[] {
-    return this.#querySessions({ status, limit: 200 })
-  }
-
-  #querySessions(input: {
-    status?: 'active' | 'archived'
-    agentSessionId?: string
-    limit: number
-  }): AgentSessionRecord[] {
-    const where: string[] = []
-    const values: Array<string | number> = []
-    if (input.status !== undefined) {
-      where.push('status = ?')
-      values.push(input.status)
-    }
-    if (input.agentSessionId !== undefined) {
-      where.push('agent_session_id = ?')
-      values.push(input.agentSessionId)
-    }
-    const whereSql = where.length === 0 ? '' : `WHERE ${where.join(' AND ')}`
-    values.push(input.limit)
-    return this.options.database.read((database) =>
-      (
-        database
-          .prepare(
-            `SELECT agent_session_id, title, event_schema_version,
-                    status, approval_mode, interaction_mode, provider_preset_id, selected_model_id,
-                    thinking_level, image_source_id, image_model_id,
-                    created_at, updated_at, archived_at,
-                    EXISTS (
-                      SELECT 1 FROM agent_runs
-                       WHERE agent_runs.agent_session_id = agent_sessions.agent_session_id
-                         AND agent_runs.status = 'running'
-                    ) AS has_running_run,
-                    EXISTS (
-                      SELECT 1 FROM mutation_proposals
-                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
-                         AND mutation_proposals.status = 'generating'
-                    ) AS has_generating_proposal,
-                    EXISTS (
-                      SELECT 1 FROM mutation_proposals
-                       WHERE mutation_proposals.agent_session_id = agent_sessions.agent_session_id
-                         AND mutation_proposals.status = 'pending'
-                    ) AS has_pending_proposal
-               FROM agent_sessions
-              ${whereSql}
-              ORDER BY updated_at DESC, agent_session_id DESC
-              LIMIT ?`
-          )
-          .all(...values) as Array<{
-          agent_session_id: string
-          title: string
-          event_schema_version: number
-          status: 'active' | 'archived'
-          approval_mode: AgentApprovalMode
-          interaction_mode: AgentInteractionMode
-          provider_preset_id: string | null
-          selected_model_id: string | null
-          thinking_level: AgentThinkingLevel
-          image_source_id: string | null
-          image_model_id: string | null
-          has_running_run: 0 | 1
-          has_generating_proposal: 0 | 1
-          has_pending_proposal: 0 | 1
-          created_at: string
-          updated_at: string
-          archived_at: string | null
-        }>
-      ).map((row) =>
-        agentSessionRecordSchema.parse({
-          agentSessionId: row.agent_session_id,
-          title: row.title,
-          fork: readForkMetadata(database, row.agent_session_id),
-          lastReplacement:
-            database
-              .prepare(`SELECT from_sequence AS fromSequence, through_sequence AS throughSequence
-            FROM agent_message_replacements WHERE agent_session_id = ? ORDER BY through_sequence DESC LIMIT 1`)
-              .get(row.agent_session_id) ?? null,
-          messageEdit: messageEditState(
-            database,
-            row.agent_session_id,
-            this.#coordinator.isBusy(row.agent_session_id)
-          ),
-          status: row.status,
-          compatible: row.event_schema_version === AGENT_EVENT_SCHEMA_VERSION,
-          approvalMode: row.approval_mode,
-          interactionMode: row.interaction_mode,
-          workflowState: deriveAgentWorkflowState({
-            awaitingInput: this.#sessionIsAwaitingInput(row.agent_session_id),
-            compacting: this.#sessionIsCompacting(row.agent_session_id),
-            running: row.has_running_run === 1,
-            generating: row.has_generating_proposal === 1,
-            awaitingReview: row.has_pending_proposal === 1
-          }),
-          modelSelection:
-            row.provider_preset_id === null || row.selected_model_id === null
-              ? null
-              : { presetId: row.provider_preset_id, modelId: row.selected_model_id },
-          thinkingLevel: row.thinking_level,
-          imageModelSelection:
-            row.image_source_id === null || row.image_model_id === null
-              ? null
-              : { sourceId: row.image_source_id, modelId: row.image_model_id },
-          writingTask: this.options.writingTasks.getView(row.agent_session_id, database) ?? null,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-          archivedAt: row.archived_at
-        })
-      )
-    )
+    return this.#queries.listSessions(status)
   }
 
   async generateSessionTitle(agentSessionId: string): Promise<AgentSessionRecord> {
@@ -612,7 +508,7 @@ export class AgentSessionService {
     if (context.length === 0) {
       throw new Error('Send a message before generating a conversation title')
     }
-    const expectedTitle = this.#requireSessionRecord(agentSessionId).title
+    const expectedTitle = this.#queries.requireSession(agentSessionId).title
     const controller = new AbortController()
     const completion = this.#withSessionProvider(
       agentSessionId,
@@ -637,7 +533,7 @@ export class AgentSessionService {
   }
 
   archiveSession(agentSessionId: string): AgentSessionRecord {
-    const current = this.#requireSessionRecord(agentSessionId)
+    const current = this.#queries.requireSession(agentSessionId)
     if (current.status === 'archived') return current
     this.#assertSessionIdle(agentSessionId, 'archive')
     const now = this.#now().toISOString()
@@ -651,7 +547,7 @@ export class AgentSessionService {
         .run(now, now, agentSessionId)
       if (result.changes !== 1) throw new Error('Agent session could not be archived')
     })
-    const archived = this.#requireSessionRecord(agentSessionId)
+    const archived = this.#queries.requireSession(agentSessionId)
     this.options.log.info(
       { event: 'agent.session.archived', agentSessionId },
       'Agent session archived'
@@ -661,7 +557,7 @@ export class AgentSessionService {
   }
 
   restoreSession(agentSessionId: string): AgentSessionRecord {
-    const current = this.#requireSessionRecord(agentSessionId)
+    const current = this.#queries.requireSession(agentSessionId)
     if (current.status === 'active') return current
     const now = this.#now().toISOString()
     this.options.database.immediate((database) => {
@@ -674,7 +570,7 @@ export class AgentSessionService {
         .run(now, agentSessionId)
       if (result.changes !== 1) throw new Error('Agent session could not be restored')
     })
-    const restored = this.#requireSessionRecord(agentSessionId)
+    const restored = this.#queries.requireSession(agentSessionId)
     this.options.log.info(
       { event: 'agent.session.restored', agentSessionId },
       'Agent session restored'
@@ -716,7 +612,7 @@ export class AgentSessionService {
         .run(mode, now, agentSessionId)
       if (result.changes !== 1) throw new Error('Agent session does not exist')
     })
-    const session = this.#requireSessionRecord(agentSessionId)
+    const session = this.#queries.requireSession(agentSessionId)
     this.options.log.info(
       { event: 'agent.session.interaction_mode_updated', agentSessionId, mode },
       'Agent session interaction mode updated'
@@ -780,7 +676,7 @@ export class AgentSessionService {
         .run(selection?.sourceId ?? null, selection?.modelId ?? null, now, agentSessionId)
       if (result.changes !== 1) throw new Error('Agent session does not exist')
     })
-    const session = this.#requireSessionRecord(agentSessionId)
+    const session = this.#queries.requireSession(agentSessionId)
     this.options.log.info(
       {
         event: 'agent.session.image_model_selection_updated',
@@ -1060,6 +956,7 @@ export class AgentSessionService {
       operationId: input.operationId,
       controller: input.controller,
       handle: null,
+      toolContinuations: new ToolContinuationRequests(),
       phase: 'routing',
       config,
       editorContext: input.editorContext,
@@ -1075,6 +972,7 @@ export class AgentSessionService {
       ...(input.temperature === undefined ? {} : { temperature: input.temperature }),
       authorizedModelRequestIds: new Set(),
       pendingModelRequestIds: new Set(),
+      queueRequestSaves: new Set(),
       pendingMessages: [],
       activeToolGroups: [],
       citationRecoveryState: 'none',
@@ -1347,8 +1245,6 @@ export class AgentSessionService {
       { event: 'agent.run.setup_failed', err, agentRunId: active.agentRunId, phase: active.phase },
       'Agent run failed before provider generation started'
     )
-    for (const pending of active.pendingMessages)
-      this.options.attachments.release(`queue:${pending.pendingMessageId}`)
     await this.#abortPendingModelRequests(active, 'agent_run_setup_failed')
     const cancellation = classifyRunFailure(err, active.controller.signal)
     const code = err instanceof AgentRunSetupError ? err.code : cancellation.code
@@ -1375,153 +1271,24 @@ export class AgentSessionService {
     })
   }
 
-  async steer(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
-    return this.#queueSteer(agentRunId, content, attachmentIds)
+  steer(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
+    return this.#queueMessage(agentRunId, 'steer', content, attachmentIds)
   }
 
-  async followUp(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
+  followUp(agentRunId: string, content: string, attachmentIds?: string[]): Promise<void> {
+    return this.#queueMessage(agentRunId, 'follow_up', content, attachmentIds)
+  }
+
+  async deletePendingFollowUp(agentRunId: string, pendingMessageId: string): Promise<void> {
     const active = this.#requireQueueableRun(agentRunId)
-    const parsedContent = agentUserMessagePayloadSchema.shape.content.parse(content)
-    const images = await this.#loadImages(active.agentSessionId, attachmentIds)
-    this.#requireQueueableRun(agentRunId)
-    if (!parsedContent.trim() && images.length === 0) throw new Error('Enter text or add an image')
-    this.#assertImageModel(active.runtimeModel, images.length > 0)
-    this.#assertQueueImageBudget(active, images)
-    if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
-      throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
-    }
-    const queuedBytes = active.pendingMessages.reduce(
-      (total, message) => total + new TextEncoder().encode(message.content).byteLength,
-      0
-    )
-    if (
-      queuedBytes + new TextEncoder().encode(parsedContent).byteLength >
-      AGENT_PENDING_MESSAGE_MAX_BYTES
-    ) {
-      throw new Error('Waiting messages cannot exceed 1 MiB in this run')
-    }
-    const timestamp = this.#now().getTime()
-    const queuedAt = this.#now().toISOString()
-    const pendingMessageId = this.#createId()
+    const pending = this.#requirePendingMessage(active, pendingMessageId)
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
       this.#now,
       this.#createId
     )
-    const modelRequestId = (
-      await repository.start({
-        operation: 'agent',
-        provider: active.config,
-        request: { content: parsedContent, delivery: 'follow_up' },
-        thinkingLevel: active.thinkingLevel,
-        inputItems: 1,
-        operationId: active.operationId,
-        agentRunId: active.agentRunId,
-        projectSessionId: this.options.projectSessionId
-      })
-    ).modelRequestId
-    try {
-      this.#requireQueueableRun(agentRunId)
-      this.#assertQueueImageBudget(active, images)
-    } catch (err) {
-      this.options.log.error(
-        { event: 'agent.run.image_queue_rejected', err, agentRunId, modelRequestId },
-        'Agent image queue authorization failed'
-      )
-      await repository.abort(modelRequestId, 'queue_authorization_failed')
-      throw err
-    }
-    const refreshedContext = this.options.contextBuilder.build({
-      prompt: parsedContent,
-      editorContext: active.editorContext,
-      snapshotId: modelRequestId,
-      skillPrompt: active.skillPrompt,
-      interactionMode: active.interactionMode
-    })
-    const pending: PendingFollowUpMessage = {
-      pendingMessageId,
-      modelRequestId,
-      content: parsedContent,
-      attachmentIds,
-      images,
-      timestamp,
-      queuedAt,
-      systemPrompt: refreshedContext.systemPrompt,
-      snapshot: refreshedContext.snapshot
-    }
-    this.options.attachments.retain(
-      `queue:${pendingMessageId}`,
-      active.agentSessionId,
-      attachmentIds ?? []
-    )
-    active.pendingMessages.push(pending)
-    active.pendingModelRequestIds.add(modelRequestId)
-    active.authorizedModelRequestIds.add(modelRequestId)
-    if (pending.snapshot !== undefined) active.snapshots.set(modelRequestId, pending.snapshot)
-    try {
-      active.handle.followUp({
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        pendingMessageId,
-        modelRequestId,
-        content: parsedContent,
-        images,
-        timestamp,
-        systemPrompt: pending.systemPrompt
-      })
-    } catch (err) {
-      this.options.log.error(
-        { event: 'agent.run.follow_up_queue_failed', err, agentRunId, modelRequestId },
-        'Failed to queue an Agent Follow-up'
-      )
-      this.#removePendingMessage(active, pendingMessageId)
-      active.pendingModelRequestIds.delete(modelRequestId)
-      active.authorizedModelRequestIds.delete(modelRequestId)
-      active.snapshots.delete(modelRequestId)
-      await repository.abort(modelRequestId, 'queue_delivery_failed')
-      active.controller.abort(err)
-      throw err
-    }
-    this.options.attachments.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
-    await this.#publishActivitySnapshot()
-    this.options.log.info(
-      {
-        event: 'agent.run.follow_up_queued',
-        agentRunId,
-        pendingMessageId,
-        modelRequestId,
-        pendingCount: active.pendingMessages.length,
-        pendingBytes: queuedBytes + new TextEncoder().encode(parsedContent).byteLength
-      },
-      'Queued an Agent Follow-up'
-    )
-  }
-
-  async deletePendingFollowUp(agentRunId: string, pendingMessageId: string): Promise<void> {
-    const active = this.#requireQueueableRun(agentRunId)
-    const pending = this.#requirePendingMessage(active, pendingMessageId)
-    const actionId = this.#createId()
-    const outcome = await active.handle.queueAction({
-      operation: 'delete_follow_up',
-      projectSessionId: this.options.projectSessionId,
-      agentSessionId: active.agentSessionId,
-      agentRunId: active.agentRunId,
-      actionId,
-      pendingMessageId
-    })
-    if (outcome !== 'completed') throw new Error('The waiting message is already being processed')
-    this.#removePendingMessage(active, pendingMessageId)
-    await new ModelRequestRepository(
-      this.options.database,
-      this.options.log,
-      this.#now,
-      this.#createId
-    ).abort(pending.modelRequestId, 'queue_deleted')
-    active.pendingModelRequestIds.delete(pending.modelRequestId)
-    active.authorizedModelRequestIds.delete(pending.modelRequestId)
-    active.snapshots.delete(pending.modelRequestId)
+    await this.#takePendingFollowUp(active, pending, repository, 'delete_follow_up')
     await this.#publishActivitySnapshot()
     this.options.log.info(
       {
@@ -1537,68 +1304,36 @@ export class AgentSessionService {
 
   async steerPendingFollowUp(agentRunId: string, pendingMessageId: string): Promise<void> {
     const active = this.#requireQueueableRun(agentRunId)
+    const handle = active.handle
     const pending = this.#requirePendingMessage(active, pendingMessageId)
-    const reservationId = this.#createId()
-    const reserved = await active.handle.queueAction({
-      operation: 'reserve_follow_up',
-      projectSessionId: this.options.projectSessionId,
-      agentSessionId: active.agentSessionId,
-      agentRunId: active.agentRunId,
-      actionId: reservationId,
-      pendingMessageId
-    })
-    if (reserved !== 'completed') throw new Error('The waiting message is already being processed')
-    this.#removePendingMessage(active, pendingMessageId)
     const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
       this.#now,
       this.#createId
     )
-    await repository.abort(pending.modelRequestId, 'queue_promoted_to_steer')
-    active.pendingModelRequestIds.delete(pending.modelRequestId)
-    active.authorizedModelRequestIds.delete(pending.modelRequestId)
-    active.snapshots.delete(pending.modelRequestId)
+    const reservationId = await this.#takePendingFollowUp(
+      active,
+      pending,
+      repository,
+      'reserve_follow_up'
+    )
     let modelRequestId: string | undefined
     try {
-      modelRequestId = (
-        await repository.start({
-          operation: 'agent',
-          provider: active.config,
-          request: { content: pending.content, delivery: 'steer' },
-          thinkingLevel: active.thinkingLevel,
-          inputItems: 1,
-          operationId: active.operationId,
-          agentRunId: active.agentRunId,
-          projectSessionId: this.options.projectSessionId
-        })
-      ).modelRequestId
-      active.pendingModelRequestIds.add(modelRequestId)
-      active.authorizedModelRequestIds.add(modelRequestId)
-      if (pending.snapshot !== undefined) active.snapshots.set(modelRequestId, pending.snapshot)
-      await this.#appendAndPublishEvent({
-        sessionId: active.agentSessionId,
-        runId: active.agentRunId,
-        type: 'user_message',
-        payload: agentUserMessagePayloadSchema.parse({
-          content: pending.content,
-          attachmentIds: pending.attachmentIds,
-          delivery: 'steer',
-          timestamp: pending.timestamp
-        }),
+      this.#assertQueueRuntime(active, handle)
+      modelRequestId = await this.#startQueuedModelRequest(
+        active,
+        repository,
+        pending.content,
+        'steer'
+      )
+      this.#assertQueueRuntime(active, handle)
+      await this.#deliverQueuedMessage(active, handle, {
+        kind: 'promote',
+        message: pending,
+        reservationId,
         modelRequestId
       })
-      const outcome = await active.handle.queueAction({
-        operation: 'commit_follow_up_steer',
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        actionId: this.#createId(),
-        reservationId,
-        modelRequestId,
-        systemPrompt: pending.systemPrompt
-      })
-      if (outcome !== 'completed') throw new Error('The waiting message could not be steered')
       await this.#publishActivitySnapshot()
       this.options.log.info(
         {
@@ -1615,13 +1350,11 @@ export class AgentSessionService {
         { event: 'agent.run.follow_up_steer_failed', err, agentRunId, pendingMessageId },
         'Failed to promote an Agent Follow-up to Steer'
       )
-      if (modelRequestId !== undefined) {
-        await repository.abort(modelRequestId, 'queue_promotion_failed')
-        active.pendingModelRequestIds.delete(modelRequestId)
-        active.authorizedModelRequestIds.delete(modelRequestId)
-        active.snapshots.delete(modelRequestId)
-      }
-      active.controller.abort(err)
+      await this.#cleanupFailedQueueDelivery(active, handle, repository, {
+        modelRequestId,
+        reason: 'queue_promotion_failed',
+        err
+      })
       throw err
     }
   }
@@ -1908,103 +1641,6 @@ export class AgentSessionService {
     })
   }
 
-  recoverInterruptedRuns(): number {
-    const now = this.#now().toISOString()
-    const recovered = this.options.database.immediate((database) => {
-      const rows = database
-        .prepare(`SELECT agent_run_id, agent_session_id FROM agent_runs WHERE status = 'running'`)
-        .all() as Array<{ agent_run_id: string; agent_session_id: string }>
-      for (const row of rows) {
-        cachedStatement(
-          database,
-          `UPDATE agent_runs
-                SET status = 'interrupted', error_json = ?, completed_at = ?, updated_at = ?
-              WHERE agent_run_id = ? AND status = 'running'`
-        ).run(JSON.stringify({ code: 'process_restarted' }), now, now, row.agent_run_id)
-        insertEvent(database, {
-          eventId: this.#createId(),
-          sessionId: row.agent_session_id,
-          runId: row.agent_run_id,
-          type: 'run_interrupted',
-          payload: { code: 'process_restarted' },
-          modelRequestId: null,
-          createdAt: now
-        })
-      }
-      return rows.length
-    })
-    if (recovered > 0) {
-      this.options.log.warn(
-        { event: 'agent.run.recovered', count: recovered },
-        'Recovered Agent runs left active by a terminated process'
-      )
-    }
-    this.#recoverInterruptedCompactions()
-    return recovered
-  }
-
-  #recoverInterruptedCompactions(): number {
-    const now = this.#now()
-    const rows = this.options.database.immediate(
-      (database) =>
-        database
-          .prepare(
-            `SELECT started.agent_session_id, started.agent_run_id,
-                    json_extract(started.payload_json, '$.compactionId') AS compaction_id,
-                    json_extract(started.payload_json, '$.trigger') AS trigger
-               FROM agent_events AS started
-              WHERE started.type = 'compaction_started'
-                AND NOT EXISTS (
-                  SELECT 1 FROM agent_events AS terminal
-                   WHERE terminal.agent_session_id = started.agent_session_id
-                     AND (
-                       terminal.type = 'compaction_failed'
-                       OR (
-                         terminal.type = 'compaction_summary'
-                         AND json_extract(terminal.payload_json, '$.finalStep') = 1
-                       )
-                     )
-                     AND json_extract(terminal.payload_json, '$.compactionId') =
-                         json_extract(started.payload_json, '$.compactionId')
-                )`
-          )
-          .all() as Array<{
-          agent_session_id: string
-          agent_run_id: string | null
-          compaction_id: string
-          trigger: AgentCompactionTrigger
-        }>
-    )
-    for (const row of rows) {
-      this.options.database.immediate((database) => {
-        insertEvent(database, {
-          eventId: this.#createId(),
-          sessionId: row.agent_session_id,
-          runId: row.agent_run_id,
-          type: 'compaction_failed',
-          payload: agentCompactionFailedPayloadSchema.parse({
-            schemaVersion: 2,
-            compactionId: row.compaction_id,
-            trigger: row.trigger,
-            code: 'process_restarted',
-            retryable: true,
-            aborted: true,
-            timestamp: now.getTime()
-          }),
-          modelRequestId: null,
-          createdAt: now.toISOString()
-        })
-      })
-    }
-    if (rows.length > 0) {
-      this.options.log.warn(
-        { event: 'agent.compaction.recovered', count: rows.length },
-        'Recovered interrupted Agent context compactions'
-      )
-    }
-    return rows.length
-  }
-
   async recordApprovalDecision(input: {
     agentSessionId: string
     agentRunId: string
@@ -2032,9 +1668,9 @@ export class AgentSessionService {
     })
   }
 
-  #requireQueueableRun(agentRunId: string): ActiveRun & { handle: AgentSessionRunHandle } {
+  #requireQueueableRun(agentRunId: string): QueueableRun {
     const active = this.#requireActive(agentRunId)
-    if (active.phase !== 'running' || active.handle === null) {
+    if (active.phase !== 'running') {
       throw new Error(
         active.phase === 'compacting'
           ? 'Earlier conversation is still being summarized'
@@ -2049,7 +1685,24 @@ export class AgentSessionService {
         ? active.controller.signal.reason
         : new AgentRunCancellationError('user_stopped', 'Agent run was stopped')
     }
-    return active as ActiveRun & { handle: AgentSessionRunHandle }
+    if (active.handle === null) throw new Error('Agent run is not active')
+    return active as QueueableRun
+  }
+
+  #isCurrentQueueRuntime(active: ActiveRun, handle: AgentSessionRunHandle): boolean {
+    return (
+      active.handle === handle &&
+      (active.phase === 'running' || active.phase === 'awaiting_input') &&
+      active.reviewPause === null &&
+      !active.controller.signal.aborted &&
+      this.#coordinator.runs.get(active.agentRunId) === active
+    )
+  }
+
+  #assertQueueRuntime(active: ActiveRun, handle: AgentSessionRunHandle): void {
+    if (!this.#isCurrentQueueRuntime(active, handle)) {
+      throw new Error('Agent run ended or changed before the message could be delivered')
+    }
   }
 
   #requirePendingMessage(active: ActiveRun, pendingMessageId: string): PendingFollowUpMessage {
@@ -2070,8 +1723,231 @@ export class AgentSessionService {
     }
   }
 
-  async #queueSteer(
+  async #takePendingFollowUp(
+    active: QueueableRun,
+    pending: PendingFollowUpMessage,
+    repository: ModelRequestRepository,
+    operation: 'delete_follow_up' | 'reserve_follow_up'
+  ): Promise<string> {
+    const handle = active.handle
+    const actionId = this.#createId()
+    const outcome = await handle.queueAction({
+      operation,
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      actionId,
+      pendingMessageId: pending.pendingMessageId
+    })
+    if (outcome !== 'completed') throw new Error('The waiting message is already being processed')
+    try {
+      this.#removePendingMessage(active, pending.pendingMessageId)
+      await this.#retireQueuedModelRequest(
+        active,
+        repository,
+        pending.modelRequestId,
+        operation === 'delete_follow_up' ? 'queue_deleted' : 'queue_promoted_to_steer'
+      )
+    } catch (err) {
+      this.options.log.error(
+        {
+          event: 'agent.run.follow_up_retirement_failed',
+          err,
+          operation,
+          agentRunId: active.agentRunId,
+          pendingMessageId: pending.pendingMessageId,
+          modelRequestId: pending.modelRequestId
+        },
+        'Failed to retire a pending Agent Follow-up after worker removal'
+      )
+      if (this.#isCurrentQueueRuntime(active, handle)) active.controller.abort(err)
+      throw err
+    }
+    return actionId
+  }
+
+  async #cleanupFailedQueueDelivery(
+    active: ActiveRun,
+    handle: AgentSessionRunHandle,
+    repository: ModelRequestRepository,
+    failure: {
+      modelRequestId: string | undefined
+      pendingMessageId?: string
+      reason: 'queue_delivery_failed' | 'queue_promotion_failed'
+      err: unknown
+    }
+  ): Promise<void> {
+    try {
+      if (failure.pendingMessageId !== undefined) {
+        this.#removePendingMessage(active, failure.pendingMessageId)
+      }
+      if (failure.modelRequestId !== undefined) {
+        await this.#retireQueuedModelRequest(
+          active,
+          repository,
+          failure.modelRequestId,
+          failure.reason
+        )
+      }
+    } finally {
+      if (this.#isCurrentQueueRuntime(active, handle)) active.controller.abort(failure.err)
+    }
+  }
+
+  #retireQueuedModelRequest(
+    active: ActiveRun,
+    repository: ModelRequestRepository,
+    modelRequestId: string,
+    reason: string
+  ): Promise<void> {
+    active.authorizedModelRequestIds.delete(modelRequestId)
+    active.snapshots.delete(modelRequestId)
+    return this.#abortPendingModelRequest(active, repository, modelRequestId, reason)
+  }
+
+  #abortPendingModelRequest(
+    active: ActiveRun,
+    repository: ModelRequestRepository,
+    modelRequestId: string,
+    reason: string
+  ): Promise<void> {
+    const inFlight = this.#modelRequestAborts.get(modelRequestId)
+    if (inFlight !== undefined) return inFlight
+    if (!active.pendingModelRequestIds.has(modelRequestId)) return Promise.resolve()
+
+    const abort = repository
+      .abort(modelRequestId, reason)
+      .then(() => {
+        active.pendingModelRequestIds.delete(modelRequestId)
+      })
+      .finally(() => {
+        this.#modelRequestAborts.delete(modelRequestId)
+      })
+    this.#modelRequestAborts.set(modelRequestId, abort)
+    return abort
+  }
+
+  async #startQueuedModelRequest(
+    active: ActiveRun,
+    repository: ModelRequestRepository,
+    content: string,
+    delivery: 'steer' | 'follow_up'
+  ): Promise<string> {
+    const save = repository
+      .start({
+        operation: 'agent',
+        provider: active.config,
+        request: { content, delivery },
+        thinkingLevel: active.thinkingLevel,
+        inputItems: 1,
+        operationId: active.operationId,
+        agentRunId: active.agentRunId,
+        projectSessionId: this.options.projectSessionId
+      })
+      .then(({ modelRequestId }) => {
+        active.pendingModelRequestIds.add(modelRequestId)
+        return modelRequestId
+      })
+    active.queueRequestSaves.add(save)
+    try {
+      return await save
+    } finally {
+      active.queueRequestSaves.delete(save)
+    }
+  }
+
+  async #deliverQueuedMessage(
+    active: ActiveRun,
+    handle: AgentSessionRunHandle,
+    delivery: QueuedMessageDelivery
+  ): Promise<void> {
+    const { message, modelRequestId } = delivery
+    await this.#appendAndPublishEvent({
+      sessionId: active.agentSessionId,
+      runId: active.agentRunId,
+      type: 'user_message',
+      payload: agentUserMessagePayloadSchema.parse({
+        content: message.content,
+        attachmentIds: message.attachmentIds,
+        delivery: delivery.kind === 'consume' ? 'follow_up' : 'steer',
+        timestamp: message.timestamp
+      }),
+      modelRequestId
+    })
+    // A stopped run no longer needs a reply to its worker's consumption request.
+    if (delivery.kind === 'consume' && !this.#isCurrentQueueRuntime(active, handle)) return
+    this.#assertQueueRuntime(active, handle)
+
+    const { snapshot, systemPrompt } =
+      delivery.kind === 'steer'
+        ? this.#buildQueuedContext(active, modelRequestId, message.content)
+        : delivery.message
+    if (delivery.kind === 'consume') {
+      this.#removePendingMessage(active, delivery.message.pendingMessageId)
+    }
+    active.authorizedModelRequestIds.add(modelRequestId)
+    active.snapshots.set(modelRequestId, snapshot)
+    const capability = {
+      projectSessionId: this.options.projectSessionId,
+      agentSessionId: active.agentSessionId,
+      agentRunId: active.agentRunId,
+      modelRequestId
+    }
+
+    switch (delivery.kind) {
+      case 'steer':
+        active.systemPrompt = systemPrompt
+        handle.steer({
+          ...capability,
+          content: message.content,
+          images: delivery.message.images,
+          timestamp: message.timestamp,
+          systemPrompt
+        })
+        return
+      case 'promote': {
+        const outcome = await handle.queueAction({
+          ...capability,
+          operation: 'commit_follow_up_steer',
+          actionId: this.#createId(),
+          reservationId: delivery.reservationId,
+          systemPrompt
+        })
+        if (outcome !== 'completed') throw new Error('The waiting message could not be steered')
+        return
+      }
+      case 'consume':
+        handle.authorizeFollowUpConsumption({
+          ...capability,
+          consumptionId: delivery.consumptionId,
+          pendingMessageId: delivery.message.pendingMessageId
+        })
+        await this.#publishActivitySnapshot()
+        this.options.log.info(
+          {
+            event: 'agent.run.follow_up_consumed',
+            agentRunId: active.agentRunId,
+            pendingMessageId: delivery.message.pendingMessageId,
+            modelRequestId
+          },
+          'Authorized a consumed Agent Follow-up'
+        )
+    }
+  }
+
+  #buildQueuedContext(active: ActiveRun, modelRequestId: string, content: string) {
+    return this.options.contextBuilder.build({
+      prompt: content,
+      editorContext: active.editorContext,
+      snapshotId: modelRequestId,
+      skillPrompt: active.skillPrompt,
+      interactionMode: active.interactionMode
+    })
+  }
+
+  async #queueMessage(
     agentRunId: string,
+    delivery: 'steer' | 'follow_up',
     rawContent: string,
     attachmentIds?: string[]
   ): Promise<void> {
@@ -2080,85 +1956,150 @@ export class AgentSessionService {
     const content = agentUserMessagePayloadSchema.shape.content.parse(rawContent)
     const images = await this.#loadImages(active.agentSessionId, attachmentIds)
     this.#requireQueueableRun(agentRunId)
+    this.#assertQueueRuntime(active, handle)
     if (!content.trim() && images.length === 0) throw new Error('Enter text or add an image')
     this.#assertImageModel(active.runtimeModel, images.length > 0)
     this.#assertQueueImageBudget(active, images)
+    if (delivery === 'follow_up') this.#assertFollowUpCapacity(active, content)
     const timestamp = this.#now().getTime()
-    const modelRequests = new ModelRequestRepository(
+    const waiting =
+      delivery === 'follow_up'
+        ? { queuedAt: this.#now().toISOString(), pendingMessageId: this.#createId() }
+        : null
+    const repository = new ModelRequestRepository(
       this.options.database,
       this.options.log,
       this.#now,
       this.#createId
     )
-    const modelRequestId = (
-      await modelRequests.start({
-        operation: 'agent',
-        provider: active.config,
-        request: { content, delivery: 'steer' },
-        thinkingLevel: active.thinkingLevel,
-        inputItems: 1,
-        operationId: active.operationId,
-        agentRunId: active.agentRunId,
-        projectSessionId: this.options.projectSessionId
-      })
-    ).modelRequestId
+    const modelRequestId = await this.#startQueuedModelRequest(
+      active,
+      repository,
+      content,
+      delivery
+    )
+    let pendingBytes = 0
     try {
       this.#requireQueueableRun(agentRunId)
+      this.#assertQueueRuntime(active, handle)
       this.#assertQueueImageBudget(active, images)
+      // Model request persistence yields. Recheck capacity before adding a waiting item.
+      if (waiting !== null) pendingBytes = this.#assertFollowUpCapacity(active, content)
     } catch (err) {
       this.options.log.error(
-        { event: 'agent.run.image_queue_rejected', err, agentRunId, modelRequestId },
-        'Agent image queue authorization failed'
+        {
+          event: 'agent.run.queue_authorization_failed',
+          err,
+          agentRunId,
+          modelRequestId,
+          delivery
+        },
+        'Agent queued message authorization failed'
       )
-      await modelRequests.abort(modelRequestId, 'queue_authorization_failed')
+      try {
+        await this.#abortPendingModelRequest(
+          active,
+          repository,
+          modelRequestId,
+          'queue_authorization_failed'
+        )
+      } catch (abortErr) {
+        this.options.log.error(
+          {
+            event: 'agent.run.queue_rejection_abort_failed',
+            err: abortErr,
+            agentRunId,
+            modelRequestId
+          },
+          'Failed to abort an Agent model request rejected by queue admission'
+        )
+        if (this.#isCurrentQueueRuntime(active, handle)) active.controller.abort(abortErr)
+      }
       throw err
     }
-    await this.#appendAndPublishEvent({
-      sessionId: active.agentSessionId,
-      runId: active.agentRunId,
-      type: 'user_message',
-      payload: agentUserMessagePayloadSchema.parse({
-        content,
-        attachmentIds,
-        delivery: 'steer',
-        timestamp
-      }),
-      modelRequestId
-    })
-    active.pendingModelRequestIds.add(modelRequestId)
-    active.authorizedModelRequestIds.add(modelRequestId)
-    const refreshedContext = this.options.contextBuilder.build({
-      prompt: content,
-      editorContext: active.editorContext,
-      snapshotId: modelRequestId,
-      skillPrompt: active.skillPrompt,
-      interactionMode: active.interactionMode
-    })
-    active.snapshots.set(modelRequestId, refreshedContext.snapshot)
-    active.systemPrompt = refreshedContext.systemPrompt
+
     try {
-      const command = {
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        modelRequestId,
-        content,
-        images,
-        timestamp,
-        systemPrompt: refreshedContext.systemPrompt
+      if (waiting === null) {
+        await this.#deliverQueuedMessage(active, handle, {
+          kind: 'steer',
+          modelRequestId,
+          message: { content, attachmentIds, images, timestamp }
+        })
+      } else {
+        const { systemPrompt, snapshot } = this.#buildQueuedContext(active, modelRequestId, content)
+        this.options.attachments.retain(
+          `queue:${waiting.pendingMessageId}`,
+          active.agentSessionId,
+          attachmentIds ?? []
+        )
+        const message = {
+          pendingMessageId: waiting.pendingMessageId,
+          modelRequestId,
+          content,
+          images,
+          timestamp,
+          systemPrompt
+        }
+        active.pendingMessages.push({
+          ...message,
+          attachmentIds,
+          queuedAt: waiting.queuedAt,
+          snapshot
+        })
+        handle.followUp({
+          ...message,
+          projectSessionId: this.options.projectSessionId,
+          agentSessionId: active.agentSessionId,
+          agentRunId: active.agentRunId
+        })
       }
-      handle.steer(command)
       this.options.attachments.release(`draft:${active.agentSessionId}`, attachmentIds ?? [])
     } catch (err) {
       this.options.log.error(
-        { event: 'agent.run.steer_failed', err, agentRunId, modelRequestId },
-        'Failed to steer an Agent message'
+        {
+          event: waiting === null ? 'agent.run.steer_failed' : 'agent.run.follow_up_queue_failed',
+          err,
+          agentRunId,
+          modelRequestId
+        },
+        waiting === null ? 'Failed to steer an Agent message' : 'Failed to queue an Agent Follow-up'
       )
-      await modelRequests.abort(modelRequestId, 'queue_delivery_failed')
-      active.pendingModelRequestIds.delete(modelRequestId)
-      active.controller.abort(err)
+      await this.#cleanupFailedQueueDelivery(active, handle, repository, {
+        modelRequestId,
+        pendingMessageId: waiting?.pendingMessageId,
+        reason: 'queue_delivery_failed',
+        err
+      })
       throw err
     }
+    if (waiting === null) return
+    const { pendingMessageId } = waiting
+    await this.#publishActivitySnapshot()
+    this.options.log.info(
+      {
+        event: 'agent.run.follow_up_queued',
+        agentRunId,
+        pendingMessageId,
+        modelRequestId,
+        pendingCount: active.pendingMessages.length,
+        pendingBytes
+      },
+      'Queued an Agent Follow-up'
+    )
+  }
+
+  #assertFollowUpCapacity(active: ActiveRun, content: string): number {
+    if (active.pendingMessages.length >= AGENT_PENDING_MESSAGE_LIMIT) {
+      throw new Error(`Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages can wait in this run`)
+    }
+    const pendingBytes = active.pendingMessages.reduce(
+      (total, message) => total + Buffer.byteLength(message.content),
+      Buffer.byteLength(content)
+    )
+    if (pendingBytes > AGENT_PENDING_MESSAGE_MAX_BYTES) {
+      throw new Error('Waiting messages cannot exceed 1 MiB in this run')
+    }
+    return pendingBytes
   }
 
   async #handleRuntimeEvent(agentRunId: string, event: AgentRuntimeEvent): Promise<void> {
@@ -2305,34 +2246,11 @@ export class AgentSessionService {
         this.#now,
         this.#createId
       )
-      if (event.outcome === 'succeeded') {
-        await repository.succeed(event.modelRequestId, { metadata: event.metadata, outputItems: 1 })
-        if (trace.exists(event.modelRequestId)) trace.complete(traceCompletion(event))
-      } else if (event.outcome === 'timed_out') {
-        await repository.fail(event.modelRequestId, {
-          code: 'provider_timeout',
-          retryable: true
-        })
-        if (trace.exists(event.modelRequestId)) {
-          trace.fail(traceFailure(event, 'provider_timeout'))
-        }
-      } else if (event.outcome === 'aborted') {
-        await repository.abort(event.modelRequestId, 'aborted', event.metadata)
-        if (trace.exists(event.modelRequestId)) trace.fail(traceFailure(event, 'aborted'))
-      } else {
-        await repository.fail(
-          event.modelRequestId,
-          {
-            code: event.failureCode ?? 'provider_request_failed',
-            retryable:
-              event.retryable ?? (event.httpStatus === 429 || (event.httpStatus ?? 0) >= 500),
-            ...(event.httpStatus === undefined ? {} : { httpStatus: event.httpStatus })
-          },
-          event.metadata
-        )
-        if (trace.exists(event.modelRequestId)) {
-          trace.fail(traceFailure(event, event.failureCode ?? 'provider_request_failed'))
-        }
+      const failure = await completeModelCall(repository, event, 'writing')
+      if (trace.exists(event.modelRequestId)) {
+        const completion = traceCompletion(event)
+        if (failure === null) trace.complete(completion)
+        else trace.fail({ ...completion, failureCode: failure.code })
       }
       active.pendingModelRequestIds.delete(event.modelRequestId)
       return
@@ -2352,42 +2270,18 @@ export class AgentSessionService {
     active: ActiveRun,
     event: Extract<AgentRuntimeEvent, { type: 'follow_up_consumption_requested' }>
   ): Promise<void> {
-    if (active.handle === null) throw new Error('Agent runtime is unavailable')
+    const handle = active.handle
+    if (handle === null || !this.#isCurrentQueueRuntime(active, handle)) return
     const pending = this.#requirePendingMessage(active, event.pendingMessageId)
     if (pending.modelRequestId !== event.modelRequestId) {
       throw new Error('Agent Follow-up consumption capability mismatch')
     }
-    await this.#appendAndPublishEvent({
-      sessionId: active.agentSessionId,
-      runId: active.agentRunId,
-      type: 'user_message',
-      payload: agentUserMessagePayloadSchema.parse({
-        content: pending.content,
-        attachmentIds: pending.attachmentIds,
-        delivery: 'follow_up',
-        timestamp: pending.timestamp
-      }),
-      modelRequestId: pending.modelRequestId
-    })
-    this.#removePendingMessage(active, pending.pendingMessageId)
-    active.handle.authorizeFollowUpConsumption({
-      projectSessionId: this.options.projectSessionId,
-      agentSessionId: active.agentSessionId,
-      agentRunId: active.agentRunId,
+    await this.#deliverQueuedMessage(active, handle, {
+      kind: 'consume',
+      message: pending,
       consumptionId: event.consumptionId,
-      pendingMessageId: pending.pendingMessageId,
       modelRequestId: pending.modelRequestId
     })
-    await this.#publishActivitySnapshot()
-    this.options.log.info(
-      {
-        event: 'agent.run.follow_up_consumed',
-        agentRunId: active.agentRunId,
-        pendingMessageId: pending.pendingMessageId,
-        modelRequestId: pending.modelRequestId
-      },
-      'Authorized a consumed Agent Follow-up'
-    )
   }
 
   async #authorizeToolContinuation(active: ActiveRun, continuationId: string): Promise<void> {
@@ -2409,59 +2303,57 @@ export class AgentSessionService {
       this.#now,
       this.#createId
     )
-    let modelRequestId: string | undefined
     try {
-      modelRequestId = (
-        await repository.start({
-          operation: 'agent',
+      await active.toolContinuations.authorize({
+        repository,
+        log: this.options.log,
+        request: {
           provider: active.config,
-          request: {
-            delivery: 'tool_continuation',
-            continuationId
-          },
           thinkingLevel: active.thinkingLevel,
-          inputItems: 1,
           operationId: active.operationId,
           agentRunId: active.agentRunId,
           projectSessionId: this.options.projectSessionId
-        })
-      ).modelRequestId
-      active.authorizedModelRequestIds.add(modelRequestId)
-      active.pendingModelRequestIds.add(modelRequestId)
-      const refreshedContext = this.options.contextBuilder.build({
-        prompt: TOOL_CONTINUATION_REQUEST,
-        editorContext: active.editorContext,
-        snapshotId: modelRequestId,
-        skillPrompt: active.skillPrompt,
-        interactionMode: active.interactionMode
-      })
-      active.snapshots.set(modelRequestId, refreshedContext.snapshot)
-      active.systemPrompt = refreshedContext.systemPrompt
-      const systemPrompt = refreshedContext.systemPrompt
-      handle.authorizeModelCall({
-        projectSessionId: this.options.projectSessionId,
-        agentSessionId: active.agentSessionId,
-        agentRunId: active.agentRunId,
-        continuationId,
-        modelRequestId,
-        systemPrompt,
-        interactionMode: active.interactionMode,
-        activeToolGroups: active.activeToolGroups,
-        runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
-          active,
-          systemPrompt,
-          active.activeToolGroups
-        )
-      })
-      this.options.log.info(
-        {
-          event: 'agent.run.tool_continuation_authorized',
-          agentRunId: active.agentRunId,
-          modelRequestId,
-          continuationId
         },
-        'Authorized an Agent model call after tool execution'
-      )
+        continuationId,
+        pendingModelRequestIds: active.pendingModelRequestIds,
+        canSend: () => active.phase === 'running' && this.#isCurrentQueueRuntime(active, handle),
+        send: (modelRequestId) => {
+          const { snapshot, systemPrompt } = this.options.contextBuilder.build({
+            prompt: TOOL_CONTINUATION_REQUEST,
+            editorContext: active.editorContext,
+            snapshotId: modelRequestId,
+            skillPrompt: active.skillPrompt,
+            interactionMode: active.interactionMode
+          })
+          handle.authorizeModelCall({
+            projectSessionId: this.options.projectSessionId,
+            agentSessionId: active.agentSessionId,
+            agentRunId: active.agentRunId,
+            continuationId,
+            modelRequestId,
+            systemPrompt,
+            interactionMode: active.interactionMode,
+            activeToolGroups: active.activeToolGroups,
+            runtimeMessageBudgetTokens: this.#runtimeMessageBudget(
+              active,
+              systemPrompt,
+              active.activeToolGroups
+            )
+          })
+          active.authorizedModelRequestIds.add(modelRequestId)
+          active.snapshots.set(modelRequestId, snapshot)
+          active.systemPrompt = systemPrompt
+          this.options.log.info(
+            {
+              event: 'agent.run.tool_continuation_authorized',
+              agentRunId: active.agentRunId,
+              modelRequestId,
+              continuationId
+            },
+            'Authorized an Agent model call after tool execution'
+          )
+        }
+      })
     } catch (err) {
       this.options.log.error(
         {
@@ -2472,10 +2364,6 @@ export class AgentSessionService {
         },
         'Failed to authorize an Agent model call after tool execution'
       )
-      if (modelRequestId !== undefined) {
-        await repository.abort(modelRequestId, 'authorization_delivery_failed')
-        active.pendingModelRequestIds.delete(modelRequestId)
-      }
       active.controller.abort(err)
       throw err
     }
@@ -2965,7 +2853,14 @@ export class AgentSessionService {
     const handle = active.handle
     if (handle === null) throw new Error('Agent runtime did not start')
     try {
-      const result = await handle.completion
+      const result = await handle.completion.finally(async () => {
+        // Revoke this worker before waiting for saves. Delivery can wait on Renderer publication.
+        active.handle = null
+        await Promise.all([
+          active.toolContinuations.close(),
+          Promise.allSettled(active.queueRequestSaves)
+        ])
+      })
       if (result.outcome === 'awaiting_review') {
         if (active.reviewPause === null) {
           throw new Error('Agent review pause completed without a pending proposal')
@@ -2995,10 +2890,16 @@ export class AgentSessionService {
         )
         return
       }
-      if (active.pendingModelRequestIds.size > 0) {
+      if (
+        active.pendingMessages.length > 0 ||
+        [...active.pendingModelRequestIds].some((id) => active.authorizedModelRequestIds.has(id))
+      ) {
         throw new AgentRunContinuationLostError(
           new Error('Agent run completed with authorized model requests that were not consumed')
         )
+      }
+      if (active.pendingModelRequestIds.size > 0) {
+        await this.#abortPendingModelRequests(active, 'agent_run_ended')
       }
       if (active.skillSnapshot.routingStatus === 'available') {
         active.skillSnapshot = { ...active.skillSnapshot, routingStatus: 'not_needed' }
@@ -3058,9 +2959,9 @@ export class AgentSessionService {
         },
         'Agent run terminated'
       )
-      const partialModelRequestId = [...active.pendingModelRequestIds][0] ?? null
-      for (const pending of active.pendingMessages)
-        this.options.attachments.release(`queue:${pending.pendingMessageId}`)
+      const partialModelRequestId =
+        [...active.pendingModelRequestIds].find((id) => active.authorizedModelRequestIds.has(id)) ??
+        null
       await this.#abortPendingModelRequests(active, 'agent_run_ended')
       if (active.partialText.length > 0) {
         const payload: AgentAssistantMessagePayload = agentAssistantMessagePayloadSchema.parse({
@@ -3149,6 +3050,8 @@ export class AgentSessionService {
   }
 
   async #restartAfterContextOverflow(active: ActiveRun): Promise<void> {
+    active.phase = 'compacting'
+    void this.#publishActivitySnapshot()
     await this.#abortPendingModelRequests(active, 'context_overflow_retry')
     const historyBefore = loadContinuousRuntimeHistory(
       this.options.database,
@@ -3166,8 +3069,6 @@ export class AgentSessionService {
       advertisedTools: this.#activeToolEnvelope(active.activeToolGroups, active.interactionMode)
     })
     const compactionId = this.#createId()
-    active.phase = 'compacting'
-    void this.#publishActivitySnapshot()
     await this.#compactor.started({
       agentSessionId: active.agentSessionId,
       agentRunId: active.agentRunId,
@@ -3240,6 +3141,7 @@ export class AgentSessionService {
     active.pendingModelRequestIds.add(modelRequestId)
     const snapshot = active.snapshots.values().next().value as WritingSnapshot | undefined
     if (snapshot !== undefined) active.snapshots.set(modelRequestId, snapshot)
+    active.toolContinuations = new ToolContinuationRequests()
     active.handle = this.options.runtime.beginSessionRun(
       active.config,
       active.credential,
@@ -3294,21 +3196,37 @@ export class AgentSessionService {
     )
     for (const modelRequestId of [...active.pendingModelRequestIds]) {
       try {
-        await repository.abort(modelRequestId, reason)
+        await this.#abortPendingModelRequest(active, repository, modelRequestId, reason)
       } catch (err) {
-        this.options.log.error(
+        this.options.log.warn(
           {
-            event: 'agent.run.model_request_abort_failed',
+            event: 'agent.run.model_request_abort_retry',
             err,
             modelRequestId,
             agentRunId: active.agentRunId
           },
-          'Failed to abort an unfinished Agent model request'
+          'Retrying an Agent model request abort during run settlement'
         )
+        try {
+          await this.#abortPendingModelRequest(active, repository, modelRequestId, reason)
+        } catch (retryErr) {
+          this.options.log.error(
+            {
+              event: 'agent.run.model_request_abort_failed',
+              err: retryErr,
+              modelRequestId,
+              agentRunId: active.agentRunId
+            },
+            'Failed to abort an unfinished Agent model request'
+          )
+        }
       }
       active.pendingModelRequestIds.delete(modelRequestId)
     }
     if (active.pendingMessages.length > 0) {
+      for (const pending of active.pendingMessages) {
+        this.options.attachments.release(`queue:${pending.pendingMessageId}`)
+      }
       active.pendingMessages.length = 0
       void this.#publishActivitySnapshot()
     }
@@ -3448,14 +3366,8 @@ export class AgentSessionService {
     })
   }
 
-  #requireSessionRecord(agentSessionId: string): AgentSessionRecord {
-    const session = this.#querySessions({ agentSessionId, limit: 1 })[0]
-    if (session === undefined) throw new Error('Agent session does not exist')
-    return session
-  }
-
   #assertSessionIdle(agentSessionId: string, action: string): void {
-    const session = this.#requireSessionRecord(agentSessionId)
+    const session = this.#queries.requireSession(agentSessionId)
     if (this.#titles.has(agentSessionId)) {
       throw new Error(`Conversation title must finish before ${action}`)
     }
@@ -3478,7 +3390,7 @@ export class AgentSessionService {
       typeof sessionOrId === 'string' ? sessionOrId : sessionOrId.agentSessionId
     try {
       const session =
-        typeof sessionOrId === 'string' ? this.#requireSessionRecord(sessionOrId) : sessionOrId
+        typeof sessionOrId === 'string' ? this.#queries.requireSession(sessionOrId) : sessionOrId
       await this.options.publishSession?.({ session, titleGenerating })
     } catch (err) {
       this.options.log.warn(
@@ -3700,7 +3612,7 @@ export class AgentSessionService {
       return inserted
     })
     await this.#publishDurable(event)
-    await this.#publishSession(this.#requireSessionRecord(input.agentSessionId), false)
+    await this.#publishSession(this.#queries.requireSession(input.agentSessionId), false)
     return event
   }
 
@@ -3981,23 +3893,6 @@ export class AgentSessionService {
         'Agent project activity delivery failed without changing run truth'
       )
     }
-  }
-
-  #sessionIsCompacting(agentSessionId: string): boolean {
-    return (
-      [...this.#coordinator.compactions.values()].some(
-        (compaction) => compaction.agentSessionId === agentSessionId
-      ) ||
-      [...this.#coordinator.runs.values()].some(
-        (run) => run.agentSessionId === agentSessionId && run.phase === 'compacting'
-      )
-    )
-  }
-
-  #sessionIsAwaitingInput(agentSessionId: string): boolean {
-    return [...this.#coordinator.runs.values()].some(
-      (run) => run.agentSessionId === agentSessionId && run.pendingQuestion !== null
-    )
   }
 
   #sessionApprovalMode(agentSessionId: string): AgentApprovalMode {

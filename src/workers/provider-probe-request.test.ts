@@ -210,7 +210,7 @@ describe('provider utility probe request', () => {
     const sdkFetch = vi.fn<typeof fetch>(async (input, init) => {
       const sdkRequest = input instanceof Request ? input : new Request(input, init)
       expect(sdkRequest.url).toBe(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image'
+        'https://generativelanguage.googleapis.com/v1/models/gemini-3.1-flash-image'
       )
       expect(sdkRequest.method).toBe('GET')
       expect(sdkRequest.headers.get('x-goog-api-key')).toBe('gemini-secret')

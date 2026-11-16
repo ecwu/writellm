@@ -133,11 +133,11 @@ export function AppMenubar(props: AppMenubarProps): React.JSX.Element | null {
   const enabled = (action: MenuAction) => menuCommandEnabled({ kind: 'action', action }, state)
   useNativeMenu(state, (command) => {
     if (command.kind === 'tool') {
-      layoutControls?.setTool(command.tool, !layoutControls.tools.includes(command.tool))
+      layoutControls?.toggleTool(command.tool)
       return
     }
     if (command.kind === 'page') {
-      layoutControls?.setPage(command.page, !layoutControls.pages.includes(command.page))
+      layoutControls?.togglePage(command.page)
       return
     }
     if (command.action === 'newNotebook') {

@@ -174,7 +174,7 @@ function Sidebar({
       <div
         data-slot='sidebar'
         className={cn(
-          'relative h-full w-2/5 max-w-(--sidebar-width) shrink-0 flex-col overflow-hidden border-r bg-sidebar',
+          'relative h-full w-2/5 max-w-(--sidebar-width) shrink-0 flex-col overflow-hidden border-r bg-sidebar *:data-[slot=sidebar]:w-full',
           state === 'expanded' ? 'flex' : 'hidden'
         )}
       >

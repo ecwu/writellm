@@ -1,5 +1,6 @@
 import type { Logger } from 'pino'
 import { sha256 } from '../../shared/hash'
+import { buildManuscriptReferenceIndex } from '../../shared/readable-citation'
 import {
   buildPublicationAssembly,
   publicationPreview,
@@ -28,7 +29,9 @@ export class PublicationService {
     const startedAt = Date.now()
     try {
       const manuscript = context.manuscript.assemble()
-      const references = context.manuscript.getReferenceIndex()
+      const references = buildManuscriptReferenceIndex(manuscript)
+      const availableReferenceTitles = availableLegacyCitationLabels(context.database)
+      const referenceItems = context.references.list()
       const assets: PublicationAsset[] = []
       let cursor: string | undefined
       do {
@@ -53,11 +56,9 @@ export class PublicationService {
         if (assets.length > MAX_ASSETS) throw new Error('Publication references too many assets')
         cursor = page.nextCursor ?? undefined
       } while (cursor !== undefined)
-      const availableReferenceTitles = availableLegacyCitationLabels(context.database)
-      const referenceItems = context.references.list()
       const formattedReferences =
         options?.bibliographyMode === 'formatted'
-          ? await this.citationFormatting?.format(context)
+          ? await this.citationFormatting?.format(context, { manuscript, referenceItems })
           : undefined
       const assembly = buildPublicationAssembly({
         manuscript,

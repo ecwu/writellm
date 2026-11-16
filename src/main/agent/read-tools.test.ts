@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { ManuscriptService } from '../manuscript/manuscript-service'
 import { AgentContextBuilder, SkillPromptBudgetError } from './context'
-import { AgentToolDomainError, MainAgentReadTools } from './read-tools'
+import { MainAgentReadTools } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { AGENT_TOOL_RESULT_BYTES } from '../../shared/contracts/agent-tools'
 
 const temporaryDirectories: string[] = []

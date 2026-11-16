@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { openAppDatabase } from '../connection'
 import {
   DEFAULT_ACCENT_PREFERENCE,
@@ -36,6 +37,21 @@ afterEach(async () => {
 })
 
 describe('AppSettingsRepository', () => {
+  it('reuses the OAuth installation UUID after reopening the application database', async () => {
+    const database = await openTestDatabase()
+    const path = database.read((connection) => connection.name)
+    const id = new AppSettingsRepository(database, log).getOrCreateOAuthInstallationId()
+    database.close()
+
+    const reopened = await openAppDatabase({ path, applicationVersion: '1.0.0-test', log })
+    try {
+      expect(z.uuidv4().parse(id)).toBe(id)
+      expect(new AppSettingsRepository(reopened, log).getOrCreateOAuthInstallationId()).toBe(id)
+    } finally {
+      reopened.close()
+    }
+  })
+
   it('keeps layouts local to each project and recovers from invalid persisted data', async () => {
     const database = await openTestDatabase()
     try {

@@ -756,7 +756,7 @@ export function AgentDiagnosticDetails(props: {
                       </span>
                     )}
                     {cause.stack === undefined ? null : (
-                      <pre className='mt-1 max-h-32 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-[11px] text-muted-foreground'>
+                      <pre className='mt-1 max-h-32 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-xs text-muted-foreground'>
                         {cause.stack}
                       </pre>
                     )}
@@ -768,7 +768,7 @@ export function AgentDiagnosticDetails(props: {
           {diagnostic.stack === undefined ? null : (
             <div className='min-w-0'>
               <p className='mb-1 text-muted-foreground'>Stack</p>
-              <pre className='max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-[11px] text-muted-foreground'>
+              <pre className='max-h-48 max-w-full overflow-auto whitespace-pre-wrap wrap-anywhere rounded bg-muted p-1.5 font-mono text-xs text-muted-foreground'>
                 {diagnostic.stack}
               </pre>
             </div>

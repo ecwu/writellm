@@ -7,6 +7,8 @@ import {
 } from '../../shared/contracts/agent'
 import { ModelRequestRepository } from '../providers/model-request-repository'
 import type { AgentSessionServiceOptions } from './session-service'
+import { recoverInterruptedAgentWork } from './session-recovery'
+import { AgentContextBuilder } from './context'
 import {
   log,
   config,
@@ -237,6 +239,14 @@ describe('AgentSessionService: messages', () => {
     const active = runtime.active()
     const followUp = active.commands.find((command) => command.operation === 'follow_up')
     if (followUp?.pendingMessageId === undefined) throw new Error('Expected a pending Follow-up')
+    await expect(
+      active.emit({
+        type: 'model_call_finished',
+        modelRequestId: followUp.modelRequestId,
+        outcome: 'succeeded',
+        metadata: metadata('premature-response')
+      })
+    ).rejects.toThrow('unauthorized model request')
     await active.emit({
       type: 'follow_up_consumption_requested',
       consumptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
@@ -384,6 +394,236 @@ describe('AgentSessionService: messages', () => {
     database.close()
   })
 
+  it.each(['deletePendingFollowUp', 'steerPendingFollowUp'] as const)(
+    'settles the run when %s removes a message but cannot abort its request',
+    async (action) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const service = createService(database, runtime)
+      const session = service.createSession()
+      const run = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Keep working.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      await service.followUp(run.agentRunId, 'Adjust the draft.')
+      const pending = service.projectActivitySnapshot().runs[0]?.pendingMessages[0]
+      if (pending === undefined) throw new Error('Expected a pending Follow-up')
+      const failure = new Error('Could not record the request abort')
+      const abort = vi
+        .spyOn(ModelRequestRepository.prototype, 'abort')
+        .mockRejectedValueOnce(failure)
+      try {
+        await expect(service[action](run.agentRunId, pending.pendingMessageId)).rejects.toBe(
+          failure
+        )
+        await run.completion
+        expect(service.projectActivitySnapshot().runs).toEqual([])
+        expect(
+          await database.kysely.selectFrom('model_requests').select('status').execute()
+        ).toEqual([{ status: 'aborted' }, { status: 'aborted' }])
+        expect(
+          service
+            .listEvents(session.agentSessionId)
+            .filter((event) => event.type === 'user_message')
+        ).toHaveLength(1)
+      } finally {
+        abort.mockRestore()
+        await service.abort(run.agentRunId)
+        await run.completion
+        database.close()
+      }
+    }
+  )
+
+  it.each([{ fails: false }, { fails: true }])(
+    'coordinates Stop with a pending queue abort (first write fails: $fails)',
+    async ({ fails }) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const service = createService(database, runtime)
+      const session = service.createSession()
+      const run = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Keep working.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      await service.followUp(run.agentRunId, 'Adjust the draft.')
+      const queued = runtime.active().commands[0]
+      if (queued?.pendingMessageId === undefined) throw new Error('Expected a pending Follow-up')
+      const firstAbort = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const failure = new Error('Could not record the queue abort')
+      const abortRequest = ModelRequestRepository.prototype.abort
+      const abort = vi
+        .spyOn(ModelRequestRepository.prototype, 'abort')
+        .mockImplementation(async function (this: ModelRequestRepository, ...args) {
+          if (args[1] === 'queue_deleted') {
+            firstAbort.resolve()
+            await release.promise
+            if (fails) throw failure
+          }
+          return abortRequest.apply(this, args)
+        })
+      const deleted = Promise.allSettled([
+        service.deletePendingFollowUp(run.agentRunId, queued.pendingMessageId)
+      ])
+      try {
+        await Promise.race([firstAbort.promise, deleted])
+        const stopped = service.abort(run.agentRunId)
+        await vi.waitFor(async () => {
+          const initial = await database.kysely
+            .selectFrom('model_requests')
+            .select('status')
+            .where('model_request_id', '=', runtime.active().input.modelRequestId)
+            .executeTakeFirstOrThrow()
+          expect(initial.status).toBe('aborted')
+        })
+        release.resolve()
+        await stopped
+        expect(await deleted).toEqual([
+          fails
+            ? { status: 'rejected', reason: failure }
+            : { status: 'fulfilled', value: undefined }
+        ])
+        expect(
+          abort.mock.calls.filter(([id]) => id === queued.modelRequestId).map(([, code]) => code)
+        ).toEqual(fails ? ['queue_deleted', 'agent_run_ended'] : ['queue_deleted'])
+        const request = await database.kysely
+          .selectFrom('model_requests')
+          .select('status')
+          .where('model_request_id', '=', queued.modelRequestId)
+          .executeTakeFirstOrThrow()
+        expect(request.status).toBe('aborted')
+      } finally {
+        release.resolve()
+        await deleted
+        await service.abort(run.agentRunId)
+        abort.mockRestore()
+        database.close()
+      }
+    }
+  )
+
+  it.each(['steer', 'followUp'] as const)(
+    'aborts the model request when %s cannot prepare context',
+    async (delivery) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const service = createService(database, runtime)
+      const session = service.createSession()
+      const run = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Keep working.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      const failure = new Error('Context could not be prepared')
+      const build = vi.spyOn(AgentContextBuilder.prototype, 'build').mockImplementationOnce(() => {
+        throw failure
+      })
+      try {
+        await expect(service[delivery](run.agentRunId, 'Adjust the draft.')).rejects.toBe(failure)
+        expect(runtime.active().commands).toEqual([])
+        const requests = await database.kysely
+          .selectFrom('model_requests')
+          .select(['status', 'error_json'])
+          .where('model_request_id', '!=', runtime.active().input.modelRequestId)
+          .execute()
+        expect(requests).toEqual([
+          {
+            status: 'aborted',
+            error_json: JSON.stringify({ code: 'queue_delivery_failed', retryable: false })
+          }
+        ])
+      } finally {
+        build.mockRestore()
+        await service.abort(run.agentRunId)
+        await run.completion
+        database.close()
+      }
+    }
+  )
+
+  it.each(['steer', 'promotion', 'consumption'] as const)(
+    'stops %s delivery while Main publishes history',
+    async (delivery) => {
+      const database = await createDatabase()
+      const runtime = new FakeAgentRuntime()
+      const publishing = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const content = 'Adjust the draft.'
+      const service = createService(database, runtime, async (event) => {
+        if (event.type === 'user_message' && event.payload.content === content) {
+          publishing.resolve()
+          await release.promise
+        }
+      })
+      const session = service.createSession()
+      const run = await service.startRun({
+        agentSessionId: session.agentSessionId,
+        prompt: 'Keep working.',
+        editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+      })
+      try {
+        const active = runtime.active()
+        let submission: Promise<void>
+        if (delivery === 'steer') {
+          submission = service.steer(run.agentRunId, content)
+        } else {
+          await service.followUp(run.agentRunId, content)
+          const queued = active.commands[0]
+          if (queued?.pendingMessageId === undefined)
+            throw new Error('Expected a pending Follow-up')
+          submission =
+            delivery === 'promotion'
+              ? service.steerPendingFollowUp(run.agentRunId, queued.pendingMessageId)
+              : active.emit({
+                  type: 'follow_up_consumption_requested',
+                  consumptionId: '019c6a5c-8d34-7a8e-a602-3d37a52dc418',
+                  pendingMessageId: queued.pendingMessageId,
+                  modelRequestId: queued.modelRequestId
+                })
+        }
+        const result = Promise.allSettled([submission])
+        expect(
+          await Promise.race([publishing.promise.then(() => true), result.then(() => false)])
+        ).toBe(true)
+        await service.abort(run.agentRunId)
+        release.resolve()
+        expect(await result).toEqual([
+          delivery === 'consumption'
+            ? { status: 'fulfilled', value: undefined }
+            : {
+                status: 'rejected',
+                reason: new Error(
+                  'Agent run ended or changed before the message could be delivered'
+                )
+              }
+        ])
+        expect(active.commands.map((command) => command.operation)).toEqual(
+          delivery === 'steer' ? [] : ['follow_up']
+        )
+        expect(active.followUpConsumptionIds).toEqual([])
+        const requests = await database.kysely
+          .selectFrom('model_requests')
+          .select('status')
+          .execute()
+        expect(requests.map((request) => request.status)).toEqual(
+          Array.from({ length: delivery === 'promotion' ? 3 : 2 }, () => 'aborted')
+        )
+        expect(
+          service
+            .listEvents(session.agentSessionId)
+            .filter((event) => event.type === 'user_message')
+        ).toHaveLength(2)
+      } finally {
+        release.resolve()
+        await service.abort(run.agentRunId)
+        database.close()
+      }
+    }
+  )
+
   it('enforces pending Follow-up count and aggregate byte limits without consuming the draft', async () => {
     const countDatabase = await createDatabase()
     const countRuntime = new FakeAgentRuntime()
@@ -429,6 +669,123 @@ describe('AgentSessionService: messages', () => {
     byteDatabase.close()
   })
 
+  it.each([
+    {
+      limit: 'message count',
+      waitingCount: AGENT_PENDING_MESSAGE_LIMIT - 1,
+      content: 'One more message',
+      errorMessage: `Up to ${AGENT_PENDING_MESSAGE_LIMIT} messages`
+    },
+    {
+      limit: 'UTF-8 bytes',
+      waitingCount: 3,
+      content: 'é'.repeat(AGENT_PENDING_MESSAGE_MAX_BYTES / 8),
+      errorMessage: 'Waiting messages cannot exceed 1 MiB'
+    }
+  ])('enforces the $limit limit when Follow-ups arrive together', async (scenario) => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession('Concurrent Follow-ups')
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    try {
+      for (let index = 0; index < scenario.waitingCount; index += 1) {
+        await service.followUp(run.agentRunId, scenario.content)
+      }
+      const attempts = await Promise.allSettled([
+        service.followUp(run.agentRunId, scenario.content),
+        service.followUp(run.agentRunId, scenario.content)
+      ])
+      expect(attempts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ status: 'fulfilled' }),
+          expect.objectContaining({
+            status: 'rejected',
+            reason: expect.objectContaining({
+              message: expect.stringContaining(scenario.errorMessage)
+            })
+          })
+        ])
+      )
+      expect(service.projectActivitySnapshot().runs[0]?.pendingMessages).toHaveLength(
+        scenario.waitingCount + 1
+      )
+      const commands = runtime.active().commands
+      expect(commands).toHaveLength(scenario.waitingCount + 1)
+      const aborted = await database.kysely
+        .selectFrom('model_requests')
+        .select(['model_request_id', 'error_json'])
+        .where('status', '=', 'aborted')
+        .executeTakeFirstOrThrow()
+      expect(aborted.error_json).toBe(
+        JSON.stringify({ code: 'queue_authorization_failed', retryable: false })
+      )
+      expect(commands.map((command) => command.modelRequestId)).not.toContain(
+        aborted.model_request_id
+      )
+      expect(service.listEvents(session.agentSessionId).map((event) => event.type)).toEqual([
+        'user_message'
+      ])
+
+      await service.steer(run.agentRunId, 'Steer still works.')
+      expect(commands.at(-1)?.operation).toBe('steer')
+    } finally {
+      await service.abort(run.agentRunId)
+      await run.completion
+      database.close()
+    }
+  })
+
+  it('retries a failed request abort when concurrent Follow-ups reach capacity', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const content = 'é'.repeat(AGENT_PENDING_MESSAGE_MAX_BYTES / 8)
+    for (let index = 0; index < 3; index += 1) await service.followUp(run.agentRunId, content)
+
+    const abort = vi
+      .spyOn(ModelRequestRepository.prototype, 'abort')
+      .mockRejectedValueOnce(new Error('Could not record the request abort'))
+    try {
+      const attempts = await Promise.allSettled([
+        service.followUp(run.agentRunId, content),
+        service.followUp(run.agentRunId, content)
+      ])
+      expect(attempts).toEqual(
+        expect.arrayContaining([
+          { status: 'fulfilled', value: undefined },
+          {
+            status: 'rejected',
+            reason: new Error('Waiting messages cannot exceed 1 MiB in this run')
+          }
+        ])
+      )
+      await run.completion
+      const [rejectedRequestId, reason] = abort.mock.calls[0] ?? []
+      expect(reason).toBe('queue_authorization_failed')
+      expect(abort).toHaveBeenCalledWith(rejectedRequestId, 'agent_run_ended')
+      expect(runtime.active().commands).toHaveLength(4)
+      expect(await database.kysely.selectFrom('model_requests').select('status').execute()).toEqual(
+        Array.from({ length: 6 }, () => ({ status: 'aborted' }))
+      )
+    } finally {
+      abort.mockRestore()
+      await service.abort(run.agentRunId)
+      await run.completion
+      database.close()
+    }
+  })
+
   it('persists partial output as interrupted and aborts the model request on project close', async () => {
     const database = await createDatabase()
     const runtime = new FakeAgentRuntime()
@@ -457,6 +814,130 @@ describe('AgentSessionService: messages', () => {
     ])
     expect(events[1]?.payload).toMatchObject({ content: 'Partial draft', interrupted: true })
     database.close()
+  })
+
+  it('retries a failed abort started by run settlement', async () => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const modelRequestId = runtime.active().input.modelRequestId
+    const abort = vi
+      .spyOn(ModelRequestRepository.prototype, 'abort')
+      .mockRejectedValueOnce(new Error('Could not record the request abort'))
+    try {
+      await service.abort(run.agentRunId)
+      expect(abort.mock.calls).toEqual([
+        [modelRequestId, 'agent_run_ended'],
+        [modelRequestId, 'agent_run_ended']
+      ])
+      expect(
+        await database.kysely
+          .selectFrom('model_requests')
+          .select('status')
+          .where('model_request_id', '=', modelRequestId)
+          .executeTakeFirstOrThrow()
+      ).toEqual({ status: 'aborted' })
+    } finally {
+      abort.mockRestore()
+      database.close()
+    }
+  })
+
+  it.each([
+    { delivery: 'steer', end: 'Stop', status: 'interrupted' },
+    { delivery: 'followUp', end: 'Stop', status: 'interrupted' },
+    { delivery: 'promotion', end: 'project close', status: 'interrupted' },
+    { delivery: 'followUp', end: 'normal completion', status: 'completed' }
+  ] as const)('drains a pending $delivery save before $end', async ({ delivery, end, status }) => {
+    const database = await createDatabase()
+    const runtime = new FakeAgentRuntime()
+    const service = createService(database, runtime)
+    const session = service.createSession()
+    const run = await service.startRun({
+      agentSessionId: session.agentSessionId,
+      prompt: 'Keep working.',
+      editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
+    })
+    const active = runtime.active()
+    if (delivery === 'steer') await active.emit({ type: 'assistant_delta', delta: 'Partial draft' })
+    if (delivery === 'steer' || end === 'normal completion') {
+      await active.emit({
+        type: 'model_call_finished',
+        modelRequestId: active.input.modelRequestId,
+        outcome: 'succeeded',
+        metadata: metadata('response-before-queue-save')
+      })
+    }
+    if (delivery === 'promotion') await service.followUp(run.agentRunId, 'Adjust the draft.')
+    const pendingMessageId = active.commands[0]?.pendingMessageId
+    const saved = Promise.withResolvers<string>()
+    const release = Promise.withResolvers<void>()
+    const start = ModelRequestRepository.prototype.start
+    const save = vi
+      .spyOn(ModelRequestRepository.prototype, 'start')
+      .mockImplementationOnce(async function (this: ModelRequestRepository, input) {
+        const request = await start.call(this, input)
+        saved.resolve(request.modelRequestId)
+        await release.promise
+        return request
+      })
+    const submission = Promise.allSettled([
+      delivery === 'promotion'
+        ? service.steerPendingFollowUp(run.agentRunId, pendingMessageId ?? '')
+        : service[delivery](run.agentRunId, 'Adjust the draft.')
+    ])
+    try {
+      const modelRequestId = await Promise.race([saved.promise, submission.then(() => '')])
+      expect(modelRequestId).not.toBe('')
+      if (end === 'normal completion') active.resolve()
+      const ending =
+        end === 'Stop'
+          ? service.abort(run.agentRunId)
+          : end === 'project close'
+            ? service.close()
+            : run.completion
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(service.requireRun(run.agentRunId).status).toBe('running')
+      await expect(service.followUp(run.agentRunId, 'Too late.')).rejects.toThrow()
+      expect(save).toHaveBeenCalledTimes(1)
+
+      release.resolve()
+      await ending
+      expect(await submission).toEqual([expect.objectContaining({ status: 'rejected' })])
+      expect(service.requireRun(run.agentRunId).status).toBe(status)
+      expect(active.commands).toHaveLength(delivery === 'promotion' ? 1 : 0)
+      expect(
+        service.listEvents(session.agentSessionId).filter((event) => event.type === 'user_message')
+      ).toHaveLength(1)
+      if (delivery === 'steer') {
+        expect(service.listEvents(session.agentSessionId)).toContainEqual(
+          expect.objectContaining({
+            type: 'assistant_message',
+            modelRequestId: null,
+            payload: expect.objectContaining({ content: 'Partial draft', interrupted: true })
+          })
+        )
+      }
+      expect(
+        await database.kysely
+          .selectFrom('model_requests')
+          .select('status')
+          .where('model_request_id', '=', modelRequestId)
+          .executeTakeFirstOrThrow()
+      ).toEqual({ status: 'aborted' })
+    } finally {
+      release.resolve()
+      await submission
+      save.mockRestore()
+      await service.abort(run.agentRunId)
+      database.close()
+    }
   })
 
   it('records provider timeout as a failed run instead of a user interruption', async () => {
@@ -639,8 +1120,31 @@ describe('AgentSessionService: messages', () => {
       prompt: 'Current request',
       editorContext: { activeSectionId: null, activeBlockId: null, selectedBlockIds: [] }
     })
-    const firstModelRequestId = runtime.active(retried.agentRunId).input.modelRequestId
-    runtime.active(retried.agentRunId).reject(contextOverflowError())
+    const overflowedRun = runtime.active(retried.agentRunId)
+    const firstModelRequestId = overflowedRun.input.modelRequestId
+    const cleaningUp = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const abortRequest = ModelRequestRepository.prototype.abort
+    const abort = vi
+      .spyOn(ModelRequestRepository.prototype, 'abort')
+      .mockImplementation(async function (this: ModelRequestRepository, ...args) {
+        if (args[0] === firstModelRequestId) {
+          cleaningUp.resolve()
+          await release.promise
+        }
+        return abortRequest.apply(this, args)
+      })
+    overflowedRun.reject(contextOverflowError())
+    try {
+      await cleaningUp.promise
+      await expect(service.followUp(retried.agentRunId, 'Late queue input.')).rejects.toThrow(
+        'Earlier conversation is still being summarized'
+      )
+      expect(overflowedRun.commands).toEqual([])
+    } finally {
+      abort.mockRestore()
+      release.resolve()
+    }
     await vi.waitFor(() => {
       expect(runtime.active(retried.agentRunId).input.modelRequestId).not.toBe(firstModelRequestId)
     })
@@ -828,7 +1332,7 @@ describe('AgentSessionService: messages', () => {
     expect(started).toHaveLength(2)
 
     const relaunched = createService(database, new FakeAgentRuntime())
-    expect(relaunched.recoverInterruptedRuns()).toBe(2)
+    expect(recoverInterruptedAgentWork(database, log)).toBe(2)
     expect(await database.kysely.selectFrom('agent_runs').select('status').execute()).toEqual([
       { status: 'interrupted' },
       { status: 'interrupted' }
@@ -866,7 +1370,7 @@ describe('AgentSessionService: messages', () => {
     })
 
     const relaunched = createService(database, new FakeAgentRuntime())
-    expect(relaunched.recoverInterruptedRuns()).toBe(0)
+    expect(recoverInterruptedAgentWork(database, log)).toBe(0)
     expect(relaunched.listEvents(session.agentSessionId).at(-1)).toMatchObject({
       agentRunId: null,
       type: 'compaction_failed',

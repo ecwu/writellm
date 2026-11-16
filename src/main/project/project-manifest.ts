@@ -19,6 +19,16 @@ const projectManifestShape = z
 
 export type ProjectManifest = z.infer<typeof projectManifestShape>
 
+export class ProjectManifestError extends Error {
+  constructor(
+    readonly reason: 'manifest-missing' | 'manifest-unreadable' | 'manifest-invalid',
+    message: string,
+    cause: unknown
+  ) {
+    super(message, { cause })
+  }
+}
+
 export function createProjectManifest(options?: {
   projectId?: string
   createdAt?: string
@@ -41,14 +51,17 @@ export function parseProjectManifest(value: unknown): ProjectManifest {
 
 export async function writeProjectManifest(
   projectRoot: string,
-  manifest: ProjectManifest
+  manifest: ProjectManifest,
+  options?: { publishWithoutReplacement: true }
 ): Promise<void> {
   const destination = join(projectRoot, PROJECT_MANIFEST_FILE)
   try {
-    await writeAtomicFile(
+    const published = await writeAtomicFile(
       destination,
-      `${JSON.stringify(parseProjectManifest(manifest), null, 2)}\n`
+      `${JSON.stringify(parseProjectManifest(manifest), null, 2)}\n`,
+      options
     )
+    if (!published) throw new Error('Project manifest already exists')
   } catch (err) {
     throw new Error('Failed to write project manifest', { cause: err })
   }
@@ -59,12 +72,16 @@ export async function readProjectManifest(projectRoot: string): Promise<ProjectM
   try {
     text = await readFile(join(projectRoot, PROJECT_MANIFEST_FILE), 'utf8')
   } catch (err) {
-    throw new Error('Failed to read project manifest', { cause: err })
+    throw new ProjectManifestError(
+      (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'manifest-missing' : 'manifest-unreadable',
+      'Failed to read project manifest',
+      err
+    )
   }
 
   try {
     return parseProjectManifest(JSON.parse(text) as unknown)
   } catch (err) {
-    throw new Error('Invalid project manifest', { cause: err })
+    throw new ProjectManifestError('manifest-invalid', 'Invalid project manifest', err)
   }
 }

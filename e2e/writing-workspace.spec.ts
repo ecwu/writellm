@@ -4,7 +4,15 @@ import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { IPC_CHANNELS } from '../src/shared/contracts/channels'
-import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
+import {
+  expect,
+  expectActiveProject,
+  expectBlockedInlineHandlerReports,
+  launchApp,
+  scenario,
+  sectionEditor,
+  test
+} from './fixtures'
 import { createProject, closeProject } from './helpers/project'
 
 async function expectBriefTitle(page: Page, title: string): Promise<void> {
@@ -2411,6 +2419,8 @@ test(
   'renders and reopens project images, Mermaid, and block LaTeX with Markdown export',
   scenario('manuscript.rich-media-reopen-export', ['@packaged']),
   async ({ testRoot }) => {
+    // The diagram label carries an onerror payload; Mermaid sanitizes it in an inert document.
+    expectBlockedInlineHandlerReports()
     const projectName = 'Rich media workspace'
     const projectRoot = join(testRoot, `${projectName}.writellm`)
     const launched = await launchApp({

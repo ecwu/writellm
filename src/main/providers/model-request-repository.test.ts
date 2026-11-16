@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import { initializeProjectDatabase, type ProjectDatabase } from '../project/project-database'
 import { ModelRequestRepository } from './model-request-repository'
+import { completeModelCall, type ModelCallFinishedEvent } from '../agent/model-call-completion'
 
 const directories: string[] = []
 const log = pino({ level: 'silent' })
@@ -41,6 +42,108 @@ async function database(): Promise<ProjectDatabase> {
 
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true })))
+})
+
+describe.each(['writing', 'notebook'] as const)('%s model completion policy', (policy) => {
+  it.each([
+    { outcome: 'succeeded', status: 'succeeded', code: null, retryable: null },
+    { outcome: 'aborted', status: 'aborted', code: 'aborted', retryable: false },
+    { outcome: 'timed_out', status: 'failed', code: 'provider_timeout', retryable: true },
+    { outcome: 'failed', status: 'failed', code: 'provider_request_failed', retryable: false },
+    {
+      outcome: 'failed',
+      status: 'failed',
+      httpStatus: 429,
+      code: 'provider_retries_exhausted',
+      retryable: true,
+      failureCode: 'provider_retries_exhausted'
+    },
+    {
+      outcome: 'failed',
+      status: 'failed',
+      httpStatus: 503,
+      code: 'provider_request_failed',
+      retryable: true
+    },
+    {
+      outcome: 'failed',
+      status: 'failed',
+      httpStatus: 503,
+      explicitRetryable: false,
+      code: 'provider_request_failed',
+      retryable: policy === 'notebook'
+    },
+    {
+      outcome: 'failed',
+      status: 'failed',
+      httpStatus: 400,
+      explicitRetryable: true,
+      code: 'provider_request_failed',
+      retryable: true
+    },
+    {
+      outcome: 'timed_out',
+      status: 'failed',
+      httpStatus: 504,
+      code: 'provider_timeout',
+      retryable: true
+    }
+  ] as const)('persists $outcome with $httpStatus and $explicitRetryable', async (scenario) => {
+    const project = await database()
+    try {
+      const repository = new ModelRequestRepository(project, log)
+      const record = await repository.start({
+        operation: 'agent',
+        provider,
+        request: { prompt: 'PRIVATE-PROMPT' },
+        inputItems: 1,
+        retention: policy === 'notebook' ? 'metadata_only' : 'standard'
+      })
+      const event: ModelCallFinishedEvent = {
+        type: 'model_call_finished',
+        modelRequestId: record.modelRequestId,
+        outcome: scenario.outcome,
+        ...('httpStatus' in scenario ? { httpStatus: scenario.httpStatus } : {}),
+        ...('explicitRetryable' in scenario ? { retryable: scenario.explicitRetryable } : {}),
+        ...('failureCode' in scenario ? { failureCode: scenario.failureCode } : {}),
+        metadata: {
+          retryCount: 2,
+          providerModelId: 'writer-model',
+          responseIds: ['PRIVATE-RESPONSE-ID'],
+          usage: {
+            inputTokens: 10,
+            outputTokens: 4,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            estimatedCostUsdMicros: null
+          }
+        }
+      }
+      const failure = await completeModelCall(repository, event, policy)
+      expect(failure?.code ?? null).toBe(scenario.code)
+      const row = await project.kysely
+        .selectFrom('model_requests')
+        .selectAll()
+        .executeTakeFirstOrThrow()
+      expect(row.status).toBe(scenario.status)
+      const writingTimeout = policy === 'writing' && scenario.outcome === 'timed_out'
+      expect(row.retry_count).toBe(writingTimeout ? 0 : 2)
+      expect(row.response_ids_json).toBe(
+        policy === 'notebook' || writingTimeout ? '[]' : '["PRIVATE-RESPONSE-ID"]'
+      )
+      if (scenario.code === null) expect(row.error_json).toBeNull()
+      else
+        expect(JSON.parse(row.error_json as string)).toEqual({
+          code: scenario.code,
+          retryable: scenario.retryable,
+          ...(!writingTimeout && scenario.outcome !== 'aborted' && 'httpStatus' in scenario
+            ? { httpStatus: scenario.httpStatus }
+            : {})
+        })
+    } finally {
+      await project.close()
+    }
+  })
 })
 
 describe('ModelRequestRepository', () => {

@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Circle,
   CircleDot,
+  ClipboardList,
   FileText,
   LibraryBig,
   NotebookPen,
@@ -25,7 +26,8 @@ import {
   Settings2
 } from 'lucide-react'
 import { useEffect, useRef } from 'react'
-import { Button } from '@/components/ui/button'
+import { PanelIconButton, PanelTitle, panelHeaderClassName } from '@/components/panel-header'
+import { cn } from '@/lib/utils'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import {
   Sidebar,
@@ -138,28 +140,23 @@ export function AppSidebar({
   const content = (
     <Sidebar collapsible='none' className='min-w-0 flex-1 overflow-hidden'>
       {activeWorkspace === 'manuscript' || (!toolOnly && activeWorkspace === 'references') ? (
-        <SidebarHeader className='min-w-0 gap-3 border-b p-3'>
-          <div className='truncate text-sm font-medium' title={projectName}>
-            {projectName}
-          </div>
-          <div className='grid min-w-0 grid-cols-2 gap-2 overflow-hidden'>
-            <Button
-              className='w-full min-w-0 overflow-hidden px-2'
-              variant='outline'
-              size='sm'
-              onClick={onOpenBrief}
-            >
-              <span className='truncate'>Brief</span>
-            </Button>
-            <Button
-              className='w-full min-w-0 overflow-hidden px-2'
-              variant='outline'
-              size='sm'
-              onClick={onOpenOutlineEditor}
-            >
-              <Pencil /> <span className='truncate'>Edit outline</span>
-            </Button>
-          </div>
+        <SidebarHeader className={cn(panelHeaderClassName, 'min-w-0 pr-2')}>
+          <PanelTitle icon={ListTree} title={projectName} titleAttribute={projectName} as='div' />
+          <PanelIconButton label='Brief' onClick={onOpenBrief}>
+            <ClipboardList />
+          </PanelIconButton>
+          <PanelIconButton label='Edit outline' onClick={onOpenOutlineEditor}>
+            <Pencil />
+          </PanelIconButton>
+        </SidebarHeader>
+      ) : activeWorkspace === 'references' ? (
+        <SidebarHeader className={panelHeaderClassName}>
+          <PanelTitle icon={BookOpenText} title='References' />
+          {references.entries.length > 0 ? (
+            <span className='shrink-0 text-xs text-muted-foreground tabular-nums'>
+              {references.entries.length}
+            </span>
+          ) : null}
         </SidebarHeader>
       ) : null}
       <SidebarContent className={activeWorkspace === 'find' ? 'overflow-hidden' : undefined}>
@@ -201,7 +198,7 @@ export function AppSidebar({
                         <SidebarStatusIcon status={section.status} />
                         <span className='min-w-0 flex-1 truncate'>{section.title}</span>
                         <span
-                          className='shrink-0 text-[10px] text-muted-foreground tabular-nums'
+                          className='shrink-0 text-xs text-muted-foreground tabular-nums'
                           data-testid={`outline-word-count-${section.sectionId}`}
                         >
                           {revision.wordCount}
@@ -321,7 +318,7 @@ function ReferenceList(props: {
             <span className='shrink-0 font-medium tabular-nums'>[{entry.number}]</span>
             <span className='min-w-0 flex-1'>
               <span className='line-clamp-2 block leading-5'>{entry.title}</span>
-              <span className='block text-[11px] text-muted-foreground'>
+              <span className='block text-xs text-muted-foreground'>
                 {entry.count} {entry.count === 1 ? 'citation' : 'citations'}
               </span>
             </span>

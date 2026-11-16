@@ -945,9 +945,6 @@ export const saveSectionDocumentInputSchema = loadSectionInputSchema
 export const editorSectionSchema = z
   .object({ section: sectionSchema, revision: currentSectionRevisionSchema })
   .strict()
-export const openEditorResultSchema = z
-  .object({ activeSection: editorSectionSchema.nullable() })
-  .strict()
 export const saveSectionDocumentResultSchema = z
   .object({
     revision: sectionRevisionSchema,

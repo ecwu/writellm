@@ -1,7 +1,11 @@
 import { reportRendererOperationError } from '../../diagnostics'
 import {
   Check,
+  CheckCheck,
   ChevronRight,
+  FileText,
+  Files,
+  MessageSquare,
   MessageSquareText,
   Pencil,
   RefreshCcw,
@@ -26,7 +30,9 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { panelHeaderClassName } from '@/components/panel-header'
+import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -261,7 +267,7 @@ export function CommentsPanel(props: {
   if (detail !== null) {
     return (
       <div className='flex min-h-0 flex-1 flex-col'>
-        <div className='flex items-center gap-2 border-b p-3'>
+        <div className={cn(panelHeaderClassName, 'pl-2')}>
           <Button
             variant='ghost'
             size='icon-sm'
@@ -469,33 +475,41 @@ export function CommentsPanel(props: {
 
   return (
     <div className='flex min-h-0 flex-1 flex-col'>
-      <div className='space-y-3 border-b p-3'>
-        <Tabs value={status} onValueChange={(value) => setStatus(value as 'open' | 'resolved')}>
+      <div className={cn(panelHeaderClassName, 'px-3')}>
+        <Tabs
+          className='flex-1'
+          value={status}
+          onValueChange={(value) => setStatus(value as 'open' | 'resolved')}
+        >
           <TabsList className='w-full'>
             <TabsTrigger className='flex-1' value='open'>
-              Open
+              <MessageSquare /> Open
             </TabsTrigger>
             <TabsTrigger className='flex-1' value='resolved'>
-              Resolved
+              <CheckCheck /> Resolved
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <div className='relative'>
-          <Search className='absolute top-2.5 left-2.5 size-4 text-muted-foreground' />
-          <Input
-            className='pl-8'
+      </div>
+      <div className='flex flex-col gap-2 border-b p-3'>
+        <InputGroup>
+          <InputGroupInput
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder='Search comments'
           />
-        </div>
+          <InputGroupAddon>
+            <Search />
+          </InputGroupAddon>
+        </InputGroup>
         <Button
           variant='ghost'
           size='sm'
-          className='w-full justify-start'
+          className='w-full justify-start text-muted-foreground'
           onClick={() => setScope((value) => (value === 'all' ? 'section' : 'all'))}
           disabled={props.activeSectionId === null}
         >
+          {scope === 'section' ? <FileText /> : <Files />}
           {scope === 'section' ? 'Current section' : 'Whole manuscript'}
         </Button>
       </div>
@@ -637,7 +651,7 @@ function CommentActivity({
           </Badge>
           {activityProposalId !== null && activityAgentSessionId !== null ? (
             <Button
-              className='h-auto p-0 font-mono text-[11px]'
+              className='h-auto p-0 font-mono text-xs'
               variant='link'
               size='sm'
               onClick={() => onOpenProposal(activityProposalId, activityAgentSessionId)}
@@ -672,7 +686,7 @@ function CommentActivity({
                 </div>
                 {proposalId !== null && agentSessionId !== null ? (
                   <Button
-                    className='h-auto p-0 font-mono text-[11px]'
+                    className='h-auto p-0 font-mono text-xs'
                     variant='link'
                     size='sm'
                     onClick={() => onOpenProposal(proposalId, agentSessionId)}
@@ -781,9 +795,7 @@ function ProposalText(props: {
       <pre className='max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 font-mono text-xs'>
         {props.text || '—'}
       </pre>
-      {props.truncated ? (
-        <p className='text-[11px] text-muted-foreground'>Text truncated.</p>
-      ) : null}
+      {props.truncated ? <p className='text-xs text-muted-foreground'>Text truncated.</p> : null}
     </section>
   )
 }
@@ -796,9 +808,9 @@ function CommentActivitySummary({
   const activity = thread.activity
   if (!activity) return null
   return (
-    <span className='mt-1 flex items-center gap-1 text-[11px] text-muted-foreground'>
+    <span className='mt-1 flex items-center gap-1 text-xs text-muted-foreground'>
       <Badge
-        className='h-4 px-1.5 text-[10px]'
+        className='h-5 px-1.5 text-xs'
         variant={activity.status === 'failed' ? 'destructive' : 'secondary'}
       >
         {formatActivityStatus(activity.status)}

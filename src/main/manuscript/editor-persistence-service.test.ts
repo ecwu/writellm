@@ -66,6 +66,7 @@ describe('EditorPersistenceService', () => {
     const { database, manuscript, persistence } = await fixture()
     const opened = persistence.openEditor().activeSection
     if (opened === null) throw new Error('Missing section')
+    const getSection = vi.spyOn(manuscript, 'getSection')
     const native = database.read((connection) => connection)
     const decodedInTransaction: boolean[] = []
     const originalDecode = sectionContent.decodeStoredSectionContent
@@ -108,37 +109,44 @@ describe('EditorPersistenceService', () => {
       expect(decode).toHaveBeenCalledTimes(1)
       expect(decodedInTransaction).toEqual([false])
       expect(retry).toMatchObject({ disposition: 'unchanged', revision: first.revision })
+      expect(getSection).not.toHaveBeenCalled()
     } finally {
       decode.mockRestore()
+      getSection.mockRestore()
       database.close()
     }
   })
 
-  it('commits canonical JSON, atomically materializes it, and treats a lost-response retry as success', async () => {
-    const { projectRoot, database, persistence } = await fixture()
+  it('keeps an intact mirror on an identical retry and restores a missing one', async () => {
+    const beforeRename = vi.fn()
+    const { projectRoot, database, persistence } = await fixture({
+      beforeMaterializationRename: beforeRename
+    })
     const opened = persistence.openEditor().activeSection
     if (opened === null) throw new Error('Missing section')
     const document = [paragraph('stable-id', '你好 café')]
-    const first = await persistence.save({
+    const input = {
       projectSessionId: 'session',
       sectionId: opened.section.sectionId,
       baseRevisionId: opened.revision.sectionRevisionId,
       baseContentHash: opened.revision.contentHash,
       document
-    })
+    }
+    const first = await persistence.save(input)
     expect(first.disposition).toBe('saved')
-    const retry = await persistence.save({
-      projectSessionId: 'session',
-      sectionId: opened.section.sectionId,
-      baseRevisionId: opened.revision.sectionRevisionId,
-      baseContentHash: opened.revision.contentHash,
-      document
-    })
-    expect(retry).toMatchObject({ disposition: 'unchanged', revision: first.revision })
-    const bytes = await readFile(
-      resolveProjectPath(projectRoot, sectionMaterializationPath(opened.section.sectionId)),
-      'utf8'
+    expect(beforeRename).toHaveBeenCalledOnce()
+    const path = resolveProjectPath(
+      projectRoot,
+      sectionMaterializationPath(opened.section.sectionId)
     )
+    const expectedRetry = { disposition: 'unchanged', revision: first.revision }
+    await expect(persistence.save(input)).resolves.toEqual(expectedRetry)
+    expect(beforeRename).toHaveBeenCalledOnce()
+
+    await rm(path)
+    await expect(persistence.save(input)).resolves.toEqual(expectedRetry)
+    expect(beforeRename).toHaveBeenCalledTimes(2)
+    const bytes = await readFile(path, 'utf8')
     expect(JSON.parse(bytes)).toEqual({
       format: 'writellm-blocknote-section',
       formatVersion: 1,

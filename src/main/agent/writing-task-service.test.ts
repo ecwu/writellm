@@ -8,7 +8,7 @@ import {
   openProjectDatabase,
   type ProjectDatabase
 } from '../project/project-database'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { WritingTaskService } from './writing-task-service'
 
 const directories: string[] = []

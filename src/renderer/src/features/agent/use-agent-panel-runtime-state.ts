@@ -176,28 +176,33 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     )
   }, [runs])
 
+  const loadSessionCatalog = useCallback(async () => {
+    const [active, archived] = await Promise.all([
+      window.desktop.agent.listSessions({
+        projectSessionId: props.projectSessionId,
+        status: 'active'
+      }),
+      window.desktop.agent.listSessions({
+        projectSessionId: props.projectSessionId,
+        status: 'archived'
+      })
+    ])
+    const next = [...active, ...archived]
+    const selected = activeSessionIdRef.current
+    if (selected !== null && !next.some((session) => session.agentSessionId === selected)) {
+      next.push(
+        await window.desktop.agent.getSession({
+          projectSessionId: props.projectSessionId,
+          agentSessionId: selected
+        })
+      )
+    }
+    return { active, sessions: next }
+  }, [props.projectSessionId])
+
   const refreshSessions = useCallback(
     async (preferAttention = false): Promise<AgentSessionRecord[]> => {
-      const [active, archived] = await Promise.all([
-        window.desktop.agent.listSessions({
-          projectSessionId: props.projectSessionId,
-          status: 'active'
-        }),
-        window.desktop.agent.listSessions({
-          projectSessionId: props.projectSessionId,
-          status: 'archived'
-        })
-      ])
-      const next = [...active, ...archived]
-      const selected = activeSessionIdRef.current
-      if (selected !== null && !next.some((session) => session.agentSessionId === selected)) {
-        next.push(
-          await window.desktop.agent.getSession({
-            projectSessionId: props.projectSessionId,
-            agentSessionId: selected
-          })
-        )
-      }
+      const { active, sessions: next } = await loadSessionCatalog()
       setSessions(next)
       setActiveSessionId((current) => {
         if (
@@ -211,7 +216,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       })
       return next
     },
-    [props.projectSessionId]
+    [loadSessionCatalog]
   )
 
   const replacement = sessions.find(
@@ -271,7 +276,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
     async (
       agentSessionId: string
     ): Promise<{ runs: AgentRunRecord[]; proposals: MutationProposalRecord[] }> => {
-      const [nextRuns, nextProposals, activeSessions, archivedSessions] = await Promise.all([
+      const [nextRuns, nextProposals, { sessions: nextSessions }] = await Promise.all([
         window.desktop.agent.listRuns({
           projectSessionId: props.projectSessionId,
           agentSessionId
@@ -280,28 +285,8 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
           projectSessionId: props.projectSessionId,
           agentSessionId
         }),
-        window.desktop.agent.listSessions({
-          projectSessionId: props.projectSessionId,
-          status: 'active'
-        }),
-        window.desktop.agent.listSessions({
-          projectSessionId: props.projectSessionId,
-          status: 'archived'
-        })
+        loadSessionCatalog()
       ])
-      const nextSessions = [...activeSessions, ...archivedSessions]
-      const selected = activeSessionIdRef.current
-      if (
-        selected !== null &&
-        !nextSessions.some((session) => session.agentSessionId === selected)
-      ) {
-        nextSessions.push(
-          await window.desktop.agent.getSession({
-            projectSessionId: props.projectSessionId,
-            agentSessionId: selected
-          })
-        )
-      }
       setSessions(nextSessions)
       if (activeSessionIdRef.current !== agentSessionId) {
         return { runs: nextRuns, proposals: nextProposals }
@@ -310,7 +295,7 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
       setProposals(nextProposals)
       return { runs: nextRuns, proposals: nextProposals }
     },
-    [props.projectSessionId]
+    [loadSessionCatalog, props.projectSessionId]
   )
 
   useEffect(() => {
@@ -528,27 +513,20 @@ export function useAgentPanelRuntimeState(props: AgentPanelProps) {
           }
           if (rendererEvent.kind === 'activity') return
           setEvents((current) => mergeAgentEvents(current, rendererEvent.event))
-          const terminalRunId = rendererEvent.event.agentRunId
+          const eventRunId = rendererEvent.event.agentRunId
           if (
-            terminalRunId !== null &&
+            eventRunId !== null &&
             (rendererEvent.event.type === 'run_completed' ||
               rendererEvent.event.type === 'run_interrupted')
           ) {
-            terminalRunIdsRef.current.add(terminalRunId)
+            terminalRunIdsRef.current.add(eventRunId)
             setRuns((current) => applyAgentTerminalEvent(current, rendererEvent.event))
           }
-          if (
-            rendererEvent.event.type === 'user_message' &&
-            rendererEvent.event.agentRunId !== null &&
-            skillRoutingPendingRef.current.delete(rendererEvent.event.agentRunId)
-          ) {
+          if (rendererEvent.event.type === 'user_message' && eventRunId !== null) {
             // The linked initial user message is the first durable event guaranteed to be
             // published after skill preparation finished; tool-first runs and non-streaming
             // providers may not emit an early delta, so leave "Preparing writing guidance…" here.
-            void refreshSessionTruth(activeSessionId).catch((cause) => {
-              reportRendererOperationError(cause, 'agent.session.refresh')
-              props.onError(errorMessage(cause))
-            })
+            skillRoutingPendingRef.current.delete(eventRunId)
           }
           if (
             rendererEvent.event.type === 'user_message' ||

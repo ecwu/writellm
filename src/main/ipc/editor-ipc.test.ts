@@ -28,7 +28,6 @@ function harness(options: { snapshotFlushTimeoutMs?: number; projectRoot?: strin
     { sectionId: 'section-2', currentRevisionId: 'revision-2' }
   ]
   const editorPersistence = {
-    openEditor: vi.fn(),
     loadSection: vi.fn((sectionId: string) => ({
       section: {
         sectionId,
@@ -163,9 +162,12 @@ describe('editor IPC active-section final flush', () => {
     ).rejects.toThrow()
   })
 
-  it('tracks and verifies the active non-first section revision', async () => {
+  it('flushes the active non-first section after a different section is loaded', async () => {
     const { context, invoke, registration, sender } = harness()
-    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    await expect(
+      invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-1' })
+    ).resolves.toMatchObject({ revision: { sectionRevisionId: 'revision-1' } })
     await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
@@ -267,7 +269,7 @@ describe('editor IPC active-section final flush', () => {
 
   it('falls back safely when the previously active section was deleted', async () => {
     const { context, invoke, registration, sections } = harness()
-    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
     sections.pop()
     await expect(registration.closeParticipants.getCurrentRevision(context as never)).resolves.toBe(
       'revision-1'
@@ -300,7 +302,7 @@ describe('editor IPC active-section final flush', () => {
     const { context, invoke, logger, manager, registration, sender } = harness({
       snapshotFlushTimeoutMs: 10
     })
-    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
     await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
@@ -330,9 +332,9 @@ describe('editor IPC active-section final flush', () => {
     expect(logged.err).toBeInstanceOf(Error)
   })
 
-  it('labels whole-manuscript final flushes as export work', async () => {
-    const { context, invoke, manager, registration, sender } = harness()
-    await invoke(IPC_CHANNELS.editorLoadSection, { projectSessionId, sectionId: 'section-2' })
+  it('binds whole-manuscript final flushes to their export purpose', async () => {
+    const { context, editorPersistence, invoke, manager, registration, sender } = harness()
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
     await invoke(IPC_CHANNELS.editorSubscribeFlush, {
       projectSessionId,
       subscriptionId: '33333333-3333-4333-8333-333333333333'
@@ -348,6 +350,27 @@ describe('editor IPC active-section final flush', () => {
         sectionRevisionId: 'revision-2'
       })
     )
+    await expect(
+      invoke(IPC_CHANNELS.editorFinalFlushSave, {
+        projectSessionId,
+        closingToken: snapshotClosingToken,
+        purpose: 'mutation',
+        sectionId: 'section-2',
+        baseRevisionId: 'revision-2',
+        baseContentHash: 'a'.repeat(64),
+        document: []
+      })
+    ).rejects.toThrow('Final editor flush sender is not authorized')
+    await expect(
+      invoke(IPC_CHANNELS.editorFlushAck, {
+        projectSessionId,
+        closingToken: snapshotClosingToken,
+        purpose: 'mutation',
+        sectionId: 'section-2',
+        sectionRevisionId: 'revision-2'
+      })
+    ).rejects.toThrow('Editor flush acknowledgment is not authorized')
+    expect(editorPersistence.save).not.toHaveBeenCalled()
     await invoke(IPC_CHANNELS.editorFlushAck, {
       projectSessionId,
       closingToken: snapshotClosingToken,
@@ -359,10 +382,50 @@ describe('editor IPC active-section final flush', () => {
     expect(manager.completeSnapshotFlush).toHaveBeenCalledWith(snapshotClosingToken)
   })
 
+  it('can flush only metadata before a mutation outside the active section', async () => {
+    const { invoke, manuscript, registration, sender } = harness()
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    manuscript.getSection.mockClear()
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
+      projectSessionId,
+      subscriptionId: '33333333-3333-4333-8333-333333333333'
+    })
+
+    const flush = registration.flushForMutation(projectSessionId, ['section-1'], true)
+    const [channel, request] = sender.send.mock.calls[0] ?? []
+    expect(channel).toBe(IPC_CHANNELS.editorFlushRequest)
+    expect(request).toMatchObject({
+      purpose: 'mutation',
+      bodyRequired: false,
+      sectionId: 'section-2',
+      sectionRevisionId: 'revision-2'
+    })
+    expect(manuscript.getSection).not.toHaveBeenCalled()
+    await invoke(IPC_CHANNELS.editorFlushAck, request)
+    await flush
+    expect(manuscript.getSection).toHaveBeenCalledExactlyOnceWith('section-2')
+  })
+
+  it('clears the active section and cancels an outstanding request when Main revokes the session', async () => {
+    const { context, invoke, registration } = harness()
+    await invoke(IPC_CHANNELS.editorSetActiveSection, { projectSessionId, sectionId: 'section-2' })
+    await invoke(IPC_CHANNELS.editorSubscribeFlush, {
+      projectSessionId,
+      subscriptionId: '33333333-3333-4333-8333-333333333333'
+    })
+
+    const flush = registration.flushForMutation(projectSessionId, ['section-2'])
+    registration.revokeSession(projectSessionId)
+    await expect(flush).rejects.toThrow('Editor flush session was revoked')
+    await expect(registration.closeParticipants.getCurrentRevision(context as never)).resolves.toBe(
+      'revision-1'
+    )
+  })
+
   it('exports one section with current CAS and manuscript-wide citation numbers', async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), 'writellm-editor-markdown-'))
     temporaryDirectories.push(projectRoot)
-    const { invoke, manuscript } = harness({ projectRoot })
+    const { editorPersistence, invoke, manuscript } = harness({ projectRoot })
     manuscript.assemble.mockReturnValue(citationAssembly())
 
     await expect(
@@ -387,10 +450,12 @@ describe('editor IPC active-section final flush', () => {
     )
     expect(markdown).toBe('[2] and [1]\n')
     expect(markdown).not.toContain('References')
+    expect(editorPersistence.loadSection).not.toHaveBeenCalled()
+    expect(manuscript.assemble).toHaveBeenCalledTimes(2)
   })
 
   it('logs the original export error while the renderer receives no absolute path', async () => {
-    const { editorPersistence, invoke, logger } = harness()
+    const { editorPersistence, invoke, logger, manuscript } = harness()
     const absolutePath = '/Users/private/project/manuscript/exports/section-1.blocknote.json'
     const original = new Error(`ENOENT: no such file or directory, open '${absolutePath}'`)
     original.stack = `Error: ENOENT: no such file or directory\n    at save (${absolutePath}:1:1)`
@@ -411,7 +476,7 @@ describe('editor IPC active-section final flush', () => {
     expect(nativeJsonLog.event).toBe('editor.export_native_json.failed')
     expect(nativeJsonLog.err).toBe(original)
 
-    editorPersistence.loadSection.mockImplementationOnce(() => {
+    manuscript.assemble.mockImplementationOnce(() => {
       throw original
     })
     const markdownFailure = await Promise.resolve(

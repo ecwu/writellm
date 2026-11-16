@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { ManuscriptAssetService } from '../manuscript/asset-service'
 import { MutationProposalService } from './mutation-service'
-import { AgentToolDomainError } from './read-tools'
+import { AgentToolDomainError } from './tool-errors'
 import { AgentContextBuilder } from './context'
 import { MainAgentTools } from './tools'
 import {

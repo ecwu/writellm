@@ -1,15 +1,15 @@
 import { reportRendererOperationError } from '../diagnostics'
 import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
-export { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 import { rendererQueryKeys } from '@/lib/query-keys'
 import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowDownWideNarrow,
   ArrowLeft,
-  Bot,
+  Binary,
   BookOpen,
-  Braces,
+  Bot,
   FileArchive,
   FileOutput,
   FolderOpen,
@@ -19,12 +19,23 @@ import {
   KeyRound,
   Monitor,
   Moon,
+  Hand,
+  Hash,
   Palette,
+  PenLine,
+  Quote,
+  ScanText,
   Settings2,
   ShieldAlert,
+  Sparkles,
   Sun,
-  X
+  Text,
+  WandSparkles,
+  X,
+  Zap
 } from 'lucide-react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
+import { SettingsPageHeader } from '@/components/settings-page-header'
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
 import type {
   AccentPreference,
@@ -38,13 +49,7 @@ import type { PublicationPresetSnapshot } from '../../../shared/contracts/public
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import {
-  CommandDialog,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-  CommandShortcut
-} from '@/components/ui/command'
+import { CommandDialog, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
 import { DialogClose } from '@/components/ui/dialog'
 import {
   Field,
@@ -100,11 +105,11 @@ export const settingsSections: Array<{
 }> = [
   { id: 'general', label: 'General', icon: Settings2 },
   { id: 'agent', label: 'Agent API', icon: Bot },
-  { id: 'default-models', label: 'Default Models', icon: Braces },
-  { id: 'skills', label: 'Writing Skills', icon: BookOpen },
-  { id: 'embedding', label: 'Embedding API', icon: Braces },
-  { id: 'rerank', label: 'Reranking API', icon: Braces },
-  { id: 'mineru', label: 'MinerU API', icon: KeyRound },
+  { id: 'default-models', label: 'Default Models', icon: Sparkles },
+  { id: 'skills', label: 'Writing Skills', icon: WandSparkles },
+  { id: 'embedding', label: 'Embedding API', icon: Binary },
+  { id: 'rerank', label: 'Reranking API', icon: ArrowDownWideNarrow },
+  { id: 'mineru', label: 'MinerU API', icon: ScanText },
   { id: 'image', label: 'Image API', icon: ImageIcon },
   { id: 'publication', label: 'Publication', icon: FileOutput },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
@@ -319,9 +324,8 @@ export function SettingsCommand({
         <aside
           className={`${mobileSectionOpen ? 'hidden md:flex' : 'flex'} min-h-0 flex-col border-r bg-muted/30`}
         >
-          <div className='flex h-14 items-center gap-2 border-b px-4'>
-            <Settings2 />
-            <h1 className='font-semibold'>Settings</h1>
+          <div className={panelHeaderClassName}>
+            <PanelTitle icon={Settings2} title='Settings' as='h1' />
             <div className='ml-auto md:hidden'>
               <SettingsCloseButton />
             </div>
@@ -344,13 +348,14 @@ export function SettingsCommand({
                       setMobileSectionOpen(true)
                     }}
                   >
-                    <Icon /> {item.label}
+                    <Icon /> <span className='min-w-0 flex-1 truncate'>{item.label}</span>
                     {provider ? (
-                      <CommandShortcut>
-                        <Badge variant={provider.available ? 'default' : 'secondary'}>
-                          {provider.available ? 'Ready' : 'Setup'}
-                        </Badge>
-                      </CommandShortcut>
+                      <Badge
+                        className='ml-auto'
+                        variant={provider.available ? 'default' : 'secondary'}
+                      >
+                        {provider.available ? 'Ready' : 'Setup'}
+                      </Badge>
                     ) : null}
                   </CommandItem>
                 )
@@ -473,26 +478,27 @@ export function GeneralSettings({
   return (
     <ScrollArea className='h-full'>
       <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
-        <header className='flex items-start gap-3'>
-          <div className='min-w-0 flex-1'>
-            <h2 className='text-xl font-semibold'>General</h2>
-          </div>
-          {closeAction}
-        </header>
+        <SettingsPageHeader
+          icon={Settings2}
+          title='General'
+          description='Theme, citation display, and conversation approval for every project.'
+          closeAction={closeAction}
+        />
 
         <div className='flex flex-col gap-10'>
           <FieldSet>
-            <FieldLegend>Appearance</FieldLegend>
+            <FieldLegend className='flex items-center gap-2'>
+              <Palette className='size-4 text-muted-foreground' aria-hidden='true' /> Appearance
+            </FieldLegend>
             <FieldGroup>
-              <Field orientation='responsive'>
-                <FieldContent className='min-w-0'>
-                  <FieldTitle id='theme-mode'>Theme</FieldTitle>
-                </FieldContent>
+              <Field>
+                <FieldTitle id='theme-mode'>Theme</FieldTitle>
                 <ToggleGroup
                   type='single'
                   value={theme}
                   aria-labelledby='theme-mode'
                   variant='outline'
+                  className='flex-wrap justify-start'
                   onValueChange={(value) => {
                     if (value) void onTheme(value as ThemePreference)
                   }}
@@ -534,7 +540,9 @@ export function GeneralSettings({
           </FieldSet>
 
           <FieldSet>
-            <FieldLegend>Writing</FieldLegend>
+            <FieldLegend className='flex items-center gap-2'>
+              <PenLine className='size-4 text-muted-foreground' aria-hidden='true' /> Writing
+            </FieldLegend>
             <FieldGroup>
               <Field>
                 <FieldTitle id='citation-display'>Citation display</FieldTitle>
@@ -551,17 +559,27 @@ export function GeneralSettings({
                     if (value) void onCitationDisplayMode(value as CitationDisplayMode)
                   }}
                 >
-                  <ToggleGroupItem value='full'>Full</ToggleGroupItem>
-                  <ToggleGroupItem value='numbered'>[1]</ToggleGroupItem>
-                  <ToggleGroupItem value='formatted'>Formatted</ToggleGroupItem>
-                  <ToggleGroupItem value='icon'>Icon</ToggleGroupItem>
+                  <ToggleGroupItem value='full'>
+                    <Text /> Full
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='numbered'>
+                    <Hash /> [1]
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='formatted'>
+                    <Quote /> Formatted
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='icon'>
+                    <BookOpen /> Icon
+                  </ToggleGroupItem>
                 </ToggleGroup>
               </Field>
             </FieldGroup>
           </FieldSet>
 
           <FieldSet>
-            <FieldLegend>Agent defaults</FieldLegend>
+            <FieldLegend className='flex items-center gap-2'>
+              <Bot className='size-4 text-muted-foreground' aria-hidden='true' /> Agent defaults
+            </FieldLegend>
             <FieldGroup>
               <Field>
                 <FieldTitle id='approval-mode'>Default approval</FieldTitle>
@@ -576,9 +594,15 @@ export function GeneralSettings({
                     if (value) void onApprovalMode(value as AgentApprovalMode)
                   }}
                 >
-                  <ToggleGroupItem value='manual'>Manual</ToggleGroupItem>
-                  <ToggleGroupItem value='section_auto'>Write Auto</ToggleGroupItem>
-                  <ToggleGroupItem value='yolo'>YOLO</ToggleGroupItem>
+                  <ToggleGroupItem value='manual'>
+                    <Hand /> Manual
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='section_auto'>
+                    <PenLine /> Write Auto
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value='yolo'>
+                    <Zap /> YOLO
+                  </ToggleGroupItem>
                 </ToggleGroup>
               </Field>
             </FieldGroup>
@@ -597,16 +621,12 @@ export function KeyboardShortcutsSettings({
   return (
     <ScrollArea className='h-full'>
       <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
-        <header className='flex items-start gap-3'>
-          <div className='min-w-0 flex-1'>
-            <h2 className='text-xl font-semibold'>Keyboard Shortcuts</h2>
-            <p className='text-sm text-muted-foreground'>
-              Application, editor, and Agent input commands. Shortcuts are fixed and cannot be
-              customized.
-            </p>
-          </div>
-          {closeAction}
-        </header>
+        <SettingsPageHeader
+          icon={Keyboard}
+          title='Keyboard Shortcuts'
+          description='Application, editor, and Agent input commands. Shortcuts are fixed and cannot be customized.'
+          closeAction={closeAction}
+        />
 
         <p className='text-sm text-muted-foreground'>
           Use the sidebar and Agent buttons to show or hide panels. Text formatting shortcuts do not
@@ -659,12 +679,12 @@ export function AboutDiagnosticsSettings({
   return (
     <ScrollArea className='h-full'>
       <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
-        <header className='flex items-start gap-3'>
-          <div className='min-w-0 flex-1'>
-            <h2 className='text-xl font-semibold'>About & Diagnostics</h2>
-          </div>
-          {closeAction}
-        </header>
+        <SettingsPageHeader
+          icon={Info}
+          title='About & Diagnostics'
+          description='Version, credential storage, and support diagnostics.'
+          closeAction={closeAction}
+        />
 
         <FieldGroup>
           <Field orientation='responsive'>

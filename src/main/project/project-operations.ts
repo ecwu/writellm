@@ -1,3 +1,6 @@
+import type { ProjectContext } from './project-context'
+import type { ProjectManager } from './project-manager'
+
 export class ProjectOperationRegistry {
   readonly #controllers = new Set<AbortController>()
   #mutationsPaused = false
@@ -26,5 +29,21 @@ export class ProjectOperationRegistry {
 
   assertMutationsAllowed(): void {
     if (this.#mutationsPaused) throw new Error('Project mutations are temporarily paused')
+  }
+}
+
+export async function runCancellableProjectRequest<T>(
+  context: ProjectContext,
+  manager: Pick<ProjectManager, 'assertActiveSession'>,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController()
+  const release = context.operations?.track(controller)
+  try {
+    const result = await run(controller.signal)
+    manager.assertActiveSession(context.projectSessionId)
+    return result
+  } finally {
+    release?.()
   }
 }

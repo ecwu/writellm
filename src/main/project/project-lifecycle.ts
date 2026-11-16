@@ -1,6 +1,5 @@
 import { mkdir, realpath, rm, stat } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
-import Database from 'better-sqlite3'
 import type { Logger } from 'pino'
 import {
   createProjectManifest,
@@ -10,7 +9,6 @@ import {
 import { initializeProjectDatabase } from './project-database'
 import { ProjectWriteLock, type ProjectLockOptions } from './project-lock'
 import {
-  INDEX_DATABASE_RELATIVE_PATH,
   KNOWLEDGE_ORIGINALS_DIRECTORY,
   KNOWLEDGE_PARSED_DIRECTORY,
   MANUSCRIPT_ASSETS_DIRECTORY,
@@ -36,9 +34,6 @@ const PROJECT_DIRECTORIES = [
   PROJECT_BACKUPS_DIRECTORY,
   PROJECT_RECOVERY_DIRECTORY
 ] as const
-
-// This marks the file's role without creating any search schema. The index worker owns that schema.
-export const INDEX_DATABASE_APPLICATION_ID = 0x574c4958
 
 export interface CreatedProject {
   projectRoot: string
@@ -102,19 +97,6 @@ async function validateDestination(
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
   }
   return canonicalDestination
-}
-
-function initializeIndexDatabase(projectRoot: string): void {
-  const database = new Database(resolveProjectPath(projectRoot, INDEX_DATABASE_RELATIVE_PATH))
-  try {
-    database.pragma('journal_mode = WAL')
-    database.pragma('synchronous = NORMAL')
-    database.pragma('foreign_keys = ON')
-    database.pragma('busy_timeout = 5000')
-    database.pragma(`application_id = ${INDEX_DATABASE_APPLICATION_ID}`)
-  } finally {
-    database.close()
-  }
 }
 
 async function readInitialRecords(options: {
@@ -195,7 +177,6 @@ export async function createProject(options: CreateProjectOptions): Promise<Crea
     const { manuscriptId, manuscriptBriefId, initialSectionId } = await readInitialRecords({
       projectDatabase
     })
-    initializeIndexDatabase(destination)
     projectDatabase.close()
     projectDatabase = undefined
 

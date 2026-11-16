@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises'
+import { lstat, readFile, rm } from 'node:fs/promises'
 import type { Logger } from 'pino'
 import {
   blockNoteDocumentSchema,
@@ -106,10 +106,9 @@ export class EditorPersistenceService {
         `Revision source class '${requestedClass}' is not allowed on the '${source}' save channel`
       )
     }
-    const previousRevisionId = this.#manuscript.getSection(input.sectionId).currentRevisionId
-    let revision: SectionRevision
+    let write: ReturnType<ManuscriptService['appendValidatedRevision']>
     try {
-      revision = this.#manuscript.appendValidatedRevision({
+      write = this.#manuscript.appendValidatedRevision({
         sectionId: input.sectionId,
         baseRevisionId: input.baseRevisionId,
         baseContentHash: input.baseContentHash,
@@ -130,10 +129,11 @@ export class EditorPersistenceService {
       throw err
     }
 
-    const unchanged = revision.sectionRevisionId === previousRevisionId
+    const { revision, unchanged } = write
     try {
       await this.#faults.afterDatabaseCommit?.()
-      await this.materialize(revision)
+      if (unchanged) await this.#ensureMaterialized(revision)
+      else await this.materialize(revision)
       this.pruneRevisionBodies(input.sectionId)
       this.#log.info(
         {
@@ -165,7 +165,7 @@ export class EditorPersistenceService {
     for (const section of this.#manuscript.listSections()) {
       const revision = this.#manuscript.getRevision(section.currentRevisionId)
       try {
-        if (!(await this.#isCurrentMaterialization(revision))) await this.materialize(revision)
+        await this.#ensureMaterialized(revision)
       } catch (err) {
         this.#log.error(
           {
@@ -193,6 +193,12 @@ export class EditorPersistenceService {
     await this.#serializePublication(revision.sectionId, () =>
       this.#materialize(revision, assertAuthorized)
     )
+  }
+
+  async #ensureMaterialized(revision: SectionRevision): Promise<void> {
+    await this.#serializePublication(revision.sectionId, async () => {
+      if (!(await this.#isCurrentMaterialization(revision))) await this.#materialize(revision)
+    })
   }
 
   async #materialize(revision: SectionRevision, assertAuthorized?: () => void): Promise<void> {
@@ -310,10 +316,10 @@ export class EditorPersistenceService {
     const path = resolveProjectPath(this.#projectRoot, expectedPath)
     let bytes: Buffer
     try {
+      if (!(await lstat(path)).isFile()) return false
       bytes = await readFile(path)
     } catch (err) {
       if (err instanceof Error && 'code' in err && err.code === 'ENOENT') return false
-      // ensureCurrentMaterializations owns the original I/O error and safe section context.
       throw err
     }
     if (bytes.byteLength !== row.byte_size || hashSha256(bytes) !== row.file_sha256) return false

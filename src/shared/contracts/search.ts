@@ -54,6 +54,8 @@ const searchDebugSchema = z
   })
   .strict()
 
+export const KNOWLEDGE_CHUNK_ASSET_LIMIT = 2_000
+
 export const knowledgeSearchHitSchema = z
   .object({
     citationId: citationIdSchema,
@@ -66,7 +68,7 @@ export const knowledgeSearchHitSchema = z
     page: z.number().int().nonnegative().optional(),
     headingPath: z.array(z.string().max(1_000)).max(20),
     sourceBlockIds: z.array(z.string().min(1).max(100)).max(1_000),
-    assetRefs: z.array(z.string().min(1).max(1_024)).max(2_000),
+    assetRefs: z.array(z.string().min(1).max(1_024)).max(KNOWLEDGE_CHUNK_ASSET_LIMIT),
     debug: searchDebugSchema
   })
   .strict()

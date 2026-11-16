@@ -3,14 +3,14 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
-  Braces,
+  Binary,
   Check,
   FileSearch,
   FolderOpen,
   FolderPlus,
-  KeyRound,
+  ScanText,
   LibraryBig,
-  ListFilter,
+  ArrowDownWideNarrow,
   NotebookPen,
   ShieldCheck,
   Sparkles
@@ -78,19 +78,19 @@ const onboardingSteps: Array<{
     id: 'embedding',
     label: 'Embedding',
     description: 'Index your source library',
-    icon: Braces
+    icon: Binary
   },
   {
     id: 'rerank',
     label: 'Reranking',
     description: 'Prioritize useful evidence',
-    icon: ListFilter
+    icon: ArrowDownWideNarrow
   },
   {
     id: 'mineru',
     label: 'MinerU',
     description: 'Parse complex documents',
-    icon: KeyRound
+    icon: ScanText
   },
   {
     id: 'project',

@@ -1,5 +1,6 @@
 import { reportRendererOperationError } from '../../diagnostics'
-import { Check, Plus, Save, Trash2 } from 'lucide-react'
+import { Check, FileOutput, FileText, Plus, Save, Trash2 } from 'lucide-react'
+import { SettingsPageHeader } from '@/components/settings-page-header'
 import { useEffect, useState } from 'react'
 import type {
   PublicationPreset,
@@ -68,15 +69,14 @@ export function PublicationPresetsSettings(props: {
 
   return (
     <div className='grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]'>
-      <header className='flex items-start gap-3 border-b p-6 lg:px-8'>
-        <div className='min-w-0 flex-1'>
-          <h2 className='text-xl font-semibold'>Publication presets</h2>
-          <p className='text-sm text-muted-foreground'>
-            Shared page and structure settings for Word, LaTeX, and PDF exports.
-          </p>
-        </div>
-        {props.closeAction}
-      </header>
+      <div className='border-b p-6 lg:px-8'>
+        <SettingsPageHeader
+          icon={FileOutput}
+          title='Publication presets'
+          description='Shared page and structure settings for Word, LaTeX, and PDF exports.'
+          closeAction={props.closeAction}
+        />
+      </div>
       <div className='grid min-h-0 md:grid-cols-[16rem_minmax(0,1fr)]'>
         <ScrollArea className='border-r'>
           <div className='grid gap-2 p-3'>
@@ -84,16 +84,17 @@ export function PublicationPresetsSettings(props: {
               <Plus /> New preset
             </Button>
             {props.snapshot.presets.map((preset) => (
-              <button
-                type='button'
+              <Button
                 key={preset.presetId}
-                className='flex items-center gap-2 rounded-md border p-3 text-left hover:bg-muted/50'
+                variant={preset.presetId === selected?.presetId ? 'secondary' : 'ghost'}
+                className='h-auto w-full min-w-0 justify-start px-3 py-2'
                 data-selected={preset.presetId === selected?.presetId}
                 onClick={() => setSelectedId(preset.presetId)}
               >
-                <span className='min-w-0 flex-1 truncate text-sm font-medium'>{preset.name}</span>
-                {preset.isDefault ? <Check className='size-4 text-primary' /> : null}
-              </button>
+                <FileText className='text-muted-foreground' />
+                <span className='min-w-0 flex-1 truncate text-left'>{preset.name}</span>
+                {preset.isDefault ? <Check className='text-primary' /> : null}
+              </Button>
             ))}
           </div>
         </ScrollArea>

@@ -12,7 +12,7 @@ import {
   restoreProjectDatabase,
   restoreProjectSnapshot
 } from './project-snapshot'
-import { resolveProjectPath } from './project-paths'
+import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from './project-paths'
 import Database from 'better-sqlite3'
 
 const directories: string[] = []
@@ -285,7 +285,7 @@ describe('project snapshots', () => {
     ).rejects.toThrow('Project database restore failed')
   })
 
-  it('rejects traversal and case-colliding snapshot inventory paths', () => {
+  it('rejects traversal, derived index files, and case-colliding snapshot inventory paths', () => {
     const base = {
       snapshotFormat: 'writellm-project-snapshot',
       snapshotFormatVersion: 1,
@@ -299,6 +299,21 @@ describe('project snapshots', () => {
       indexRebuildRequired: true,
       database: { path: '.writellm/project.sqlite', sha256: 'b'.repeat(64), size: 1 },
       files: []
+    }
+    for (const suffix of ['', '-wal', '-shm']) {
+      expect(() =>
+        parseProjectSnapshotManifest({
+          ...base,
+          files: [
+            {
+              relativePath: `${INDEX_DATABASE_RELATIVE_PATH}${suffix}`,
+              role: 'fixture',
+              sha256: 'c'.repeat(64),
+              size: 1
+            }
+          ]
+        })
+      ).toThrow('Snapshot inventory contains an excluded path')
     }
     expect(() =>
       parseProjectSnapshotManifest({

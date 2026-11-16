@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -16,6 +17,8 @@ import {
   ExternalLink,
   IndentDecrease,
   IndentIncrease,
+  ListTree,
+  Pencil,
   Plus,
   RotateCcw,
   Trash2,
@@ -415,6 +418,7 @@ export function OutlineEditPanel(props: {
             <header className='flex shrink-0 flex-col gap-4 border-b p-4 md:flex-row md:items-center md:px-6'>
               <DialogHeader className='min-w-0 flex-1'>
                 <div className='flex items-center gap-2'>
+                  <Pencil className='size-4 text-muted-foreground' aria-hidden='true' />
                   <DialogTitle>Outline editor</DialogTitle>
                   <Badge
                     variant={saveState === 'failed' ? 'destructive' : 'outline'}
@@ -440,7 +444,7 @@ export function OutlineEditPanel(props: {
                   disabled={busy || titleInvalid}
                   onClick={() => void requestClose()}
                 >
-                  Done
+                  <Check data-icon='inline-start' /> Done
                 </Button>
                 <Button
                   variant='ghost'
@@ -459,10 +463,13 @@ export function OutlineEditPanel(props: {
                 className={`${mobileDetailOpen ? 'hidden md:flex' : 'flex'} min-h-0 min-w-0 flex-col border-r`}
                 aria-label='Outline tree'
               >
-                <div className='flex shrink-0 flex-col gap-2 border-b p-4'>
+                <div className='relative flex h-16 shrink-0 flex-col justify-center border-b px-4'>
                   <div className='flex items-center justify-between gap-3'>
-                    <div>
-                      <h2 className='font-medium'>Manuscript outline</h2>
+                    <div className='min-w-0'>
+                      <h2 className='flex items-center gap-2 text-sm font-semibold'>
+                        <ListTree className='size-4 text-muted-foreground' aria-hidden='true' />
+                        Manuscript outline
+                      </h2>
                       <p className='text-xs text-muted-foreground'>
                         {completedCount} of {props.workspace.sections.length} sections completed
                       </p>
@@ -472,6 +479,7 @@ export function OutlineEditPanel(props: {
                     </Badge>
                   </div>
                   <Progress
+                    className='absolute inset-x-0 bottom-0 h-1 rounded-none'
                     value={completion}
                     aria-label={`${completedCount} of ${props.workspace.sections.length} sections completed`}
                   />
@@ -581,7 +589,7 @@ export function OutlineEditPanel(props: {
               >
                 {selectedSection && selectedSummary && draft ? (
                   <>
-                    <div className='flex shrink-0 items-center gap-3 border-b p-4 md:px-6'>
+                    <div className='flex h-16 shrink-0 items-center gap-3 border-b px-4 md:px-6'>
                       <Button
                         variant='ghost'
                         size='icon-sm'
@@ -594,7 +602,7 @@ export function OutlineEditPanel(props: {
                         <ArrowLeft />
                       </Button>
                       <div className='min-w-0 flex-1'>
-                        <h2 className='truncate font-medium'>{selectedSection.title}</h2>
+                        <h2 className='truncate text-sm font-semibold'>{selectedSection.title}</h2>
                         <p className='text-xs text-muted-foreground'>
                           Level {selectedSection.level} ·{' '}
                           {selectedSummary.revision.wordCount.toLocaleString()} words

@@ -357,7 +357,7 @@ function MappingInspector(props: {
             <p className='text-xs text-muted-foreground'>
               Provider block {props.selectedRegion.providerBlockId ?? 'unidentified'}
             </p>
-            <p className='break-all font-mono text-[11px] text-muted-foreground'>
+            <p className='break-all font-mono text-xs text-muted-foreground'>
               Normalized: {props.selectedRegion.normalizedBlockIds.join(', ')}
             </p>
             {props.selectedRegion.bbox === null ? (
@@ -455,7 +455,7 @@ function ChunkInspector(props: {
             {props.chunk.embedding.modelId} · {props.chunk.embedding.dimension}d · norm{' '}
             {props.chunk.embedding.norm.toFixed(4)}
           </p>
-          <code className='break-all rounded bg-muted p-2 text-[10px] leading-4'>
+          <code className='break-all rounded bg-muted p-2 font-mono text-xs'>
             [{props.chunk.embedding.preview.map((value) => value.toFixed(6)).join(', ')}
             {props.chunk.embedding.dimension > 16 ? ', …' : ''}]
           </code>

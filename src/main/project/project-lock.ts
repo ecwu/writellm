@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readdir, rename, rmdir, unlink, type FileHandle } from 'node:fs/promises'
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  unlink,
+  type FileHandle
+} from 'node:fs/promises'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type { Logger } from 'pino'
 import { PROJECT_LOCK_RELATIVE_PATH, resolveProjectPath } from './project-paths'
 
@@ -38,9 +48,16 @@ export interface RecoverStaleProjectLockOptions extends ProjectLockOptions {
 }
 
 export class ProjectLockContendedError extends Error {
-  constructor() {
+  readonly #projectRoot?: string
+
+  constructor(projectRoot?: string) {
     super('Project is already locked for writing')
     this.name = 'ProjectLockContendedError'
+    this.#projectRoot = projectRoot
+  }
+
+  get projectRoot(): string | undefined {
+    return this.#projectRoot
   }
 }
 
@@ -105,10 +122,10 @@ async function readMetadataFile(file: FileHandle): Promise<ProjectLockMetadata> 
   return parseMetadata(await file.readFile('utf8'))
 }
 
-async function readCurrentMetadata(
+async function readCurrentLock(
   projectRoot: string,
   logger: ProjectLockOptions['logger']
-): Promise<ProjectLockMetadata | null> {
+): Promise<{ metadata: ProjectLockMetadata; metadataPath: string } | null> {
   const directory = lockDirectory(projectRoot)
   let entries: string[]
   try {
@@ -119,22 +136,25 @@ async function readCurrentMetadata(
     throw new Error('Failed to inspect project lock', { cause: err })
   }
 
-  const metadataFiles = entries.filter((entry) => entry.endsWith(LOCK_METADATA_SUFFIX))
-  if (metadataFiles.length !== 1 || entries.length !== 1) {
+  const [entry] = entries
+  if (entries.length !== 1 || entry === undefined || !entry.endsWith(LOCK_METADATA_SUFFIX)) {
     const err = new Error('Project lock directory has invalid contents')
     logger.error({ err, event: 'project_lock_invalid' }, 'Project lock is invalid')
     throw new ProjectLockRecoveryError('Project lock requires explicit recovery', { cause: err })
   }
 
+  const metadataPath = join(directory, entry)
   try {
-    const text = await open(join(directory, metadataFiles[0]), 'r').then(async (file) => {
-      try {
-        return await file.readFile('utf8')
-      } finally {
-        await file.close()
+    const file = await open(metadataPath, 'r')
+    try {
+      const metadata = await readMetadataFile(file)
+      if (metadataFileName(metadata.ownerToken) !== entry) {
+        throw new Error('Project lock owner does not match its metadata filename')
       }
-    })
-    return parseMetadata(text)
+      return { metadata, metadataPath }
+    } finally {
+      await file.close()
+    }
   } catch (err) {
     logger.error({ err, event: 'project_lock_read_failed' }, 'Failed to read project lock')
     throw new ProjectLockRecoveryError('Project lock requires explicit recovery', { cause: err })
@@ -145,18 +165,21 @@ export async function inspectProjectWriteLock(
   projectRoot: string,
   options: ProjectLockOptions
 ): Promise<ProjectLockMetadata | null> {
-  return readCurrentMetadata(projectRoot, options.logger)
+  const lock = await readCurrentLock(projectRoot, options.logger)
+  return lock?.metadata ?? null
 }
 
 export class ProjectWriteLock {
   readonly metadata: ProjectLockMetadata
-  readonly #projectRoot: string
+  #projectRoot: string
   readonly #logger: ProjectLockOptions['logger']
   readonly #dependencies: ProjectLockDependencies
   readonly #heartbeatIntervalMs: number
   #timer: ReturnType<typeof setInterval> | undefined
   #operation: Promise<void> = Promise.resolve()
-  #released = false
+  #releaseState: 'held' | 'releasing' | 'released' = 'held'
+  #releaseInFlight?: Promise<boolean>
+  #retirement?: { dev: bigint; ino: bigint; markerRemoved: boolean }
 
   private constructor(
     projectRoot: string,
@@ -192,7 +215,7 @@ export class ProjectWriteLock {
     } catch (err) {
       if (isNodeError(err, 'EEXIST')) {
         options.logger.info({ event: 'project_lock_contended' }, 'Project write lock is held')
-        throw new ProjectLockContendedError()
+        throw new ProjectLockContendedError(projectRoot)
       }
       options.logger.error(
         { err, event: 'project_lock_acquire_failed' },
@@ -241,14 +264,30 @@ export class ProjectWriteLock {
   }
 
   heartbeat(): Promise<void> {
-    const operation = this.#operation.then(() => this.#heartbeatNow())
-    // error-handling: allow owner=project-lock reason=heartbeat-queue-recovery
+    return this.#serialize(() => this.#heartbeatNow())
+  }
+
+  get projectRoot(): string {
+    return this.#projectRoot
+  }
+
+  moveProjectRoot(destination: string): Promise<void> {
+    return this.#serialize(async () => {
+      await this.#heartbeatNow()
+      await rename(this.#projectRoot, destination)
+      this.#projectRoot = destination
+    })
+  }
+
+  #serialize(run: () => Promise<void>): Promise<void> {
+    const operation = this.#operation.then(run)
+    // error-handling: allow owner=project-lock reason=caller-handles-lock-operation-failure
     this.#operation = operation.catch(() => undefined)
     return operation
   }
 
   async #heartbeatNow(): Promise<void> {
-    if (this.#released) throw new Error('Project lock has already been released')
+    if (this.#releaseState !== 'held') throw new Error('Project lock has already been released')
     const path = join(lockDirectory(this.#projectRoot), metadataFileName(this.metadata.ownerToken))
     let file: FileHandle | undefined
     try {
@@ -275,51 +314,54 @@ export class ProjectWriteLock {
     }
   }
 
-  async release(): Promise<boolean> {
-    if (this.#released) return false
-    this.#released = true
-    if (this.#timer !== undefined) this.#dependencies.clearInterval(this.#timer)
+  release(): Promise<boolean> {
+    if (this.#releaseState === 'released') return Promise.resolve(false)
+    if (this.#releaseInFlight !== undefined) return this.#releaseInFlight.then(() => false)
+    if (this.#releaseState === 'held') {
+      this.#releaseState = 'releasing'
+      if (this.#timer !== undefined) this.#dependencies.clearInterval(this.#timer)
+    }
+    this.#releaseInFlight = this.#releaseNow()
+      .then((released) => {
+        this.#releaseState = 'released'
+        return released
+      })
+      .finally(() => {
+        this.#releaseInFlight = undefined
+      })
+    return this.#releaseInFlight
+  }
+
+  async #releaseNow(): Promise<boolean> {
     await this.#operation
 
     const directory = lockDirectory(this.#projectRoot)
     const metadataPath = join(directory, metadataFileName(this.metadata.ownerToken))
     const releaseMarker = join(directory, `.release-${this.metadata.ownerToken}`)
     try {
-      const file = await open(metadataPath, 'r')
-      try {
-        const current = await readMetadataFile(file)
-        if (current.ownerToken !== this.metadata.ownerToken) {
-          this.#logger.warn(
-            { event: 'project_lock_release_not_owner' },
-            'Project lock release skipped because ownership changed'
-          )
-          return false
+      const { dev, ino } = await lstat(directory, { bigint: true })
+      if (this.#retirement === undefined) {
+        const file = await open(metadataPath, 'r')
+        try {
+          const current = await readMetadataFile(file)
+          if (current.ownerToken !== this.metadata.ownerToken) return this.#skipRelease()
+        } finally {
+          await file.close()
         }
-      } finally {
-        await file.close()
+        await rename(metadataPath, releaseMarker)
+        this.#retirement = { dev, ino, markerRemoved: false }
+      } else if (this.#retirement.dev !== dev || this.#retirement.ino !== ino) {
+        return this.#skipRelease()
       }
-      await rename(metadataPath, releaseMarker)
-    } catch (err) {
-      if (isNodeError(err, 'ENOENT')) {
-        this.#logger.warn(
-          { event: 'project_lock_release_not_owner' },
-          'Project lock release skipped because ownership changed'
-        )
-        return false
+      if (!this.#retirement.markerRemoved) {
+        await rm(releaseMarker, { force: true })
+        this.#retirement.markerRemoved = true
       }
-      this.#logger.error(
-        { err, event: 'project_lock_release_failed' },
-        'Failed to release project lock'
-      )
-      throw new Error('Failed to release project lock', { cause: err })
-    }
-
-    try {
-      await unlink(releaseMarker)
       await rmdir(directory)
       this.#logger.info({ event: 'project_lock_released' }, 'Project write lock released')
       return true
     } catch (err) {
+      if (isNodeError(err, 'ENOENT')) return this.#skipRelease()
       this.#logger.error(
         { err, event: 'project_lock_release_failed' },
         'Failed to release project lock'
@@ -327,14 +369,23 @@ export class ProjectWriteLock {
       throw new Error('Failed to release project lock', { cause: err })
     }
   }
+
+  #skipRelease(): false {
+    this.#logger.warn(
+      { event: 'project_lock_release_not_owner' },
+      'Project lock release skipped because ownership changed'
+    )
+    return false
+  }
 }
 
 export async function recoverStaleProjectWriteLock(
   projectRoot: string,
   options: RecoverStaleProjectLockOptions
 ): Promise<boolean> {
-  const metadata = await readCurrentMetadata(projectRoot, options.logger)
-  if (metadata === null) return false
+  const observed = await readCurrentLock(projectRoot, options.logger)
+  if (observed === null) return false
+  const { metadata, metadataPath } = observed
   if (metadata.ownerToken !== options.expectedOwnerToken) {
     throw new ProjectLockRecoveryError('Project lock owner changed before recovery')
   }
@@ -343,8 +394,7 @@ export async function recoverStaleProjectWriteLock(
   }
 
   const dependencies = dependenciesFor(options)
-  const directory = lockDirectory(projectRoot)
-  const metadataPath = join(directory, metadataFileName(options.expectedOwnerToken))
+  const directory = dirname(metadataPath)
   const recoveryMarker = join(directory, `.recover-${dependencies.randomUUID()}`)
   try {
     const file = await open(metadataPath, 'r')

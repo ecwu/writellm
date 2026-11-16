@@ -148,8 +148,10 @@ export class PersistentUtilityProcess {
     })
   }
 
-  send(payload: unknown): void {
+  sendToRequest(payload: { requestId: string }): void {
     if (this.#closed) throw new Error(`${this.#serviceName} is closed`)
+    if (!this.#pending.has(payload.requestId))
+      throw new Error('Utility request is no longer active')
     const child = this.#child
     if (child === undefined) throw new Error(`${this.#serviceName} is not running`)
     try {
@@ -213,7 +215,9 @@ export class PersistentUtilityProcess {
     }
     child.on('message', (raw: unknown) => {
       this.#messageChain = this.#messageChain
-        .then(() => this.#handleMessage(raw))
+        .then(async () => {
+          if (this.#child === child) await this.#handleMessage(raw)
+        })
         .catch((err) => {
           this.#log.error(
             {
@@ -223,7 +227,9 @@ export class PersistentUtilityProcess {
             },
             'Persistent utility message dispatch failed'
           )
-          this.#terminate(new Error('Persistent utility message dispatch failed', { cause: err }))
+          if (this.#child === child) {
+            this.#terminate(new Error('Persistent utility message dispatch failed', { cause: err }))
+          }
         })
     })
     child.once('exit', (code: number) => this.#handleExit(child, code))
@@ -281,9 +287,12 @@ export class PersistentUtilityProcess {
         },
         'Persistent utility response handling failed'
       )
-      this.#finishReject(requestId, new Error('Utility response handling failed', { cause: err }))
-      return
+      decision = {
+        kind: 'reject',
+        error: new Error('Utility response handling failed', { cause: err })
+      }
     }
+    if (this.#pending.get(requestId) !== pending) return
     if (decision === undefined || decision.kind === 'event') return
     if (decision.kind === 'resolve') {
       this.#finishResolve(requestId, decision.value)

@@ -78,13 +78,16 @@ export async function launchApp(options: AppLaunchOptions): Promise<{
     const backend = await app.evaluate(async ({ app, safeStorage }) => {
       await app.whenReady()
       const probe = 'writellm-playwright-safe-storage-probe'
-      const available = safeStorage.isEncryptionAvailable()
-      const encrypted = available ? safeStorage.encryptString(probe) : undefined
+      const available = await safeStorage.isAsyncEncryptionAvailable()
+      const encrypted = available ? await safeStorage.encryptStringAsync(probe) : undefined
       return {
         requested: app.commandLine.getSwitchValue('password-store'),
         selected: safeStorage.getSelectedStorageBackend(),
         available,
-        roundTrip: encrypted === undefined ? false : safeStorage.decryptString(encrypted) === probe
+        roundTrip:
+          encrypted === undefined
+            ? false
+            : (await safeStorage.decryptStringAsync(encrypted)).result === probe
       }
     })
     if (
@@ -198,6 +201,34 @@ interface Fixtures {
 }
 
 const rendererErrorsByTest = new Map<string, string[]>()
+const BLOCKED_INLINE_HANDLER_ANNOTATION = 'expects-blocked-inline-handler'
+const BLOCKED_INLINE_HANDLER_REPORT =
+  "Executing inline event handler violates the following Content Security Policy directive 'script-src 'self''."
+
+/**
+ * Declares that the current scenario injects an inline event handler on purpose. Chromium 156
+ * (Electron 45) reports a CSP violation when such markup is parsed, even in an inert DOMParser or
+ * template document where the handler can never run. Only that exact blocked report is accepted.
+ */
+export function expectBlockedInlineHandlerReports(): void {
+  base.info().annotations.push({
+    type: BLOCKED_INLINE_HANDLER_ANNOTATION,
+    description: 'Hostile markup is parsed inertly and its handler is blocked by script-src self'
+  })
+}
+
+function isBlockedInlineHandlerReport(entry: string): boolean {
+  const prefix = 'console.error: '
+  if (!entry.startsWith(prefix)) return false
+  try {
+    const { text } = JSON.parse(entry.slice(prefix.length)) as { text?: unknown }
+    return typeof text === 'string' && text.startsWith(BLOCKED_INLINE_HANDLER_REPORT)
+  } catch (err) {
+    // error-handling: allow owner=e2e-renderer-error-guard reason=an unparsable entry stays reported as unexpected
+    void err
+    return false
+  }
+}
 
 export function scenario(
   id: string,
@@ -219,8 +250,14 @@ export const test = base.extend<Fixtures>({
     async ({}, use, testInfo) => {
       rendererErrorsByTest.set(testInfo.testId, [])
       await use(undefined)
-      const errors = rendererErrorsByTest.get(testInfo.testId) ?? []
+      const recorded = rendererErrorsByTest.get(testInfo.testId) ?? []
       rendererErrorsByTest.delete(testInfo.testId)
+      const expectsBlockedHandlers = testInfo.annotations.some(
+        (annotation) => annotation.type === BLOCKED_INLINE_HANDLER_ANNOTATION
+      )
+      const errors = expectsBlockedHandlers
+        ? recorded.filter((entry) => !isBlockedInlineHandlerReport(entry))
+        : recorded
       expect(errors, 'unexpected Renderer pageerror/console.error events').toEqual([])
     },
     { auto: true }

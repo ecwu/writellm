@@ -1,4 +1,4 @@
-import { TriangleAlert } from 'lucide-react'
+import { CircleCheck, FileOutput, TriangleAlert } from 'lucide-react'
 import type { ManuscriptExportResult } from '../../../../shared/contracts/manuscript-export'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -33,7 +33,10 @@ export function ManuscriptExportDialogs({
       <Dialog open={active} onOpenChange={() => undefined}>
         <DialogContent showCloseButton={false}>
           <DialogHeader>
-            <DialogTitle>Publishing manuscript</DialogTitle>
+            <DialogTitle className='flex items-center gap-2'>
+              <FileOutput className='size-4 text-muted-foreground' aria-hidden='true' />
+              Publishing manuscript
+            </DialogTitle>
             <DialogDescription>
               WriteLLM is capturing the current manuscript, verifying assets, and building the
               selected format.
@@ -53,7 +56,10 @@ export function ManuscriptExportDialogs({
       <Dialog open={result !== undefined} onOpenChange={onResultChange}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Manuscript exported</DialogTitle>
+            <DialogTitle className='flex items-center gap-2'>
+              <CircleCheck className='size-4 text-muted-foreground' aria-hidden='true' />
+              Manuscript exported
+            </DialogTitle>
             <DialogDescription>
               {result?.packageName} contains the complete current manuscript and{' '}
               {result?.assetCount ?? 0} referenced asset{(result?.assetCount ?? 0) === 1 ? '' : 's'}
