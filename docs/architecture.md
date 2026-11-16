@@ -545,6 +545,7 @@ app.sqlite                  <ProjectRoot>/.writellm/project.sqlite
   publication_presets         manuscript_asset_variants
   project_templates           knowledge_items
   bibliography_connectors     reference_items
+  source_model_catalogs
   schema_manifest             reference_creators
                               reference_import_bindings
                               knowledge_reference_links
@@ -1759,3 +1760,20 @@ Do not use in the current architecture:
 - subsystem-owned log files alongside the centralized Pino stream;
 - logs as authoritative agent, job, import, or mutation history.
 - persisted Notebook conversations, questions, answers, citation registries, or source-scope state.
+
+## Speech input
+
+[ADR 094](adrs/094-speech-input.md) adds independently configured speech sources and draft-only
+realtime/file transcription. A dedicated instance of the existing background-worker isolates
+audio forwarding from synchronous CPU work. Renderer captures bounded PCM16 through a static
+same-origin Worklet; Main authorizes every project operation and owns credentials and lifecycle.
+Audio and partial transcripts remain transient.
+
+Speech Settings owns the single active source choice. Each source keeps its model and realtime/file mode.
+Recognition snapshots the resolved configuration. There is no conversation override or source fallback.
+Image and speech model discovery is explicit, bounded, and source-bound. A failed refresh retains the last successful candidate list.
+Discovered IDs do not establish endpoint capabilities. Manual model configuration and separate connection tests remain available.
+
+Public models.dev v2 metadata can enrich source model choices without a required test workflow.
+Only fixed public catalog URLs receive these requests, without credentials or project data.
+Unknown source-advertised IDs stay selectable. Explicit capability metadata guides choices without changing reviewed adapters or saved models.

@@ -29,6 +29,7 @@ import {
   agentModelSelectionSchema,
   agentThinkingLevelSchema,
   imageModelSelectionSchema,
+  speechSourceIdSchema,
   type AgentThinkingLevel,
   type AgentModelSelection,
   type ImageModelSelection
@@ -313,6 +314,20 @@ export class AppSettingsRepository {
         .run(OAUTH_INSTALLATION_ID_KEY, JSON.stringify(id), now, now)
       return id
     })
+  }
+
+  async getActiveSpeechSource(): Promise<string | null> {
+    return this.#readSetting(
+      'speech.active-source.v1',
+      speechSourceIdSchema.nullable(),
+      null,
+      'app.settings.invalid_speech_source'
+    )
+  }
+  async setActiveSpeechSource(sourceId: string | null): Promise<string | null> {
+    const value = speechSourceIdSchema.nullable().parse(sourceId)
+    await this.#writeSetting('speech.active-source.v1', value)
+    return value
   }
 
   async getImageDefaultSelection(): Promise<ImageModelSelection | null> {

@@ -29,7 +29,6 @@ import {
   Upload
 } from 'lucide-react'
 import { AppSidebar } from '@/components/app-sidebar'
-import { panelToolbarClassName } from '@/components/panel-header'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -48,7 +47,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar'
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { AgentPanel } from '@/features/agent/agent-panel'
@@ -348,53 +347,6 @@ export function WritingWorkspaceView(input: {
   )
   const manuscript = (
     <SidebarInset ref={manuscriptScrollRef} className='size-full min-h-0 overflow-auto'>
-      <header className={panelToolbarClassName}>
-        <SidebarTrigger className='mr-auto' />
-        {editorQuery.data && activeSummary ? (
-          <>
-            <Badge
-              variant={
-                editorSaveState === 'conflict' || editorSaveState === 'failed'
-                  ? 'destructive'
-                  : 'outline'
-              }
-              role='status'
-              aria-live='polite'
-            >
-              {editorSaveStateLabels[editorSaveState]}
-            </Badge>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant='ghost' size='icon-sm' aria-label='Section actions'>
-                  <MoreHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align='end'>
-                <DropdownMenuLabel>Section actions</DropdownMenuLabel>
-                <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
-                    <FileCheck2 /> Publication preflight
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void manuscriptImport.openManuscriptImport()}>
-                    <Upload /> Import manuscript
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => void manuscriptImport.openManuscriptImport('directory')}
-                  >
-                    <FolderOpen /> Import LaTeX project folder
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
-                    <Download /> Export Native JSON
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void exportMarkdownForActiveSection()}>
-                    <Download /> Export Markdown
-                  </DropdownMenuItem>
-                </DropdownMenuGroup>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        ) : null}
-      </header>
       <main className='mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 p-4'>
         {workspaceQuery.isError ? (
           <Alert variant='destructive'>
@@ -521,6 +473,52 @@ export function WritingWorkspaceView(input: {
           workbench.requestTool('agent')
           props.onAgentOpenChange(true)
         }}
+        editorActions={
+          editorQuery.data && activeSummary ? (
+            <>
+              <Badge
+                variant={
+                  editorSaveState === 'conflict' || editorSaveState === 'failed'
+                    ? 'destructive'
+                    : 'outline'
+                }
+                role='status'
+                aria-live='polite'
+              >
+                {editorSaveStateLabels[editorSaveState]}
+              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant='ghost' size='icon-sm' aria-label='Section actions'>
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  <DropdownMenuLabel>Section actions</DropdownMenuLabel>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onSelect={() => void openPublicationPreflight()}>
+                      <FileCheck2 /> Publication preflight
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void manuscriptImport.openManuscriptImport()}>
+                      <Upload /> Import manuscript
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => void manuscriptImport.openManuscriptImport('directory')}
+                    >
+                      <FolderOpen /> Import LaTeX project folder
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void exportNativeJsonForActiveSection()}>
+                      <Download /> Export Native JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => void exportMarkdownForActiveSection()}>
+                      <Download /> Export Markdown
+                    </DropdownMenuItem>
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          ) : null
+        }
         autocomplete={
           <AutocompleteMenu
             status={

@@ -2,6 +2,11 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "speech.sources-and-model-discovery", "tiers": ["packaged"] },
+    { "id": "providers.image-model-discovery", "tiers": ["packaged"] },
+    { "id": "speech.preparation-timeout-recovery", "tiers": ["packaged"] },
+    { "id": "speech.realtime-draft-controls", "tiers": ["packaged"] },
+    { "id": "speech.file-settings-lifecycle", "tiers": ["packaged"] },
     { "id": "app.native-menu", "tiers": ["packaged"] },
     { "id": "workbench.tabs-docking-restore", "tiers": ["packaged"] },
     { "id": "workbench.close-sizing", "tiers": ["packaged"] },

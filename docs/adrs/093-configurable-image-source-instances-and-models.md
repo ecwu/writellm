@@ -68,3 +68,33 @@ no-fallback, base64-only, retry-free, and ADC rules remain in force.
   conversations, which already own their Agent model selection.
 - Fallback to the global default when an override is invalid: this would hide billing and
   provenance changes.
+
+## 2026-11-16 Explicit model discovery
+
+The user authorizes discovery of current model IDs from configured sources. Existing built-in models remain compatibility seeds.
+OpenAI-compatible sources use their models endpoint. Official xAI uses its image-generation-models endpoint.
+Gemini uses its paginated models endpoint. Vertex can use matched public metadata under the amendment below without querying project resources.
+Discovery returns bounded candidates and retains the last successful list after refresh failure. It never changes a selection.
+Users adopt an image candidate through the existing manual model form and declare supported sizes.
+General model lists do not establish image output, supported dimensions, quota, or generation success.
+Endpoints and credentials stay bound to their source. Redirects and unbounded catalog responses remain prohibited.
+
+Official references: [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list),
+[Gemini models](https://aistudio.google.com/api-reference/models),
+[xAI models](https://docs.x.ai/developers/rest-api-reference/inference/models), and
+[Vertex publisher models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1beta1/publishers.models/list).
+
+## 2026-11-16 Public catalog metadata
+
+The user rejects a required testing step for ordinary model selection. Connection tests remain optional diagnostics, never activation gates.
+Model discovery combines source-advertised IDs with public models.dev v2 metadata. No new SDK dependency is required.
+The public requests use fixed URLs without provider credentials, custom endpoint details, or project content.
+The filtered experimental v2 directory supplies task types and API names such as images, transcriptions, and realtime.
+Known task and endpoint metadata organize model choices. Unknown source IDs remain selectable and manual IDs remain available.
+A missing public catalog entry never removes a newer source-advertised model. Discovery never changes a saved selection.
+Public fallback lists apply only to matched provider identities and unsupported model-list routes, not authentication failures.
+Public metadata is cached and bounded. Metadata failure does not discard a successful source list.
+Catalog metadata does not grant account access or change the reviewed transport adapter. Image sizes remain explicit when metadata omits them.
+Source: [models.dev v2 directory](https://models.dev/experimental/v2.0/api.json?type=image,transcription).
+The experimental response uses a narrow validated projection. Schema changes cannot replace saved settings or reroute requests.
+LiteLLM public metadata was researched as an alternative. It is not an additional runtime catalog dependency.

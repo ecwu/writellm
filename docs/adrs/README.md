@@ -135,6 +135,7 @@ No ADR 045 exists.
 | [091](091-issue-19-endpoint-authority-and-compatibility.md) | Endpoint registration as the single IPC authority, and canonical JSON compatibility. | Current |
 | [092](092-documentation-evidence-archive.md) | Summarize verification evidence and archive it at a pinned commit. | Current |
 | [093](093-configurable-image-source-instances-and-models.md) | Multiple image source instances, OpenAI-compatible endpoints, manual image models, and a per-conversation override. | Current |
+| [094](094-speech-input.md) | Draft-only speech input, a single provider, bounded binary IPC, and a dedicated background-worker instance. | Current |
 
 ## Dependency boundaries
 

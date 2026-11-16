@@ -1,8 +1,22 @@
+import type { Kysely, Transaction } from 'kysely'
+import type { AppDatabaseSchema } from '../app-db/database-types'
+import { discoverSourceModels, SourceModelDiscoveryError } from './source-model-discovery'
+import { sha256 } from '../../shared/hash'
+import { z } from 'zod'
+import { SpeechFailure, SPEECH_SETUP_REQUIRED } from '../../shared/speech-errors'
 import type { Logger } from 'pino'
 import type { AuthInteraction, AuthType } from '@earendil-works/pi-ai'
 import { randomUUID } from 'node:crypto'
 import {
   BUILTIN_IMAGE_MODELS,
+  speechSourceConfigSchema,
+  speechSourceSaveInputSchema,
+  speechSourceIdSchema,
+  sourceModelCandidateSchema,
+  type SpeechSourceConfig,
+  type SpeechSourceStatus,
+  type SpeechSourceSaveInput,
+  type SourceModelCandidate,
   IMAGE_TRANSPORT_LABELS,
   OFFICIAL_IMAGE_BASE_URLS,
   imageProviderIdSchema,
@@ -62,18 +76,24 @@ export type ConnectionProbe = (
 
 export class ProviderService {
   #agentCatalog: AgentCatalog | null = null
+  readonly #catalogGenerations = new Map<string, number>()
+  #catalogGeneration = 0
 
   constructor(
     private readonly database: AppDatabase,
     private readonly credentials: CredentialService,
     private readonly settings: Pick<
       AppSettingsRepository,
-      'getImageDefaultSelection' | 'setImageDefaultSelection'
+      | 'getImageDefaultSelection'
+      | 'setImageDefaultSelection'
+      | 'getActiveSpeechSource'
+      | 'setActiveSpeechSource'
     >,
     private readonly log: Logger,
     private readonly probe: ConnectionProbe,
     private readonly now: () => string = () => new Date().toISOString(),
-    private readonly createImageSourceId: () => string = () => `img-${randomUUID()}`
+    private readonly createImageSourceId: () => string = () => `img-${randomUUID()}`,
+    private readonly discoverModels: typeof discoverSourceModels = discoverSourceModels
   ) {}
 
   setAgentCatalog(catalog: AgentCatalog): void {
@@ -96,6 +116,15 @@ export class ProviderService {
           .map((row) => this.#imageSourceStatus(row))
       )
     ).filter((source): source is ImageSourceStatus => source !== null)
+    const speechSources = (
+      await Promise.all(
+        rows
+          .filter((row) => row.id === 'speech' || row.id.startsWith('speech:'))
+          .map((row) => this.#speechSourceStatus(row))
+      )
+    ).filter((source): source is SpeechSourceStatus => source !== null)
+    const activeSpeechSourceId = await this.settings.getActiveSpeechSource()
+    const activeSpeech = speechSources.find((source) => source.sourceId === activeSpeechSourceId)
     const defaultSelection = await this.settings.getImageDefaultSelection()
     let defaultImage: { config: ImageProviderConfig | null; issues: string[] }
     try {
@@ -114,6 +143,18 @@ export class ProviderService {
     )
     const providers = await Promise.all(
       providerRoles.map(async (role) => {
+        if (role === 'speech')
+          return {
+            role,
+            capability: getProviderCapability(role),
+            config:
+              activeSpeech?.config === null || activeSpeech?.config === undefined
+                ? null
+                : speechRuntimeConfig(activeSpeech.config),
+            configured: activeSpeech?.configured ?? false,
+            available: activeSpeech?.available ?? false,
+            issues: activeSpeech?.issues ?? []
+          }
         if (role === 'image') {
           return {
             role,
@@ -144,9 +185,11 @@ export class ProviderService {
             issues.push('Stored provider configuration is invalid.')
           }
         }
-        const configured = await this.credentials.hasCredential(role)
+        const credentialConfigured = await this.credentials.hasCredential(role)
+        const configured = credentialConfigured
+        const requiresSecureStorage = true
         if (config !== null && !configured) issues.push('Provider credential is missing.')
-        if (config !== null && !credentialBackend.securePersistence) {
+        if (config !== null && requiresSecureStorage && !credentialBackend.securePersistence) {
           issues.push(credentialBackend.warning ?? 'Secure credential storage is unavailable.')
         }
         return {
@@ -154,7 +197,10 @@ export class ProviderService {
           capability,
           config,
           configured,
-          available: config !== null && configured && credentialBackend.securePersistence,
+          available:
+            config !== null &&
+            configured &&
+            (!requiresSecureStorage || credentialBackend.securePersistence),
           issues
         }
       })
@@ -163,6 +209,7 @@ export class ProviderService {
       credentialBackend,
       providers,
       imageCatalog: { defaultSelection, sources: imageSources },
+      speechCatalog: { activeSourceId: activeSpeechSourceId, sources: speechSources },
       agentCatalog:
         this.#agentCatalog === null
           ? { presets: [], defaultSelection: null }
@@ -249,6 +296,34 @@ export class ProviderService {
 
   async save(config: ProviderConfig, apiKey?: string): Promise<ProviderSettingsSnapshot> {
     const parsed = providerConfigSchema.parse(config)
+    if (parsed.role === 'speech') {
+      const exists = await this.database.kysely
+        .selectFrom('provider_configs')
+        .select('id')
+        .where('id', '=', 'speech')
+        .executeTakeFirst()
+      if (exists === undefined) {
+        await this.#persistConfig(
+          'speech',
+          parsed.providerId,
+          speechSourceConfigSchema.parse({ ...parsed, sourceId: 'legacy', name: 'Speech input' }),
+          apiKey,
+          false
+        )
+        await this.settings.setActiveSpeechSource('legacy')
+        return this.snapshot()
+      }
+      return this.saveSpeechSource({
+        sourceId: 'legacy',
+        source: {
+          name: 'Speech input',
+          baseUrl: parsed.baseUrl,
+          model: parsed.model,
+          mode: parsed.mode
+        },
+        ...(apiKey === undefined ? {} : { apiKey })
+      })
+    }
     if (parsed.role === 'image') {
       throw new Error('Image sources are saved through the image source catalog')
     }
@@ -284,6 +359,10 @@ export class ProviderService {
   }
 
   async remove(role: Exclude<ProviderRole, 'image'>): Promise<ProviderSettingsSnapshot> {
+    if (role === 'speech') {
+      const id = await this.settings.getActiveSpeechSource()
+      return id === null ? this.snapshot() : this.removeSpeechSource(id)
+    }
     await this.database.kysely.deleteFrom('provider_configs').where('id', '=', role).execute()
     this.log.info({ event: 'provider.config.removed', role }, 'Provider configuration removed')
     return this.snapshot()
@@ -389,6 +468,7 @@ export class ProviderService {
   }
 
   async removeImageSource(sourceId: string): Promise<ProviderSettingsSnapshot> {
+    this.#catalogGenerations.set(imageProviderConfigId(sourceId), ++this.#catalogGeneration)
     await this.database.kysely
       .deleteFrom('provider_configs')
       .where('id', '=', imageProviderConfigId(sourceId))
@@ -519,24 +599,349 @@ export class ProviderService {
     )
   }
 
+  async saveSpeechSource(input: SpeechSourceSaveInput): Promise<ProviderSettingsSnapshot> {
+    const parsed = speechSourceSaveInputSchema.parse(input)
+    const sourceId = parsed.sourceId ?? `sp-${randomUUID()}`
+    let previous: SpeechSourceConfig | undefined
+    if (parsed.sourceId !== undefined) previous = await this.#requireSpeechSource(sourceId)
+    else {
+      const rows = await this.database.kysely
+        .selectFrom('provider_configs')
+        .select('id')
+        .where((eb) => eb.or([eb('id', '=', 'speech'), eb('id', 'like', 'speech:%')]))
+        .execute()
+      if (rows.length >= 50) throw new Error('At most 50 speech sources can be configured')
+    }
+    const config = speechSourceConfigSchema.parse({
+      ...previous,
+      ...parsed.source,
+      sourceId,
+      role: 'speech',
+      providerId: 'openai-compatible',
+      timeoutMs: previous?.timeoutMs ?? 60000,
+      batchLimit: 1,
+      embeddingDimension: null,
+      fileSizeLimitMb: null
+    })
+    const configId = speechProviderConfigId(sourceId)
+    await this.#persistConfig(configId, config.providerId, config, parsed.apiKey, false)
+    this.log.info({ event: 'provider.speech.source_saved', sourceId }, 'Speech source saved')
+    return this.snapshot()
+  }
+  async removeSpeechSource(sourceId: string): Promise<ProviderSettingsSnapshot> {
+    const parsed = speechSourceIdSchema.parse(sourceId)
+    const configId = speechProviderConfigId(parsed)
+    this.#catalogGenerations.set(configId, ++this.#catalogGeneration)
+    await this.database.kysely.deleteFrom('provider_configs').where('id', '=', configId).execute()
+    if ((await this.settings.getActiveSpeechSource()) === parsed)
+      await this.settings.setActiveSpeechSource(null)
+    return this.snapshot()
+  }
+  async setActiveSpeechSource(sourceId: string | null): Promise<ProviderSettingsSnapshot> {
+    if (sourceId !== null) await this.#requireSpeechSource(speechSourceIdSchema.parse(sourceId))
+    await this.settings.setActiveSpeechSource(sourceId)
+    return this.snapshot()
+  }
+  async withSpeechProvider<T>(
+    operation: (
+      config: ProviderConfigForRole<'speech'>,
+      credential: string | undefined
+    ) => Promise<T>,
+    sourceId?: string
+  ): Promise<T> {
+    const selected = sourceId ?? (await this.settings.getActiveSpeechSource())
+    if (selected === null) throw new SpeechFailure(SPEECH_SETUP_REQUIRED)
+    const source = await this.#requireSpeechSource(selected)
+    const config = speechRuntimeConfig(source)
+    const configId = speechProviderConfigId(selected)
+    const checkedOperation = async (credential: string | undefined): Promise<T> => {
+      const current = speechRuntimeConfig(await this.#requireSpeechSource(selected))
+      if (JSON.stringify(current) !== JSON.stringify(config))
+        throw new SpeechFailure('Speech configuration changed while starting. Try again.')
+      return operation(config, credential)
+    }
+    if (!(await this.credentials.hasCredential(configId))) return checkedOperation(undefined)
+    return this.credentials.withCredential(configId, checkedOperation)
+  }
+  async #requireSpeechSource(sourceId: string): Promise<SpeechSourceConfig> {
+    const row = await this.database.kysely
+      .selectFrom('provider_configs')
+      .select(['config_json', 'provider'])
+      .where('id', '=', speechProviderConfigId(sourceId))
+      .executeTakeFirst()
+    if (row === undefined) throw new SpeechFailure(SPEECH_SETUP_REQUIRED)
+    const config = speechSourceConfigSchema.parse(JSON.parse(row.config_json))
+    if (config.sourceId !== sourceId || config.providerId !== row.provider)
+      throw new Error('Speech source identity mismatch')
+    return config
+  }
+  async #speechSourceStatus(row: {
+    id: string
+    provider: string
+    config_json: string
+  }): Promise<SpeechSourceStatus | null> {
+    let config: SpeechSourceConfig
+    try {
+      config = speechSourceConfigSchema.parse(JSON.parse(row.config_json))
+      if (speechProviderConfigId(config.sourceId) !== row.id || config.providerId !== row.provider)
+        throw new Error('Speech source identity mismatch')
+    } catch (err) {
+      this.log.error(
+        { event: 'provider.speech.source_invalid', err },
+        'Speech source configuration is invalid'
+      )
+      return null
+    }
+    const hasCredential = await this.credentials.hasCredential(row.id)
+    const secure = (await this.credentials.backendStatus()).securePersistence
+    return {
+      sourceId: config.sourceId,
+      name: config.name,
+      config,
+      configured: true,
+      available: !hasCredential || secure,
+      issues: hasCredential && !secure ? ['Secure credential storage is unavailable.'] : [],
+      ...(await this.#modelCatalog(row.id))
+    }
+  }
+  async refreshSpeechModels(sourceId: string): Promise<ProviderSettingsSnapshot> {
+    const parsed = speechSourceIdSchema.parse(sourceId)
+    await this.#requireSpeechSource(parsed)
+    return this.#refreshModels(speechProviderConfigId(parsed))
+  }
+  async refreshImageModels(sourceId: string): Promise<ProviderSettingsSnapshot> {
+    await this.#requireImageSource(sourceId)
+    return this.#refreshModels(imageProviderConfigId(sourceId))
+  }
+
+  async #catalogFingerprint(
+    configId: string,
+    database: Kysely<AppDatabaseSchema> | Transaction<AppDatabaseSchema> = this.database.kysely
+  ): Promise<string | null> {
+    const row = await database
+      .selectFrom('provider_configs')
+      .select(['provider', 'config_json'])
+      .where('id', '=', configId)
+      .executeTakeFirst()
+    if (row === undefined) return null
+    const config = JSON.parse(row.config_json) as Record<string, unknown>
+    const credential = await database
+      .selectFrom('encrypted_credentials')
+      .select(['ciphertext', 'binding_fingerprint'])
+      .where('provider_config_id', '=', configId)
+      .execute()
+    return sha256(
+      JSON.stringify({
+        configId,
+        provider: row.provider,
+        baseUrl: config.baseUrl ?? null,
+        projectId: config.projectId ?? null,
+        location: config.location ?? null,
+        credentials: credential
+      })
+    )
+  }
+  async #modelCatalog(configId: string): Promise<{
+    modelCandidates: SourceModelCandidate[]
+    catalog: {
+      status: 'never' | 'current' | 'stale' | 'unsupported'
+      checkedAt: string | null
+      lastErrorCode: string | null
+    }
+  }> {
+    const empty = {
+      modelCandidates: [],
+      catalog: { status: 'never' as const, checkedAt: null, lastErrorCode: null }
+    }
+    const row = await this.database.kysely
+      .selectFrom('source_model_catalogs')
+      .selectAll()
+      .where('provider_config_id', '=', configId)
+      .executeTakeFirst()
+    if (row === undefined || row.fingerprint !== (await this.#catalogFingerprint(configId)))
+      return empty
+    try {
+      if (Buffer.byteLength(row.models_json) > 2 * 1024 * 1024)
+        throw new Error('Stored model catalog exceeds its size limit')
+      return {
+        modelCandidates: z
+          .array(sourceModelCandidateSchema)
+          .max(2000)
+          .parse(JSON.parse(row.models_json)),
+        catalog: {
+          status:
+            row.last_error_code === 'unsupported'
+              ? 'unsupported'
+              : row.last_error_code === null
+                ? 'current'
+                : 'stale',
+          checkedAt: row.checked_at,
+          lastErrorCode: row.last_error_code
+        }
+      }
+    } catch (err) {
+      this.log.error(
+        { event: 'provider.model_catalog.invalid', err },
+        'Stored source catalog is invalid'
+      )
+      return empty
+    }
+  }
+  async #refreshModels(configId: string): Promise<ProviderSettingsSnapshot> {
+    const generation = ++this.#catalogGeneration
+    this.#catalogGenerations.set(configId, generation)
+    const saved = await this.database.kysely.transaction().execute(async (transaction) => {
+      const row = await transaction
+        .selectFrom('provider_configs')
+        .select('config_json')
+        .where('id', '=', configId)
+        .executeTakeFirst()
+      if (row === undefined) throw new Error('Source was removed')
+      const config =
+        configId === 'speech' || configId.startsWith('speech:')
+          ? speechSourceConfigSchema.parse(JSON.parse(row.config_json))
+          : imageSourceConfigSchema.parse(JSON.parse(row.config_json))
+      const fingerprint = await this.#catalogFingerprint(configId, transaction)
+      const input: Parameters<typeof discoverSourceModels>[0] = {
+        transport: config.providerId,
+        ...('baseUrl' in config && config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {})
+      }
+      return { fingerprint, input }
+    })
+    const { fingerprint, input } = saved
+    if (fingerprint === null) throw new Error('Source was removed')
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 15000)
+    try {
+      const operation = async (credential: string | undefined) => {
+        if ((await this.#catalogFingerprint(configId)) !== fingerprint)
+          throw new Error('Source changed while refreshing')
+        return this.discoverModels(
+          { ...input, ...(credential === undefined ? {} : { credential }) },
+          controller.signal,
+          this.log
+        )
+      }
+      const candidates = (await this.credentials.hasCredential(configId))
+        ? await this.credentials.withCredential(configId, operation)
+        : await operation(undefined)
+      const models = z.array(sourceModelCandidateSchema).max(2000).parse(candidates)
+      const modelsJson = JSON.stringify(models)
+      if (Buffer.byteLength(modelsJson) > 2 * 1024 * 1024)
+        throw new Error('Model catalog exceeds its size limit')
+      if (
+        this.#catalogGenerations.get(configId) !== generation ||
+        (await this.#catalogFingerprint(configId)) !== fingerprint
+      )
+        return this.snapshot()
+      const now = this.now()
+      await this.database.kysely.transaction().execute(async (transaction) => {
+        if (
+          this.#catalogGenerations.get(configId) !== generation ||
+          (await this.#catalogFingerprint(configId, transaction)) !== fingerprint
+        )
+          return
+        await transaction
+          .insertInto('source_model_catalogs')
+          .values({
+            provider_config_id: configId,
+            fingerprint,
+            models_json: modelsJson,
+            checked_at: now,
+            last_attempted_at: now,
+            last_error_code: null
+          })
+          .onConflict((conflict) =>
+            conflict.column('provider_config_id').doUpdateSet({
+              fingerprint,
+              models_json: modelsJson,
+              checked_at: now,
+              last_attempted_at: now,
+              last_error_code: null
+            })
+          )
+          .execute()
+      })
+      this.log.info(
+        { event: 'provider.model_catalog.refreshed', modelCount: models.length },
+        'Source model candidates refreshed'
+      )
+    } catch (err) {
+      this.log.error(
+        { event: 'provider.model_catalog.refresh_failed', err },
+        'Source model discovery failed'
+      )
+      if (
+        this.#catalogGenerations.get(configId) === generation &&
+        (await this.#catalogFingerprint(configId)) === fingerprint
+      ) {
+        const code = err instanceof SourceModelDiscoveryError ? err.code : 'invalid_response'
+        const now = this.now()
+        await this.database.kysely.transaction().execute(async (transaction) => {
+          if (
+            this.#catalogGenerations.get(configId) !== generation ||
+            (await this.#catalogFingerprint(configId, transaction)) !== fingerprint
+          )
+            return
+          const previous = await transaction
+            .selectFrom('source_model_catalogs')
+            .selectAll()
+            .where('provider_config_id', '=', configId)
+            .executeTakeFirst()
+          const retained = previous?.fingerprint === fingerprint ? previous : undefined
+          await transaction
+            .insertInto('source_model_catalogs')
+            .values({
+              provider_config_id: configId,
+              fingerprint,
+              models_json: retained?.models_json ?? '[]',
+              checked_at: retained?.checked_at ?? null,
+              last_attempted_at: now,
+              last_error_code: code
+            })
+            .onConflict((conflict) =>
+              conflict.column('provider_config_id').doUpdateSet({
+                fingerprint,
+                models_json: retained?.models_json ?? '[]',
+                checked_at: retained?.checked_at ?? null,
+                last_attempted_at: now,
+                last_error_code: code
+              })
+            )
+            .execute()
+        })
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
+    return this.snapshot()
+  }
+
   async withConfiguredProvider<R extends ProviderRole, T>(
     role: R,
     operation: (
       config: ProviderConfigForRole<R>,
-      credential: R extends 'image' ? string | undefined : string
+      credential: R extends 'image' | 'speech' ? string | undefined : string
     ) => Promise<T>
   ): Promise<T> {
     if (role === 'image') {
       return this.withImageProvider(null, (config, credential) =>
         operation(
           config as ProviderConfigForRole<R>,
-          credential as R extends 'image' ? string | undefined : string
+          credential as R extends 'image' | 'speech' ? string | undefined : string
         )
       )
     }
+    if (role === 'speech')
+      return this.withSpeechProvider((config, credential) =>
+        operation(
+          config as ProviderConfigForRole<R>,
+          credential as R extends 'image' | 'speech' ? string | undefined : string
+        )
+      )
     const config = await this.getConfiguredProvider(role)
     return this.credentials.withCredential(role, (credential) =>
-      operation(config, credential as R extends 'image' ? string | undefined : string)
+      operation(config, credential as R extends 'image' | 'speech' ? string | undefined : string)
     )
   }
 
@@ -544,12 +949,20 @@ export class ProviderService {
     if (role === 'image') {
       return (await this.resolveImageSelection(null)) as ProviderConfigForRole<R>
     }
+    if (role === 'speech') {
+      const id = await this.settings.getActiveSpeechSource()
+      if (id === null) throw new SpeechFailure(SPEECH_SETUP_REQUIRED)
+      return speechRuntimeConfig(await this.#requireSpeechSource(id)) as ProviderConfigForRole<R>
+    }
     const row = await this.database.kysely
       .selectFrom('provider_configs')
       .select('config_json')
       .where('id', '=', role)
       .executeTakeFirst()
-    if (row === undefined) throw new Error(`${role} provider is not configured`)
+    if (row === undefined) {
+      if (role === 'speech') throw new SpeechFailure(SPEECH_SETUP_REQUIRED)
+      throw new Error(`${role} provider is not configured`)
+    }
     let config: ProviderConfig
     try {
       config = providerConfigSchema.parse(JSON.parse(row.config_json))
@@ -568,6 +981,8 @@ export class ProviderService {
     role: Exclude<ProviderRole, 'image'>
   ): Promise<ProviderConnectionTestResult> {
     const startedAt = Date.now()
+    if (role === 'speech')
+      return result(false, 'provider_rejected', 'Use the speech connection test.', startedAt)
     const row = await this.database.kysely
       .selectFrom('provider_configs')
       .select('config_json')
@@ -688,7 +1103,7 @@ export class ProviderService {
   async #persistConfig(
     configId: string,
     provider: string,
-    config: ProviderConfig | ImageSourceConfig,
+    config: ProviderConfig | ImageSourceConfig | SpeechSourceConfig,
     apiKey: string | undefined,
     ambientAuthentication: boolean
   ): Promise<{ securityIdentityChanged: boolean; credentialReplaced: boolean }> {
@@ -710,8 +1125,28 @@ export class ProviderService {
       }) !== credentialBindingFingerprint({ providerConfigId: configId, provider, configJson })
     const ciphertext =
       apiKey === undefined ? undefined : await this.credentials.encryptForPersistence(apiKey)
+    const previousEndpoint =
+      previous === undefined
+        ? undefined
+        : discoveryEndpointIdentity(JSON.parse(previous.config_json) as Record<string, unknown>)
+    if (
+      (config.role === 'speech' || config.role === 'image') &&
+      (securityIdentityChanged ||
+        apiKey !== undefined ||
+        previousEndpoint !== discoveryEndpointIdentity(config))
+    ) {
+      this.#catalogGenerations.set(configId, ++this.#catalogGeneration)
+    }
     const now = this.now()
     await this.database.kysely.transaction().execute(async (transaction) => {
+      if (config.role === 'speech' && previous === undefined) {
+        const rows = await transaction
+          .selectFrom('provider_configs')
+          .select('id')
+          .where((eb) => eb.or([eb('id', '=', 'speech'), eb('id', 'like', 'speech:%')]))
+          .execute()
+        if (rows.length >= 50) throw new Error('At most 50 speech sources can be configured')
+      }
       await transaction
         .insertInto('provider_configs')
         .values({
@@ -828,7 +1263,8 @@ export class ProviderService {
       configured,
       available:
         config !== null && configured && (usesAmbientAuth || credentialBackend.securePersistence),
-      issues
+      issues,
+      ...(await this.#modelCatalog(row.id))
     }
   }
 
@@ -915,4 +1351,17 @@ function result(
   startedAt: number
 ): ProviderConnectionTestResult {
   return { ok, code, message, durationMs: Math.max(0, Date.now() - startedAt) }
+}
+
+export function speechProviderConfigId(sourceId: string): string {
+  return sourceId === 'legacy' ? 'speech' : `speech:${sourceId}`
+}
+function speechRuntimeConfig(source: SpeechSourceConfig): ProviderConfigForRole<'speech'> {
+  const { sourceId: _sourceId, name: _name, ...config } = source
+  return config
+}
+
+function discoveryEndpointIdentity(config: object): string {
+  const value = config as { baseUrl?: unknown; projectId?: unknown; location?: unknown }
+  return JSON.stringify([value.baseUrl ?? null, value.projectId ?? null, value.location ?? null])
 }

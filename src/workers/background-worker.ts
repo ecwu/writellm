@@ -1,3 +1,10 @@
+import { speechProviderFailure } from '../shared/speech-errors'
+import {
+  speechWorkerStartSchema,
+  speechWorkerCommandSchema,
+  type SpeechWorkerEvent
+} from '../shared/contracts/speech'
+import { SpeechWorkerSession } from './speech/session'
 import {
   agentImageProcessRequestSchema,
   agentImageProcessResultSchema
@@ -54,6 +61,8 @@ const activeRequests = new Map<
   string,
   { projectSessionId: string | null | undefined; controller: AbortController }
 >()
+const speechOnly = process.argv.includes('--writellm-speech-only')
+const speechSessions = new Map<string, SpeechWorkerSession>()
 let workerLog: ReturnType<typeof createPortLogger> | undefined
 
 parentPort.on('message', (event) => {
@@ -64,6 +73,57 @@ parentPort.on('message', (event) => {
       component: 'background'
     })
     event.ports[0].start()
+    return
+  }
+  if (speechOnly) {
+    const start = speechWorkerStartSchema.safeParse(event.data)
+    const postSpeech = (message: SpeechWorkerEvent): void => {
+      post(message)
+      if (message.state === 'final' || message.state === 'error')
+        speechSessions.delete(message.requestId)
+    }
+    if (start.success && speechSessions.size === 0) {
+      const session = new SpeechWorkerSession(start.data, postSpeech, (err) =>
+        withLogContext({ ...start.data.context, requestId: start.data.requestId }, () =>
+          workerLog?.(
+            'error',
+            'speech.worker.failed',
+            'Speech request failed',
+            {
+              requestId: start.data.requestId,
+              providerCode: speechProviderFailure(err).providerCode,
+              providerParam: speechProviderFailure(err).providerParam
+            },
+            err
+          )
+        )
+      )
+      speechSessions.set(start.data.requestId, session)
+      void withLogContext({ ...start.data.context, requestId: start.data.requestId }, () =>
+        session.start()
+      ).catch((err) => session.fail(err))
+      return
+    }
+    const command = speechWorkerCommandSchema.safeParse(event.data)
+    if (command.success) {
+      const session = speechSessions.get(command.data.requestId)
+      if (session && session.request.projectSessionId === command.data.projectSessionId) {
+        try {
+          session.command(command.data)
+        } catch (err) {
+          session.fail(err)
+        }
+        if (command.data.type === 'speech-cancel') speechSessions.delete(command.data.requestId)
+      }
+      return
+    }
+    post({
+      type: 'speech-event',
+      requestId: extractRequestId(event.data),
+      projectSessionId: null,
+      state: 'error',
+      error: 'Invalid speech message'
+    })
     return
   }
   const cancel = utilityCancelMessageSchema.safeParse(event.data)

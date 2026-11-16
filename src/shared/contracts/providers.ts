@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import { isModelsDevProviderLogoId } from '../models-dev-provider-logos'
 
-export const providerRoleSchema = z.enum(['agent', 'embedding', 'rerank', 'mineru', 'image'])
+export const providerRoleSchema = z.enum([
+  'agent',
+  'embedding',
+  'rerank',
+  'mineru',
+  'image',
+  'speech'
+])
 export type ProviderRole = z.infer<typeof providerRoleSchema>
 
 export const providerIdSchema = z.enum([
@@ -329,6 +336,20 @@ const endpointProviderCommonFields = {
 const modelRevisionSchema = z.string().trim().min(1).max(256)
 
 const nonImageProviderConfigSchema = z.discriminatedUnion('role', [
+  z
+    .object({
+      ...endpointProviderCommonFields,
+      role: z.literal('speech'),
+      providerId: z.literal('openai-compatible'),
+      mode: z.enum(['realtime', 'file']),
+      embeddingDimension: z.null(),
+      fileSizeLimitMb: z.null(),
+      baseUrl: providerBaseUrlSchema.refine((value) => {
+        const url = new URL(value)
+        return url.protocol === 'https:' || loopbackHosts.has(url.hostname)
+      }, 'Use HTTPS or loopback HTTP')
+    })
+    .strict(),
   z.object({
     ...endpointProviderCommonFields,
     role: z.literal('agent'),
@@ -503,7 +524,15 @@ export const providerCapabilitySchema = z.object({
   providerId: providerIdSchema,
   label: z.string().min(1),
   capabilities: z.array(
-    z.enum(['chat', 'tool-calling', 'embedding', 'rerank', 'parse', 'image-generation'])
+    z.enum([
+      'chat',
+      'tool-calling',
+      'embedding',
+      'rerank',
+      'parse',
+      'image-generation',
+      'transcription'
+    ])
   ),
   supportedFormats: z.array(z.string()),
   maxBatchSize: z.number().int().positive(),
@@ -528,6 +557,27 @@ export const imageModelSummarySchema = imageModelDefinitionSchema.extend({
 })
 export type ImageModelSummary = z.infer<typeof imageModelSummarySchema>
 
+export const sourceModelCandidateSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
+    capability: z.enum(['image', 'transcription', 'other', 'unknown']).optional(),
+    speechModes: z
+      .array(z.enum(['realtime', 'file']))
+      .max(2)
+      .optional(),
+    metadataSource: z.literal('models.dev').optional(),
+    availability: z.enum(['provider', 'catalog']).optional()
+  })
+  .strict()
+export type SourceModelCandidate = z.infer<typeof sourceModelCandidateSchema>
+export const sourceModelCatalogStatusSchema = z
+  .object({
+    status: z.enum(['never', 'current', 'stale', 'unsupported']),
+    checkedAt: z.iso.datetime().nullable(),
+    lastErrorCode: z.string().max(100).nullable()
+  })
+  .strict()
 export const imageSourceStatusSchema = z.object({
   sourceId: imageSourceIdSchema,
   providerId: imageProviderIdSchema,
@@ -537,7 +587,13 @@ export const imageSourceStatusSchema = z.object({
   models: z.array(imageModelSummarySchema).max(300),
   configured: z.boolean(),
   available: z.boolean(),
-  issues: z.array(z.string().max(500))
+  issues: z.array(z.string().max(500)),
+  modelCandidates: z.array(sourceModelCandidateSchema).max(2000).default([]),
+  catalog: sourceModelCatalogStatusSchema.default({
+    status: 'never',
+    checkedAt: null,
+    lastErrorCode: null
+  })
 })
 export type ImageSourceStatus = z.infer<typeof imageSourceStatusSchema>
 
@@ -579,10 +635,73 @@ export const imageProviderCatalogSchema = z
   })
 export type ImageProviderCatalog = z.infer<typeof imageProviderCatalogSchema>
 
+export const speechSourceIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .regex(/^[a-z0-9][a-z0-9-]*$/)
+export const speechSourceDraftSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    baseUrl: providerBaseUrlSchema.refine((value) => {
+      const url = new URL(value)
+      return url.protocol === 'https:' || loopbackHosts.has(url.hostname)
+    }, 'Use HTTPS or loopback HTTP'),
+    model: z.string().trim().min(1).max(200),
+    mode: z.enum(['realtime', 'file'])
+  })
+  .strict()
+export const speechSourceConfigSchema = speechSourceDraftSchema
+  .extend({
+    sourceId: speechSourceIdSchema,
+    role: z.literal('speech'),
+    providerId: z.literal('openai-compatible'),
+    timeoutMs: providerCommonFields.timeoutMs,
+    batchLimit: z.literal(1),
+    embeddingDimension: z.null(),
+    fileSizeLimitMb: z.null()
+  })
+  .strict()
+export type SpeechSourceConfig = z.infer<typeof speechSourceConfigSchema>
+export const speechSourceInputSchema = z.object({ sourceId: speechSourceIdSchema }).strict()
+export type SpeechSourceInput = z.infer<typeof speechSourceInputSchema>
+export const speechActiveSourceInputSchema = z
+  .object({ sourceId: speechSourceIdSchema.nullable() })
+  .strict()
+export type SpeechActiveSourceInput = z.infer<typeof speechActiveSourceInputSchema>
+export const speechSourceSaveInputSchema = z
+  .object({
+    sourceId: speechSourceIdSchema.optional(),
+    source: speechSourceDraftSchema,
+    apiKey: z.string().trim().min(1).max(16384).optional()
+  })
+  .strict()
+export type SpeechSourceSaveInput = z.infer<typeof speechSourceSaveInputSchema>
+export const speechSourceStatusSchema = z
+  .object({
+    sourceId: speechSourceIdSchema,
+    name: z.string().min(1).max(100),
+    config: speechSourceConfigSchema.nullable(),
+    configured: z.boolean(),
+    available: z.boolean(),
+    issues: z.array(z.string().max(500)),
+    modelCandidates: z.array(sourceModelCandidateSchema).max(2000),
+    catalog: sourceModelCatalogStatusSchema
+  })
+  .strict()
+export type SpeechSourceStatus = z.infer<typeof speechSourceStatusSchema>
+export const speechProviderCatalogSchema = z
+  .object({
+    activeSourceId: speechSourceIdSchema.nullable(),
+    sources: z.array(speechSourceStatusSchema).max(50)
+  })
+  .strict()
 export const providerSettingsSnapshotSchema = z.object({
   credentialBackend: credentialBackendStatusSchema,
-  providers: z.array(providerStatusSchema).length(5),
+  providers: z.array(providerStatusSchema).length(6),
   imageCatalog: imageProviderCatalogSchema,
+  speechCatalog: speechProviderCatalogSchema.default({ activeSourceId: null, sources: [] }),
   agentCatalog: agentProviderCatalogSchema.default({ presets: [], defaultSelection: null })
 })
 export type ProviderSettingsSnapshot = z.infer<typeof providerSettingsSnapshotSchema>
@@ -599,7 +718,7 @@ export const providerSaveInputSchema = z
 export type ProviderSaveInput = z.infer<typeof providerSaveInputSchema>
 
 export const providerRoleInputSchema = z
-  .object({ role: z.enum(['agent', 'embedding', 'rerank', 'mineru']) })
+  .object({ role: z.enum(['agent', 'embedding', 'rerank', 'mineru', 'speech']) })
   .strict()
 export type ProviderRoleInput = z.infer<typeof providerRoleInputSchema>
 

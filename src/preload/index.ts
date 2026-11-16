@@ -1,3 +1,4 @@
+import { speechApi } from './speech-api'
 import { applicationMenuApi } from './application-menu-api'
 import { workbenchApi } from './workbench-api'
 import { autocompleteApi } from './autocomplete-api'
@@ -19,6 +20,7 @@ import { diagnosticsApi } from './diagnostics-api'
 export type { DesktopApi } from './desktop-api'
 
 const desktopApi: DesktopApi = {
+  speech: speechApi,
   menu: applicationMenuApi,
   autocomplete: autocompleteApi,
   app: appApi,

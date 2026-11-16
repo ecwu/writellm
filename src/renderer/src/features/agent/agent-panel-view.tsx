@@ -1,3 +1,4 @@
+import { SpeechToolbar } from '../speech/speech-toolbar'
 import { AgentImageAttachments, AgentHistoryImages } from './agent-image-attachments'
 import {
   AlertCircle,
@@ -9,6 +10,7 @@ import {
   CornerDownRight,
   ListCollapse,
   MoreHorizontal,
+  Mic,
   Plus,
   RotateCcw,
   Settings2,
@@ -81,6 +83,9 @@ export function AgentPanelView({
     setCompactionConfirmOpen,
     prompt,
     imageDraft,
+    speech,
+    messageEditing,
+    setMessageEditing,
     setPrompt,
     scopePreference,
     reviewFeedback,
@@ -195,7 +200,12 @@ export function AgentPanelView({
         onDrop={(event) => {
           if (!event.dataTransfer.files.length) return
           event.preventDefault()
-          if (!busy && !activeSessionArchived && activeSession?.compatible !== false)
+          if (
+            !speech.active &&
+            !busy &&
+            !activeSessionArchived &&
+            activeSession?.compatible !== false
+          )
             void imageDraft.importFiles(Array.from(event.dataTransfer.files))
         }}
       >
@@ -213,8 +223,14 @@ export function AgentPanelView({
             status={headerStatus}
             workflowState={workflowState}
             thinkingVisualState={thinkingVisualState}
-            onNew={beginNewConversation}
-            onOpen={openSession}
+            onNew={() => {
+              speech.cancel()
+              beginNewConversation()
+            }}
+            onOpen={(session) => {
+              speech.cancel()
+              void openSession(session)
+            }}
             onArchive={archiveSession}
             onRestore={restoreSession}
             onRegenerateTitle={regenerateTitle}
@@ -279,13 +295,17 @@ export function AgentPanelView({
               forkBusy={forkBusy}
               onFork={(eventId) => void forkConversation(eventId)}
               messageEdit={messageEdit}
-              editingDisabled={activeSessionArchived || !modelReady}
+              editingDisabled={speech.active || activeSessionArchived || !modelReady}
+              onEditingChange={setMessageEditing}
               onEdit={editLastMessageAndRestart}
               projectSessionId={props.projectSessionId}
               agentSessionId={activeSession.agentSessionId}
               sectionTitles={props.sectionTitles}
               onProposalAction={proposalAction}
-              onNew={beginNewConversation}
+              onNew={() => {
+                speech.cancel()
+                beginNewConversation()
+              }}
               busy={busy || activeSessionArchived}
             />
           ) : null}
@@ -311,6 +331,18 @@ export function AgentPanelView({
           className='flex min-w-0 shrink-0 flex-col gap-3 border-t px-4 py-3'
           data-testid='agent-composer'
         >
+          <span role='status' aria-live='polite' className='sr-only'>
+            {speech.active
+              ? speech.phase === 'recording'
+                ? 'Recording.'
+                : speech.phase === 'preparing'
+                  ? 'Preparing dictation.'
+                  : speech.phase === 'finalizing'
+                    ? 'Transcribing.'
+                    : 'Dictation failed.'
+              : speech.notice}
+          </span>
+          {speech.error ? <AgentErrorAlert message={speech.error} /> : null}
           {error ? (
             <AgentAttentionDock label='Agent error'>
               <AgentErrorAlert message={error} />
@@ -543,7 +575,7 @@ export function AgentPanelView({
                 </Collapsible>
               ) : null}
               <Popover
-                open={slashCommandOpen || skillMentionOpen}
+                open={!speech.active && (slashCommandOpen || skillMentionOpen)}
                 onOpenChange={(open) => {
                   if (!open) {
                     setSlashMenuDismissed(true)
@@ -558,7 +590,8 @@ export function AgentPanelView({
                     <InputGroupTextarea
                       ref={composerTextareaRef}
                       id='agent-message'
-                      value={prompt}
+                      value={speech.preview ?? prompt}
+                      readOnly={speech.active}
                       placeholder={
                         activeRun
                           ? choosingSkill
@@ -574,7 +607,10 @@ export function AgentPanelView({
                       className='min-h-20 max-h-48 overflow-y-auto [field-sizing:content]'
                       disabled={busy || choosingSkill || activeSession?.compatible === false}
                       onPaste={(event) => {
-                        if (busy || activeSessionArchived) return
+                        if (speech.active || busy || activeSessionArchived) {
+                          event.preventDefault()
+                          return
+                        }
                         const images = Array.from(event.clipboardData.files)
                         if (images.length) {
                           event.preventDefault()
@@ -588,6 +624,7 @@ export function AgentPanelView({
                           void imageDraft.pasteImage()
                       }}
                       onChange={(event) => {
+                        if (speech.active) return
                         setPrompt(event.target.value)
                         setComposerCaret(event.target.selectionStart ?? event.target.value.length)
                         setSlashMenuDismissed(false)
@@ -599,6 +636,10 @@ export function AgentPanelView({
                         setComposerCaret(event.currentTarget.selectionStart ?? prompt.length)
                       }}
                       onKeyDown={(event) => {
+                        if (speech.active || speech.blocksSubmit() || event.repeat) {
+                          if (event.key === 'Enter') event.preventDefault()
+                          return
+                        }
                         if (skillMentionOpen && !event.nativeEvent.isComposing) {
                           if (event.key === 'Escape') {
                             event.preventDefault()
@@ -677,110 +718,147 @@ export function AgentPanelView({
                       </InputGroupAddon>
                     ) : null}
                     <InputGroupAddon align='block-end' className='justify-between gap-2'>
-                      <div className='flex shrink-0 items-center gap-1'>
-                        <Popover open={composerAddOpen} onOpenChange={setComposerAddOpen}>
-                          <PopoverTrigger asChild>
-                            <InputGroupButton
-                              size='icon-sm'
-                              aria-label='Add context'
-                              disabled={busy || conversationLocked}
-                              data-testid='agent-add-menu-trigger'
-                            >
-                              <Plus />
-                            </InputGroupButton>
-                          </PopoverTrigger>
-                          <PopoverContent align='start' side='top' className='w-80 p-0'>
-                            <ComposerCommandMenu
-                              commands={composerCommands}
-                              imagesDisabled={
-                                busy ||
-                                imageDraft.importing ||
-                                imageDraft.items.length >= 4 ||
-                                activeSessionArchived
-                              }
-                              onAddImages={() => {
-                                setComposerAddOpen(false)
-                                void imageDraft.selectImages()
-                              }}
-                              onSelect={(command) => runComposerCommand(command, false)}
-                            />
-                          </PopoverContent>
-                        </Popover>
-                        <ApprovalModePicker
-                          value={activeSession?.approvalMode ?? 'manual'}
-                          disabled={
-                            busy ||
-                            activeSessionArchived ||
-                            (activeSession?.interactionMode ?? 'write') !== 'write'
-                          }
-                          onSelect={setApprovalMode}
+                      {speech.active ? (
+                        <SpeechToolbar
+                          speech={speech}
+                          running={activeRun !== null}
+                          stopAgent={stopRun}
                         />
-                      </div>
-                      <div className='ml-auto flex min-w-0 flex-1 items-center justify-end gap-1'>
-                        <AgentContextUsageIndicator snapshot={contextSnapshot} />
-                        <AgentModelEffortPicker
-                          presets={availableModelPresets}
-                          selection={modelSelection}
-                          levels={supportedThinkingLevels}
-                          effort={
-                            activeSession?.thinkingLevel ??
-                            providerCatalog.defaultThinkingLevel ??
-                            'medium'
-                          }
-                          disabled={composerSettingsDisabled}
-                          onModelSelect={setModelSelection}
-                          onEffortSelect={setThinkingLevel}
-                        />
-                        <InteractionModePicker
-                          value={activeSession?.interactionMode ?? 'write'}
-                          disabled={interactionModeSwitchDisabled}
-                          onSelect={setInteractionMode}
-                        />
-                        {activeRun !== null ? (
-                          agentComposerRunningAction(prompt) === 'follow_up' ? (
-                            <InputGroupButton
-                              variant='default'
-                              size='icon-sm'
-                              className='shrink-0 rounded-full'
-                              aria-label='Queue follow-up'
-                              title='Queue follow-up'
-                              disabled={busy}
-                              onClick={() => void queueMessage('follow_up')}
-                            >
-                              <ArrowUp />
-                            </InputGroupButton>
-                          ) : (
+                      ) : (
+                        <>
+                          <div className='flex shrink-0 items-center gap-1'>
+                            <Popover open={composerAddOpen} onOpenChange={setComposerAddOpen}>
+                              <PopoverTrigger asChild>
+                                <InputGroupButton
+                                  size='icon-sm'
+                                  aria-label='Add context'
+                                  disabled={busy || conversationLocked}
+                                  data-testid='agent-add-menu-trigger'
+                                >
+                                  <Plus />
+                                </InputGroupButton>
+                              </PopoverTrigger>
+                              <PopoverContent align='start' side='top' className='w-80 p-0'>
+                                <ComposerCommandMenu
+                                  commands={composerCommands}
+                                  imagesDisabled={
+                                    busy ||
+                                    imageDraft.importing ||
+                                    imageDraft.items.length >= 4 ||
+                                    activeSessionArchived
+                                  }
+                                  onAddImages={() => {
+                                    setComposerAddOpen(false)
+                                    void imageDraft.selectImages()
+                                  }}
+                                  onSelect={(command) => runComposerCommand(command, false)}
+                                />
+                              </PopoverContent>
+                            </Popover>
                             <ComposerAction
                               size='icon-sm'
-                              variant='destructive'
-                              className='shrink-0 rounded-full'
-                              label='Stop'
-                              disabled={busy}
-                              onClick={() => void stopRun()}
+                              label='Start dictation'
+                              disabled={
+                                messageEditing ||
+                                activeSessionArchived ||
+                                !modelReady ||
+                                busy ||
+                                choosingSkill ||
+                                conversationLocked ||
+                                activeSession?.compatible === false
+                              }
+                              onClick={() => {
+                                setComposerAddOpen(false)
+                                setSlashMenuDismissed(true)
+                                setSkillMentionDismissed(true)
+                                void speech.start()
+                              }}
                             >
-                              <CircleStop />
+                              <Mic />
                             </ComposerAction>
-                          )
-                        ) : (
-                          <InputGroupButton
-                            variant='default'
-                            size='icon-sm'
-                            className='shrink-0 rounded-full'
-                            aria-label='Send'
-                            title='Send'
-                            disabled={
-                              busy ||
-                              imageDraft.importing ||
-                              (prompt.trim().length === 0 &&
-                                imageDraft.attachmentIds.length === 0) ||
-                              activeSession?.compatible === false
-                            }
-                            onClick={() => void startRun(prompt)}
-                          >
-                            <ArrowUp />
-                          </InputGroupButton>
-                        )}
-                      </div>
+                            <ApprovalModePicker
+                              value={activeSession?.approvalMode ?? 'manual'}
+                              disabled={
+                                busy ||
+                                activeSessionArchived ||
+                                (activeSession?.interactionMode ?? 'write') !== 'write'
+                              }
+                              onSelect={setApprovalMode}
+                            />
+                          </div>
+                          <div className='ml-auto flex min-w-0 flex-1 items-center justify-end gap-1'>
+                            <AgentContextUsageIndicator snapshot={contextSnapshot} />
+                            <AgentModelEffortPicker
+                              presets={availableModelPresets}
+                              selection={modelSelection}
+                              levels={supportedThinkingLevels}
+                              effort={
+                                activeSession?.thinkingLevel ??
+                                providerCatalog.defaultThinkingLevel ??
+                                'medium'
+                              }
+                              disabled={composerSettingsDisabled}
+                              onModelSelect={setModelSelection}
+                              onEffortSelect={setThinkingLevel}
+                            />
+                            <InteractionModePicker
+                              value={activeSession?.interactionMode ?? 'write'}
+                              disabled={interactionModeSwitchDisabled}
+                              onSelect={setInteractionMode}
+                            />
+                            {activeRun !== null ? (
+                              agentComposerRunningAction(prompt) === 'follow_up' ? (
+                                <InputGroupButton
+                                  variant='default'
+                                  size='icon-sm'
+                                  className='shrink-0 rounded-full'
+                                  aria-label='Queue follow-up'
+                                  title='Queue follow-up'
+                                  disabled={busy}
+                                  onClick={(event) => {
+                                    if (event.detail > 1) return
+                                    void queueMessage('follow_up')
+                                  }}
+                                >
+                                  <ArrowUp />
+                                </InputGroupButton>
+                              ) : (
+                                <ComposerAction
+                                  size='icon-sm'
+                                  variant='destructive'
+                                  className='shrink-0 rounded-full'
+                                  label='Stop'
+                                  disabled={busy}
+                                  onClick={() => void stopRun()}
+                                >
+                                  <CircleStop />
+                                </ComposerAction>
+                              )
+                            ) : (
+                              <InputGroupButton
+                                variant='default'
+                                size='icon-sm'
+                                className='shrink-0 rounded-full'
+                                aria-label='Send'
+                                title='Send'
+                                disabled={
+                                  busy ||
+                                  imageDraft.importing ||
+                                  (prompt.trim().length === 0 &&
+                                    imageDraft.attachmentIds.length === 0) ||
+                                  activeSession?.compatible === false
+                                }
+                                onClick={(event) => {
+                                  if (event.detail > 1) return
+                                  void startRun(prompt)
+                                }}
+                              >
+                                <ArrowUp />
+                              </InputGroupButton>
+                            )}
+                          </div>
+                        </>
+                      )}
                     </InputGroupAddon>
                   </InputGroup>
                 </PopoverAnchor>

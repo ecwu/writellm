@@ -1,3 +1,4 @@
+import { migration0012 } from './0012-speech-source-catalogs'
 import { migration0001 } from './0001-application-state'
 import { migration0002 } from './0002-agent-model-catalogs'
 import { migration0003 } from './0003-agent-model-preferences'
@@ -21,5 +22,6 @@ export const appMigrations = [
   migration0008,
   migration0009,
   migration0010,
-  migration0011
+  migration0011,
+  migration0012
 ] as const

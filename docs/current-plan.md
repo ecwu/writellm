@@ -1,7 +1,7 @@
 # WriteLLM Current Plan
 
-Status: Release 0.2026.11.1 passes local package acceptance. Tag publication is pending.
-Recorded: 2026-11-08
+Status: The source-catalog extension passes local macOS arm64 gates and independent DeepSeek acceptance.
+Recorded: 2026-11-16
 
 This file owns current delivery state, acceptance gates, and platform gaps.
 [Architecture](architecture.md) owns current system rules. [ADRs](adrs/) own decisions.
@@ -10,7 +10,40 @@ Historical authorization records do not authorize new work.
 
 ## Current state
 
-The maintenance branch `codex/untangle-code-knots` holds the refactors, dependency update, and OpenAI sign-in fix for review.
+Pi now uses 1.5.2 for pi-ai, pi-agent-core, pi-schema, and pi-telemetry.
+The Agent provider wrapper preserves the new catalog authentication policy for manual model overlays.
+Static analysis, 69 focused tests, twelve packaged runtime scenarios, and all 52 packaged interactions pass on macOS arm64.
+The same tested App produces updated DMG and ZIP artifacts. The complete package gate passes in 319.1 seconds.
+Windows, Linux, and live provider compatibility remain untested for this patch.
+[Pi patch evidence](history/implementation-log.md#2026-11-16-pi-152-patch-upgrade) records this update.
+
+The November 16 source-catalog extension is implemented locally under amended ADRs 093 and 094.
+Speech supports multiple sources with Settings-only activation. Image/Speech discovery combines source APIs and models.dev v2 metadata.
+Connection tests are optional. Existing saved models and encrypted credentials survive the application migration to version 12.
+Static analysis, related tests, twelve packaged runtime scenarios, and all 52 packaged interactions pass.
+DeepSeek reports no blocking defects and independently passes 145 tests plus static analysis.
+Three minor review findings are corrected. The final App passes all five affected packaged scenarios after those corrections.
+A recorded public models.dev response sample also passes the offline parser regression. Refreshed DMG and ZIP artifacts contain these corrections.
+[Source-catalog evidence](history/implementation-log.md#2026-11-16-speech-sources-and-public-model-discovery) records scope and platform limits.
+
+
+Issue 20 speech input is implemented locally under [ADR 094](adrs/094-speech-input.md).
+The macOS arm64 package gate passes with twelve runtime scenarios and 49 interaction scenarios, including two speech scenarios.
+The same tested App produced DMG and ZIP artifacts. The delivery branch is `codex/speech-model-discovery`, based on main after the untangle merge.
+[Speech evidence](history/implementation-log.md#2026-11-15-speech-input-implementation) records the focused tests and the corrected first package attempt.
+The November 16 compatibility and error-message repair passes 42 focused tests and both speech scenarios in the refreshed macOS arm64 App.
+The refreshed DMG and ZIP include the setup-error fix and model-specific language hints. Full acceptance above refers to the November 15 baseline.
+The latest repair bounds each capture preparation stage to ten seconds and stops late streams after cancellation.
+Fifteen capture tests and one packaged timeout recovery scenario pass. The refreshed DMG and ZIP include this repair.
+Earlier synthetic native capture probes stall at getUserMedia. The user resolves real-device Preparing by granting a microphone prompt on another display.
+The user reports that speech now works. Automated recording quality and transcription accuracy remain unverified.
+One authorized visible real-device probe reports granted OS permission but no audio stream within twenty seconds.
+The user later confirms an outstanding authorization prompt despite that granted status. Synthetic audio uses mocked OS permission status.
+Other platforms, real local transcription services, and undocumented live delta correction semantics remain unverified.
+Issue 20 remains open for complete acceptance and these documented limits.
+
+Main includes `codex/untangle-code-knots` through a separate merge commit.
+The current Speech, model discovery, interface, and Pi changes use `codex/speech-model-discovery` before their separate merge into main.
 
 OpenAI sign-in supplies Pi 1.5 with a stable ID from `app.sqlite`.
 The source and packaged macOS arm64 apps pass the sign-in scenario with a simulated ChatGPT response.

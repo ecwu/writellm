@@ -103,7 +103,8 @@ export function SingletonProviderWorkspace({
       status?.config !== null &&
         status?.config !== undefined &&
         status.config.role !== 'agent' &&
-        status.config.role !== 'image'
+        status.config.role !== 'image' &&
+        status.config.role !== 'speech'
         ? status.config
         : defaultConfig(role)
     )

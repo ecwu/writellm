@@ -3065,3 +3065,171 @@ The user authorizes pushing the maintenance branch for review. It includes the d
 The static gate passes five stages in 5.0 seconds.
 On macOS arm64, Electron passes 2,071 tests in 24.9 seconds with three optional benchmarks skipped.
 The packaged OpenAI scenario uses the same source and passes with a simulated token response.
+
+## 2026-11-09 Agent model selector refresh
+
+The Agent and Notebook model selectors share one panel modeled on T3 Code's picker.
+A provider rail filters a searchable model list. The composer and Notebook pickers add a reasoning column.
+Choosing a model keeps the picker open; choosing a reasoning level closes it.
+The Agent details and model recovery pickers drop the provider drill-down. Twelve E2E files follow the new interaction.
+Favorites, model shortcuts, and speed modes are not added because WriteLLM has no matching features. The change remains uncommitted.
+
+On macOS arm64, the static gate passes five stages in 3.3 seconds. Electron passes 9 focused tests in two files in 0.8 seconds.
+One build serves 13 E2E files. The first run passes 25 of 26 scenarios in 125.6 seconds with zero retries.
+The failure is a stale old-picker step in the large Notebook scenario.
+After that fix, `parsed-knowledge.spec.ts` passes 5 of 5 scenarios in 43.2 seconds with zero retries.
+
+
+## 2026-11-09 Editor status controls
+
+Removed the section editor toolbar. Save status and section actions now appear in the bottom status bar.
+Three icon controls toggle Outline, select a manuscript section, and toggle Agent.
+The activity rail no longer contains the Agent toggle. Existing docking and content tabs remain available.
+
+Static analysis passes five stages in 3.4 seconds. One build passes in 2.3 seconds.
+Three focused Electron workbench scenarios pass in 17.6 seconds with zero retries on macOS arm64.
+Coverage includes the section menu, Outline visibility, tool resizing, retained editors, and layout restoration.
+Windows and Linux were not exercised. Changes remain uncommitted.
+
+
+## 2026-11-09 Interface app rebuild
+
+The local macOS arm64 app includes the status controls and editor toolbar removal.
+The build passes in 2.1 seconds. Package inventory and the ad-hoc signature policy pass.
+Three packaged workbench scenarios pass in 21.0 seconds with zero retries.
+The app replaces `dist/macos-arm64/mac-arm64/WriteLLM.app`. Existing installers remain unchanged.
+The previous app remains in `dist/ui-rebuild/previous-WriteLLM.app`.
+
+
+## 2026-11-09 Centered status controls
+
+The three panel controls now occupy the center of a three-column status bar. Equal side columns preserve the center position.
+Static analysis passes five stages in 3.5 seconds. The build passes in 2.3 seconds, and package inventory passes.
+One packaged sizing scenario passes in 5.2 seconds with zero retries on macOS arm64.
+The local app bundle in `dist/macos-arm64/mac-arm64` includes this change. Existing installers remain unchanged.
+
+## 2026-11-15 Speech input implementation
+
+Implemented Issue 20 under ADR 094 with two GPT-6.1 Sol workers and independent DeepSeek V4.1 Flash acceptance analysis.
+The uncommitted change adds the speech singleton, typed binary IPC, dedicated worker, realtime/file adapters, permissions, Worklet, and draft-only controls.
+The Renderer retains manual submission, selection restoration, cancellation, and independent Agent Stop.
+
+Final focused protocol/service/permission/error tests pass 26 cases in 0.9 seconds. Four transport cases pass in 0.9 seconds.
+The corrected adapter passes its eleven-case suite in 1.2 seconds and isolated speech type analysis.
+Earlier unchanged Renderer coverage passes 44 cases across six files in two final runs of 0.7 and 1.0 seconds.
+All final focused runs use zero test retries.
+The full macOS arm64 package gate passes ten stages in 297.6 seconds, including twelve runtime scenarios and 49 interaction scenarios.
+Packaged interaction takes 168.2 seconds with zero retries. Worklet and ws inventory, native loading, DMG, and ZIP inspection pass.
+The first package attempt takes 237.7 seconds and passes 48 of 49 interactions. Its failure uses an obsolete Agent button locator.
+The second attempt includes the corrected locator and the adapter fix for unauthenticated HTTPS.
+
+The user completed the frozen dependency install after automatic policy rejected tool installation.
+No commit, push, release, or external transcription request occurred during implementation acceptance.
+Real microphone quality and native permission prompts remain untested. Synthetic capture mocks OS permission status.
+Other operating systems and real local services remain untested. Incremental preview and final replacement are supported, but undocumented live revisions remain unresolved.
+The package gate uses unsigned, non-notarized local artifacts under the existing release policy.
+
+## 2026-11-16 Speech configuration error guidance
+
+Local diagnosis found no saved speech configuration when the user tried dictation.
+Main now returns a fixed setup message, and Renderer preserves that message without exposing arbitrary IPC errors.
+The source build and static gates pass. Provider/error coverage passes 17 tests in 0.9 seconds.
+File-mode E2E passes in 12.5 seconds. The corrected realtime recovery scenario passes in 8.0 seconds with zero retries.
+One earlier realtime attempt hit the existing cancellation guard; the test now waits for that guard.
+The change remains uncommitted. The earlier installer excludes this message fix. Real microphone testing remains pending.
+
+## 2026-11-16 Speech model compatibility and error propagation
+
+Official no-audio probes reproduce invalid_parameter for gpt-4o-transcribe with languages and accept the same model without that field.
+The gpt-live-transcribe control accepts languages. No microphone audio or project content is sent.
+Adapters now send optional language hints only for supported default models without changing saved models or retrying.
+Allowlisted provider codes and parameter names survive SDK, worker, Main, and Renderer error boundaries.
+The settings test and dictation UI retain fixed safe messages. Raw provider text remains private.
+
+Forty-two focused tests pass in 0.9 seconds. Final client coverage passes two tests in 0.8 seconds.
+After the Electron prefix repair, twelve error cases pass in 0.6 seconds. Static analysis passes in 3.7 seconds.
+The initial packaged interaction run fails both error-message assertions because Electron preserves the custom SpeechFailure prefix.
+The corrected macOS arm64 App passes both speech scenarios in 15.2 seconds with zero retries.
+The refreshed App, DMG, and ZIP pass inventory and artifact inspection in an 86.0-second build.
+The previous build takes 87.6 seconds. No full acceptance rerun occurs for this focused repair.
+Changes remain uncommitted and unpublished. Real microphone and other-platform acceptance remain pending.
+
+## 2026-11-16 Bounded speech preparation
+
+The connection test succeeds, but the user reports indefinite Preparing during dictation.
+Controlled probes stall at getUserMedia before audio context creation. The native capture cause remains unresolved.
+Capture initialization now bounds each stage to ten seconds, settles cancellation, and closes late streams.
+Safe errors identify the failed stage. Logs retain the original cause and timing without captured content.
+
+Fifteen capture tests pass in 0.6 seconds with zero retries. Static analysis passes in 3.8 seconds.
+The macOS arm64 App passes one packaged timeout recovery scenario in 17.8 seconds with zero retries.
+An earlier grep selection matches no tests. Four controlled native capture probes each fail at unresolved getUserMedia.
+The App, DMG, and ZIP build passes inventory and artifact inspection in 86.4 seconds.
+No full acceptance rerun occurs. Real microphone recording and other platforms remain unverified.
+The changes remain uncommitted and unpublished.
+
+## 2026-11-16 Visible microphone diagnostic
+
+The user authorized one local microphone probe with no audio storage or upload.
+The packaged macOS arm64 App uses isolated userData and its production permission handlers.
+OS permission reports granted. The capture request remains unresolved for 20,001 ms.
+The diagnostic closes its App after 21,666 ms, with one attempt and zero retries.
+No transcription request or audio persistence occurs. The native capture cause remains unresolved.
+
+## 2026-11-16 User confirms microphone recovery
+
+The user finds the microphone authorization prompt on another display and grants it. The user reports that speech now works.
+The earlier granted OS status did not establish complete capture authorization. No permission policy change is needed.
+Preparation deadlines and cancellation cleanup remain in place. Automated quality and other-platform acceptance remain open.
+
+## 2026-11-16 Speech sources and public model discovery
+
+Speech gains independent sources and a Settings-only active source. Each source keeps its model, mode, endpoint, and encrypted credential.
+Migration 0012 retains the legacy speech row and credential binding. It adds a durable cache for source model candidates.
+Image and Speech fetch source model IDs and enrich them with filtered models.dev v2 metadata. No dependency is added.
+Public requests carry no provider credentials. Unknown source IDs remain available, and connection tests remain optional.
+Refresh writes reject stale source identities, overlapping requests, and endpoint edits that later revert. Active recording retains its initial source snapshot.
+
+The integrated static gate passes in 4.3 seconds after three metadata type errors are fixed. Two existing performance warnings remain unrelated.
+Related Electron coverage passes 242 tests across 26 files in 3.56 seconds with zero retries.
+Final changed metadata coverage passes 25 tests in 0.3 seconds. Final catalog coverage passes 14 tests in 1.3 seconds.
+Final IPC and speech-service coverage each pass nine tests. Final Renderer coverage passes nine tests in 0.9 seconds.
+One macOS arm64 App, DMG, and ZIP build takes 87.8 seconds and passes native and resource inventory.
+Twelve packaged runtime scenarios pass in 40.0 seconds, including database version 12 and integrity checks.
+All 52 packaged interaction scenarios pass in 184.6 seconds with zero retries, failures, or skips.
+Tests use synthetic audio, loopback services, and fixed public metadata fixtures. Real provider requests and other platforms are outside this acceptance.
+The models.dev v2 endpoint remains experimental. Cache retention and bounded schema parsing cover service or schema failure.
+Changes remain uncommitted and unpublished. Independent DeepSeek review follows these local gates.
+
+## 2026-11-16 Independent source-catalog acceptance
+
+DeepSeek v4.1 Flash through glm-relay reports no blocking defects after read-only code review.
+Its independent runs pass 145 tests across 19 files, with zero retries. Its static gate passes in 3.9 seconds.
+The parent corrects three minor findings: null Gemini pagination, credential-clearing guidance, and operation-specific Settings errors.
+The parent also records six original public models.dev entries and tests the real response shape offline.
+The recorded source includes its capture time, byte count, and response digest. No provider credentials or generated content are involved.
+
+The final correction passes 57 focused tests in 0.423 seconds and static analysis in 3.6 seconds.
+The final App passes five affected packaged scenarios in 28.6 seconds with zero retries. The other 47 prior scenarios remain covered.
+The refreshed App, DMG, and ZIP pass inventory and artifact checks in an 85.4-second build.
+The twelve runtime checks remain valid because native resources, migration, credentials, and process boundaries are unchanged by these corrections.
+The process-local refresh generation assumes the existing single-instance lock; ADR 094 now states that assumption.
+Large catalog snapshot optimization, the unused legacy removal API, and existing cancellation messaging remain non-blocking follow-up items.
+DeepSeek does not rerun the build or packaged scenarios, and the small parent corrections receive focused local verification.
+Pi package research finds version 1.5.2 available. This task retains the installed 1.5.0 dependencies.
+Changes remain uncommitted and unpublished.
+
+## 2026-11-16 Pi 1.5.2 patch upgrade
+
+Pi AI and Agent Core move from 1.5.0 to 1.5.2 with matching schema and telemetry packages.
+The provider wrapper retains the new catalog authentication policy when users add manual models.
+Agent streams retain application-owned retries. The current calls do not activate Pi session continuation state.
+Changes remain uncommitted. Existing Speech and source-catalog changes remain intact.
+
+The canonical Electron runner passes 69 tests across eight files in 4.3 seconds with zero retries.
+The full macOS arm64 package gate passes in 319.1 seconds with one build.
+Static analysis passes in 4.3 seconds with two existing performance warnings.
+Twelve runtime scenarios pass in 40.2 seconds. All 52 packaged interactions pass in 188.2 seconds with zero retries.
+The tested App produces DMG and ZIP artifacts. Database version 12 passes integrity checks.
+Reports reside in `.cache/verification/1794832599713-88242-c6ec7678` and `.cache/verification/1794832604253-88372-03e4ba9d`.
+Windows, Linux, x64, live provider calls, and signed distribution remain outside this evidence.

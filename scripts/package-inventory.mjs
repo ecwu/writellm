@@ -110,6 +110,7 @@ export async function verifyPackageInventory(resources, target) {
 
 export function verifyInventoryPaths(paths) {
   const requiredExact = [
+    'out/renderer/audio/speech-capture.worklet.js',
     'package.json',
     'out/main/index.js',
     'out/main/agent-worker.js',
@@ -128,6 +129,7 @@ export function verifyInventoryPaths(paths) {
   const requiredPrefixes = [
     'node_modules/better-sqlite3/',
     'node_modules/pino/',
+    'node_modules/ws/',
     'node_modules/pino-roll/',
     'node_modules/thread-stream/',
     'node_modules/@earendil-works/pi-ai/',

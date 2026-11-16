@@ -1,6 +1,16 @@
 import type { ProviderCapability, ProviderRole } from '../../shared/contracts/providers'
 
 const capabilities: Record<ProviderRole, ProviderCapability> = {
+  speech: {
+    role: 'speech',
+    providerId: 'openai-compatible',
+    label: 'Speech input',
+    capabilities: ['transcription'],
+    supportedFormats: ['audio/wav'],
+    maxBatchSize: 1,
+    maxFileSizeMb: null,
+    maxPages: null
+  },
   agent: {
     role: 'agent',
     providerId: 'openai-compatible',
@@ -72,7 +82,8 @@ export const providerRoles: readonly ProviderRole[] = [
   'embedding',
   'rerank',
   'mineru',
-  'image'
+  'image',
+  'speech'
 ]
 
 export function getProviderCapability(role: ProviderRole): ProviderCapability {

@@ -160,7 +160,6 @@ test(
       const details = launched.page.getByRole('dialog', { name: 'Agent details' })
       await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /Concurrent Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Writer model/ }).click()
       await launched.page.keyboard.press('Escape')
 

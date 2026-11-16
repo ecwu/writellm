@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import pino from 'pino'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ProviderConfig } from '../../shared/contracts/providers'
+import {
+  providerSettingsSnapshotSchema,
+  type ProviderConfig
+} from '../../shared/contracts/providers'
 import { openAppDatabase, type AppDatabase } from '../app-db/connection'
 import { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
@@ -85,6 +88,51 @@ afterEach(async () => {
 })
 
 describe('ProviderService', () => {
+  it('stores one speech mode, permits no-key loopback and clears credentials on origin change', async () => {
+    const appDatabase = await database()
+    const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    const service = providerService(appDatabase, credentials)
+    const config: ProviderConfig = {
+      role: 'speech',
+      providerId: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:8787/prefix/v1',
+      model: 'whisper',
+      mode: 'file',
+      timeoutMs: 60000,
+      batchLimit: 1,
+      embeddingDimension: null,
+      fileSizeLimitMb: null
+    }
+    try {
+      const initial = providerSettingsSnapshotSchema.parse(await service.save(config))
+      expect(initial.providers.find((provider) => provider.role === 'speech')).toMatchObject({
+        available: true,
+        config: { mode: 'file' }
+      })
+      await service.withSpeechProvider(async (current, key) => {
+        expect(current.baseUrl).toBe(config.baseUrl)
+        expect(key).toBeUndefined()
+      })
+      await service.save(config, 'speech-secret')
+      await service.withSpeechProvider(async (_current, key) => {
+        expect(key).toBe('speech-secret')
+      })
+      await service.save({ ...config, baseUrl: 'http://127.0.0.1:8787/other/v1', mode: 'realtime' })
+      expect(await credentials.hasCredential('speech')).toBe(true)
+      await service.save({ ...config, baseUrl: 'http://localhost:8787/v1' })
+      expect(await credentials.hasCredential('speech')).toBe(false)
+      const rows = await appDatabase.kysely
+        .selectFrom('provider_configs')
+        .select('id')
+        .where('id', '=', 'speech')
+        .execute()
+      expect(rows).toEqual([{ id: 'speech' }])
+      expect((await service.testConnection('speech')).ok).toBe(false)
+    } finally {
+      appDatabase.close()
+    }
+  })
+
   it('builds one final catalog for real preset, manual-model and availability writes', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')

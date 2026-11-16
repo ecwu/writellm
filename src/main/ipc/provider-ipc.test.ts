@@ -7,7 +7,7 @@ import type { ProviderSettingsSnapshot } from '../../shared/contracts/providers'
 import { registerProviderIpc, type ProviderIpcMain } from './provider-ipc'
 
 function emptyStatus(
-  role: 'embedding' | 'rerank' | 'mineru' | 'image'
+  role: 'embedding' | 'rerank' | 'mineru' | 'image' | 'speech'
 ): ProviderSettingsSnapshot['providers'][number] {
   const capabilities: ProviderSettingsSnapshot['providers'][number]['capability']['capabilities'] =
     role === 'embedding'
@@ -16,7 +16,9 @@ function emptyStatus(
         ? ['rerank']
         : role === 'image'
           ? ['image-generation']
-          : ['parse']
+          : role === 'speech'
+            ? ['transcription']
+            : ['parse']
   return {
     role,
     capability: {
@@ -44,6 +46,7 @@ function emptyStatus(
 }
 
 const snapshot: ProviderSettingsSnapshot = {
+  speechCatalog: { activeSourceId: null, sources: [] },
   credentialBackend: {
     platform: 'linux',
     backend: 'kwallet6',
@@ -80,7 +83,7 @@ const snapshot: ProviderSettingsSnapshot = {
       available: true,
       issues: []
     },
-    ...(['embedding', 'rerank', 'mineru', 'image'] as const).map(emptyStatus)
+    ...(['embedding', 'rerank', 'mineru', 'image', 'speech'] as const).map(emptyStatus)
   ],
   imageCatalog: { defaultSelection: null, sources: [] },
   agentCatalog: { presets: [], defaultSelection: null }
@@ -94,6 +97,11 @@ function harness() {
   }
   const providers = {
     snapshot: vi.fn(async () => snapshot),
+    saveSpeechSource: vi.fn(async () => snapshot),
+    removeSpeechSource: vi.fn(async () => snapshot),
+    setActiveSpeechSource: vi.fn(async () => snapshot),
+    refreshSpeechModels: vi.fn(async () => snapshot),
+    refreshImageModels: vi.fn(async () => snapshot),
     save: vi.fn(async () => snapshot),
     remove: vi.fn(async () => snapshot),
     saveImageSource: vi.fn(async () => snapshot),
@@ -149,6 +157,31 @@ function harness() {
 }
 
 describe('provider IPC', () => {
+  it('routes speech sources and refreshes using bounded saved source identities', async () => {
+    const { invoke, providers } = harness()
+    const source = {
+      name: 'Local',
+      baseUrl: 'http://localhost:8787/v1',
+      model: 'custom-transcriber',
+      mode: 'file'
+    }
+    await invoke(IPC_CHANNELS.providersSaveSpeechSource, { source })
+    expect(providers.saveSpeechSource).toHaveBeenCalledWith({ source })
+    await invoke(IPC_CHANNELS.providersSetActiveSpeechSource, { sourceId: 'sp-fixture' })
+    expect(providers.setActiveSpeechSource).toHaveBeenCalledWith('sp-fixture')
+    await invoke(IPC_CHANNELS.providersRefreshSpeechModels, { sourceId: 'sp-fixture' })
+    expect(providers.refreshSpeechModels).toHaveBeenCalledWith('sp-fixture')
+    await invoke(IPC_CHANNELS.providersRefreshImageModels, { sourceId: 'image-fixture' })
+    expect(providers.refreshImageModels).toHaveBeenCalledWith('image-fixture')
+    await expect(
+      invoke(IPC_CHANNELS.providersRefreshSpeechModels, {
+        sourceId: 'sp-fixture',
+        url: 'https://untrusted.example/models'
+      })
+    ).rejects.toThrow()
+    expect(providers.refreshSpeechModels).toHaveBeenCalledTimes(1)
+  })
+
   it('returns renderer-safe status and never echoes a saved secret', async () => {
     const { invoke, providers } = harness()
     const result = await invoke(IPC_CHANNELS.providersSave, {

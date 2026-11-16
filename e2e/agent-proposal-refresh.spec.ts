@@ -251,7 +251,6 @@ test(
       const details = launched.page.getByRole('dialog', { name: 'Agent details' })
       await details.getByLabel('Agent model').click()
       const modelPicker = launched.page.getByTestId('agent-model-picker')
-      await modelPicker.getByRole('option', { name: /Refresh Agent/ }).click()
       await modelPicker.getByRole('option', { name: /Refresh E2E model/ }).click()
       await launched.page.keyboard.press('Escape')
       await panel.getByTestId('agent-add-menu-trigger').click()

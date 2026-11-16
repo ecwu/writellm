@@ -1,3 +1,4 @@
+import { installWindowPermissions } from './microphone-permissions'
 import { BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
@@ -27,6 +28,8 @@ export function createWindow(
       ...(silent ? { backgroundThrottling: false } : {})
     }
   })
+
+  installWindowPermissions(mainWindow, developmentUrl)
 
   logger.info(
     {
