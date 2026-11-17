@@ -367,6 +367,7 @@ const nonImageProviderConfigSchema = z.discriminatedUnion('role', [
   z.object({
     ...endpointProviderCommonFields,
     role: z.literal('embedding'),
+    sourceId: z.string().min(1).max(128).optional(),
     providerId: z.literal('openai-compatible'),
     modelRevision: modelRevisionSchema,
     embeddingDimension: z.number().int().min(1).max(65_536),
@@ -698,10 +699,205 @@ export const speechProviderCatalogSchema = z
     sources: z.array(speechSourceStatusSchema).max(50)
   })
   .strict()
+export const purposeProviderRoleSchema = z.enum(['embedding', 'rerank', 'mineru', 'speech'])
+export type PurposeProviderRole = z.infer<typeof purposeProviderRoleSchema>
+
+const purposeProviderIds = {
+  embedding: 'openai-compatible',
+  rerank: 'cohere-compatible',
+  mineru: 'mineru',
+  speech: 'openai-compatible'
+} satisfies Record<PurposeProviderRole, ProviderId>
+
+const purposeSourceFieldsSchema = z
+  .object({
+    role: purposeProviderRoleSchema,
+    providerId: providerIdSchema,
+    name: z.string().trim().min(1).max(100),
+    baseUrl: providerBaseUrlSchema,
+    enabled: z.boolean(),
+    timeoutMs: providerCommonFields.timeoutMs,
+    batchLimit: providerCommonFields.batchLimit,
+    fileSizeLimitMb: z.number().int().min(1).max(200).nullable()
+  })
+  .strict()
+
+type PurposeSourceFields = z.infer<typeof purposeSourceFieldsSchema>
+
+function validatePurposeSource(source: PurposeSourceFields, context: z.RefinementCtx): void {
+  const { role, providerId, baseUrl, batchLimit, fileSizeLimitMb } = source
+  if (providerId !== purposeProviderIds[role]) {
+    context.addIssue({
+      code: 'custom',
+      path: ['providerId'],
+      message: 'Provider does not match purpose'
+    })
+  }
+  if (role === 'mineru' ? fileSizeLimitMb === null : fileSizeLimitMb !== null) {
+    context.addIssue({
+      code: 'custom',
+      path: ['fileSizeLimitMb'],
+      message: 'Invalid file limit for purpose'
+    })
+  }
+  if (role === 'mineru' && (batchLimit > 200 || !mineruBaseUrlSchema.safeParse(baseUrl).success)) {
+    context.addIssue({ code: 'custom', message: 'Invalid MinerU endpoint or batch limit' })
+  }
+  if (role === 'speech' && !speechSourceDraftSchema.shape.baseUrl.safeParse(baseUrl).success) {
+    context.addIssue({ code: 'custom', path: ['baseUrl'], message: 'Use HTTPS or loopback HTTP' })
+  }
+  if (role === 'speech' && batchLimit !== 1) {
+    context.addIssue({
+      code: 'custom',
+      path: ['batchLimit'],
+      message: 'Speech batch limit must be one'
+    })
+  }
+}
+
+export const purposeSourceDraftSchema = purposeSourceFieldsSchema.superRefine(validatePurposeSource)
+export type PurposeSourceDraft = z.infer<typeof purposeSourceDraftSchema>
+
+export const purposeModelDraftSchema = z
+  .object({
+    modelId: providerCommonFields.model,
+    enabled: z.boolean(),
+    mode: z.enum(['realtime', 'file']).nullable(),
+    modelRevision: modelRevisionSchema.nullable(),
+    embeddingDimension: z.number().int().min(1).max(65_536).nullable()
+  })
+  .strict()
+export type PurposeModelDraft = z.infer<typeof purposeModelDraftSchema>
+
+const purposeSourceIdSchema = speechSourceIdSchema
+export const purposeConfigIdSchema = speechSourceIdSchema
+export const purposeModelStatusSchema = purposeModelDraftSchema.extend({
+  configId: purposeConfigIdSchema
+})
+export type PurposeModelStatus = z.infer<typeof purposeModelStatusSchema>
+
+function validatePurposeModel(
+  role: PurposeProviderRole,
+  model: PurposeModelDraft,
+  context: z.RefinementCtx,
+  path: (string | number)[]
+): void {
+  if (
+    (model.mode !== null) !== (role === 'speech') ||
+    (model.modelRevision !== null) !== (role === 'embedding' || role === 'rerank') ||
+    (model.embeddingDimension !== null) !== (role === 'embedding') ||
+    (role === 'mineru' && !['pipeline', 'vlm', 'MinerU-HTML'].includes(model.modelId))
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path,
+      message: 'Model configuration does not match purpose'
+    })
+  }
+}
+
+export const purposeSourceStatusSchema = purposeSourceFieldsSchema
+  .extend({
+    sourceId: purposeSourceIdSchema,
+    authConfigured: z.boolean(),
+    available: z.boolean(),
+    issues: z.array(z.string().max(500)),
+    models: z.array(purposeModelStatusSchema).max(500),
+    modelCandidates: z.array(sourceModelCandidateSchema).max(2000),
+    catalog: sourceModelCatalogStatusSchema
+  })
+  .superRefine((source, context) => {
+    validatePurposeSource(source, context)
+    for (const [index, model] of source.models.entries()) {
+      validatePurposeModel(source.role, model, context, ['models', index])
+    }
+  })
+export type PurposeSourceStatus = z.infer<typeof purposeSourceStatusSchema>
+
+export const purposeModelSelectionSchema = z
+  .object({ sourceId: purposeSourceIdSchema, configId: purposeConfigIdSchema })
+  .strict()
+export type PurposeModelSelection = z.infer<typeof purposeModelSelectionSchema>
+
+const purposeCatalogEntrySchema = z
+  .object({
+    sources: z.array(purposeSourceStatusSchema).max(50),
+    defaultSelection: purposeModelSelectionSchema.nullable()
+  })
+  .strict()
+
+export const purposeCatalogSchema = z
+  .record(purposeProviderRoleSchema, purposeCatalogEntrySchema)
+  .superRefine((catalog, context) => {
+    for (const role of purposeProviderRoleSchema.options) {
+      for (const [index, source] of catalog[role].sources.entries()) {
+        if (source.role !== role) {
+          context.addIssue({
+            code: 'custom',
+            path: [role, 'sources', index, 'role'],
+            message: 'Source does not match catalog purpose'
+          })
+        }
+      }
+    }
+  })
+export type PurposeCatalog = z.infer<typeof purposeCatalogSchema>
+
+export const purposeSourceSaveInputSchema = z
+  .object({
+    sourceId: purposeSourceIdSchema.optional(),
+    source: purposeSourceDraftSchema,
+    apiKey: z.string().trim().min(1).max(16_384).optional()
+  })
+  .strict()
+export type PurposeSourceSaveInput = z.infer<typeof purposeSourceSaveInputSchema>
+
+export const purposeSourceInputSchema = z
+  .object({ role: purposeProviderRoleSchema, sourceId: purposeSourceIdSchema })
+  .strict()
+export type PurposeSourceInput = z.infer<typeof purposeSourceInputSchema>
+
+export const purposeModelSaveInputSchema = purposeSourceInputSchema
+  .extend({ configId: purposeConfigIdSchema.optional(), model: purposeModelDraftSchema })
+  .superRefine(({ role, model }, context) => validatePurposeModel(role, model, context, ['model']))
+export type PurposeModelSaveInput = z.infer<typeof purposeModelSaveInputSchema>
+
+export const purposeModelInputSchema = purposeSourceInputSchema.extend({
+  configId: purposeConfigIdSchema
+})
+export type PurposeModelInput = z.infer<typeof purposeModelInputSchema>
+
+export const purposeModelEnabledInputSchema = purposeModelInputSchema.extend({
+  enabled: z.boolean()
+})
+export type PurposeModelEnabledInput = z.infer<typeof purposeModelEnabledInputSchema>
+
+export const purposeDefaultInputSchema = z
+  .object({ role: purposeProviderRoleSchema, selection: purposeModelSelectionSchema.nullable() })
+  .strict()
+export type PurposeDefaultInput = z.infer<typeof purposeDefaultInputSchema>
+
+export const purposeModelTestInputSchema = purposeSourceInputSchema.extend({
+  role: purposeProviderRoleSchema.exclude(['speech']),
+  configId: purposeConfigIdSchema.optional()
+})
+export type PurposeModelTestInput = z.infer<typeof purposeModelTestInputSchema>
+
+export const purposeModelRefreshInputSchema = purposeSourceInputSchema.extend({
+  role: z.literal('embedding')
+})
+export type PurposeModelRefreshInput = z.infer<typeof purposeModelRefreshInputSchema>
+
 export const providerSettingsSnapshotSchema = z.object({
   credentialBackend: credentialBackendStatusSchema,
   providers: z.array(providerStatusSchema).length(6),
   imageCatalog: imageProviderCatalogSchema,
+  purposeCatalog: purposeCatalogSchema.default(() => ({
+    embedding: { sources: [], defaultSelection: null },
+    rerank: { sources: [], defaultSelection: null },
+    mineru: { sources: [], defaultSelection: null },
+    speech: { sources: [], defaultSelection: null }
+  })),
   speechCatalog: speechProviderCatalogSchema.default({ activeSourceId: null, sources: [] }),
   agentCatalog: agentProviderCatalogSchema.default({ presets: [], defaultSelection: null })
 })

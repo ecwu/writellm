@@ -506,6 +506,8 @@ export interface ParseTaskTable {
   knowledge_item_id: string
   source_file_record_id: string
   provider_id: 'mineru'
+  provider_source_id: string
+  provider_config_id: string
   provider_fingerprint: string
   model_version: 'pipeline' | 'vlm' | 'MinerU-HTML'
   state: ParseTaskState

@@ -22,6 +22,7 @@ export interface SourceModelDiscoveryInput {
   transport: 'openai' | 'xai' | 'google-gemini' | 'google-vertex' | 'openai-compatible'
   baseUrl?: string
   credential?: string
+  purpose?: 'embedding'
 }
 
 export type SourceModelDiscoveryErrorCode =
@@ -55,6 +56,8 @@ export async function discoverSourceModels(
   log: Pick<Logger, 'warn'>,
   metadata: SourceModelMetadata = sourceModelMetadata
 ): Promise<SourceModelCandidate[]> {
+  // The public catalog covers image and speech capabilities only.
+  if (input.purpose === 'embedding') return fetchSourceModels(input, signal)
   let candidates: SourceModelCandidate[]
   const publicInput = { transport: input.transport, baseUrl: input.baseUrl }
   try {
@@ -107,7 +110,9 @@ export async function fetchSourceModels(
         url,
         { headers, signal: requestSignal },
         fetch,
-        input.transport === 'openai-compatible' ? 'loopback-only' : 'model-service'
+        input.transport === 'openai-compatible' && input.purpose !== 'embedding'
+          ? 'loopback-only'
+          : 'model-service'
       )
       if (!response.ok) {
         await response.body?.cancel()

@@ -1,8 +1,7 @@
 import { AgentProviderWorkspace } from './agent-provider-settings'
 import { ImageProviderWorkspace } from './image-provider-settings'
 import type { ProviderSettingsWorkspaceProps } from './provider-settings-common'
-import { SpeechProviderWorkspace } from './speech-provider-settings'
-import { SingletonProviderWorkspace } from './singleton-provider-settings'
+import { PurposeProviderWorkspace } from './purpose-provider-settings'
 
 export function ProviderSettingsWorkspace({
   initialAgentPresetId,
@@ -12,6 +11,5 @@ export function ProviderSettingsWorkspace({
     return <AgentProviderWorkspace {...props} initialPresetId={initialAgentPresetId} />
   }
   if (props.role === 'image') return <ImageProviderWorkspace {...props} />
-  if (props.role === 'speech') return <SpeechProviderWorkspace {...props} />
-  return <SingletonProviderWorkspace {...props} role={props.role} />
+  return <PurposeProviderWorkspace key={props.role} {...props} role={props.role} />
 }

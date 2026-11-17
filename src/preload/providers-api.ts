@@ -2,6 +2,14 @@ import { ipcRenderer } from 'electron'
 import { IPC_CHANNELS } from '../shared/contracts/channels'
 import {
   agentCustomPresetInputSchema,
+  purposeSourceSaveInputSchema,
+  purposeSourceInputSchema,
+  purposeModelSaveInputSchema,
+  purposeModelInputSchema,
+  purposeModelEnabledInputSchema,
+  purposeDefaultInputSchema,
+  purposeModelTestInputSchema,
+  purposeModelRefreshInputSchema,
   speechSourceSaveInputSchema,
   speechSourceInputSchema,
   speechActiveSourceInputSchema,
@@ -31,6 +39,70 @@ import {
 import type { DesktopApi } from './desktop-api'
 
 export const providersApi: DesktopApi['providers'] = {
+  async savePurposeSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSavePurposeSource,
+        purposeSourceSaveInputSchema.parse(input)
+      )
+    )
+  },
+  async removePurposeSource(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRemovePurposeSource,
+        purposeSourceInputSchema.parse(input)
+      )
+    )
+  },
+  async savePurposeModel(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSavePurposeModel,
+        purposeModelSaveInputSchema.parse(input)
+      )
+    )
+  },
+  async removePurposeModel(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRemovePurposeModel,
+        purposeModelInputSchema.parse(input)
+      )
+    )
+  },
+  async setPurposeModelEnabled(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSetPurposeModelEnabled,
+        purposeModelEnabledInputSchema.parse(input)
+      )
+    )
+  },
+  async setPurposeDefault(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersSetPurposeDefault,
+        purposeDefaultInputSchema.parse(input)
+      )
+    )
+  },
+  async testPurposeModel(input) {
+    return providerConnectionTestResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersTestPurposeModel,
+        purposeModelTestInputSchema.parse(input)
+      )
+    )
+  },
+  async refreshPurposeModels(input) {
+    return providerSettingsSnapshotSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersRefreshPurposeModels,
+        purposeModelRefreshInputSchema.parse(input)
+      )
+    )
+  },
   async saveSpeechSource(input) {
     return providerSettingsSnapshotSchema.parse(
       await ipcRenderer.invoke(

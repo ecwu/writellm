@@ -188,10 +188,9 @@ test(
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings', exact: true })
       await settings.getByRole('option', { name: /^Speech Input/ }).click()
-      await settings
-        .getByTestId('speech-source-list')
-        .getByRole('button', { name: /^Speech test/ })
-        .click()
+      await expect(
+        settings.getByRole('heading', { name: 'Speech test', exact: true })
+      ).toBeVisible()
       mock.rejectConfiguration()
       await settings.getByRole('button', { name: 'Test connection', exact: true }).click()
       await expect(
@@ -214,8 +213,16 @@ test(
       await expect(
         settings.getByRole('button', { name: 'Test connection', exact: true })
       ).toBeEnabled()
-      await settings.getByRole('radio', { name: 'After recording', exact: true }).click()
-      await settings.getByRole('button', { name: 'Save changes', exact: true }).click()
+      await settings.getByRole('button', { name: 'Add model', exact: true }).click()
+      const model = launched.page.getByRole('dialog', { name: 'Add model', exact: true })
+      await model.getByLabel('Model ID', { exact: true }).fill('speech-model')
+      await model.getByRole('radio', { name: 'After recording', exact: true }).click()
+      await model.getByRole('button', { name: 'Save model', exact: true }).click()
+      const defaultModel = settings.getByLabel('Default model', { exact: true })
+      await expect(defaultModel).toHaveText('Speech test · speech-model (Realtime)')
+      await defaultModel.click()
+      await launched.page.getByRole('option', { name: 'speech-model (File)', exact: true }).click()
+      await expect(defaultModel).toHaveText('Speech test · speech-model (File)')
       await settings.getByRole('button', { name: 'Test connection', exact: true }).click()
       await expect.poll(() => mock.files.length).toBe(1)
       expect(wavHeader(mock.files[0].bytes)).toEqual({
@@ -227,7 +234,7 @@ test(
       })
       mock.files[0].response.writeHead(200, { 'content-type': 'application/json' })
       mock.files[0].response.end('{"text":""}')
-      await expect(settings.getByText('Connected', { exact: true })).toBeVisible()
+      await expect(settings.getByText('Connection succeeded.', { exact: true })).toBeVisible()
       await launched.page.keyboard.press('Escape')
       await setupSpeechProject(launched.page, mock.baseUrl)
       await prepareSyntheticMicrophone(launched.app, launched.page)

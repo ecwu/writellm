@@ -1,4 +1,5 @@
 import type { Logger } from 'pino'
+import type { VectorGenerationContract } from '../../shared/contracts/indexing'
 import { isAbortError } from '../../shared/abort-error'
 import {
   agentRunInputSchema,
@@ -15,6 +16,10 @@ import {
   type RerankInput,
   type RerankResult
 } from '../../shared/contracts/model-runtime'
+import {
+  assertEmbeddingProviderContract,
+  embeddingContractSha256
+} from '../search/embedding-contract'
 import type { ProjectDatabase } from '../project/project-database'
 import type { ProviderConfig } from '../../shared/contracts/providers'
 import type {
@@ -33,6 +38,10 @@ import type { ModelMetadataService } from './model-metadata-service'
 import type { AgentModelLimits } from '../../shared/contracts/agent'
 import { AgentTraceRepository } from '../agent/trace-repository'
 import { effectiveImageSize, type ImageModelSelection } from '../../shared/contracts/providers'
+
+type WithModelProvider = <T>(
+  operation: (config: ProviderConfig, credential: string) => Promise<T>
+) => Promise<T>
 
 export interface ModelExecutionServiceOptions {
   providers: ProviderService
@@ -247,14 +256,30 @@ export class ModelExecutionService {
     }
   }
 
-  embedBatch(
+  async embedBatch(
     database: ProjectDatabase,
     rawInput: EmbeddingBatchInput,
     correlation: ModelRequestCorrelation,
     signal: AbortSignal,
-    configGuard?: (config: ProviderConfig) => void
+    target?:
+      | { contractSha256: string; usage: 'index' }
+      | (Pick<
+          VectorGenerationContract,
+          'contractSha256' | 'modelId' | 'modelRevision' | 'dimension'
+        > & { usage: 'query' })
   ): Promise<EmbeddingBatchResult> {
     const input = embeddingBatchInputSchema.parse(rawInput)
+    let withEmbeddingProvider: WithModelProvider | undefined
+    if (target?.usage === 'query') {
+      const catalog = this.options.providers.purpose
+      const available = await catalog.listResolved('embedding', target)
+      const compatible = available.find(
+        (entry) => embeddingContractSha256(entry.config) === target.contractSha256
+      )
+      if (!compatible)
+        throw new Error('The active index needs a compatible embedding source or an index update')
+      withEmbeddingProvider = (operation) => catalog.withResolved(compatible, operation)
+    }
     return this.execute(
       database,
       'embedding',
@@ -271,7 +296,10 @@ export class ModelExecutionService {
           correlation.projectSessionId
         ),
       (result) => ({ metadata: result.metadata, outputItems: result.embeddings.length }),
-      configGuard
+      target
+        ? (config) => assertEmbeddingProviderContract(config, target.contractSha256)
+        : undefined,
+      withEmbeddingProvider
     )
   }
 
@@ -422,10 +450,12 @@ export class ModelExecutionService {
       metadata: AgentRunResult['metadata']
       outputItems: number
     },
-    configGuard?: (config: ProviderConfig) => void
+    configGuard?: (config: ProviderConfig) => void,
+    withProvider: WithModelProvider = (action) =>
+      this.options.providers.withConfiguredProvider(role, action)
   ): Promise<T> {
     const repository = new ModelRequestRepository(database, this.options.log)
-    return this.options.providers.withConfiguredProvider(role, async (config, credential) => {
+    return withProvider(async (config, credential) => {
       configGuard?.(config)
       const record = await repository.start({
         operation: role,

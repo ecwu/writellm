@@ -409,15 +409,14 @@ async function runPackagedAppScenarios(resources) {
     )
 
     await page.getByRole('button', { name: /Start setup/u }).click()
-    for (const nextHeading of [
-      'Embedding',
-      'Reranking',
-      'Document Parsing',
-      'Create your first writing project'
-    ]) {
+    for (const role of ['embedding', 'rerank', 'mineru']) {
       await page.getByRole('button', { name: /Continue|Skip for now/u }).click()
-      await page.getByRole('heading', { name: nextHeading, exact: true }).waitFor()
+      await page.getByTestId(`${role}-source-list`).waitFor()
     }
+    await page.getByRole('button', { name: /Continue|Skip for now/u }).click()
+    await page
+      .getByRole('heading', { name: 'Create your first writing project', exact: true })
+      .waitFor()
     await page.getByLabel('Project name').fill(projectName)
     await page.getByRole('button', { name: /Choose location & create/u }).click()
     await page

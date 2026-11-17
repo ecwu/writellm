@@ -7,7 +7,14 @@ import {
   providerSettingsSnapshotSchema,
   type ProviderConfig
 } from '../../shared/contracts/providers'
-import { openAppDatabase, type AppDatabase } from '../app-db/connection'
+import { openDatabase } from '../db/open-database'
+import type { AppDatabaseSchema } from '../app-db/database-types'
+import { appMigrations } from '../app-db/migrations'
+import {
+  APP_DATABASE_APPLICATION_ID,
+  openAppDatabase,
+  type AppDatabase
+} from '../app-db/connection'
 import { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { CredentialService, type SafeStorageAdapter } from './credential-service'
 import { credentialBindingFingerprint } from './credential-binding'
@@ -88,6 +95,192 @@ afterEach(async () => {
 })
 
 describe('ProviderService', () => {
+  it.each([3, 12])(
+    'opens a v%i incomplete singleton and repairs it without rebinding its old credential',
+    async (version) => {
+      const directory = await mkdtemp(join(tmpdir(), 'writellm-old-singleton-'))
+      directories.push(directory)
+      const options = { path: join(directory, 'app.sqlite'), applicationVersion: 'test', log }
+      const old = await openDatabase<AppDatabaseSchema>({
+        ...options,
+        applicationId: APP_DATABASE_APPLICATION_ID,
+        databaseRole: 'app',
+        migrations: appMigrations.filter((m) => m.version <= version)
+      })
+      const stamp = new Date().toISOString()
+      const original = {
+        role: 'embedding' as const,
+        providerId: 'openai-compatible' as const,
+        baseUrl: 'https://original.example.test/v1'
+      }
+      try {
+        await old.kysely
+          .insertInto('provider_configs')
+          .values({
+            id: 'embedding',
+            provider: original.providerId,
+            config_json: JSON.stringify(original),
+            created_at: stamp,
+            updated_at: stamp
+          })
+          .execute()
+        if (version === 12) {
+          const oldCredentials = new CredentialService(old, new FakeSafeStorage(), log, 'linux')
+          await oldCredentials.persistEncrypted(
+            'embedding',
+            await oldCredentials.encryptForPersistence('original-key')
+          )
+        }
+      } finally {
+        old.close()
+      }
+      const db = await openAppDatabase(options)
+      try {
+        const credentials = new CredentialService(db, new FakeSafeStorage(), log, 'linux')
+        const service = providerService(db, credentials)
+        const upgraded = await service.snapshot()
+        expect(upgraded.purposeCatalog.embedding).toEqual({ sources: [], defaultSelection: null })
+        expect(await credentials.hasCredential('embedding')).toBe(version === 12)
+        expect(
+          (
+            await db.kysely
+              .selectFrom('provider_configs')
+              .select('config_json')
+              .where('id', '=', 'embedding')
+              .executeTakeFirstOrThrow()
+          ).config_json
+        ).toBe(JSON.stringify(original))
+        const config = {
+          ...original,
+          baseUrl: 'https://replacement.example.test/v1',
+          model: 'embed',
+          modelRevision: 'v1',
+          embeddingDimension: 8,
+          timeoutMs: 2000,
+          batchLimit: 1,
+          fileSizeLimitMb: null
+        }
+        const repaired = await service.save(config)
+        expect(repaired.purposeCatalog.embedding.defaultSelection).toEqual({
+          sourceId: 'legacy',
+          configId: 'legacy'
+        })
+        expect(await credentials.hasCredential('embedding')).toBe(false)
+        await service.save(config, 'replacement-key')
+        await expect(
+          service.withConfiguredProvider('embedding', async (resolved, key) => [
+            resolved.baseUrl,
+            key
+          ])
+        ).resolves.toEqual([config.baseUrl, 'replacement-key'])
+      } finally {
+        db.close()
+      }
+    }
+  )
+  it('keeps purpose defaults explicit and binds credentials to the resolved connection', async () => {
+    const db = await database()
+    const credentials = new CredentialService(db, new FakeSafeStorage(), log, 'linux')
+    const service = providerService(db, credentials)
+    const purpose = service.purpose
+    const role = 'rerank' as const
+    const source = {
+      role,
+      providerId: 'cohere-compatible' as const,
+      name: 'Local reranker',
+      enabled: true,
+      baseUrl: 'https://first.example.test',
+      timeoutMs: 1000,
+      batchLimit: 10,
+      fileSizeLimitMb: null
+    }
+    try {
+      const added = await purpose.savePurposeSource({ source })
+      const sourceId = added.purposeCatalog[role].sources[0].sourceId
+      const model = {
+        modelId: 'rerank',
+        modelRevision: 'v1',
+        enabled: true,
+        embeddingDimension: null,
+        mode: null
+      }
+      const models = await purpose.savePurposeModel({ role, sourceId, model })
+      const configId = models.purposeCatalog[role].sources[0].models[0].configId
+      const selection = { sourceId, configId }
+      expect(models.purposeCatalog[role].defaultSelection).toBeNull()
+      await expect(purpose.setPurposeDefault({ role, selection })).rejects.toThrow('credential')
+      await purpose.savePurposeSource({ sourceId, source, apiKey: 'first-token' })
+      await purpose.setPurposeDefault({ role, selection })
+      const resolved = await purpose.resolve(role)
+      const changed = await purpose.savePurposeSource({
+        sourceId,
+        source: { ...source, baseUrl: 'https://second.example.test' }
+      })
+      expect(changed.purposeCatalog[role]).toMatchObject({
+        defaultSelection: selection,
+        sources: [{ authConfigured: false, available: false }]
+      })
+      await purpose.savePurposeSource({
+        sourceId,
+        source: { ...source, baseUrl: 'https://second.example.test' },
+        apiKey: 'second-token'
+      })
+      const staleOperation = vi.fn(async () => true)
+      await expect(purpose.withResolved(resolved, staleOperation)).rejects.toThrow('credential')
+      expect(staleOperation).not.toHaveBeenCalled()
+      await expect(
+        purpose.withResolved(await purpose.resolve(role), async (config, key) => [
+          config.baseUrl,
+          key
+        ])
+      ).resolves.toEqual(['https://second.example.test', 'second-token'])
+      const disabled = await purpose.setPurposeModelEnabled({ role, ...selection, enabled: false })
+      expect(disabled.purposeCatalog[role].defaultSelection).toBeNull()
+      await expect(purpose.resolve(role, selection)).rejects.toThrow('unavailable')
+    } finally {
+      db.close()
+    }
+  })
+  it('retains an unavailable speech default and prevents anonymous dispatch when a stored credential binding does not match', async () => {
+    const db = await database()
+    try {
+      const service = providerService(
+        db,
+        new CredentialService(db, new FakeSafeStorage(), log, 'linux')
+      )
+      await service.save(
+        {
+          role: 'speech',
+          providerId: 'openai-compatible',
+          baseUrl: 'https://speech.example.test',
+          model: 'voice',
+          mode: 'file',
+          timeoutMs: 1000,
+          batchLimit: 1,
+          fileSizeLimitMb: null,
+          embeddingDimension: null
+        },
+        'bound-key'
+      )
+      await db.kysely
+        .updateTable('encrypted_credentials')
+        .set({ binding_fingerprint: 'a'.repeat(64) })
+        .where('provider_config_id', '=', 'speech')
+        .execute()
+      const { speech } = (await service.snapshot()).purposeCatalog
+      expect(speech.defaultSelection).toEqual({ sourceId: 'legacy', configId: 'legacy' })
+      expect(speech.sources[0]).toMatchObject({
+        available: false,
+        authConfigured: false,
+        issues: ['Save the credential again for this source.']
+      })
+      const operation = vi.fn(async () => true)
+      await expect(service.withSpeechProvider(operation)).rejects.toThrow('credential')
+      expect(operation).not.toHaveBeenCalled()
+    } finally {
+      db.close()
+    }
+  })
   it('stores one speech mode, permits no-key loopback and clears credentials on origin change', async () => {
     const appDatabase = await database()
     const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
@@ -267,6 +460,45 @@ describe('ProviderService', () => {
         'http-secret'
       )
       appDatabase.close()
+    }
+  )
+
+  it.each(['embedding', 'rerank', 'mineru'] as const)(
+    'keeps the legacy %s diagnostic local until a credential is configured',
+    async (role) => {
+      const appDatabase = await database()
+      const probe = vi.fn<ConnectionProbe>().mockResolvedValue({ status: 200 })
+      const service = providerService(
+        appDatabase,
+        new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux'),
+        probe
+      )
+      try {
+        expect((await service.testConnection(role)).code).toBe('missing_config')
+        const config = {
+          ...agentConfig,
+          role,
+          providerId:
+            role === 'mineru'
+              ? 'mineru'
+              : role === 'rerank'
+                ? 'cohere-compatible'
+                : 'openai-compatible',
+          model: role === 'mineru' ? 'vlm' : 'example-model',
+          embeddingDimension: role === 'embedding' ? 3 : null,
+          fileSizeLimitMb: role === 'mineru' ? 64 : null
+        } as ProviderConfig
+        await service.save(config)
+        expect((await service.testConnection(role)).code).toBe('missing_credential')
+        expect(probe).not.toHaveBeenCalled()
+        await service.save(config, 'fixture-key')
+        expect((await service.testConnection(role)).ok).toBe(true)
+        expect(probe).toHaveBeenCalledTimes(1)
+        await service.remove(role)
+        expect((await service.testConnection(role)).code).toBe('missing_config')
+      } finally {
+        appDatabase.close()
+      }
     }
   )
 
@@ -492,6 +724,75 @@ describe('ProviderService', () => {
       []
     )
     appDatabase.close()
+  })
+
+  it.each(['request', 'probe'] as const)(
+    'blocks an image %s when another origin replaces the resolved credential',
+    async (kind) => {
+      const appDatabase = await database()
+      const credentials = new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+      const probe = vi.fn<ConnectionProbe>(async () => ({ status: 200 }))
+      const service = providerService(appDatabase, credentials, probe)
+      try {
+        const source = {
+          providerId: 'openai' as const,
+          name: 'Gateway',
+          baseUrl: 'https://original.example.test/v1'
+        }
+        await service.saveImageSource({ source, apiKey: 'original-key' })
+        const withCredential = credentials.withCredential.bind(credentials)
+        vi.spyOn(credentials, 'withCredential').mockImplementationOnce(
+          async (id, callback, binding) => {
+            await service.saveImageSource({
+              sourceId: 'img-1',
+              source: { ...source, baseUrl: 'https://replacement.example.test/v1' },
+              apiKey: 'replacement-key'
+            })
+            return withCredential(id, callback, binding)
+          }
+        )
+        const operation = vi.fn(async () => undefined)
+        if (kind === 'request') {
+          await expect(
+            service.withImageProvider({ sourceId: 'img-1', modelId: 'gpt-image-2' }, operation)
+          ).rejects.toThrow('credential')
+        } else {
+          await expect(service.testImageSource('img-1', 'gpt-image-2')).resolves.toMatchObject({
+            ok: false,
+            code: 'missing_credential'
+          })
+        }
+        expect(probe).not.toHaveBeenCalled()
+        expect(operation).not.toHaveBeenCalled()
+      } finally {
+        appDatabase.close()
+      }
+    }
+  )
+
+  it('rejects a default model disabled while its credential is checked', async () => {
+    const appDatabase = await database()
+    const service = providerService(
+      appDatabase,
+      new CredentialService(appDatabase, new FakeSafeStorage(), log, 'linux')
+    )
+    const selection = { sourceId: 'img-1', modelId: 'gpt-image-2' }
+    try {
+      await service.saveImageSource({
+        source: { providerId: 'openai', name: 'Images' },
+        apiKey: 'saved-key'
+      })
+      const resolve = service.resolveImageSelection.bind(service)
+      vi.spyOn(service, 'resolveImageSelection').mockImplementationOnce(async (input) => {
+        const config = await resolve(input)
+        await service.setImageModelEnabled(selection.sourceId, selection.modelId, false)
+        return config
+      })
+      await expect(service.setImageDefaultSelection(selection)).rejects.toThrow()
+      expect((await service.snapshot()).imageCatalog.defaultSelection).toBeNull()
+    } finally {
+      appDatabase.close()
+    }
   })
 
   it('keeps several instances of one transport independently bound to their endpoints', async () => {

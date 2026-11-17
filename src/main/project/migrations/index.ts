@@ -51,6 +51,7 @@ import { migration0047 } from './0047-conversation-fork'
 
 import { migration0048 } from './0048-agent-image-attachments'
 import { migration0049 } from './0049-agent-image-model-selection'
+import { migration0050 } from './0050-mineru-provider-binding'
 
 export const projectMigrations = [
   migration0001,
@@ -101,5 +102,6 @@ export const projectMigrations = [
   migration0046,
   migration0047,
   migration0048,
-  migration0049
+  migration0049,
+  migration0050
 ] as const

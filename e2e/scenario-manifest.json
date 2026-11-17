@@ -2,6 +2,10 @@
   "format": "writellm-e2e-scenarios",
   "version": 1,
   "scenarios": [
+    { "id": "knowledge.parse-bound-source-restart", "tiers": ["packaged"] },
+    { "id": "providers.purpose-embedding", "tiers": ["packaged"] },
+    { "id": "providers.purpose-rerank", "tiers": ["packaged"] },
+    { "id": "providers.purpose-mineru", "tiers": ["packaged"] },
     { "id": "speech.sources-and-model-discovery", "tiers": ["packaged"] },
     { "id": "providers.image-model-discovery", "tiers": ["packaged"] },
     { "id": "speech.preparation-timeout-recovery", "tiers": ["packaged"] },

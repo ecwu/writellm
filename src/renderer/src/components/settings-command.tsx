@@ -73,6 +73,7 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { purposeDefault } from '@/features/providers/purpose-model-label'
 import { roleLabels } from '@/features/providers/provider-settings-common'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
 import { SettingsDraftProvider, useSettingsLeave } from '@/features/providers/settings-draft-guard'
@@ -371,9 +372,13 @@ function SettingsCommandContent({
             <CommandGroup>
               {settingsSections.map((item) => {
                 const Icon = item.icon
-                const provider = isProviderSection(item.id)
-                  ? snapshot?.providers.find((candidate) => candidate.role === item.id)
-                  : null
+                const needsSetup =
+                  snapshot &&
+                  isProviderSection(item.id) &&
+                  (item.id === 'agent' || item.id === 'image'
+                    ? snapshot.providers.find((candidate) => candidate.role === item.id)
+                        ?.available === false
+                    : !purposeDefault(snapshot.purposeCatalog[item.id]).available)
                 return (
                   <CommandItem
                     key={item.id}
@@ -383,7 +388,7 @@ function SettingsCommandContent({
                     onSelect={() => selectSection(item.id)}
                   >
                     <Icon /> <span className='min-w-0 flex-1 truncate'>{item.label}</span>
-                    {provider && !provider.available ? (
+                    {needsSetup ? (
                       <Badge className='ml-auto' variant='secondary'>
                         Setup
                       </Badge>

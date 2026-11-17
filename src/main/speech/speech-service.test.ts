@@ -94,12 +94,12 @@ function setup() {
   }
 }
 describe('SpeechService lifecycle', () => {
-  it('connection-tests an explicit source without requiring a project or changing selection', async () => {
+  it('connection-tests an explicit source and model without requiring a project or changing selection', async () => {
     const { service, client } = setup()
     const provider = vi.spyOn(service.options.providers, 'withSpeechProvider')
-    const result = service.testConnection(1, 'sp-test-source')
+    const result = service.testConnection(1, 'sp-test-source', 'sp-test-model')
     await vi.waitFor(() => expect(client.start).toHaveBeenCalledOnce())
-    expect(provider).toHaveBeenCalledWith(expect.any(Function), 'sp-test-source')
+    expect(provider).toHaveBeenCalledWith(expect.any(Function), 'sp-test-source', 'sp-test-model')
     service.cancelTest(1)
     await expect(result).rejects.toThrow()
     service.close()

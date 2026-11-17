@@ -1,4 +1,4 @@
-import { speechSourceIdSchema } from './providers'
+import { purposeConfigIdSchema, speechSourceIdSchema } from './providers'
 import { SPEECH_PROVIDER_CODES, SPEECH_PROVIDER_PARAMS } from '../speech-errors'
 import { logContextSchema } from '../observability/log-schema'
 import { z } from 'zod'
@@ -81,7 +81,10 @@ export const speechIpcEndpoints = {
   }),
   testConnection: defineIpcEndpoint({
     channel: 'speech:test',
-    input: z.object({ sourceId: speechSourceIdSchema }).strict().optional(),
+    input: z
+      .object({ sourceId: speechSourceIdSchema, configId: purposeConfigIdSchema.optional() })
+      .strict()
+      .optional(),
     output: z.void(),
     session: 'none'
   }),

@@ -30,6 +30,13 @@ it('keeps the existing embedding identity and binds the hash to the endpoint', (
     contentFingerprint: current.contentFingerprint
   })
   expect(embeddingContractSha256(config)).toBe(contract.contractSha256)
+  expect(embeddingContractSha256({ ...config, sourceId: 'legacy' })).toBe(contract.contractSha256)
+  const second = createEmbeddingGenerationContract({ ...config, sourceId: 'new-source' }, current)
+  expect(second.contractSha256).not.toBe(contract.contractSha256)
+  expect(second.embeddingGenerationId).not.toBe(contract.embeddingGenerationId)
+  expect(embeddingContractSha256({ ...config, sourceId: 'third-source' })).not.toBe(
+    second.contractSha256
+  )
   expect(embeddingContractSha256({ ...config, baseUrl: 'https://other.example.test/v1' })).not.toBe(
     contract.contractSha256
   )

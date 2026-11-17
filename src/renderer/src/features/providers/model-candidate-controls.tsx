@@ -20,7 +20,7 @@ interface CatalogStatus {
 }
 
 type CandidatePurpose =
-  | { capability: 'image' }
+  | { capability: 'image' | 'embedding' }
   | { capability: 'transcription'; mode: 'realtime' | 'file' }
 
 /** Unknown IDs remain available; only explicit incompatible capabilities are filtered. */
@@ -28,6 +28,12 @@ export function modelCandidateGroups(
   candidates: SourceModelCandidate[],
   purpose: CandidatePurpose
 ): Array<{ heading: string; candidates: SourceModelCandidate[] }> {
+  if (purpose.capability === 'embedding') {
+    const models = candidates.filter(
+      (candidate) => candidate.capability !== 'image' && candidate.capability !== 'transcription'
+    )
+    return models.length > 0 ? [{ heading: 'Discovered models', candidates: models }] : []
+  }
   const compatible = candidates.filter((candidate) => {
     if (
       candidate.capability &&

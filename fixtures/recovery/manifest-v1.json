@@ -13,6 +13,23 @@
       ]
     },
     {
+      "id": "purpose-catalog-upgrade",
+      "category": "migration",
+      "source": "src/main/app-db/migrations/0013-purpose-catalogs.test.ts",
+      "tests": [
+        "upgrades v12 profiles without rebinding credentials and retains one explicit default for each purpose after restart"
+      ]
+    },
+    {
+      "id": "mineru-source-binding-upgrade",
+      "category": "migration",
+      "source": "src/main/knowledge/mineru-workflow-service.test.ts",
+      "tests": [
+        "binds an upgraded submitted task to the verified legacy source and preserves its audit",
+        "uses the saved source after default changes, and retries the same remote task after restore"
+      ]
+    },
+    {
       "id": "project-schema-history",
       "category": "migration",
       "source": "src/main/db/migrations.test.ts",

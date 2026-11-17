@@ -48,7 +48,7 @@ export function registerSpeechIpc(options: {
       options.service.cancel(event.sender.id, input)
     ),
     register(speechIpcEndpoints.testConnection, (input, _context, event) =>
-      options.service.testConnection(event.sender.id, input?.sourceId)
+      options.service.testConnection(event.sender.id, input?.sourceId, input?.configId)
     ),
     register(speechIpcEndpoints.cancelTest, (_input, _context, event) =>
       options.service.cancelTest(event.sender.id)

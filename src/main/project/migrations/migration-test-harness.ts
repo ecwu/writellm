@@ -1,12 +1,16 @@
-import { dirname, join } from 'node:path'
-import { readdir } from 'node:fs/promises'
-import { openProjectDatabase } from '../project-database'
+import { join } from 'node:path'
+import { mkdtemp, readdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { PROJECT_DATABASE_APPLICATION_ID, openProjectDatabase } from '../project-database'
 import {
-  createDatabase,
   createService,
   FakeAgentRuntime,
-  log
+  log,
+  temporaryDirectories
 } from '../../agent/session-service.test-support'
+import { openDatabase } from '../../db/open-database'
+import type { ProjectDatabaseSchema } from '../database-types'
+import { projectMigrations } from './index'
 
 export const migrationTestManifest = {
   format: 'writellm-project' as const,
@@ -17,67 +21,65 @@ export const migrationTestManifest = {
 
 export type MigrationRecoveryFixture = {
   fromVersion: number
-  teardownSql: string
-  conflictingTable: string
-  /** Replaces the conflicting-table failure for migrations that only add columns. */
-  failureSql?: string
+  failureSql: string
 }
-
-const dropImageModelSelection = `ALTER TABLE agent_sessions DROP COLUMN image_model_id;
-      ALTER TABLE agent_sessions DROP COLUMN image_source_id;`
 
 export const migrationRecoveryFixtures = {
   messageReplacements: {
     fromVersion: 45,
-    teardownSql: `${dropImageModelSelection}
-      DROP TABLE agent_attachments;
-      DROP VIEW agent_conversation_history;
-      DROP TABLE agent_history_references;
-      DROP TABLE agent_conversation_forks;
-      DROP VIEW agent_effective_events;
-      DROP TRIGGER agent_edit_proposal_effect;
-      DROP TRIGGER agent_edit_comment_effect;
-      DROP TABLE agent_message_replacements;
-      DROP TABLE agent_edit_effects;`,
-    conflictingTable: 'agent_message_replacements'
+    failureSql: 'CREATE TABLE agent_message_replacements (fixture TEXT)'
   },
   conversationFork: {
     fromVersion: 46,
-    teardownSql: `${dropImageModelSelection}
-      DROP TABLE agent_attachments;
-      DROP VIEW agent_conversation_history;
-      DROP TABLE agent_history_references;
-      DROP TABLE agent_conversation_forks;`,
-    conflictingTable: 'agent_conversation_forks'
+    failureSql: 'CREATE TABLE agent_conversation_forks (fixture TEXT)'
   },
   imageAttachments: {
     fromVersion: 47,
-    teardownSql: `${dropImageModelSelection}
-      DROP TABLE agent_attachments;`,
-    conflictingTable: 'agent_attachments'
+    failureSql: 'CREATE TABLE agent_attachments (fixture TEXT)'
   },
   imageModelSelection: {
     fromVersion: 48,
-    teardownSql: dropImageModelSelection,
-    conflictingTable: 'agent_sessions',
-    failureSql: 'ALTER TABLE agent_sessions ADD COLUMN image_model_id TEXT;'
+    failureSql: 'ALTER TABLE agent_sessions ADD COLUMN image_model_id TEXT'
   }
 } as const satisfies Record<string, MigrationRecoveryFixture>
 
 export async function legacyProject(fixture: MigrationRecoveryFixture, fail = false) {
-  const project = await createDatabase()
-  createService(project, new FakeAgentRuntime()).createSession('Preserved conversation')
-  const root = project.immediate((db) => {
-    db.exec(`${fixture.teardownSql}
-      DELETE FROM schema_migrations WHERE version >= ${fixture.fromVersion + 1};
-      UPDATE schema_manifest SET schema_version = ${fixture.fromVersion};
-      PRAGMA user_version = ${fixture.fromVersion};`)
-    if (fail) {
-      db.exec(fixture.failureSql ?? `CREATE TABLE ${fixture.conflictingTable} (fixture TEXT)`)
-    }
-    return dirname(dirname(db.name))
+  const root = await mkdtemp(join(tmpdir(), 'writellm-project-migration-'))
+  temporaryDirectories.push(root)
+  const project = await openDatabase<ProjectDatabaseSchema>({
+    path: join(root, '.writellm', 'project.sqlite'),
+    applicationId: PROJECT_DATABASE_APPLICATION_ID,
+    applicationVersion: 'test',
+    databaseRole: 'project',
+    migrations: projectMigrations.filter((migration) => migration.version <= fixture.fromVersion),
+    log
   })
-  project.close()
+  try {
+    await project.kysely
+      .insertInto('project_meta')
+      .values({
+        singleton_id: 1,
+        project_id: migrationTestManifest.projectId,
+        created_at: migrationTestManifest.createdAt,
+        updated_at: migrationTestManifest.createdAt
+      })
+      .execute()
+    await project.kysely
+      .insertInto('manuscripts')
+      .values({
+        manuscript_id: '019c6a5c-8d34-7a8e-a602-3d37a52dc422',
+        project_id: migrationTestManifest.projectId,
+        is_primary: 1,
+        outline_version: 1,
+        created_at: migrationTestManifest.createdAt,
+        updated_at: migrationTestManifest.createdAt
+      })
+      .execute()
+    createService(project, new FakeAgentRuntime()).createSession('Preserved conversation')
+    if (fail) project.immediate((db) => db.exec(fixture.failureSql))
+  } finally {
+    project.close()
+  }
   return root
 }
 

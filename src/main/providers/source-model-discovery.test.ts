@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { agentDiagnosticForLogging } from '../../shared/agent-diagnostic-error'
 import {
   fetchSourceModels as discoverSourceModels,
-  SourceModelDiscoveryError
+  SourceModelDiscoveryError,
+  discoverSourceModels as discoverWithMetadata
 } from './source-model-discovery'
 
 const signal = () => new AbortController().signal
@@ -31,6 +32,34 @@ describe('source model discovery', () => {
     expect(url.href).toBe('http://127.0.0.1:8080/proxy/v1/models')
     expect(new Headers(init.headers).get('authorization')).toBe('Bearer test-secret')
     expect(init.redirect).toBe('error')
+  })
+
+  it('lists embedding candidates from the configured source only, without consulting image or speech metadata', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(json({ data: [{ id: 'custom-vector' }] }))
+    vi.stubGlobal('fetch', fetcher)
+    const input = {
+      transport: 'openai-compatible' as const,
+      purpose: 'embedding' as const,
+      baseUrl: 'http://models.example.test/prefix/v1',
+      credential: 'test-key'
+    }
+    const log = { warn: vi.fn() }
+    await expect(discoverWithMetadata(input, signal(), log)).resolves.toEqual([
+      { id: 'custom-vector', name: 'custom-vector' }
+    ])
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toBe('http://models.example.test/prefix/v1/models')
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-key')
+    expect(init?.redirect).toBe('error')
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 404 }))
+    await expect(discoverWithMetadata(input, signal(), log)).rejects.toMatchObject({
+      code: 'http_error',
+      httpStatus: 404
+    })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(log.warn).not.toHaveBeenCalled()
   })
 
   it('omits authorization for unauthenticated loopback sources', async () => {

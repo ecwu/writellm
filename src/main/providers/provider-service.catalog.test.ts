@@ -7,6 +7,7 @@ import { openAppDatabase } from '../app-db/connection'
 import { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { CredentialService } from './credential-service'
 import { ProviderService } from './provider-service'
+import { embeddingContractSha256 } from '../search/embedding-contract'
 import { SourceModelDiscoveryError, type discoverSourceModels } from './source-model-discovery'
 import type { SourceModelCandidate } from '../../shared/contracts/providers'
 
@@ -71,6 +72,222 @@ function deferred<T>() {
   return { promise, resolve }
 }
 describe('source model catalogs', () => {
+  it('resolves an existing vector generation against its own source after the default changes', async () => {
+    const { service, db } = await setup()
+    try {
+      const config = {
+        role: 'embedding' as const,
+        providerId: 'openai-compatible' as const,
+        model: 'same-model',
+        modelRevision: 'v1',
+        embeddingDimension: 3,
+        baseUrl: 'https://example.test/v1',
+        timeoutMs: 1000,
+        batchLimit: 10,
+        fileSizeLimitMb: null
+      }
+      await service.save(config, 'original-fixture-key')
+      const saved = await service.purpose.savePurposeSource({
+        source: {
+          role: config.role,
+          providerId: config.providerId,
+          name: 'New account',
+          baseUrl: config.baseUrl,
+          enabled: true,
+          timeoutMs: config.timeoutMs,
+          batchLimit: config.batchLimit,
+          fileSizeLimitMb: null
+        },
+        apiKey: 'new-fixture-key'
+      })
+      const sourceId = saved.purposeCatalog.embedding.sources.find(
+        (s) => s.name === 'New account'
+      )?.sourceId
+      if (!sourceId) throw new Error('Missing second source')
+      const updated = await service.purpose.savePurposeModel({
+        role: 'embedding',
+        sourceId,
+        model: {
+          modelId: config.model,
+          modelRevision: config.modelRevision,
+          embeddingDimension: 3,
+          mode: null,
+          enabled: true
+        }
+      })
+      const configId = updated.purposeCatalog.embedding.sources.find((s) => s.sourceId === sourceId)
+        ?.models[0]?.configId
+      if (!configId) throw new Error('Missing second model')
+      await service.purpose.setPurposeDefault({
+        role: 'embedding',
+        selection: { sourceId, configId }
+      })
+      const originalHash = embeddingContractSha256(config)
+      expect(embeddingContractSha256(await service.getConfiguredProvider('embedding'))).not.toBe(
+        originalHash
+      )
+      const target = { modelId: config.model, modelRevision: config.modelRevision, dimension: 3 }
+      const candidates = await service.purpose.listResolved('embedding', target)
+      expect(candidates).toHaveLength(2)
+      const original = candidates.find((s) => embeddingContractSha256(s.config) === originalHash)
+      if (!original) throw new Error('Migrated vector source is missing')
+      await expect(service.purpose.withResolved(original, async (_, key) => key)).resolves.toBe(
+        'original-fixture-key'
+      )
+      await expect(
+        service.purpose.listResolved('embedding', { ...target, dimension: 4 })
+      ).resolves.toEqual([])
+      await service.purpose.setPurposeModelEnabled({
+        role: 'embedding',
+        sourceId: original.sourceId,
+        configId: original.configId,
+        enabled: false
+      })
+      await expect(
+        service.purpose.withResolved(original, async () => 'wrong source')
+      ).rejects.toThrow('unavailable')
+    } finally {
+      db.close()
+    }
+  })
+
+  it('binds speech to one model-mode configuration and applies defaults to future recognitions', async () => {
+    const { service, db } = await setup()
+    try {
+      const saved = await service.purpose.savePurposeSource({
+        source: {
+          role: 'speech',
+          providerId: 'openai-compatible',
+          name: 'Dual mode',
+          baseUrl: 'http://localhost:8787/v1',
+          enabled: true,
+          timeoutMs: 60000,
+          batchLimit: 1,
+          fileSizeLimitMb: null
+        },
+        apiKey: 'speech-fixture-key'
+      })
+      const { sourceId } = saved.purposeCatalog.speech.sources[0]
+      const createModel = (mode: 'realtime' | 'file') =>
+        service.purpose.savePurposeModel({
+          role: 'speech',
+          sourceId,
+          model: {
+            mode,
+            modelId: 'same-model',
+            enabled: true,
+            modelRevision: null,
+            embeddingDimension: null
+          }
+        })
+      await createModel('realtime')
+      const configured = await createModel('file')
+      const models = configured.purposeCatalog.speech.sources[0].models
+      const realtime = models.find((model) => model.mode === 'realtime')
+      const file = models.find((model) => model.mode === 'file')
+      if (!realtime || !file) throw new Error('Missing speech test models')
+      expect(realtime.configId).not.toBe(file.configId)
+      await expect(service.withSpeechProvider(async () => undefined)).rejects.toThrow(
+        'Set up Speech input'
+      )
+      const select = (configId: string) =>
+        service.purpose.setPurposeDefault({ role: 'speech', selection: { sourceId, configId } })
+      await select(realtime.configId)
+      const started = deferred<void>()
+      const complete = deferred<void>()
+      const recognition = service.withSpeechProvider(async (config, credential) => {
+        started.resolve()
+        await complete.promise
+        return { model: config.model, mode: config.mode, credential }
+      })
+      try {
+        await Promise.race([started.promise, recognition])
+        await select(file.configId)
+        await expect(service.withSpeechProvider(async (config) => config.mode)).resolves.toBe(
+          'file'
+        )
+        await expect(
+          service.withSpeechProvider(async (config) => config.mode, sourceId, realtime.configId)
+        ).resolves.toBe('realtime')
+        await service.purpose.setPurposeModelEnabled({
+          role: 'speech',
+          sourceId,
+          configId: file.configId,
+          enabled: false
+        })
+        await expect(service.withSpeechProvider(async () => undefined)).rejects.toThrow(
+          'Set up Speech input'
+        )
+      } finally {
+        complete.resolve()
+        await expect(recognition).resolves.toEqual({
+          model: 'same-model',
+          mode: 'realtime',
+          credential: 'speech-fixture-key'
+        })
+      }
+    } finally {
+      db.close()
+    }
+  })
+
+  it('fetches embedding candidates without adopting them and retains the last success after a failed refresh', async () => {
+    const { service, discover, db } = await setup()
+    try {
+      const initial = await service.purpose.savePurposeSource({
+        source: {
+          role: 'embedding',
+          providerId: 'openai-compatible',
+          name: 'Vector source',
+          baseUrl: 'https://vector.example.test/v1',
+          enabled: true,
+          timeoutMs: 60000,
+          batchLimit: 16,
+          fileSizeLimitMb: null
+        },
+        apiKey: 'embedding-fixture-key'
+      })
+      expect(discover).not.toHaveBeenCalled()
+      const input = {
+        role: 'embedding' as const,
+        sourceId: initial.purposeCatalog.embedding.sources[0].sourceId
+      }
+      const success = await service.refreshPurposeModels(input)
+      expect(discover).toHaveBeenCalledWith(
+        {
+          transport: 'openai-compatible',
+          purpose: 'embedding',
+          baseUrl: 'https://vector.example.test/v1',
+          credential: 'embedding-fixture-key'
+        },
+        expect.any(AbortSignal),
+        expect.anything()
+      )
+      expect(success.purposeCatalog.embedding).toMatchObject({
+        defaultSelection: null,
+        sources: [
+          { models: [], modelCandidates: [{ id: 'fresh-model' }], catalog: { status: 'current' } }
+        ]
+      })
+      discover.mockRejectedValueOnce(
+        new SourceModelDiscoveryError('http_error', { httpStatus: 503 })
+      )
+      const failed = await service.refreshPurposeModels(input)
+      expect(failed.purposeCatalog.embedding).toMatchObject({
+        defaultSelection: null,
+        sources: [
+          {
+            models: [],
+            modelCandidates: [{ id: 'fresh-model' }],
+            catalog: { status: 'stale', lastErrorCode: 'http_error' }
+          }
+        ]
+      })
+    } finally {
+      db.close()
+    }
+  })
+
   it('discards a refresh after its endpoint changes and returns to the original value', async () => {
     const { service, discover, create, db } = await setup()
     const wait = deferred<SourceModelCandidate[]>()
@@ -186,6 +403,34 @@ describe('source model catalogs', () => {
               updated_at: now
             }
           })
+        )
+        .execute()
+      const sources = Array.from({ length: 48 }, (_, index) => `sp-${index}`)
+      await db.kysely
+        .insertInto('purpose_sources')
+        .values(
+          sources.map((sourceId) => ({
+            source_id: sourceId,
+            role: 'speech' as const,
+            provider_config_id: `speech:${sourceId}`,
+            name: sourceId,
+            enabled: 1
+          }))
+        )
+        .execute()
+      await db.kysely
+        .insertInto('purpose_models')
+        .values(
+          sources.map((sourceId) => ({
+            source_id: sourceId,
+            role: 'speech' as const,
+            config_id: 'legacy',
+            model: 'manual',
+            enabled: 1,
+            mode: 'file',
+            model_revision: null,
+            embedding_dimension: null
+          }))
         )
         .execute()
       const results = await Promise.allSettled(
@@ -321,13 +566,13 @@ describe('source model catalogs', () => {
     const wait = deferred<void>()
     try {
       const id = await create('Original', 'https://old.example.test/v1', 'old-key')
-      const original = credentials.withCredential.bind(credentials)
+      const original = credentials.withOptionalCredential.bind(credentials)
       const entered = deferred<void>()
-      vi.spyOn(credentials, 'withCredential').mockImplementationOnce(
-        async (configId, operation) => {
+      vi.spyOn(credentials, 'withOptionalCredential').mockImplementationOnce(
+        async (configId, operation, binding) => {
           entered.resolve()
           await wait.promise
-          return original(configId, operation)
+          return original(configId, operation, binding)
         }
       )
       const refresh = service.refreshSpeechModels(id)

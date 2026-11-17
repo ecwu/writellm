@@ -53,9 +53,9 @@ describe('RetrievalService', () => {
     const service = new RetrievalService({
       projectId: randomUUID(),
       client,
-      getEmbeddingProvider: async () => embeddingConfig,
+
       embedQuery: async () => [1, 0, 0],
-      getRerankProvider: async () => rerankConfig,
+
       rerank,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     })
@@ -101,20 +101,18 @@ describe('RetrievalService', () => {
       ftsCandidates: async () => [b, a]
     } as unknown as IndexClient
     const warn = vi.fn()
-    const getRerankProvider = vi.fn<() => Promise<ProviderConfig>>(async () => {
-      throw new Error('rerank provider is not configured')
-    })
-    const rerank = vi.fn(async () => {
-      throw new Error('rerank provider unavailable')
-    })
+    const rerank = vi
+      .fn(async () => {
+        throw new Error('rerank provider unavailable')
+      })
+      .mockRejectedValueOnce(new Error('rerank provider is not configured'))
     const service = new RetrievalService({
       projectId: randomUUID(),
       client,
-      getEmbeddingProvider: async () => embeddingConfig,
+
       embedQuery: async () => {
-        throw new Error('must not run')
+        throw new Error('The active index needs a compatible embedding source or an index update')
       },
-      getRerankProvider,
       rerank,
       log: { info: vi.fn(), warn, error: vi.fn() }
     })
@@ -136,7 +134,7 @@ describe('RetrievalService', () => {
     expect(result.hits).toHaveLength(1)
     expect(warn).toHaveBeenCalledTimes(2)
 
-    getRerankProvider.mockResolvedValueOnce(rerankConfig)
+    expect(rerank).toHaveBeenCalledOnce()
     await expect(
       service.search(
         {
@@ -149,7 +147,7 @@ describe('RetrievalService', () => {
         new AbortController().signal
       )
     ).resolves.toMatchObject({ mode: 'fts', rerankStatus: 'unavailable' })
-    expect(rerank).toHaveBeenCalledOnce()
+    expect(rerank).toHaveBeenCalledTimes(2)
   })
 
   it('breaks RRF ties by stable chunk ID', () => {
@@ -179,9 +177,9 @@ describe('RetrievalService', () => {
     const service = new RetrievalService({
       projectId: randomUUID(),
       client: { retrievalState, ftsCandidates, queryVectors } as unknown as IndexClient,
-      getEmbeddingProvider: async () => embeddingConfig,
+
       embedQuery: async () => [1, 0, 0],
-      getRerankProvider: async () => rerankConfig,
+
       rerank: vi.fn(),
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     })
@@ -249,12 +247,12 @@ describe('RetrievalService', () => {
       const service = new RetrievalService({
         projectId: randomUUID(),
         client: { retrievalState, ftsCandidates } as unknown as IndexClient,
-        getEmbeddingProvider: async () => embeddingConfig,
+
         embedQuery: async () => {
           activeGeneration = 'generation-replacement'
           throw new Error('Vector provider unavailable')
         },
-        getRerankProvider: async () => rerankConfig,
+
         rerank: async () => {
           activeGeneration = 'generation-replacement'
           return {
@@ -294,16 +292,14 @@ describe('RetrievalService', () => {
       ftsCandidates: vi.fn(async () => []),
       expandCitations: vi.fn(async () => [])
     } as unknown as IndexClient
-    const getRerankProvider = vi.fn(async () => rerankConfig)
     const rerank = vi.fn(async () => {
       throw new Error('rerank must not run without candidates')
     })
     const service = new RetrievalService({
       projectId: randomUUID(),
       client,
-      getEmbeddingProvider: async () => embeddingConfig,
+
       embedQuery: async () => [1, 0, 0],
-      getRerankProvider,
       rerank,
       log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }
     })
@@ -324,7 +320,6 @@ describe('RetrievalService', () => {
       rerankStatus: 'skipped-no-candidates',
       hits: []
     })
-    expect(getRerankProvider).not.toHaveBeenCalled()
     expect(rerank).not.toHaveBeenCalled()
   })
 })

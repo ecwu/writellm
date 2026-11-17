@@ -7,6 +7,8 @@ import type { Logger } from 'pino'
 import { syncFile, writeDurable } from '../storage/durable-sync'
 import { mineruRawManifestSchema, type MineruRawManifest } from '../../shared/contracts/mineru'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
+import { CredentialUnavailableError } from '../providers/credential-service'
+import { PurposeSelectionUnavailableError } from '../providers/purpose-provider-service'
 import { getProviderCapability } from '../providers/capability-registry'
 import type { JobStore } from '../jobs/job-store'
 import type { JobHandlerContext, JobHandlerRegistry } from '../jobs/scheduler/job-handler-registry'
@@ -58,11 +60,28 @@ interface ParseTaskAdvance {
   now: string
 }
 
+type MineruSourceSelection = { sourceId: string; configId: string }
+
+interface ResolvedMineruSource extends MineruSourceSelection {
+  providerConfigId: string
+  config: MineruProviderConfig
+}
+
 export interface MineruProviderAccess {
-  getConfiguredProvider(): Promise<MineruProviderConfig>
-  withConfiguredProvider<T>(
+  resolve(selection?: MineruSourceSelection): Promise<ResolvedMineruSource>
+  withResolved<T>(
+    source: ResolvedMineruSource,
     operation: (config: MineruProviderConfig, credential: string) => Promise<T>
   ): Promise<T>
+}
+
+class MineruSourceUnavailableError extends Error {
+  readonly code = 'mineru_source_unavailable'
+  readonly retryable = false
+
+  constructor(options?: ErrorOptions) {
+    super('Restore the original MinerU source, mode, and credential, then retry parsing.', options)
+  }
 }
 
 export interface MineruWorkflowFaults {
@@ -145,7 +164,10 @@ export class MineruWorkflowService {
           .get(knowledgeItemId) as { parse_task_id: string } | undefined
     )
     if (active !== undefined) return active.parse_task_id
-    const config = await this.#providers.getConfiguredProvider()
+    const recoveryTaskId = this.#resumeSourceUnavailable(knowledgeItemId)
+    if (recoveryTaskId !== null) return recoveryTaskId
+    const selected = await this.#providers.resolve()
+    const { config } = selected
     if (config.role !== 'mineru' || config.fileSizeLimitMb === null) {
       throw new Error('MinerU provider configuration is invalid')
     }
@@ -164,8 +186,9 @@ export class MineruWorkflowService {
         .prepare(
           `INSERT INTO parse_tasks (
              parse_task_id, knowledge_item_id, source_file_record_id, provider_id,
-             provider_fingerprint, model_version, state, created_at, updated_at
-           ) VALUES (?, ?, ?, 'mineru', ?, ?, 'queued', ?, ?)`
+             provider_fingerprint, model_version, provider_source_id, provider_config_id,
+             state, created_at, updated_at
+           ) VALUES (?, ?, ?, 'mineru', ?, ?, ?, ?, 'queued', ?, ?)`
         )
         .run(
           parseTaskId,
@@ -173,6 +196,8 @@ export class MineruWorkflowService {
           source.file_record_id,
           fingerprint,
           config.model,
+          selected.sourceId,
+          selected.configId,
           now,
           now
         )
@@ -189,6 +214,94 @@ export class MineruWorkflowService {
       'MinerU parse queued'
     )
     return parseTaskId
+  }
+
+  #resumeSourceUnavailable(knowledgeItemId: string): string | null {
+    const now = this.#now().toISOString()
+    return this.#database.immediate((database) => {
+      const task = cachedStatement(
+        database,
+        `SELECT * FROM parse_tasks WHERE knowledge_item_id = ?
+          ORDER BY created_at DESC, rowid DESC LIMIT 1`
+      ).get(knowledgeItemId) as ParseTaskTable | undefined
+      if (task?.state !== 'failed' || task.error_code !== 'mineru_source_unavailable') return null
+      const failure = cachedStatement(
+        database,
+        `SELECT from_state FROM parse_task_events WHERE parse_task_id = ?
+          ORDER BY sequence DESC LIMIT 1`
+      ).get(task.parse_task_id) as { from_state: ParseTaskState } | undefined
+      const state = failure?.from_state
+      if (
+        state !== 'allocating' &&
+        state !== 'awaiting_upload' &&
+        state !== 'polling' &&
+        state !== 'downloading'
+      ) {
+        throw new Error('The MinerU task has no recoverable remote stage')
+      }
+      cachedStatement(
+        database,
+        `UPDATE parse_tasks SET state = ?, error_code = NULL, completed_at = NULL, updated_at = ?
+          WHERE parse_task_id = ?`
+      ).run(state, now, task.parse_task_id)
+      insertEvent(
+        database,
+        task.parse_task_id,
+        'failed',
+        state,
+        'provider.recovery_requested',
+        task.remote_state,
+        null,
+        now
+      )
+      this.#jobs.enqueue({
+        type: 'mineru_parse',
+        payload: { parseTaskId: task.parse_task_id },
+        deduplicationKey: `mineru-recover:${task.parse_task_id}`,
+        maxAttempts: 8
+      })
+      return task.parse_task_id
+    })
+  }
+
+  async #withBoundProvider<T>(
+    task: ParseTaskTable,
+    operation: (config: MineruProviderConfig, credential: string) => Promise<T>
+  ): Promise<T> {
+    try {
+      const source = await this.#providers.resolve({
+        sourceId: task.provider_source_id,
+        configId: task.provider_config_id
+      })
+      const validate = (config: MineruProviderConfig): void => {
+        if (
+          source.sourceId !== task.provider_source_id ||
+          source.configId !== task.provider_config_id ||
+          config.model !== task.model_version ||
+          providerFingerprint(config) !== task.provider_fingerprint
+        ) {
+          throw new MineruSourceUnavailableError()
+        }
+      }
+      validate(source.config)
+      return await this.#providers.withResolved(source, (config, credential) => {
+        validate(config)
+        return operation(config, credential)
+      })
+    } catch (err) {
+      this.#log.warn(
+        { event: 'mineru.provider.bound_request_failed', err, parseTaskId: task.parse_task_id },
+        'MinerU bound request failed'
+      )
+      if (
+        err instanceof PurposeSelectionUnavailableError ||
+        err instanceof CredentialUnavailableError ||
+        isExpiredDownloadCapability(err)
+      ) {
+        throw new MineruSourceUnavailableError({ cause: err })
+      }
+      throw err
+    }
   }
 
   cancelForKnowledgeItem(knowledgeItemId: string): MineruWorkReferences {
@@ -550,7 +663,7 @@ export class MineruWorkflowService {
         })
       })
       if (!allocating) return
-      const allocated = await this.#providers.withConfiguredProvider((config, credential) =>
+      const allocated = await this.#withBoundProvider(task, (config, credential) =>
         this.#gateway.allocate(
           config,
           credential,
@@ -574,7 +687,7 @@ export class MineruWorkflowService {
     }
     if (task.state !== 'awaiting_upload') return
     if (uploadUrl === undefined) {
-      const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
+      const refreshed = await this.#withBoundProvider(task, (config, credential) =>
         this.#gateway.allocate(
           config,
           credential,
@@ -613,7 +726,7 @@ export class MineruWorkflowService {
     const task = this.#requireTask(parseTaskId)
     if (terminal(task.state)) return
     if (task.remote_task_id === null) throw new Error('MinerU remote task ID is missing')
-    const result = await this.#providers.withConfiguredProvider((config, credential) =>
+    const result = await this.#withBoundProvider(task, (config, credential) =>
       this.#gateway.poll(
         config,
         credential,
@@ -692,7 +805,7 @@ export class MineruWorkflowService {
     let archivePath: string | undefined
 
     if (task.state === 'downloading') {
-      const refreshed = await this.#providers.withConfiguredProvider((config, credential) =>
+      const refreshed = await this.#withBoundProvider(task, (config, credential) =>
         this.#gateway.poll(
           config,
           credential,
@@ -1098,7 +1211,10 @@ async function audited(service: MineruWorkflowService, context: JobHandlerContex
   } catch (err) {
     const value = context.job.payload.parseTaskId
     if (typeof value === 'string') {
-      if (context.job.attempts >= context.job.maxAttempts)
+      if (
+        err instanceof MineruSourceUnavailableError ||
+        context.job.attempts >= context.job.maxAttempts
+      )
         service.recordPermanentFailure(value, err)
       else service.recordRetry(value, err)
     }
@@ -1216,6 +1332,7 @@ function isExpiredDownloadCapability(error: unknown): boolean {
 }
 
 function safeOperationErrorCode(error: unknown): string {
+  if (error instanceof MineruSourceUnavailableError) return error.code
   if (error !== null && typeof error === 'object') {
     if ('providerCode' in error && typeof error.providerCode === 'string') {
       const normalized = error.providerCode.replaceAll(/[^A-Za-z0-9_-]/g, '_').slice(0, 80)

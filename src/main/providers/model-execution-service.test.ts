@@ -11,10 +11,7 @@ import type {
   ImageGenerationGateway,
   RerankGateway
 } from './gateways'
-import {
-  assertEmbeddingProviderContract,
-  embeddingContractSha256
-} from '../search/embedding-contract'
+import { embeddingContractSha256 } from '../search/embedding-contract'
 import { ModelExecutionService } from './model-execution-service'
 import type { ProviderService } from './provider-service'
 
@@ -58,6 +55,7 @@ afterEach(async () => {
 function service(options?: {
   agent?: AgentModelRuntime
   images?: ImageGenerationGateway
+  embeddingSources?: Extract<ProviderConfig, { role: 'embedding' }>[]
   embeddings?: EmbeddingGateway
   imageConfig?: Extract<ProviderConfig, { role: 'image' }>
 }): ModelExecutionService {
@@ -100,6 +98,13 @@ function service(options?: {
     }
   }
   const providers = {
+    purpose: {
+      listResolved: async () => options?.embeddingSources?.map((config) => ({ config })) ?? [],
+      withResolved: async <T>(
+        entry: { config: ProviderConfig },
+        operation: (config: ProviderConfig, credential: string) => Promise<T>
+      ) => operation(entry.config, 'historical-source-key')
+    },
     withConfiguredProvider: async <T>(
       role: 'agent' | 'embedding' | 'rerank' | 'image',
       operation: (config: ProviderConfig, credential: string | undefined) => Promise<T>
@@ -315,6 +320,35 @@ describe('ModelExecutionService', () => {
     project.close()
   })
 
+  it('queries the indexed source after a default switch and refuses an identical replacement', async () => {
+    const project = await database()
+    const replacement = { ...embeddingConfig, sourceId: 'replacement' }
+    const historical = { ...embeddingConfig, sourceId: 'legacy' }
+    const candidates = [replacement, historical]
+    const embedBatch = vi.fn<EmbeddingGateway['embedBatch']>().mockResolvedValue({
+      embeddings: [[0, 1]],
+      metadata: metadata(embeddingConfig.model)
+    })
+    const model = service({ embeddingSources: candidates, embeddings: { embedBatch } })
+    const query = () =>
+      model.embedBatch(project, { values: ['query'] }, {}, new AbortController().signal, {
+        usage: 'query',
+        modelId: embeddingConfig.model,
+        modelRevision: embeddingConfig.modelRevision,
+        dimension: embeddingConfig.embeddingDimension,
+        contractSha256: embeddingContractSha256(embeddingConfig)
+      })
+    try {
+      await query()
+      expect(embedBatch.mock.calls[0]?.slice(0, 2)).toEqual([historical, 'historical-source-key'])
+      candidates.pop()
+      await expect(query()).rejects.toThrow('compatible embedding source')
+      expect(embedBatch).toHaveBeenCalledTimes(1)
+    } finally {
+      project.close()
+    }
+  })
+
   it('rejects a changed embedding endpoint before recording or calling the gateway', async () => {
     const project = await database()
     const expectedContract = embeddingContractSha256({
@@ -329,7 +363,7 @@ describe('ModelExecutionService', () => {
           { values: ['query', 'second input'] },
           { operationId: 'guarded-embedding' },
           new AbortController().signal,
-          (config) => assertEmbeddingProviderContract(config, expectedContract)
+          { contractSha256: expectedContract, usage: 'index' }
         )
       ).rejects.toThrow('Embedding provider changed before execution')
       expect(embedBatch).not.toHaveBeenCalled()

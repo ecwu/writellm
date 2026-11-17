@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3'
+import { PROJECT_SCHEMA_VERSION } from '../project-database'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createService, FakeAgentRuntime } from '../../agent/session-service.test-support'
@@ -13,7 +14,9 @@ describe('migration 0047 conversation fork', () => {
   it('creates a verified pre-migration backup and keeps existing conversation evidence', async () => {
     const root = await legacyProject(migrationRecoveryFixtures.conversationFork)
     const database = await openMigrationDatabase(root)
-    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(49)
+    expect(database.immediate((db) => db.pragma('user_version', { simple: true }))).toBe(
+      PROJECT_SCHEMA_VERSION
+    )
     expect(database.immediate((db) => db.pragma('integrity_check', { simple: true }))).toBe('ok')
     expect(database.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
     expect(createService(database, new FakeAgentRuntime()).listSessions()[0].title).toBe(

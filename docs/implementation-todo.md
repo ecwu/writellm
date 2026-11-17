@@ -1,6 +1,6 @@
 # WriteLLM Implementation Tracker
 
-Status: Issue 21 is in progress. Checkpoint 77 remains paused.
+Status: Issue 21 passed local macOS arm64 acceptance. Checkpoint 77 remains paused.
 Recorded: 2026-11-17
 
 This file lists checkpoint status and links to detailed evidence.
@@ -20,7 +20,7 @@ Status markers:
 
 ## Active and paused work
 
-- [~] Issue 21 model configuration and defaults by purpose. See [current delivery state](current-plan.md#current-state) and [ADR 095](adrs/095-purpose-model-defaults.md).
+- [x] Issue 21 model configuration and defaults by purpose. See [current delivery state](current-plan.md#current-state) and [ADR 095](adrs/095-purpose-model-defaults.md).
 
 - [x] Persisted and in-memory state-transition guards, the shared Agent workflow state, and the replacement review race fix pass local macOS arm64 package acceptance; committed in `c934f26` through `9fae0cd`.
   Evidence: [`history/implementation-log.md`](history/implementation-log.md#2026-11-06-release-02026111-preparation).

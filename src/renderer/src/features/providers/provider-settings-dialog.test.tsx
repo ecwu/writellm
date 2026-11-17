@@ -1,12 +1,21 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { ProviderRole, ProviderSettingsSnapshot } from '../../../../shared/contracts/providers'
-import { changeSpeechDraftMode, newSpeechSourceDraft } from './speech-provider-settings'
-import { ModelCatalogRefresh } from './model-candidate-controls'
+import {
+  changeSpeechModelMode,
+  SpeechModelDiscovery,
+  suggestedSpeechModelId
+} from './speech-model-settings'
 import { ProviderSettingsWorkspace } from './provider-settings-dialog'
 
 const speechRole: ProviderRole = 'speech'
 const snapshot: ProviderSettingsSnapshot = {
+  purposeCatalog: {
+    embedding: { sources: [], defaultSelection: null },
+    rerank: { sources: [], defaultSelection: null },
+    mineru: { sources: [], defaultSelection: null },
+    speech: { sources: [], defaultSelection: null }
+  },
   credentialBackend: {
     platform: 'darwin',
     backend: 'keychain',
@@ -224,26 +233,28 @@ describe('ProviderSettingsWorkspace image catalog', () => {
 })
 
 describe('Speech source settings', () => {
-  it('keeps saved custom IDs while showing the active source and fetched candidates', () => {
+  it('keeps saved custom IDs and distinguishes two configurations for the same model', () => {
     const source = (sourceId: string, name: string) => ({
+      role: 'speech' as const,
+      providerId: 'openai-compatible' as const,
       sourceId,
       name,
-      configured: true,
+      enabled: true,
+      authConfigured: false,
       available: true,
       issues: [],
-      config: {
-        role: 'speech' as const,
-        providerId: 'openai-compatible' as const,
-        sourceId,
-        name,
-        baseUrl: 'http://localhost:8080/v1',
-        model: 'my-custom-speech-id',
-        mode: 'file' as const,
-        timeoutMs: 60000,
-        batchLimit: 1 as const,
-        embeddingDimension: null,
-        fileSizeLimitMb: null
-      },
+      baseUrl: 'http://localhost:8080/v1',
+      timeoutMs: 60000,
+      batchLimit: 1 as const,
+      fileSizeLimitMb: null,
+      models: (['realtime', 'file'] as const).map((mode) => ({
+        configId: mode,
+        modelId: 'my-custom-speech-id',
+        mode,
+        enabled: true,
+        modelRevision: null,
+        embeddingDimension: null
+      })),
       modelCandidates: [{ id: 'discovered-id', name: 'Discovered candidate' }],
       catalog: {
         status: 'current' as const,
@@ -256,9 +267,12 @@ describe('Speech source settings', () => {
         role={speechRole}
         snapshot={{
           ...snapshot,
-          speechCatalog: {
-            activeSourceId: 'second',
-            sources: [source('first', 'First speech'), source('second', 'Second speech')]
+          purposeCatalog: {
+            ...snapshot.purposeCatalog,
+            speech: {
+              defaultSelection: { sourceId: 'second', configId: 'file' },
+              sources: [source('first', 'First speech'), source('second', 'Second speech')]
+            }
           }
         }}
         closeAction={null}
@@ -268,15 +282,15 @@ describe('Speech source settings', () => {
     )
     expect(html).toContain('First speech')
     expect(html).toContain('Second speech')
-    expect(html).toContain('Active speech source')
-    expect(html).toContain('Active source')
-    expect(html).toContain('my-custom-speech-id')
-    expect(html).toContain('Choose discovered model')
-    expect(html).toContain('1 candidates · current')
+    expect(html).toContain('Default model')
+    expect(html).toContain('Default source')
+    expect(html).toContain('Second speech · my-custom-speech-id (File)')
+    expect(html).toContain('my-custom-speech-id (Realtime)')
+    expect(html).toContain('Fetch models')
     expect(html).toContain('Test connection')
     expect(html).not.toContain('gpt-live-transcribe')
   })
-  it('opens an empty source workspace without inventing an active source', () => {
+  it('opens an empty source workspace without choosing a default', () => {
     const html = renderToStaticMarkup(
       <ProviderSettingsWorkspace
         role={speechRole}
@@ -286,30 +300,29 @@ describe('Speech source settings', () => {
         onError={() => undefined}
       />
     )
-    expect(html).toContain('No speech source selected')
+    expect(html).toContain('No source selected')
     expect(html).toContain('Add source')
-    expect(html).not.toContain('Active source')
+    expect(html).not.toContain('Default source')
   })
   it('uses reviewed defaults only for new uncustomized drafts', () => {
-    const draft = newSpeechSourceDraft()
-    expect(draft.model).toBe('gpt-live-transcribe')
-    expect(changeSpeechDraftMode(draft, 'file', true).model).toBe('gpt-transcribe')
-    expect(changeSpeechDraftMode(draft, 'file', false).model).toBe('gpt-live-transcribe')
-    expect(changeSpeechDraftMode({ ...draft, model: 'saved-custom-id' }, 'file', true).model).toBe(
-      'saved-custom-id'
-    )
+    const draft = { mode: 'realtime', modelId: suggestedSpeechModelId('realtime') } as const
+    expect(draft.modelId).toBe('gpt-live-transcribe')
+    expect(changeSpeechModelMode(draft, 'file', true).modelId).toBe('gpt-transcribe')
+    expect(changeSpeechModelMode(draft, 'file', false).modelId).toBe('gpt-live-transcribe')
+    expect(
+      changeSpeechModelMode({ ...draft, modelId: 'saved-custom-id' }, 'file', true).modelId
+    ).toBe('saved-custom-id')
   })
   it('keeps discovery-unavailable feedback distinct from an empty fetched catalog', () => {
     const html = renderToStaticMarkup(
-      <ModelCatalogRefresh
-        candidates={[]}
+      <SpeechModelDiscovery
+        sourceId='first'
         catalog={{ status: 'unsupported', checkedAt: null, lastErrorCode: null }}
-        busy={false}
-        disabled={false}
-        onRefresh={() => undefined}
+        onSnapshotChange={() => undefined}
+        onError={() => undefined}
       />
     )
-    expect(html).toContain('Discovery unavailable')
+    expect(html).toContain('Model discovery is unavailable for this source.')
     expect(html).toContain('Fetch models')
   })
 })

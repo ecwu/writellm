@@ -19,12 +19,15 @@ export type JobErrorCode =
   | 'job_execution_failed'
   | 'lease_expired'
   | 'migration_lease_recovered'
+  | 'mineru_source_unavailable'
 
 export const JOB_ERROR_MESSAGES: Readonly<Record<JobErrorCode, string>> = {
   invalid_input: 'Job input is invalid',
   job_execution_failed: 'Job execution failed',
   lease_expired: 'Worker lease expired before completion',
-  migration_lease_recovered: 'Interrupted job recovered during database migration'
+  migration_lease_recovered: 'Interrupted job recovered during database migration',
+  mineru_source_unavailable:
+    'Restore the original MinerU source, mode, and credential, then retry parsing.'
 }
 
 const referenceId = z
@@ -84,7 +87,8 @@ export const jobErrorCodeSchema = z.enum([
   'invalid_input',
   'job_execution_failed',
   'lease_expired',
-  'migration_lease_recovered'
+  'migration_lease_recovered',
+  'mineru_source_unavailable'
 ])
 export const jobErrorSchema = z
   .object({

@@ -7,6 +7,7 @@ import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
 import { configureAgentProvider, createProject } from './helpers/project'
 import { ZipFile } from 'yazl'
+import { addParsingMode, addPurposeSource, configureMineru } from './helpers/purpose-providers'
 
 function makeMinimalPdf(): string {
   const objects = [
@@ -27,18 +28,6 @@ function makeMinimalPdf(): string {
   for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
   return pdf
-}
-
-async function configureMineruProvider(page: Page, port: number): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const provider = page.getByRole('dialog', { name: 'Settings' })
-  await provider.getByRole('option', { name: /^Document Parsing/ }).click()
-  await provider.getByLabel('Base URL').fill(`http://127.0.0.1:${port}`)
-  await provider.getByLabel('Model ID').fill('pipeline')
-  await provider.getByLabel('API key or token').fill('e2e-mineru-token')
-  await provider.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(provider.getByLabel('API key or token')).toHaveAttribute('placeholder', /Stored/)
-  await page.keyboard.press('Escape')
 }
 
 async function configureNotebookAgentProvider(page: Page, baseUrl: string): Promise<void> {
@@ -216,7 +205,13 @@ async function diagnosticEventCount(page: Page, event: string): Promise<number> 
 }
 
 async function startSuccessfulMineruServer(zipBytes: Buffer) {
-  const stats = { parseTaskId: '', uploadedBytes: 0 }
+  const stats = {
+    parseTaskId: '',
+    uploadedBytes: 0,
+    ready: true,
+    submissions: [] as string[],
+    polls: [] as string[]
+  }
   let batchCounter = 0
   const batches = new Map<string, { dataId: string; fileName: string }>()
   const server = createServer((request, response) => {
@@ -227,7 +222,9 @@ async function startSuccessfulMineruServer(zipBytes: Buffer) {
       request.on('end', () => {
         const body = JSON.parse(Buffer.concat(chunks).toString()) as {
           files: Array<{ data_id: string; name?: string }>
+          model_version: string
         }
+        stats.submissions.push(body.model_version)
         stats.parseTaskId = body.files[0]?.data_id ?? ''
         batchCounter += 1
         const batchId = `e2e-batch-${batchCounter}`
@@ -262,6 +259,7 @@ async function startSuccessfulMineruServer(zipBytes: Buffer) {
     const batchMatch = request.url?.match(/^\/api\/v4\/extract-results\/batch\/(e2e-batch-\d+)$/u)
     if (request.method === 'GET' && batchMatch !== undefined && batchMatch !== null) {
       const batchId = batchMatch[1] ?? ''
+      stats.polls.push(batchId)
       const batch = batches.get(batchId)
       if (batch === undefined) {
         response.writeHead(404)
@@ -279,8 +277,8 @@ async function startSuccessfulMineruServer(zipBytes: Buffer) {
               {
                 file_name: batch.fileName,
                 data_id: batch.dataId,
-                state: 'done',
-                full_zip_url: `http://127.0.0.1:${port}/result.zip`
+                state: stats.ready ? 'done' : 'running',
+                ...(stats.ready ? { full_zip_url: `http://127.0.0.1:${port}/result.zip` } : {})
               }
             ]
           }
@@ -322,7 +320,7 @@ test(
       knowledgeDialogPaths: [source]
     })
     try {
-      await configureMineruProvider(launched.page, mineru.port)
+      await configureMineru(launched.page, `http://127.0.0.1:${mineru.port}`, 'e2e-mineru-token')
       await configureNotebookAgentProvider(
         launched.page,
         `http://127.0.0.1:${notebookAgent.port}/v1`
@@ -636,7 +634,7 @@ test(
       await launched.app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows()[0]?.setSize(1440, 900)
       )
-      await configureMineruProvider(launched.page, mineru.port)
+      await configureMineru(launched.page, `http://127.0.0.1:${mineru.port}`, 'e2e-mineru-token')
       await configureNotebookAgentProvider(launched.page, `http://127.0.0.1:${agent.port}/v1`)
       await createProject(launched.page, 'Large Notebook')
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
@@ -760,7 +758,7 @@ test(
     let recovered: Awaited<ReturnType<typeof launchApp>> | undefined
 
     try {
-      await configureMineruProvider(launched.page, mineru.port)
+      await configureMineru(launched.page, `http://127.0.0.1:${mineru.port}`, 'e2e-mineru-token')
       await createProject(launched.page, projectName)
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       const knowledge = launched.page.getByTestId('knowledge-workspace')
@@ -829,7 +827,7 @@ test(
       knowledgeDialogPaths: [unique, duplicateA, duplicateB, unused]
     })
     try {
-      await configureMineruProvider(launched.page, mineru.port)
+      await configureMineru(launched.page, `http://127.0.0.1:${mineru.port}`, 'e2e-mineru-token')
       await createProject(launched.page, projectName)
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
       const knowledge = launched.page.getByTestId('knowledge-workspace')
@@ -888,6 +886,75 @@ test(
       await launched.app.close()
       await new Promise<void>((resolve, reject) =>
         mineru.server.close((error) => (error ? reject(error) : resolve()))
+      )
+    }
+  }
+)
+
+test(
+  'resumes an uploaded MinerU batch at its original source after changing the default',
+  scenario('knowledge.parse-bound-source-restart', ['@packaged']),
+  async ({ testRoot }) => {
+    const source = join(testRoot, 'before switch.pdf')
+    const nextSource = join(testRoot, 'after switch.pdf')
+    await writeFile(source, makeMinimalPdf())
+    await writeFile(nextSource, `${makeMinimalPdf()}\n% second file`)
+    const output = await resultZip()
+    const first = await startSuccessfulMineruServer(output)
+    const second = await startSuccessfulMineruServer(output)
+    first.stats.ready = false
+    const userData = join(testRoot, 'user-data')
+    const projectName = 'Bound MinerU batch'
+    let app = await launchApp({ userData, dialogPaths: [testRoot], knowledgeDialogPaths: [source] })
+    try {
+      await configureMineru(app.page, `http://127.0.0.1:${first.port}`, 'original-credential')
+      await createProject(app.page, projectName)
+      await app.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await app.page.getByTestId('knowledge-upload-button').click()
+      await expect.poll(() => first.stats.polls.length, { timeout: 20_000 }).toBeGreaterThan(0)
+      expect(first.stats.submissions).toEqual(['pipeline'])
+      await app.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const settings = app.page.getByRole('dialog', { name: 'Settings', exact: true })
+      await settings.getByRole('option', { name: /^Document Parsing/ }).click()
+      await addPurposeSource(settings, {
+        name: 'New MinerU',
+        baseUrl: `http://127.0.0.1:${second.port}`,
+        apiKey: 'replacement-credential',
+        mineru: true
+      })
+      await addParsingMode(app.page, settings, 'VLM')
+      await settings.getByRole('button', { name: 'Set VLM as default', exact: true }).click()
+      await expect(settings.getByLabel('Default model')).toContainText('New MinerU')
+      await app.app.close()
+      const pollsBeforeRestart = first.stats.polls.length
+      first.stats.ready = true
+      app = await launchApp({ userData, knowledgeDialogPaths: [nextSource] })
+      await app.page.getByRole('button', { name: `Open ${projectName}`, exact: true }).click()
+      await expectActiveProject(app.page, projectName)
+      await expect
+        .poll(() => succeededJobCount(app.page, 'normalize_parse_revision'), { timeout: 30_000 })
+        .toBe(1)
+      expect(first.stats.polls.length).toBeGreaterThan(pollsBeforeRestart)
+      expect(new Set(first.stats.polls)).toEqual(new Set(['e2e-batch-1']))
+      expect(first.stats.submissions).toEqual(['pipeline'])
+      expect(second.stats.submissions).toEqual([])
+      expect(second.stats.polls).toEqual([])
+      await app.page.getByRole('button', { name: 'Knowledge', exact: true }).click()
+      await app.page.getByTestId('knowledge-upload-button').click()
+      await expect
+        .poll(() => succeededJobCount(app.page, 'normalize_parse_revision'), { timeout: 30_000 })
+        .toBe(2)
+      expect(second.stats.submissions).toEqual(['vlm'])
+      expect(second.stats.polls.length).toBeGreaterThan(0)
+    } finally {
+      await app.app.close()
+      await Promise.all(
+        [first, second].map(
+          ({ server }) =>
+            new Promise<void>((resolve, reject) =>
+              server.close((err) => (err ? reject(err) : resolve()))
+            )
+        )
       )
     }
   }
@@ -991,7 +1058,7 @@ test(
       knowledgeDialogPaths: [source]
     })
     try {
-      await configureMineruProvider(launched.page, port)
+      await configureMineru(launched.page, `http://127.0.0.1:${port}`, 'e2e-mineru-token')
       await createProject(launched.page, projectName)
 
       await launched.page.getByRole('button', { name: 'Knowledge', exact: true }).click()

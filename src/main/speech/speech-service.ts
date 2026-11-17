@@ -42,14 +42,15 @@ export class SpeechService {
     this.options.assertSession(projectSessionId)
     return this.#begin(senderId, projectSessionId, false) as Promise<SpeechStartResult>
   }
-  async testConnection(senderId: number, sourceId?: string): Promise<void> {
-    await this.#begin(senderId, null, true, sourceId)
+  async testConnection(senderId: number, sourceId?: string, configId?: string): Promise<void> {
+    await this.#begin(senderId, null, true, sourceId, configId)
   }
   async #begin(
     senderId: number,
     projectSessionId: string | null,
     test: boolean,
-    sourceId?: string
+    sourceId?: string,
+    configId?: string
   ): Promise<SpeechStartResult | undefined> {
     if (this.#active !== undefined) throw new Error('Speech is already active')
     const recognitionId = randomUUID()
@@ -73,92 +74,103 @@ export class SpeechService {
       resolveReady = resolve
       rejectReady = reject
     })
-    const completion = this.options.providers.withSpeechProvider(async (config, credential) => {
-      if (!test) await this.options.prepareCapture?.()
-      if (this.#active !== active || controller.signal.aborted) throw new Error('Speech cancelled')
-      if (projectSessionId !== null) this.options.assertSession(projectSessionId)
-      let failureDelivered = false
-      const workerCompletion = this.options.client.start(
-        {
-          type: 'speech-start',
-          context: currentLogContext(),
-          requestId: recognitionId,
-          projectSessionId,
-          config: { baseUrl: config.baseUrl, model: config.model, mode: config.mode },
-          ...(credential === undefined ? {} : { credential }),
-          test
-        },
-        controller.signal,
-        (message) => {
-          if (this.#active !== active || controller.signal.aborted) return
-          if (projectSessionId !== null) this.options.assertSession(projectSessionId)
-          if (message.state === 'ready') {
-            this.options.log.info(
-              { event: 'speech.recognition.ready', recognitionId, mode: config.mode },
-              'Speech provider ready'
-            )
-            active.ready = true
-            resolveReady()
-            return
-          }
-          if (message.state === 'error') {
-            if (!test) {
-              failureDelivered = true
-              this.#emit(active, 'error', undefined, message.error ?? 'Speech failed', message)
-            }
-            return
-          }
-          if (message.state === 'final') {
-            if (!test) this.#emit(active, 'final', message.text ?? '')
-            resolveReady()
-            return
-          }
-          if (!test) this.#emit(active, 'partial', message.text ?? '')
-        }
-      )
-      const settled = workerCompletion
-        .catch((err) => {
-          if (!test) rejectReady(err)
-          prepareSpeechErrorForLogging(err)
-          this.options.log.error(
-            {
-              event: 'speech.recognition.failed',
-              err,
-              recognitionId,
-              ...(err instanceof SpeechFailure
-                ? { providerCode: err.providerCode, providerParam: err.providerParam }
-                : {})
-            },
-            'Speech recognition failed'
-          )
-          if (!test && !failureDelivered && this.#active === active && !controller.signal.aborted) {
-            try {
-              this.#emit(active, 'error', undefined, 'Speech recognition failed.')
-            } catch (deliveryError) {
-              this.options.log.error(
-                { event: 'speech.error_delivery.failed', err: deliveryError, recognitionId },
-                'Speech capability ended before error delivery'
+    const completion = this.options.providers.withSpeechProvider(
+      async (config, credential) => {
+        if (!test) await this.options.prepareCapture?.()
+        if (this.#active !== active || controller.signal.aborted)
+          throw new Error('Speech cancelled')
+        if (projectSessionId !== null) this.options.assertSession(projectSessionId)
+        let failureDelivered = false
+        const workerCompletion = this.options.client.start(
+          {
+            type: 'speech-start',
+            context: currentLogContext(),
+            requestId: recognitionId,
+            projectSessionId,
+            config: { baseUrl: config.baseUrl, model: config.model, mode: config.mode },
+            ...(credential === undefined ? {} : { credential }),
+            test
+          },
+          controller.signal,
+          (message) => {
+            if (this.#active !== active || controller.signal.aborted) return
+            if (projectSessionId !== null) this.options.assertSession(projectSessionId)
+            if (message.state === 'ready') {
+              this.options.log.info(
+                { event: 'speech.recognition.ready', recognitionId, mode: config.mode },
+                'Speech provider ready'
               )
+              active.ready = true
+              resolveReady()
+              return
             }
+            if (message.state === 'error') {
+              if (!test) {
+                failureDelivered = true
+                this.#emit(active, 'error', undefined, message.error ?? 'Speech failed', message)
+              }
+              return
+            }
+            if (message.state === 'final') {
+              if (!test) this.#emit(active, 'final', message.text ?? '')
+              resolveReady()
+              return
+            }
+            if (!test) this.#emit(active, 'partial', message.text ?? '')
           }
-          if (test) throw err
-        })
-        .finally(() => this.#release(active))
-      if (test) {
-        await settled
-        return
-      }
-      await ready
-      if (this.#active !== active || controller.signal.aborted) throw new Error('Speech cancelled')
-      return {
-        recognitionId,
-        mode: config.mode,
-        sampleRate: 24000 as const,
-        channels: 1 as const,
-        maxDurationMs: 120000 as const,
-        maxFrameBytes: 4800 as const
-      }
-    }, sourceId)
+        )
+        const settled = workerCompletion
+          .catch((err) => {
+            if (!test) rejectReady(err)
+            prepareSpeechErrorForLogging(err)
+            this.options.log.error(
+              {
+                event: 'speech.recognition.failed',
+                err,
+                recognitionId,
+                ...(err instanceof SpeechFailure
+                  ? { providerCode: err.providerCode, providerParam: err.providerParam }
+                  : {})
+              },
+              'Speech recognition failed'
+            )
+            if (
+              !test &&
+              !failureDelivered &&
+              this.#active === active &&
+              !controller.signal.aborted
+            ) {
+              try {
+                this.#emit(active, 'error', undefined, 'Speech recognition failed.')
+              } catch (deliveryError) {
+                this.options.log.error(
+                  { event: 'speech.error_delivery.failed', err: deliveryError, recognitionId },
+                  'Speech capability ended before error delivery'
+                )
+              }
+            }
+            if (test) throw err
+          })
+          .finally(() => this.#release(active))
+        if (test) {
+          await settled
+          return
+        }
+        await ready
+        if (this.#active !== active || controller.signal.aborted)
+          throw new Error('Speech cancelled')
+        return {
+          recognitionId,
+          mode: config.mode,
+          sampleRate: 24000 as const,
+          channels: 1 as const,
+          maxDurationMs: 120000 as const,
+          maxFrameBytes: 4800 as const
+        }
+      },
+      sourceId,
+      configId
+    )
     try {
       return await completion
     } catch (err) {

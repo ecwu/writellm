@@ -139,7 +139,30 @@ export interface SourceModelCatalogTable {
   last_attempted_at: string
   last_error_code: string | null
 }
+export type CatalogPurpose = 'speech' | 'embedding' | 'rerank' | 'mineru'
+export interface PurposeSourceTable {
+  role: CatalogPurpose
+  source_id: string
+  provider_config_id: string
+  name: string
+  enabled: number
+}
+export interface PurposeDefaultTable {
+  role: CatalogPurpose
+  source_id: string
+  config_id: string
+}
+export interface PurposeModelTable extends PurposeDefaultTable {
+  model: string
+  mode: 'realtime' | 'file' | null
+  model_revision: string | null
+  embedding_dimension: number | null
+  enabled: number
+}
 export interface AppDatabaseSchema {
+  purpose_sources: PurposeSourceTable
+  purpose_models: PurposeModelTable
+  purpose_defaults: PurposeDefaultTable
   app_settings: AppSettingTable
   publication_presets: PublicationPresetTable
   recent_projects: RecentProjectTable

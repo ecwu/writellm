@@ -34,6 +34,7 @@ import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { ProjectCreationFields } from '@/features/project/project-creation-fields'
+import { purposeDefault } from '@/features/providers/purpose-model-label'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
 import { SettingsDraftProvider, useSettingsLeave } from '@/features/providers/settings-draft-guard'
 import { cn } from '@/lib/utils'
@@ -456,5 +457,7 @@ function isProviderReady(
         preset.enabled && preset.authConfigured && preset.models.some((model) => model.enabled)
     )
   }
-  return snapshot.providers.find((provider) => provider.role === role)?.available === true
+  if (role === 'image')
+    return snapshot.providers.find((provider) => provider.role === role)?.available === true
+  return purposeDefault(snapshot.purposeCatalog[role]).available
 }

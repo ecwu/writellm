@@ -31,7 +31,6 @@ import {
 import { MineruWorkflowService, registerMineruHandlers } from '../knowledge/mineru-workflow-service'
 import { NotebookRegistry } from '../knowledge/notebook-registry'
 import { IndexClient } from '../search/index-client'
-import { assertEmbeddingProviderContract } from '../search/embedding-contract'
 import { ProjectIndexService, registerIndexHandlers } from '../search/index-service'
 import { RetrievalService } from '../search/retrieval-service'
 import { INDEX_DATABASE_RELATIVE_PATH, resolveProjectPath } from '../project/project-paths'
@@ -112,8 +111,8 @@ export function composeKnowledgeRuntime(
       database,
       jobs,
       providers: {
-        getConfiguredProvider: () => providers.getConfiguredProvider('mineru'),
-        withConfiguredProvider: (operation) => providers.withConfiguredProvider('mineru', operation)
+        resolve: (selection) => providers.purpose.resolve('mineru', selection),
+        withResolved: (source, operation) => providers.purpose.withResolved(source, operation)
       },
       gateway: mineruClient,
       log
@@ -150,7 +149,7 @@ export function composeKnowledgeRuntime(
         { values },
         { ...correlation, projectSessionId },
         signal,
-        (config) => assertEmbeddingProviderContract(config, expectedContractSha256)
+        { contractSha256: expectedContractSha256, usage: 'index' }
       )
     const projectIndex = new ProjectIndexService({
       projectRoot,
@@ -165,14 +164,18 @@ export function composeKnowledgeRuntime(
     const retrieval = new RetrievalService({
       projectId,
       client: indexClient,
-      getEmbeddingProvider: () => providers.getConfiguredProvider('embedding'),
-      embedQuery: async (query, expectedContractSha256, operationId, signal) => {
-        const result = await embedForIndex([query], expectedContractSha256, { operationId }, signal)
+      embedQuery: async (query, contract, operationId, signal) => {
+        const result = await modelExecution.embedBatch(
+          database,
+          { values: [query] },
+          { operationId, projectSessionId },
+          signal,
+          { ...contract, usage: 'query' }
+        )
         const vector = result.embeddings[0]
         if (vector === undefined) throw new Error('Embedding provider returned no query vector')
         return vector
       },
-      getRerankProvider: () => providers.getConfiguredProvider('rerank'),
       rerank: (query, documents, topN, operationId, signal) =>
         modelExecution.rerank(
           database,

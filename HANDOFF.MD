@@ -714,3 +714,7 @@ New Agent conversations record this value, so a stale constant gives the wrong r
 
 The Renderer normally reuses a query result for 30 seconds. Overview reads Autocomplete again on mount.
 Its change subscription alone cannot catch edits that occur while another Settings section is open.
+
+## Provider catalog snapshots
+
+Pass the current Kysely transaction to nested catalog reads. Opening a second read on the same connection can stall Settings after model discovery.

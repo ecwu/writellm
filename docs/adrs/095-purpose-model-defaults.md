@@ -26,6 +26,14 @@ Document Parsing keeps the MinerU adapter and its supported modes. A new job bin
 
 Main owns all credentials and resolves the connection for each request. Each forward migration uses the existing backup, integrity, and recovery gates. The migration must preserve old session selections, credential bindings, and index provenance across restart.
 
+## Schema and runtime binding
+
+Application migration 0013 adds source, model, and default tables to `app.sqlite`. Each source references the existing credential-bearing connection row. Defaults reference models by purpose, source ID, and configuration ID. The database clears a default when its model or source is disabled or deleted.
+
+The imported Embedding source retains the legacy contract hash. New source identities distinguish connections that share an endpoint and model. Query execution narrows the available models by model ID, revision, and dimensions before matching the exact contract hash.
+
+Project migration 0050 binds each prior MinerU task to the imported source and configuration. Before a remote operation, Main checks the saved model and connection fingerprint. A recoverable job polls its persisted remote ID through the bound source. It retains that ID when the source requires repair.
+
 ## Alternatives and acceptance
 
 One default for all purposes would couple independent tasks and prevent separate choices for chat and completion. Using a model ID alone would make duplicate names across sources and Speech modes ambiguous.

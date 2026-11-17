@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { SettingsPageHeader } from '@/components/settings-page-header'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { reportRendererOperationError } from '@/diagnostics'
+import { purposeDefault, purposeModelLabel } from '@/features/providers/purpose-model-label'
 import { roleLabels } from '@/features/providers/provider-settings-common'
 import { rendererQueryKeys } from '@/lib/query-keys'
 import type { ProviderSettingsSnapshot } from '../../../shared/contracts/providers'
@@ -99,28 +100,6 @@ function modelSummary(
         : undefined
     }
   ]
-  for (const role of ['embedding', 'rerank', 'mineru'] as const) {
-    const provider = snapshot.providers.find((provider) => provider.role === role)
-    const config = provider?.config
-    rows.push({
-      purpose: roleLabels[role],
-      providers:
-        provider && config?.role === role
-          ? [
-              {
-                name: provider.capability.label,
-                logoId: resolveModelsDevProviderLogoId({
-                  providerId: config.providerId,
-                  name: role === 'mineru' ? 'MinerU' : '',
-                  baseUrl: config.baseUrl
-                })
-              }
-            ]
-          : [],
-      status: config ? (provider.available ? 'Configured' : 'Unavailable') : 'Not configured',
-      selection: config?.role === role ? config.model : undefined
-    })
-  }
   const image = snapshot.imageCatalog
   const imageSource = image.sources.find(
     (source) => source.sourceId === image.defaultSelection?.sourceId
@@ -142,27 +121,28 @@ function modelSummary(
     ),
     selection: defaultLabel(image.defaultSelection, imageSource)
   })
-  const speech = snapshot.speechCatalog
-  const active = speech.sources.find((source) => source.sourceId === speech.activeSourceId)
-  rows.push({
-    purpose: roleLabels.speech,
-    providers: (active ? [active, ...speech.sources] : speech.sources).map((source) => ({
-      name: source.name,
-      logoId: resolveModelsDevProviderLogoId({
-        providerId: '',
-        name: source.name,
-        baseUrl: source.config?.baseUrl
-      })
-    })),
-    status: configurationStatus(
-      speech.activeSourceId !== null,
-      active?.available === true,
-      speech.sources.length > 0
-    ),
-    selection: active?.config
-      ? `${active.name} · ${active.config.model} (${active.config.mode})`
-      : undefined
-  })
+  for (const role of ['embedding', 'rerank', 'mineru', 'speech'] as const) {
+    const catalog = snapshot.purposeCatalog[role]
+    const { source, model, available } = purposeDefault(catalog)
+    const selection = catalog.defaultSelection
+    const row = {
+      purpose: roleLabels[role],
+      providers: (source ? [source, ...catalog.sources] : catalog.sources).map((item) => ({
+        name: item.name,
+        logoId: resolveModelsDevProviderLogoId({
+          providerId: item.providerId,
+          name: role === 'mineru' ? 'MinerU' : item.name,
+          baseUrl: item.baseUrl
+        })
+      })),
+      status: configurationStatus(selection !== null, available, catalog.sources.length > 0),
+      selection: selection
+        ? `${source?.name ?? selection.sourceId} · ${model ? purposeModelLabel(role, model) : selection.configId}`
+        : undefined
+    }
+    if (role === 'speech') rows.push(row)
+    else rows.splice(rows.length - 1, 0, row)
+  }
   return rows
 }
 

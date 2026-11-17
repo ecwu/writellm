@@ -11,6 +11,7 @@ function embeddingIdentity(config: ProviderConfig) {
   }
   return {
     baseUrl: config.baseUrl,
+    sourceId: config.sourceId,
     fields: {
       providerId: config.providerId,
       modelId: config.model,
@@ -25,9 +26,12 @@ function embeddingIdentity(config: ProviderConfig) {
 
 function hashEmbeddingIdentity({
   baseUrl,
+  sourceId,
   fields: { providerId, ...identity }
 }: ReturnType<typeof embeddingIdentity>): string {
-  return sha256(Buffer.from(JSON.stringify({ providerId, baseUrl, ...identity })))
+  // The migrated singleton keeps the original hash so its existing generations remain usable.
+  const source = sourceId === undefined || sourceId === 'legacy' ? {} : { sourceId }
+  return sha256(Buffer.from(JSON.stringify({ providerId, baseUrl, ...source, ...identity })))
 }
 
 export function embeddingContractSha256(config: ProviderConfig): string {

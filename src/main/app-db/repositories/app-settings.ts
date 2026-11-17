@@ -351,20 +351,24 @@ export class AppSettingsRepository {
     return value
   }
 
-  async getImageDefaultSelection(): Promise<ImageModelSelection | null> {
+  async getImageDefaultSelection(
+    executor = this.database.kysely
+  ): Promise<ImageModelSelection | null> {
     return this.#readSetting(
       IMAGE_DEFAULT_SELECTION_KEY,
       imageModelSelectionSchema.nullable(),
       null,
-      'app.settings.invalid_image_default_selection'
+      'app.settings.invalid_image_default_selection',
+      executor
     )
   }
 
   async setImageDefaultSelection(
-    selection: ImageModelSelection | null
+    selection: ImageModelSelection | null,
+    executor = this.database.kysely
   ): Promise<ImageModelSelection | null> {
     const value = imageModelSelectionSchema.nullable().parse(selection)
-    await this.#writeSetting(IMAGE_DEFAULT_SELECTION_KEY, value)
+    await this.#writeSetting(IMAGE_DEFAULT_SELECTION_KEY, value, executor)
     return value
   }
 

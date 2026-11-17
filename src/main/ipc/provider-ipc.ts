@@ -5,6 +5,14 @@ import { ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import type { Logger } from 'pino'
 import {
   agentCustomPresetInputSchema,
+  purposeSourceSaveInputSchema,
+  purposeSourceInputSchema,
+  purposeModelSaveInputSchema,
+  purposeModelInputSchema,
+  purposeModelEnabledInputSchema,
+  purposeDefaultInputSchema,
+  purposeModelTestInputSchema,
+  purposeModelRefreshInputSchema,
   speechSourceSaveInputSchema,
   speechSourceInputSchema,
   speechActiveSourceInputSchema,
@@ -65,6 +73,7 @@ export function registerProviderIpc({
     IPC_CHANNELS.providersSetAgentProviderEnabled,
     IPC_CHANNELS.providersTestAgentPreset,
     IPC_CHANNELS.providersTestConnection,
+    IPC_CHANNELS.providersTestPurposeModel,
     IPC_CHANNELS.providersTestImageSource,
     IPC_CHANNELS.providersRespondAgentAuth,
     IPC_CHANNELS.providersCancelAgentAuth
@@ -89,6 +98,46 @@ export function registerProviderIpc({
       prompts: Map<string, { resolve: (value: string) => void; reject: (err: Error) => void }>
     }
   >()
+  handle(IPC_CHANNELS.providersSavePurposeSource, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.savePurposeSource(purposeSourceSaveInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersRemovePurposeSource, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.removePurposeSource(purposeSourceInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersSavePurposeModel, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.savePurposeModel(purposeModelSaveInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersRemovePurposeModel, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.removePurposeModel(purposeModelInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersSetPurposeModelEnabled, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.setPurposeModelEnabled(purposeModelEnabledInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersSetPurposeDefault, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.purpose.setPurposeDefault(purposeDefaultInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersTestPurposeModel, async (_event, raw) =>
+    providerConnectionTestResultSchema.parse(
+      await providers.purpose.testPurposeModel(purposeModelTestInputSchema.parse(raw))
+    )
+  )
+  handle(IPC_CHANNELS.providersRefreshPurposeModels, async (_event, raw) =>
+    providerSettingsSnapshotSchema.parse(
+      await providers.refreshPurposeModels(purposeModelRefreshInputSchema.parse(raw))
+    )
+  )
   handle(IPC_CHANNELS.providersSaveSpeechSource, async (_event, raw) =>
     providerSettingsSnapshotSchema.parse(
       await providers.saveSpeechSource(speechSourceSaveInputSchema.parse(raw))
@@ -364,6 +413,14 @@ export function registerProviderIpc({
 
   return () => {
     for (const channel of [
+      IPC_CHANNELS.providersSavePurposeSource,
+      IPC_CHANNELS.providersRemovePurposeSource,
+      IPC_CHANNELS.providersSavePurposeModel,
+      IPC_CHANNELS.providersRemovePurposeModel,
+      IPC_CHANNELS.providersSetPurposeModelEnabled,
+      IPC_CHANNELS.providersSetPurposeDefault,
+      IPC_CHANNELS.providersTestPurposeModel,
+      IPC_CHANNELS.providersRefreshPurposeModels,
       IPC_CHANNELS.providersSaveSpeechSource,
       IPC_CHANNELS.providersRemoveSpeechSource,
       IPC_CHANNELS.providersSetActiveSpeechSource,

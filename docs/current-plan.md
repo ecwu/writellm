@@ -12,13 +12,13 @@ Historical authorization records do not authorize new work.
 
 Settings opens on a two-column Overview with one summary per purpose. Each summary shows its configuration status and selected default.
 The Agent summary spans both columns and counts configured sources and enabled models.
-Three focused desktop scenarios pass against the rebuilt macOS arm64 App.
+All 56 packaged desktop scenarios and 22 source-only scenarios pass on macOS arm64.
 Issue 21 also updates Settings navigation and the Agent, Autocomplete, and Image Generation catalogs.
 [ADR 095](adrs/095-purpose-model-defaults.md) defines purpose-specific defaults and migration requirements.
-The earlier Issue 21 macOS arm64 App passed twelve runtime scenarios and all 52 packaged desktop scenarios.
-All 22 remaining desktop scenarios passed against that source build.
-[Batch evidence](history/implementation-log.md#2026-11-17-issue-21-settings-and-existing-model-catalogs) records the verified scope.
-Speech Input, Embedding, Reranking, and Document Parsing still use their previous storage layouts.
+Speech Input, Embedding, Reranking, and Document Parsing now store sources, models, and defaults separately.
+Existing vector indexes retain their embedding configuration. Submitted MinerU jobs retain their source and parsing mode.
+The packaged App preserved four defaults and credentials across an upgrade from schema 12 to 13.
+[Acceptance results](history/implementation-log.md#2026-11-17-issue-21-purpose-catalogs-and-upgrade) cover macOS arm64 with local test services.
 
 Release 0.2026.11.2 is public at tag `v0.2026.11.2`, revision `98427bd`.
 The corrected tag build and automatic publication both pass. All four platform installers are uploaded.

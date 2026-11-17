@@ -72,7 +72,9 @@ async function openProviderSettings(page: Page, name: RegExp) {
 }
 
 async function speechCatalog(page: Page) {
-  return page.evaluate(async () => (await window.desktop.providers.snapshot()).speechCatalog)
+  return page.evaluate(
+    async () => (await window.desktop.providers.snapshot()).purposeCatalog.speech
+  )
 }
 
 async function startWithoutCapture(page: Page) {
@@ -100,79 +102,76 @@ test(
       await createProject(launched.page, 'Speech sources')
       await prepareSyntheticMicrophone(launched.app, launched.page)
       const settings = await openProviderSettings(launched.page, /^Speech Input/)
+      const addModel = settings.getByRole('button', { name: 'Add model', exact: true })
+      const modelDialog = launched.page.getByRole('dialog', { name: 'Add model', exact: true })
+      const defaultModel = settings.getByLabel('Default model', { exact: true })
+      const selectDefault = async (model: string, sourceId: string, configId: string) => {
+        await defaultModel.click()
+        await launched.page.getByRole('option', { name: model, exact: true }).click()
+        await expect
+          .poll(async () => (await speechCatalog(launched.page)).defaultSelection)
+          .toEqual({ sourceId, configId })
+      }
       for (const source of [
-        { name: 'Speech alpha', model: 'alpha-model', key: 'fixture-alpha' },
-        { name: 'Speech beta', model: 'beta-model', key: 'fixture-beta' }
+        { name: 'Speech alpha', key: 'fixture-alpha' },
+        { name: 'Speech beta', key: 'fixture-beta' }
       ]) {
         await settings.getByRole('button', { name: 'Add source', exact: true }).first().click()
         await settings.getByLabel('Source name', { exact: true }).fill(source.name)
         await settings.getByLabel('Base URL', { exact: true }).fill(mock.baseUrl)
-        await settings.getByLabel('Model ID', { exact: true }).fill(source.model)
-        await settings.getByLabel('API key or token', { exact: true }).fill(source.key)
+        await settings.getByLabel('API key', { exact: true }).fill(source.key)
         await settings.getByRole('button', { name: 'Save source', exact: true }).click()
-        await expect(
-          settings.getByRole('button', { name: 'Save changes', exact: true })
-        ).toBeVisible()
+        await expect(addModel).toBeEnabled()
+        if (source.name === 'Speech alpha') {
+          await addModel.click()
+          await modelDialog.getByRole('radio', { name: 'Realtime', exact: true }).click()
+          await modelDialog.getByLabel('Model ID', { exact: true }).fill('alpha-model')
+          await modelDialog.getByRole('button', { name: 'Save model', exact: true }).click()
+          await expect(modelDialog).toBeHidden()
+        }
       }
       const initial = await speechCatalog(launched.page)
-      expect(initial.activeSourceId).toBeNull()
-      expect(initial.sources.map((source) => source.name)).toEqual(['Speech alpha', 'Speech beta'])
+      expect(initial.defaultSelection).toBeNull()
+      expect(initial.sources.map((source) => source.name).sort()).toEqual([
+        'Speech alpha',
+        'Speech beta'
+      ])
       expect(JSON.stringify(initial)).not.toContain('fixture-alpha')
       expect(JSON.stringify(initial)).not.toContain('fixture-beta')
       const alpha = initial.sources.find((source) => source.name === 'Speech alpha')
       const beta = initial.sources.find((source) => source.name === 'Speech beta')
-      if (!alpha || !beta) throw new Error('Speech fixture sources missing')
-      await settings.getByLabel('Active speech source', { exact: true }).click()
-      await launched.page.getByRole('option', { name: 'Speech alpha', exact: true }).click()
-      await expect
-        .poll(async () => (await speechCatalog(launched.page)).activeSourceId)
-        .toBe(alpha.sourceId)
+      if (!alpha || !beta || alpha.models.length !== 1)
+        throw new Error('Speech fixture sources missing')
+      expect(mock.modelRequests).toHaveLength(0)
+      await selectDefault('alpha-model (Realtime)', alpha.sourceId, alpha.models[0].configId)
 
       mock.setModels(discoveredFixtureModels)
       await settings.getByRole('button', { name: 'Fetch models', exact: true }).click()
-      await expect
-        .poll(
-          async () =>
-            (await speechCatalog(launched.page)).sources.find(
-              (source) => source.sourceId === beta.sourceId
-            )?.catalog.status
+      const betaStatus = async () =>
+        (await speechCatalog(launched.page)).sources.find(
+          (source) => source.sourceId === beta.sourceId
         )
-        .toBe('current')
+      await expect.poll(async () => (await betaStatus())?.catalog.status).toBe('current')
       expect(mock.modelRequests.at(-1)?.authorization).toBe('Bearer fixture-beta')
-      await expect(settings.getByLabel('Model ID', { exact: true })).toHaveValue('beta-model')
-      await settings.getByLabel('Choose discovered model', { exact: true }).click()
+      await addModel.click()
+      await modelDialog.getByRole('radio', { name: 'Realtime', exact: true }).click()
+      await modelDialog.getByLabel('Choose discovered model', { exact: true }).click()
       await expect(launched.page.getByRole('option', { name: /Unclassified model/ })).toBeVisible()
       await expect(launched.page.getByRole('option', { name: /Future image model/ })).toHaveCount(0)
       await launched.page.getByRole('option', { name: /Future speech model/ }).click()
-      await expect(settings.getByLabel('Model ID', { exact: true })).toHaveValue(
+      await expect(modelDialog.getByLabel('Model ID', { exact: true })).toHaveValue(
         'future-speech-model'
       )
-      expect(
-        (await speechCatalog(launched.page)).sources.find(
-          (source) => source.sourceId === beta.sourceId
-        )?.config?.model
-      ).toBe('beta-model')
-      await settings.getByRole('button', { name: 'Save changes', exact: true }).click()
-      await expect
-        .poll(
-          async () =>
-            (await speechCatalog(launched.page)).sources.find(
-              (source) => source.sourceId === beta.sourceId
-            )?.config?.model
-        )
-        .toBe('future-speech-model')
-      // Public capability metadata permits save and activation without a connection test.
+      expect((await betaStatus())?.models).toHaveLength(0)
+      await modelDialog.getByRole('button', { name: 'Save model', exact: true }).click()
+      await expect(modelDialog).toBeHidden()
+      const betaModel = (await betaStatus())?.models[0]
+      if (!betaModel) throw new Error('Speech beta model missing')
+      expect(betaModel).toMatchObject({ modelId: 'future-speech-model', mode: 'realtime' })
+
+      // Discovery and selecting a default do not start recognition.
       expect(mock.connections).toHaveLength(0)
-      await settings.getByLabel('Active speech source', { exact: true }).click()
-      await launched.page.getByRole('option', { name: 'Speech beta', exact: true }).click()
-      await expect
-        .poll(async () => (await speechCatalog(launched.page)).activeSourceId)
-        .toBe(beta.sourceId)
-      expect(mock.connections).toHaveLength(0)
-      const candidates = (await speechCatalog(launched.page)).sources.find(
-        (source) => source.sourceId === beta.sourceId
-      )?.modelCandidates
-      expect(candidates).toEqual(
+      expect((await betaStatus())?.modelCandidates).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             id: 'future-speech-model',
@@ -186,49 +185,30 @@ test(
         requests: 1,
         credentialHeader: false
       })
-      await settings.getByLabel('Active speech source', { exact: true }).click()
-      await launched.page.getByRole('option', { name: 'Speech alpha', exact: true }).click()
-      await expect
-        .poll(async () => (await speechCatalog(launched.page)).activeSourceId)
-        .toBe(alpha.sourceId)
-      // The selected detail remains beta. Testing it must not change the active source.
+      // Testing a model on the selected source does not change the default.
       await settings.getByRole('button', { name: 'Test connection', exact: true }).click()
-      await expect(settings.getByText('Connected', { exact: true })).toBeVisible()
+      await expect(settings.getByText('Connection succeeded.', { exact: true })).toBeVisible()
       await expect.poll(() => mock.connections[0]?.closed).toBe(true)
       expect(mock.connections[0]).toMatchObject({
         model: 'future-speech-model',
         authorization: 'Bearer fixture-beta'
       })
-      expect((await speechCatalog(launched.page)).activeSourceId).toBe(alpha.sourceId)
+      expect((await speechCatalog(launched.page)).defaultSelection?.sourceId).toBe(alpha.sourceId)
 
       mock.setModels([], 503)
       await settings.getByRole('button', { name: 'Fetch models', exact: true }).click()
-      await expect
-        .poll(
-          async () =>
-            (await speechCatalog(launched.page)).sources.find(
-              (source) => source.sourceId === beta.sourceId
-            )?.catalog.status
-        )
-        .toBe('stale')
-      const stale = (await speechCatalog(launched.page)).sources.find(
-        (source) => source.sourceId === beta.sourceId
-      )
-      if (!stale) throw new Error('Speech beta source missing')
-      expect(stale.modelCandidates.map((model) => model.id)).toEqual(
+      await expect.poll(async () => (await betaStatus())?.catalog.status).toBe('stale')
+      const stale = await betaStatus()
+      expect(stale?.modelCandidates.map((model) => model.id)).toEqual(
         discoveredFixtureModels.map((model) => model.id)
       )
-      expect(stale.config?.model).toBe('future-speech-model')
-      expect((await speechCatalog(launched.page)).activeSourceId).toBe(alpha.sourceId)
+      expect(stale?.models).toEqual([betaModel])
+      expect((await speechCatalog(launched.page)).defaultSelection?.sourceId).toBe(alpha.sourceId)
 
       const recording = await startWithoutCapture(launched.page)
       await expect.poll(() => mock.connections[1]?.model).toBe('alpha-model')
       expect(mock.connections[1].authorization).toBe('Bearer fixture-alpha')
-      await settings.getByLabel('Active speech source', { exact: true }).click()
-      await launched.page.getByRole('option', { name: 'Speech beta', exact: true }).click()
-      await expect
-        .poll(async () => (await speechCatalog(launched.page)).activeSourceId)
-        .toBe(beta.sourceId)
+      await selectDefault('future-speech-model (Realtime)', beta.sourceId, betaModel.configId)
       expect(mock.connections[1].closed).toBe(false)
       expect(mock.connections[1].model).toBe('alpha-model')
       await launched.page.evaluate((identity) => window.desktop.speech.cancel(identity), recording)
@@ -246,12 +226,13 @@ test(
         .getByRole('alertdialog')
         .getByRole('button', { name: 'Remove source', exact: true })
         .click()
-      await expect.poll(async () => (await speechCatalog(launched.page)).activeSourceId).toBeNull()
+      await expect
+        .poll(async () => (await speechCatalog(launched.page)).defaultSelection)
+        .toBeNull()
       expect((await speechCatalog(launched.page)).sources.map((source) => source.sourceId)).toEqual(
         [alpha.sourceId]
       )
       await launched.page.keyboard.press('Escape')
-      await expect(launched.page.getByLabel('Active speech source', { exact: true })).toHaveCount(0)
       await expect(startWithoutCapture(launched.page)).rejects.toThrow(
         'Set up Speech input in Settings'
       )

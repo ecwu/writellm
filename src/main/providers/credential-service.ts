@@ -144,15 +144,35 @@ export class CredentialService {
 
   async withCredential<T>(
     providerConfigId: string,
-    operation: (credential: string) => Promise<T>
+    operation: (credential: string) => Promise<T>,
+    expectedBinding?: string
+  ): Promise<T> {
+    return this.withOptionalCredential(
+      providerConfigId,
+      async (credential) => {
+        if (credential === undefined)
+          throw new CredentialUnavailableError('Provider credential is missing')
+        return operation(credential)
+      },
+      expectedBinding
+    )
+  }
+
+  async withOptionalCredential<T>(
+    providerConfigId: string,
+    operation: (credential: string | undefined) => Promise<T>,
+    expectedBinding?: string
   ): Promise<T> {
     const row = await this.database.kysely
       .selectFrom('encrypted_credentials')
       .select(['ciphertext', 'binding_fingerprint'])
       .where('provider_config_id', '=', providerConfigId)
       .executeTakeFirst()
-    if (row === undefined) throw new CredentialUnavailableError('Provider credential is missing')
-    if (!(await this.bindingMatches(providerConfigId, row.binding_fingerprint))) {
+    if (row === undefined) return operation(undefined)
+    if (
+      (expectedBinding !== undefined && row.binding_fingerprint !== expectedBinding) ||
+      !(await this.bindingMatches(providerConfigId, row.binding_fingerprint))
+    ) {
       throw new CredentialUnavailableError('Provider credential is missing')
     }
     const status = await this.backendStatus()

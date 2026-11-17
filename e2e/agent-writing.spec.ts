@@ -4,10 +4,10 @@ import { createServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import { mkdir, writeFile } from 'node:fs/promises'
-import type { Page } from '@playwright/test'
 import { ZipFile } from 'yazl'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
 import { configureAgentProvider, createProject, closeProject } from './helpers/project'
+import { configureMineru } from './helpers/purpose-providers'
 import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
@@ -55,25 +55,6 @@ async function evidenceZip(): Promise<Buffer> {
   const chunks: Buffer[] = []
   for await (const chunk of zip.outputStream) chunks.push(Buffer.from(chunk))
   return Buffer.concat(chunks)
-}
-
-async function configureProvider(
-  page: Page,
-  input: { sectionName: RegExp; role: 'agent' | 'mineru'; baseUrl: string; model: string }
-): Promise<void> {
-  if (input.role === 'agent') {
-    await configureAgentProvider(page, input.baseUrl)
-    return
-  }
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: input.sectionName }).click()
-  await settings.getByLabel('Base URL').fill(input.baseUrl)
-  await settings.getByLabel('Model ID').fill(input.model)
-  await settings.getByLabel('API key or token').fill('e2e-secret')
-  await settings.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(settings.getByLabel('API key or token')).toHaveAttribute('placeholder', /Stored/)
-  await page.keyboard.press('Escape')
 }
 
 function sendToolCall(
@@ -180,12 +161,7 @@ test(
     })
     try {
       await createProject(launched.page, 'Agent diagnostic recovery')
-      await configureProvider(launched.page, {
-        sectionName: /^Agent/,
-        role: 'agent',
-        baseUrl: `http://127.0.0.1:${port}/v1`,
-        model: 'writer-model'
-      })
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
       if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
         await agentToggle(launched.page).click()
       const panel = launched.page.getByTestId('agent-panel')
@@ -572,12 +548,7 @@ test(
       knowledgeDialogPaths: [source]
     })
     try {
-      await configureProvider(launched.page, {
-        sectionName: /^Document Parsing/,
-        role: 'mineru',
-        baseUrl: `http://127.0.0.1:${port}`,
-        model: 'pipeline'
-      })
+      await configureMineru(launched.page, `http://127.0.0.1:${port}`, 'e2e-secret')
       await createProject(launched.page, projectName)
 
       if ((await agentToggle(launched.page).getAttribute('aria-pressed')) !== 'true')
@@ -591,12 +562,7 @@ test(
           .getByRole('option', { name: /Writer model/ })
       ).toHaveCount(0)
       await launched.page.keyboard.press('Escape')
-      await configureProvider(launched.page, {
-        sectionName: /^Agent/,
-        role: 'agent',
-        baseUrl: `http://127.0.0.1:${port}/v1`,
-        model: 'writer-model'
-      })
+      await configureAgentProvider(launched.page, `http://127.0.0.1:${port}/v1`)
       await expect(setupPanel.getByTestId('agent-model-recovery')).toBeVisible()
       await expect(
         setupPanel.getByText('Choose an Agent model to start this conversation.')

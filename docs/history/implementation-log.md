@@ -3293,3 +3293,17 @@ Three focused desktop scenarios passed against the packaged App in 26.3 seconds 
 Configured purposes show local provider logos. Multiple logos form a compact stack with the default source first.
 The grid shows up to four distinct icons and a count for the rest. Unknown providers use their initials.
 Static checks passed in 3.5 seconds. Three packaged macOS arm64 desktop scenarios passed in 26.4 seconds without retries.
+
+## 2026-11-17 Issue 21 purpose catalogs and upgrade
+
+Speech Input, Embedding, Reranking, and Document Parsing now support multiple sources and explicit model defaults.
+Speech stores the input mode per model. Existing indexes and submitted parsing jobs retain their original provider configuration.
+The previous macOS arm64 App saved four configurations in a temporary profile. The new App migrated the profile from schema 12 to 13.
+All four defaults survived two launches. All four encrypted credentials retained their original bytes.
+All four connection tests authenticated with the saved credentials against a local test server. SQLite integrity and foreign key checks passed.
+The Electron suite passed 2,240 tests in 27.1 seconds with three optional benchmark skips and no retries.
+All 22 source-only desktop scenarios passed in 54.8 seconds without retries.
+All twelve packaged runtime scenarios passed. The first desktop run passed 55 of 56 scenarios in 197.5 seconds.
+After a Speech test locator correction, the remaining scenario passed on the same App in 7.5 seconds.
+The tested App produced the DMG and ZIP in 59.0 seconds, including checksum verification. Final static checks passed in 3.8 seconds.
+Windows, Linux, and live provider endpoints remain untested.

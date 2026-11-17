@@ -174,15 +174,50 @@ export async function configureSpeech(
 ): Promise<void> {
   await page.evaluate(
     async ({ baseUrl, mode }) => {
-      const before = await window.desktop.providers.snapshot()
-      const existing = before.speechCatalog.sources.find((source) => source.name === 'Speech test')
-      const saved = await window.desktop.providers.saveSpeechSource({
-        ...(existing ? { sourceId: existing.sourceId } : {}),
-        source: { name: 'Speech test', baseUrl, model: 'speech-model', mode }
-      })
-      const source = saved.speechCatalog.sources.find((item) => item.name === 'Speech test')
+      const providers = window.desktop.providers
+      const before = await providers.snapshot()
+      const existing = before.purposeCatalog.speech.sources.find(
+        (source) => source.name === 'Speech test'
+      )
+      const saved = existing
+        ? before
+        : await providers.savePurposeSource({
+            source: {
+              role: 'speech',
+              providerId: 'openai-compatible',
+              name: 'Speech test',
+              baseUrl,
+              enabled: true,
+              timeoutMs: 60000,
+              batchLimit: 1,
+              fileSizeLimitMb: null
+            }
+          })
+      const source = saved.purposeCatalog.speech.sources.find((item) => item.name === 'Speech test')
       if (!source) throw new Error('Speech test source missing')
-      await window.desktop.providers.setActiveSpeechSource({ sourceId: source.sourceId })
+      const configured = source.models.some(
+        (model) => model.modelId === 'speech-model' && model.mode === mode
+      )
+        ? saved
+        : await providers.savePurposeModel({
+            role: 'speech',
+            sourceId: source.sourceId,
+            model: {
+              modelId: 'speech-model',
+              enabled: true,
+              mode,
+              modelRevision: null,
+              embeddingDimension: null
+            }
+          })
+      const model = configured.purposeCatalog.speech.sources
+        .find((item) => item.sourceId === source.sourceId)
+        ?.models.find((item) => item.modelId === 'speech-model' && item.mode === mode)
+      if (!model) throw new Error('Speech test model missing')
+      await providers.setPurposeDefault({
+        role: 'speech',
+        selection: { sourceId: source.sourceId, configId: model.configId }
+      })
     },
     { baseUrl, mode }
   )
@@ -261,12 +296,12 @@ export async function captureEvidence(page: Page) {
       }
     ).speechCaptureEvidence
     return {
-      requests: state.requests,
-      tracks: state.tracks.map((track) => track.readyState),
-      worklets: state.worklets,
+      requests: state?.requests ?? 0,
+      tracks: state?.tracks.map((track) => track.readyState) ?? [],
+      worklets: state?.worklets ?? [],
       origin: location.origin,
-      stages: state.stages,
-      contextStates: state.contexts.map((context) => context.state),
+      stages: state?.stages ?? ['microphone-fixture-not-installed'],
+      contextStates: state?.contexts.map((context) => context.state) ?? [],
       visibility: document.visibilityState,
       focused: document.hasFocus()
     }

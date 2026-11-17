@@ -1,6 +1,15 @@
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -9,12 +18,23 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZipFile } from 'yazl'
 import type { MineruProviderConfig } from '../../shared/contracts/providers'
 import { JobStore, type JobRecord } from '../jobs/job-store'
-import type { JobHandlerContext } from '../jobs/scheduler/job-handler-registry'
-import { initializeProjectDatabase, openProjectDatabase } from '../project/project-database'
+import { JobHandlerRegistry, type JobHandlerContext } from '../jobs/scheduler/job-handler-registry'
+import { openDatabase } from '../db/open-database'
+import type { ProjectDatabaseSchema } from '../project/database-types'
+import { projectMigrations } from '../project/migrations'
+import {
+  PROJECT_DATABASE_APPLICATION_ID,
+  initializeProjectDatabase,
+  openProjectDatabase
+} from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
 import { KnowledgeImportService } from './knowledge-import-service'
 import type { MineruGateway } from './mineru-gateway'
-import { MineruWorkflowService, type MineruProviderAccess } from './mineru-workflow-service'
+import {
+  MineruWorkflowService,
+  registerMineruHandlers,
+  type MineruProviderAccess
+} from './mineru-workflow-service'
 
 const roots: string[] = []
 const log = pino({ level: 'silent' })
@@ -46,6 +66,198 @@ describe('MineruWorkflowService', () => {
       fixture.jobs.list({ limit: 10 }).filter((job) => job.type === 'mineru_parse')
     ).toHaveLength(1)
     fixture.database.close()
+  })
+
+  it('uses the saved source after default changes, and retries the same remote task after restore', async () => {
+    const fixture = await createFixture()
+    let defaultSource = 'source-one'
+    let originalAddress = config.baseUrl
+    const resolve = vi.fn<MineruProviderAccess['resolve']>(async (selection) => {
+      const sourceId = selection?.sourceId ?? defaultSource
+      return {
+        sourceId,
+        configId: selection?.configId ?? 'pipeline-mode',
+        providerConfigId: `mineru:${sourceId}`,
+        config: {
+          ...config,
+          baseUrl: sourceId === 'source-one' ? originalAddress : 'https://other.example'
+        }
+      }
+    })
+    const gateway = createGateway()
+    const credentialCalls = vi.fn()
+    const service = createService(
+      fixture,
+      gateway,
+      {},
+      {
+        resolve,
+        withResolved: async (source, operation) => {
+          credentialCalls(source.sourceId)
+          return operation(source.config, 'credential')
+        }
+      }
+    )
+    const parseTaskId = await service.start(fixture.knowledgeItemId)
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({
+      provider_source_id: 'source-one',
+      provider_config_id: 'pipeline-mode',
+      model_version: 'pipeline'
+    })
+    defaultSource = 'source-two'
+    const job = context(fakeJob('mineru_parse', parseTaskId))
+    await service.handleParse(job)
+    expect(gateway.allocate).toHaveBeenCalledWith(
+      config,
+      'credential',
+      expect.anything(),
+      job.signal
+    )
+    expect(credentialCalls).toHaveBeenCalledTimes(1)
+
+    originalAddress = 'https://replacement.example'
+    const registry = new JobHandlerRegistry()
+    registerMineruHandlers(registry, service)
+    const handle = registry.require('mineru_parse').handler
+    await expect(handle(job)).rejects.toMatchObject({
+      code: 'mineru_source_unavailable',
+      retryable: false
+    })
+    expect(gateway.poll).not.toHaveBeenCalled()
+    expect(credentialCalls).toHaveBeenCalledTimes(1)
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({
+      state: 'failed',
+      remote_task_id: 'remote-1',
+      error_code: 'mineru_source_unavailable'
+    })
+    originalAddress = config.baseUrl
+    expect(await service.start(fixture.knowledgeItemId)).toBe(parseTaskId)
+    expect(taskRow(fixture, parseTaskId)).toMatchObject({
+      state: 'polling',
+      remote_task_id: 'remote-1'
+    })
+    await handle(job)
+    expect(gateway.poll).toHaveBeenCalledWith(
+      config,
+      'credential',
+      { parseTaskId, remoteTaskId: 'remote-1' },
+      job.signal
+    )
+    expect(gateway.allocate).toHaveBeenCalledTimes(1)
+    fixture.database.close()
+  })
+
+  it('binds an upgraded submitted task to the verified legacy source and preserves its audit', async () => {
+    const fixture = await createFixture(true)
+    const now = fixture.manifest.createdAt
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          providerId: config.providerId,
+          baseUrl: config.baseUrl,
+          model: config.model,
+          batchLimit: config.batchLimit,
+          fileSizeLimitMb: config.fileSizeLimitMb
+        })
+      )
+      .digest('hex')
+    fixture.database.immediate((db) => {
+      const sourceId = db
+        .prepare('SELECT file_record_id FROM knowledge_items WHERE knowledge_item_id = ?')
+        .pluck()
+        .get(fixture.knowledgeItemId)
+      db.prepare(`INSERT INTO parse_tasks (
+        parse_task_id, knowledge_item_id, source_file_record_id, provider_id, provider_fingerprint,
+        model_version, state, remote_task_id, created_at, updated_at
+      ) VALUES ('legacy-task', ?, ?, 'mineru', ?, 'pipeline', 'polling', 'existing-remote', ?, ?)`).run(
+        fixture.knowledgeItemId,
+        sourceId,
+        fingerprint,
+        now,
+        now
+      )
+      db.prepare(`INSERT INTO parse_task_events (parse_task_id, from_state, to_state, event, occurred_at)
+        VALUES ('legacy-task', 'awaiting_upload', 'polling', 'source.uploaded', ?)`).run(now)
+      db.prepare(`INSERT INTO parse_revisions (
+        parse_revision_id, parse_task_id, knowledge_item_id, revision_number, state,
+        source_sha256, provider_id, provider_api_version, provider_fingerprint, model_version,
+        remote_task_id, relative_path, created_at, updated_at
+      ) VALUES ('legacy-revision', 'legacy-task', ?, 1, 'staging', ?, 'mineru', 'v4', ?,
+                'pipeline', 'existing-remote', '.writellm/imports/legacy-revision', ?, ?)`).run(
+        fixture.knowledgeItemId,
+        fixture.sourceSha256,
+        fingerprint,
+        now,
+        now
+      )
+    })
+    fixture.database.close()
+    const database = await openProjectDatabase({
+      projectRoot: fixture.projectRoot,
+      manifest: fixture.manifest,
+      applicationVersion: 'test',
+      log
+    })
+    const upgraded = {
+      ...fixture,
+      database,
+      jobs: new JobStore({ database, projectId: fixture.projectId, log })
+    }
+    expect(database.read((db) => db.pragma('user_version', { simple: true }))).toBe(50)
+    expect(database.read((db) => db.pragma('integrity_check', { simple: true }))).toBe('ok')
+    expect(database.read((db) => db.pragma('foreign_key_check'))).toEqual([])
+    expect(await readdir(join(fixture.projectRoot, '.writellm', 'backups'))).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^migration-.*\.sqlite$/)])
+    )
+    expect(taskRow(upgraded, 'legacy-task')).toMatchObject({
+      provider_source_id: 'legacy',
+      provider_config_id: 'legacy',
+      remote_task_id: 'existing-remote'
+    })
+    expect(taskEvents(upgraded, 'legacy-task')).toMatchObject([{ event: 'source.uploaded' }])
+    expect(
+      database.read((db) =>
+        db
+          .prepare('SELECT parse_revision_id FROM parse_revisions WHERE parse_task_id = ?')
+          .pluck()
+          .get('legacy-task')
+      )
+    ).toBe('legacy-revision')
+    const resolve = vi.fn(fixtureProviders().resolve)
+    const gateway = createGateway()
+    const service = createService(upgraded, gateway, {}, { ...fixtureProviders(), resolve })
+    await service.handleParse(context(fakeJob('mineru_parse', 'legacy-task')))
+    expect(resolve).toHaveBeenCalledExactlyOnceWith({ sourceId: 'legacy', configId: 'legacy' })
+    expect(gateway.allocate).not.toHaveBeenCalled()
+    expect(gateway.poll).toHaveBeenCalledWith(
+      config,
+      'credential',
+      {
+        parseTaskId: 'legacy-task',
+        remoteTaskId: 'existing-remote'
+      },
+      expect.anything()
+    )
+    const anotherPdf = join(fixture.root, 'other.pdf')
+    await writeFile(anotherPdf, '%PDF-1.7\nsecond source')
+    const imports = new KnowledgeImportService({ ...upgraded, log })
+    const [another] = await imports.importPaths([anotherPdf])
+    const anotherGateway = createGateway({
+      allocate: async () => ({
+        remoteTaskId: 'existing-remote',
+        uploadUrl: 'https://upload.example/file',
+        traceId: null
+      })
+    })
+    const anotherService = createService(upgraded, anotherGateway)
+    const anotherTaskId = await anotherService.start(another.knowledgeItemId)
+    await anotherService.handleParse(context(fakeJob('mineru_parse', anotherTaskId)))
+    expect(taskRow(upgraded, anotherTaskId)).toMatchObject({
+      provider_source_id: 'source-one',
+      remote_task_id: 'existing-remote',
+      state: 'polling'
+    })
+    database.close()
   })
 
   it('cancels the active task and removes its temporary artifacts', async () => {
@@ -412,10 +624,7 @@ describe('MineruWorkflowService', () => {
       projectId: fixture.projectId,
       database: fixture.database,
       jobs: fixture.jobs,
-      providers: {
-        getConfiguredProvider: async () => config,
-        withConfiguredProvider: async (operation) => operation(config, 'credential')
-      },
+      providers: fixtureProviders(),
       gateway,
       log: { info: vi.fn(), warn: vi.fn(), error: errorLog }
     })
@@ -587,7 +796,7 @@ describe('MineruWorkflowService', () => {
   })
 })
 
-async function createFixture() {
+async function createFixture(previousSchema = false) {
   const root = await mkdtemp(join(tmpdir(), 'writellm-mineru-workflow-'))
   roots.push(root)
   const projectRoot = join(root, 'project.writellm')
@@ -598,12 +807,25 @@ async function createFixture() {
     projectId: crypto.randomUUID(),
     createdAt: '2026-07-16T00:00:00.000Z'
   }
-  const database = await initializeProjectDatabase({
-    projectRoot,
-    manifest,
-    applicationVersion: 'test',
-    log
-  })
+  const database = previousSchema
+    ? await openDatabase<ProjectDatabaseSchema>({
+        path: join(projectRoot, '.writellm', 'project.sqlite'),
+        applicationId: PROJECT_DATABASE_APPLICATION_ID,
+        applicationVersion: 'test',
+        databaseRole: 'project',
+        migrations: projectMigrations.filter(({ version }) => version <= 49),
+        log
+      })
+    : await initializeProjectDatabase({ projectRoot, manifest, applicationVersion: 'test', log })
+  if (previousSchema) {
+    database.immediate((db) =>
+      db
+        .prepare(
+          'INSERT INTO project_meta (singleton_id, project_id, created_at, updated_at) VALUES (1, ?, ?, ?)'
+        )
+        .run(manifest.projectId, manifest.createdAt, manifest.createdAt)
+    )
+  }
   const source = join(root, 'source.pdf')
   await writeFile(source, '%PDF-1.7\nworkflow source')
   const imports = new KnowledgeImportService({
@@ -630,12 +852,9 @@ async function createFixture() {
 function createService(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   gateway: MineruGateway,
-  faults: ConstructorParameters<typeof MineruWorkflowService>[0]['faults'] = {}
+  faults: ConstructorParameters<typeof MineruWorkflowService>[0]['faults'] = {},
+  providers = fixtureProviders()
 ): MineruWorkflowService {
-  const providers: MineruProviderAccess = {
-    getConfiguredProvider: async () => config,
-    withConfiguredProvider: async (operation) => operation(config, 'credential')
-  }
   const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222']
   return new MineruWorkflowService({
     ...fixture,
@@ -645,6 +864,18 @@ function createService(
     faults,
     createId: () => ids.shift() ?? crypto.randomUUID()
   })
+}
+
+function fixtureProviders(): MineruProviderAccess {
+  return {
+    resolve: async (selection) => ({
+      sourceId: selection?.sourceId ?? 'source-one',
+      configId: selection?.configId ?? 'pipeline-mode',
+      providerConfigId: 'mineru',
+      config
+    }),
+    withResolved: async (source, operation) => operation(source.config, 'credential')
+  }
 }
 
 function createGateway(overrides: Partial<MineruGateway> = {}): MineruGateway {

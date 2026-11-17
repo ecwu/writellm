@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { createAbortError, isAbortError } from '../../shared/abort-error'
 import type { Logger } from 'pino'
-import type { IndexCandidate } from '../../shared/contracts/indexing'
+import type { IndexCandidate, VectorGenerationContract } from '../../shared/contracts/indexing'
 import type { RerankResult } from '../../shared/contracts/model-runtime'
-import type { ProviderConfig } from '../../shared/contracts/providers'
 import {
   citationExpansionResultSchema,
   citationIdSchema,
@@ -15,7 +14,6 @@ import {
   type KnowledgeSearchResult
 } from '../../shared/contracts/search'
 import type { IndexClient } from './index-client'
-import { embeddingContractSha256 } from './embedding-contract'
 
 interface RankedCandidate {
   candidate: IndexCandidate
@@ -30,15 +28,13 @@ export class RetrievalService {
     private readonly options: {
       projectId: string
       client: IndexClient
-      getEmbeddingProvider: () => Promise<ProviderConfig>
       embedQuery: (
         query: string,
-        expectedContractSha256: string,
+        contract: VectorGenerationContract,
         operationId: string,
         signal: AbortSignal,
         projectSessionId?: string
       ) => Promise<number[]>
-      getRerankProvider: () => Promise<ProviderConfig>
       rerank: (
         query: string,
         documents: string[],
@@ -94,13 +90,9 @@ export class RetrievalService {
     const embeddingContract = activeEmbeddingContract
     if (embeddingContract !== null) {
       try {
-        const configured = await this.options.getEmbeddingProvider()
-        if (embeddingContractSha256(configured) !== embeddingContract.contractSha256) {
-          throw new Error('Configured embedding provider is incompatible with the active index')
-        }
         const vector = await this.options.embedQuery(
           input.query,
-          embeddingContract.contractSha256,
+          embeddingContract,
           operationId,
           signal
         )
@@ -163,8 +155,6 @@ export class RetrievalService {
     if (input.rerank && ranked.length > 0) {
       recheckGeneration = true
       try {
-        const rerankProvider = await this.options.getRerankProvider()
-        if (rerankProvider.role !== 'rerank') throw new Error('Rerank provider role is invalid')
         const result = await this.options.rerank(
           input.query,
           ranked.map((entry) => entry.candidate.text),

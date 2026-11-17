@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   initializeProjectDatabase,
   openProjectDatabase,
+  PROJECT_SCHEMA_VERSION,
   type ProjectDatabase
 } from '../project/project-database'
 import type { ProjectManifest } from '../project/project-manifest'
@@ -494,6 +495,9 @@ describe('comment project recovery', () => {
     })
     f.database.immediate((db) =>
       db.exec(`
+      DROP INDEX IF EXISTS parse_tasks_remote_source_idx;
+      ALTER TABLE parse_tasks DROP COLUMN provider_config_id;
+      ALTER TABLE parse_tasks DROP COLUMN provider_source_id;
       ALTER TABLE agent_sessions DROP COLUMN image_model_id;
       ALTER TABLE agent_sessions DROP COLUMN image_source_id;
       DROP TABLE agent_attachments;
@@ -532,7 +536,7 @@ describe('comment project recovery', () => {
       expect(upgraded.immediate((db) => db.pragma('foreign_key_check'))).toEqual([])
       expect(
         (await readdir(join(f.projectRoot, '.writellm', 'backups'))).some((name) =>
-          name.startsWith('migration-v44-to-v49-')
+          name.startsWith(`migration-v44-to-v${PROJECT_SCHEMA_VERSION}-`)
         )
       ).toBe(true)
       const copyRoot = await mkdtemp(join(tmpdir(), 'writellm-comment-copy-'))

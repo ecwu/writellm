@@ -1020,7 +1020,10 @@ function defaultFailureClassification(error: unknown): JobFailureClassification 
   }
   const candidate = error as { code?: unknown; retryable?: unknown }
   return {
-    code: candidate.code === 'invalid_input' ? 'invalid_input' : 'job_execution_failed',
+    code:
+      candidate.code === 'invalid_input' || candidate.code === 'mineru_source_unavailable'
+        ? candidate.code
+        : 'job_execution_failed',
     retryable: candidate.retryable !== false
   }
 }

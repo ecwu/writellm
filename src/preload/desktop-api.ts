@@ -36,6 +36,14 @@ import type { UpdateWritingRulesIpcInput } from '../shared/contracts/writing-rul
 import type { ManuscriptWorkspace } from '../shared/contracts/manuscript'
 import type {
   ProviderConnectionTestResult,
+  PurposeSourceSaveInput,
+  PurposeSourceInput,
+  PurposeModelSaveInput,
+  PurposeModelInput,
+  PurposeModelEnabledInput,
+  PurposeDefaultInput,
+  PurposeModelTestInput,
+  PurposeModelRefreshInput,
   SpeechSourceSaveInput,
   SpeechSourceInput,
   SpeechActiveSourceInput,
@@ -135,6 +143,14 @@ export interface DesktopApi {
     ): Promise<{ snapshot: NotebookChatSnapshot; unsubscribe: () => void }>
   }
   providers: {
+    savePurposeSource(input: PurposeSourceSaveInput): Promise<ProviderSettingsSnapshot>
+    removePurposeSource(input: PurposeSourceInput): Promise<ProviderSettingsSnapshot>
+    savePurposeModel(input: PurposeModelSaveInput): Promise<ProviderSettingsSnapshot>
+    removePurposeModel(input: PurposeModelInput): Promise<ProviderSettingsSnapshot>
+    setPurposeModelEnabled(input: PurposeModelEnabledInput): Promise<ProviderSettingsSnapshot>
+    setPurposeDefault(input: PurposeDefaultInput): Promise<ProviderSettingsSnapshot>
+    testPurposeModel(input: PurposeModelTestInput): Promise<ProviderConnectionTestResult>
+    refreshPurposeModels(input: PurposeModelRefreshInput): Promise<ProviderSettingsSnapshot>
     saveSpeechSource(input: SpeechSourceSaveInput): Promise<ProviderSettingsSnapshot>
     removeSpeechSource(input: SpeechSourceInput): Promise<ProviderSettingsSnapshot>
     setActiveSpeechSource(input: SpeechActiveSourceInput): Promise<ProviderSettingsSnapshot>

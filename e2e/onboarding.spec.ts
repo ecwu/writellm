@@ -60,9 +60,7 @@ test(
       await expect(first.page.getByLabel('Source name')).toHaveValue('Onboarding draft')
       await next.click()
       await leavePrompt.getByRole('button', { name: 'Discard', exact: true }).click()
-      await expect(
-        first.page.getByRole('heading', { name: 'Embedding', exact: true })
-      ).toBeVisible()
+      await expect(first.page.getByTestId('embedding-source-list')).toBeVisible()
     } finally {
       await closeApp(first.app)
     }
@@ -73,27 +71,27 @@ test(
       onboarding: 'show'
     })
     try {
-      await expect(
-        resumed.page.getByRole('heading', { name: 'Embedding', exact: true })
-      ).toBeVisible()
-      await resumed.page.getByLabel('Model ID').fill('Unsaved embedding')
+      await expect(resumed.page.getByTestId('embedding-source-list')).toBeVisible()
+      await resumed.page.getByRole('button', { name: 'Add source', exact: true }).click()
+      await resumed.page.getByLabel('Source name').fill('Unsaved embedding')
       await resumed.page.getByRole('button', { name: 'Back', exact: true }).click()
       const leavePrompt = resumed.page.getByRole('alertdialog', {
         name: 'Save changes before leaving?'
       })
       await leavePrompt.getByRole('button', { name: 'Keep editing', exact: true }).click()
-      await expect(resumed.page.getByLabel('Model ID')).toHaveValue('Unsaved embedding')
+      await expect(resumed.page.getByLabel('Source name')).toHaveValue('Unsaved embedding')
       await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
       await leavePrompt.getByRole('button', { name: 'Discard', exact: true }).click()
+      await expect(resumed.page.getByTestId('rerank-source-list')).toBeVisible()
+      await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
+      await expect(resumed.page.getByTestId('mineru-source-list')).toBeVisible()
+      await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
       await expect(
-        resumed.page.getByRole('heading', { name: 'Reranking', exact: true })
+        resumed.page.getByRole('heading', {
+          name: 'Create your first writing project',
+          exact: true
+        })
       ).toBeVisible()
-      for (const nextHeading of ['Document Parsing', 'Create your first writing project']) {
-        await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
-        await expect(
-          resumed.page.getByRole('heading', { name: nextHeading, exact: true })
-        ).toBeVisible()
-      }
       await resumed.page.getByLabel('Project name').fill(projectName)
       await resumed.page.getByRole('button', { name: /Choose location & create/ }).click()
       await expectActiveProject(resumed.page, projectName)

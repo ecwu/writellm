@@ -46,6 +46,12 @@ function emptyStatus(
 }
 
 const snapshot: ProviderSettingsSnapshot = {
+  purposeCatalog: {
+    embedding: { sources: [], defaultSelection: null },
+    rerank: { sources: [], defaultSelection: null },
+    mineru: { sources: [], defaultSelection: null },
+    speech: { sources: [], defaultSelection: null }
+  },
   speechCatalog: { activeSourceId: null, sources: [] },
   credentialBackend: {
     platform: 'linux',
@@ -96,6 +102,21 @@ function harness() {
     removeHandler: vi.fn()
   }
   const providers = {
+    purpose: {
+      savePurposeSource: vi.fn(async () => snapshot),
+      removePurposeSource: vi.fn(async () => snapshot),
+      savePurposeModel: vi.fn(async () => snapshot),
+      removePurposeModel: vi.fn(async () => snapshot),
+      setPurposeModelEnabled: vi.fn(async () => snapshot),
+      setPurposeDefault: vi.fn(async () => snapshot),
+      testPurposeModel: vi.fn(async () => ({
+        ok: true,
+        code: 'connected',
+        message: 'Connection succeeded.',
+        durationMs: 4
+      }))
+    },
+    refreshPurposeModels: vi.fn(async () => snapshot),
     snapshot: vi.fn(async () => snapshot),
     saveSpeechSource: vi.fn(async () => snapshot),
     removeSpeechSource: vi.fn(async () => snapshot),
@@ -182,6 +203,92 @@ describe('provider IPC', () => {
       })
     ).rejects.toThrow('Snapshot unavailable')
     expect(onConfigurationChanged).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
+  it('routes purpose mutations and probes using saved source and model identities', async () => {
+    const { invoke, providers, onConfigurationChanged } = harness()
+    const source = {
+      role: 'embedding',
+      providerId: 'openai-compatible',
+      name: 'Research',
+      baseUrl: 'https://example.test/v1',
+      enabled: true,
+      timeoutMs: 20_000,
+      batchLimit: 32,
+      fileSizeLimitMb: null
+    }
+    const draft = { source, apiKey: 'fixture-secret' }
+    const sourceRef = { role: 'embedding', sourceId: 'source-a' }
+    const selection = { sourceId: 'source-a', configId: 'model-a' }
+    const modelRef = { role: 'embedding', ...selection }
+    const modelDraft = {
+      ...modelRef,
+      model: {
+        modelId: 'embedding-model',
+        enabled: true,
+        mode: null,
+        modelRevision: 'v1',
+        embeddingDimension: 768
+      }
+    }
+    const enable = { ...modelRef, enabled: false }
+    const setDefault = { role: 'embedding', selection }
+    const result = await invoke(IPC_CHANNELS.providersSavePurposeSource, draft)
+    expect(result).toEqual(snapshot)
+    expect(JSON.stringify(result)).not.toContain(draft.apiKey)
+    expect(providers.purpose.savePurposeSource).toHaveBeenCalledExactlyOnceWith(draft)
+    await invoke(IPC_CHANNELS.providersSavePurposeModel, modelDraft)
+    expect(providers.purpose.savePurposeModel).toHaveBeenCalledExactlyOnceWith(modelDraft)
+    await invoke(IPC_CHANNELS.providersSetPurposeModelEnabled, enable)
+    expect(providers.purpose.setPurposeModelEnabled).toHaveBeenCalledExactlyOnceWith(enable)
+    await invoke(IPC_CHANNELS.providersSetPurposeDefault, setDefault)
+    expect(providers.purpose.setPurposeDefault).toHaveBeenCalledExactlyOnceWith(setDefault)
+    await invoke(IPC_CHANNELS.providersRemovePurposeModel, modelRef)
+    expect(providers.purpose.removePurposeModel).toHaveBeenCalledExactlyOnceWith(modelRef)
+    await invoke(IPC_CHANNELS.providersRemovePurposeSource, sourceRef)
+    expect(providers.purpose.removePurposeSource).toHaveBeenCalledExactlyOnceWith(sourceRef)
+    await invoke(IPC_CHANNELS.providersRefreshPurposeModels, sourceRef)
+    expect(providers.refreshPurposeModels).toHaveBeenCalledExactlyOnceWith(sourceRef)
+
+    onConfigurationChanged.mockClear()
+    await expect(invoke(IPC_CHANNELS.providersTestPurposeModel, modelRef)).resolves.toMatchObject({
+      ok: true,
+      code: 'connected'
+    })
+    expect(providers.purpose.testPurposeModel).toHaveBeenCalledExactlyOnceWith(modelRef)
+    expect(onConfigurationChanged).not.toHaveBeenCalled()
+  })
+
+  it('rejects unauthorized purpose changes and probes with Renderer-supplied endpoints', async () => {
+    const { invoke, providers, handlers, unauthorized } = harness()
+    const selection = { sourceId: 'source-a', configId: 'model-a' }
+    await expect(
+      Promise.resolve(
+        handlers.get(IPC_CHANNELS.providersSetPurposeDefault)?.(
+          unauthorized as never,
+          { role: 'speech', selection } as never
+        )
+      )
+    ).rejects.toThrow()
+    expect(providers.purpose.setPurposeDefault).not.toHaveBeenCalled()
+    await expect(
+      invoke(IPC_CHANNELS.providersTestPurposeModel, {
+        role: 'embedding',
+        ...selection,
+        baseUrl: 'https://untrusted.example/v1'
+      })
+    ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersTestPurposeModel, { role: 'speech', ...selection })
+    ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersRefreshPurposeModels, {
+        role: 'rerank',
+        sourceId: 'source-a'
+      })
+    ).rejects.toThrow()
+    expect(providers.purpose.testPurposeModel).not.toHaveBeenCalled()
+    expect(providers.refreshPurposeModels).not.toHaveBeenCalled()
   })
 
   it('routes speech sources and refreshes using bounded saved source identities', async () => {

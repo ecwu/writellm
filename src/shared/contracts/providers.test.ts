@@ -12,10 +12,61 @@ import {
   imageSourceSaveInputSchema,
   providerBaseUrlSchema,
   providerConfigSchema,
-  providerSaveInputSchema
+  providerSaveInputSchema,
+  purposeModelSaveInputSchema,
+  purposeSourceDraftSchema
 } from './providers'
 
 describe('provider contracts', () => {
+  it('validates purpose connection capabilities before saving a source', () => {
+    const speech = {
+      role: 'speech',
+      providerId: 'openai-compatible',
+      name: 'Local',
+      enabled: true,
+      baseUrl: 'http://localhost:8765/v1',
+      timeoutMs: 20_000,
+      batchLimit: 1,
+      fileSizeLimitMb: null
+    }
+    expect(purposeSourceDraftSchema.safeParse(speech).success).toBe(true)
+    expect(
+      purposeSourceDraftSchema.safeParse({ ...speech, baseUrl: 'http://remote.example/v1' }).success
+    ).toBe(false)
+    expect(
+      purposeSourceDraftSchema.safeParse({ ...speech, providerId: 'cohere-compatible' }).success
+    ).toBe(false)
+  })
+
+  it('validates purpose model fields and retains distinct speech configurations', () => {
+    const ref = { role: 'speech', sourceId: 'local' }
+    const model = {
+      modelId: 'transcriber',
+      enabled: true,
+      modelRevision: null,
+      embeddingDimension: null
+    }
+    for (const mode of ['realtime', 'file']) {
+      expect(
+        purposeModelSaveInputSchema.parse({ ...ref, configId: mode, model: { ...model, mode } })
+      ).toMatchObject({ configId: mode, model: { modelId: model.modelId, mode } })
+    }
+    expect(
+      purposeModelSaveInputSchema.safeParse({
+        ...ref,
+        role: 'embedding',
+        model: { ...model, mode: null, modelRevision: 'v1' }
+      }).success
+    ).toBe(false)
+    expect(
+      purposeModelSaveInputSchema.safeParse({
+        ...ref,
+        role: 'mineru',
+        model: { ...model, mode: null }
+      }).success
+    ).toBe(false)
+  })
+
   it('bounds the unified Agent Thinking levels and model capability projection', () => {
     expect(agentThinkingLevelSchema.options).toEqual([
       'off',
