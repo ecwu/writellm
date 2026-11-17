@@ -1,7 +1,7 @@
 import { reportRendererOperationError } from '../diagnostics'
 import { keyboardShortcuts } from '@/lib/keyboard-shortcuts'
 import { rendererQueryKeys } from '@/lib/query-keys'
-import { DefaultModelSettings } from '@/features/autocomplete/default-model-settings'
+import { AutocompleteSettingsWorkspace } from '@/features/autocomplete/default-model-settings'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import {
@@ -16,6 +16,7 @@ import {
   ImageIcon,
   Info,
   Keyboard,
+  LayoutList,
   KeyRound,
   Monitor,
   Mic,
@@ -72,7 +73,9 @@ import {
   TableRow
 } from '@/components/ui/table'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { roleLabels } from '@/features/providers/provider-settings-common'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
+import { SettingsDraftProvider, useSettingsLeave } from '@/features/providers/settings-draft-guard'
 import {
   notifyProviderCatalogChanged,
   subscribeProviderCatalogChanged
@@ -81,8 +84,11 @@ import { WritingSkillsSettings } from '@/features/skills/writing-skills-settings
 import { PublicationPresetsSettings } from '@/features/manuscript/publication-presets-settings'
 import { useTheme } from '@/theme-provider'
 
+import { SettingsOverview } from './settings-overview'
+
 type SettingsSection =
-  | 'default-models'
+  | 'overview'
+  | 'autocomplete'
   | 'general'
   | 'skills'
   | 'publication'
@@ -92,7 +98,7 @@ type SettingsSection =
 
 interface SettingsCommandProps {
   open: boolean
-  initialSection?: 'general' | 'skills' | 'default-models'
+  initialSection?: 'overview' | 'general' | 'skills' | 'autocomplete'
   onOpenChange: (open: boolean) => void
   onOpenLogs: () => void
   onExportDiagnostics: () => void
@@ -104,30 +110,41 @@ export const settingsSections: Array<{
   label: string
   icon: typeof Bot
 }> = [
+  { id: 'overview', label: 'Overview', icon: LayoutList },
   { id: 'general', label: 'General', icon: Settings2 },
-  { id: 'agent', label: 'Agent API', icon: Bot },
-  { id: 'default-models', label: 'Default Models', icon: Sparkles },
+  { id: 'agent', label: roleLabels.agent, icon: Bot },
+  { id: 'autocomplete', label: 'Autocomplete', icon: Sparkles },
+  { id: 'embedding', label: roleLabels.embedding, icon: Binary },
+  { id: 'rerank', label: roleLabels.rerank, icon: ArrowDownWideNarrow },
+  { id: 'mineru', label: roleLabels.mineru, icon: ScanText },
+  { id: 'image', label: roleLabels.image, icon: ImageIcon },
+  { id: 'speech', label: roleLabels.speech, icon: Mic },
   { id: 'skills', label: 'Writing Skills', icon: WandSparkles },
-  { id: 'embedding', label: 'Embedding API', icon: Binary },
-  { id: 'rerank', label: 'Reranking API', icon: ArrowDownWideNarrow },
-  { id: 'mineru', label: 'MinerU API', icon: ScanText },
-  { id: 'image', label: 'Image API', icon: ImageIcon },
-  { id: 'speech', label: 'Speech input', icon: Mic },
   { id: 'publication', label: 'Publication', icon: FileOutput },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
   { id: 'about', label: 'About & Diagnostics', icon: Info }
 ]
 
-export function SettingsCommand({
+export function SettingsCommand(props: SettingsCommandProps): React.JSX.Element {
+  return (
+    <SettingsDraftProvider>
+      <SettingsCommandContent {...props} />
+    </SettingsDraftProvider>
+  )
+}
+
+function SettingsCommandContent({
   open,
-  initialSection = 'general',
+  initialSection = 'overview',
   onOpenChange,
   onOpenLogs,
   onExportDiagnostics,
   onError
 }: SettingsCommandProps): React.JSX.Element {
   const queryClient = useQueryClient()
-  const [section, setSection] = useState<SettingsSection>('general')
+  const requestLeave = useSettingsLeave()
+  const [section, setSection] = useState<SettingsSection>('overview')
+  const [initialAgentPresetId, setInitialAgentPresetId] = useState<string | undefined>()
   const [mobileSectionOpen, setMobileSectionOpen] = useState(false)
   const returnFocusRef = useRef<HTMLElement | null>(null)
   const {
@@ -227,9 +244,12 @@ export function SettingsCommand({
 
   useEffect(() => {
     if (!open) return
-    setSection(initialSection)
-    setMobileSectionOpen(initialSection !== 'general')
-  }, [initialSection, open])
+    requestLeave(() => {
+      setSection(initialSection)
+      setInitialAgentPresetId(undefined)
+      setMobileSectionOpen(initialSection !== 'overview')
+    })
+  }, [initialSection, open, requestLeave])
 
   useEffect(() => {
     if (!open) return
@@ -302,10 +322,25 @@ export function SettingsCommand({
     queryClient.setQueryData(rendererQueryKeys.settings.publicationPresets, next)
   }
 
+  function selectSection(next: SettingsSection, agentPresetId?: string): void {
+    if (next === section) {
+      setMobileSectionOpen(true)
+      return
+    }
+    requestLeave(() => {
+      setSection(next)
+      setInitialAgentPresetId(agentPresetId)
+      setMobileSectionOpen(true)
+    })
+  }
+
   return (
     <CommandDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(next) => {
+        if (next) onOpenChange(true)
+        else requestLeave(() => onOpenChange(false))
+      }}
       title='Settings'
       description='Application settings and provider configuration'
       className='h-[min(90vh,56rem)] w-[min(96vw,90rem)] max-w-none sm:max-w-none'
@@ -345,18 +380,12 @@ export function SettingsCommand({
                     value={`settings-${item.id}`}
                     data-settings-section={item.id}
                     data-selected={section === item.id}
-                    onSelect={() => {
-                      setSection(item.id)
-                      setMobileSectionOpen(true)
-                    }}
+                    onSelect={() => selectSection(item.id)}
                   >
                     <Icon /> <span className='min-w-0 flex-1 truncate'>{item.label}</span>
-                    {provider ? (
-                      <Badge
-                        className='ml-auto'
-                        variant={provider.available ? 'default' : 'secondary'}
-                      >
-                        {provider.available ? 'Ready' : 'Setup'}
+                    {provider && !provider.available ? (
+                      <Badge className='ml-auto' variant='secondary'>
+                        Setup
                       </Badge>
                     ) : null}
                   </CommandItem>
@@ -402,6 +431,8 @@ export function SettingsCommand({
                   <AlertDescription>{loadError}</AlertDescription>
                 </Alert>
               </div>
+            ) : section === 'overview' && snapshot ? (
+              <SettingsOverview snapshot={snapshot} closeAction={<SettingsCloseButton />} />
             ) : section === 'general' ? (
               <GeneralSettings
                 theme={preference}
@@ -414,8 +445,14 @@ export function SettingsCommand({
                 onApprovalMode={selectApprovalMode}
                 onCitationDisplayMode={selectCitationDisplayMode}
               />
-            ) : section === 'default-models' ? (
-              <DefaultModelSettings closeAction={<SettingsCloseButton />} />
+            ) : section === 'autocomplete' ? (
+              <AutocompleteSettingsWorkspace
+                closeAction={<SettingsCloseButton />}
+                onOpenAgentSettings={() => selectSection('agent', 'builtin:deepseek')}
+                source={snapshot?.agentCatalog.presets.find(
+                  (preset) => preset.presetId === 'builtin:deepseek'
+                )}
+              />
             ) : section === 'skills' && skillSnapshot ? (
               <WritingSkillsSettings
                 snapshot={skillSnapshot}
@@ -443,6 +480,7 @@ export function SettingsCommand({
             ) : snapshot && isProviderSection(section) ? (
               <ProviderSettingsWorkspace
                 role={section}
+                initialAgentPresetId={initialAgentPresetId}
                 snapshot={snapshot}
                 closeAction={<SettingsCloseButton />}
                 onSnapshotChange={updateProviderSnapshot}

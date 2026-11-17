@@ -1,3 +1,7 @@
+import { readProviderStatus } from './agent-provider-errors'
+import { agentRuntimeAuthSchema } from '../shared/contracts/agent-auth'
+import { legacyAgentModelLimits } from '../shared/contracts/agent-model-limits'
+import { buildAgentProviderModel, loadAgentStreamSimple } from './agent-provider-runtime'
 import { serializeAgentDiagnosticError } from '../shared/agent-diagnostic-error'
 import { createAbortError } from '../shared/abort-error'
 import { GoogleGenAI } from '@google/genai'
@@ -19,6 +23,64 @@ export async function runProviderProbeRequest(
   reportInvalidResponse?: (err: unknown, status: number) => void
 ): Promise<ProviderProbeResponse> {
   try {
+    if (request.config.role === 'agent' && request.runtimeModel !== undefined) {
+      const model = buildAgentProviderModel({
+        config: request.config,
+        runtimeModel: request.runtimeModel,
+        modelLimits: legacyAgentModelLimits,
+        maxOutputTokens: 16
+      })
+      const auth = agentRuntimeAuthSchema.parse(JSON.parse(request.credential ?? '{}'))
+      const stream = await loadAgentStreamSimple(model.api, model.provider)
+      let status: number | undefined
+      const observeResponse: typeof fetch = async (input, init) => {
+        const response = await fetchImplementation(input, init)
+        status = response.status
+        return response
+      }
+      // Google and Bedrock own their SDK transports and cannot accept a custom fetch.
+      const supportsFetch = ![
+        'google-vertex',
+        'google-generative-ai',
+        'bedrock-converse-stream'
+      ].includes(model.api)
+      let failed: boolean
+      try {
+        const answer = await stream(
+          model,
+          {
+            messages: [{ role: 'user', content: 'Reply OK.', timestamp: Date.now() }]
+          },
+          {
+            ...auth,
+            ...(supportsFetch ? { fetch: observeResponse } : {}),
+            signal,
+            maxRetries: 0,
+            maxTokens: 16,
+            onResponse: (response) => {
+              status = response.status
+            }
+          }
+        ).result()
+        failed = answer.stopReason === 'error' || answer.stopReason === 'aborted'
+        status ??= readProviderStatus(answer)
+      } catch (err) {
+        status ??= readProviderStatus(err)
+        failed = true
+      }
+      if (signal?.aborted) throw createAbortError('Agent probe aborted')
+      if (failed && status === undefined)
+        throw new Error('Agent probe failed before a response status was available')
+      return {
+        type: 'result',
+        requestId: request.requestId,
+        projectSessionId: null,
+        status: status ?? 200,
+        ...(failed && status !== undefined && status < 300
+          ? { invalidResponse: true as const }
+          : {})
+      }
+    }
     if (request.config.role === 'image') {
       if (request.config.providerId === 'google-gemini') {
         return await runGeminiProviderProbe(request, signal)
@@ -95,6 +157,17 @@ export async function runProviderProbeRequest(
         typeof code === 'string' || typeof code === 'number' ? String(code).slice(0, 100) : ''
     }
   } catch (err) {
+    if (request.config.role === 'agent' && request.runtimeModel !== undefined) {
+      return {
+        type: 'error',
+        requestId: request.requestId,
+        projectSessionId: null,
+        error: {
+          name: err instanceof Error && err.name === 'AbortError' ? 'AbortError' : 'Error',
+          message: 'Agent connection probe failed.'
+        }
+      }
+    }
     const error = err instanceof Error ? err : new Error('Provider probe failed', { cause: err })
     return {
       type: 'error',

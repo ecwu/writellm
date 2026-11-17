@@ -142,7 +142,8 @@ describe('ProviderService', () => {
       new AppSettingsRepository(appDatabase, log),
       log
     )
-    const service = providerService(appDatabase, credentials)
+    const probe = vi.fn<ConnectionProbe>()
+    const service = providerService(appDatabase, credentials, probe)
     service.setAgentCatalog(catalog)
     const snapshot = vi.spyOn(catalog, 'snapshot')
     try {
@@ -172,6 +173,24 @@ describe('ProviderService', () => {
       ).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'manual-once' })]))
       expect(snapshot).toHaveBeenCalledTimes(1)
       snapshot.mockClear()
+      const selection = { presetId: 'custom:once', modelId: 'manual-once' }
+      probe.mockRejectedValueOnce(new Error('private SDK diagnostic'))
+      await expect(service.testAgentPreset(selection)).resolves.toMatchObject({
+        ok: false,
+        code: 'network_error',
+        message: 'Provider connection failed.'
+      })
+      probe.mockResolvedValueOnce({ status: 401 })
+      await expect(service.testAgentPreset(selection)).resolves.toMatchObject({
+        ok: false,
+        code: 'invalid_auth'
+      })
+      expect(probe).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'manual-once', presetId: 'custom:once' }),
+        '{}',
+        expect.any(AbortSignal),
+        expect.objectContaining({ id: 'manual-once' })
+      )
       await service.setAgentModelEnabled('custom:once', 'manual-once', false)
       expect(snapshot).toHaveBeenCalledTimes(1)
     } finally {
@@ -394,10 +413,7 @@ describe('ProviderService', () => {
       'Application Default Credentials'
     )
     const snapshot = await service.saveImageSource({ source })
-    expect(snapshot.imageCatalog.defaultSelection).toEqual({
-      sourceId: 'img-1',
-      modelId: 'gemini-2.5-flash-image'
-    })
+    expect(snapshot.imageCatalog.defaultSelection).toBeNull()
     await expect(service.testImageSource('img-1')).resolves.toMatchObject({
       ok: false,
       code: 'invalid_auth',
@@ -487,10 +503,8 @@ describe('ProviderService', () => {
       source: { providerId: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
       apiKey: 'official-secret'
     })
-    expect(snapshot.imageCatalog.defaultSelection).toEqual({
-      sourceId: 'img-1',
-      modelId: 'gpt-image-2'
-    })
+    expect(snapshot.imageCatalog.defaultSelection).toBeNull()
+    await service.setImageDefaultSelection({ sourceId: 'img-1', modelId: 'gpt-image-2' })
     const official = snapshot.imageCatalog.sources[0]
     expect(official).toMatchObject({ sourceId: 'img-1', name: 'OpenAI', available: true })
     expect(official?.config).not.toHaveProperty('baseUrl')

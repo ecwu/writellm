@@ -642,7 +642,7 @@ test(
       await expect(agent).toHaveAttribute('aria-pressed', 'true')
       await agent.press('Space')
       await expect(agent).toHaveAttribute('aria-pressed', 'false')
-      const sidebarToggle = page.locator('[data-slot="sidebar-trigger"]')
+      const sidebarToggle = page.getByRole('button', { name: 'Toggle Outline', exact: true })
       await sidebarToggle.focus()
       await sidebarToggle.press('Enter')
       await expect(sidebar).not.toBeVisible()
@@ -2777,6 +2777,7 @@ test(
 
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: '[1]', exact: true }).click()
       await launched.page.keyboard.press('Escape')
       await expect(
@@ -2825,6 +2826,7 @@ test(
       ).toHaveText('[2]')
 
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Icon', exact: true }).click()
       await launched.page.keyboard.press('Escape')
       const citationIcon = sectionEditor(launched.page).locator('.writellm-readable-citation-icon')
@@ -2853,6 +2855,7 @@ test(
       expect(iconGeometry.svgStroke).not.toBe('rgba(0, 0, 0, 0)')
       await expect(citationIcon.locator('svg')).toHaveCount(1)
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await settings.getByRole('option', { name: 'General', exact: true }).click()
       await settings.getByRole('radio', { name: 'Full', exact: true }).click()
       await launched.page.keyboard.press('Escape')
       await expect(sectionEditor(launched.page)).toContainText('[Source: Alpha report, p. 1]')

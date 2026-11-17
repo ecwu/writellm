@@ -10,3 +10,10 @@ export function notifyActionError(message: string): void {
     closeButton: true
   })
 }
+
+export function notifyAutocompleteDefaultCleared(): void {
+  toast('Autocomplete default cleared', {
+    description: 'DeepSeek was disabled.',
+    closeButton: true
+  })
+}

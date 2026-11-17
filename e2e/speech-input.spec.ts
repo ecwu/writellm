@@ -187,7 +187,7 @@ test(
       await configureSpeech(launched.page, mock.baseUrl, 'realtime')
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings', exact: true })
-      await settings.getByRole('option', { name: /^Speech input/ }).click()
+      await settings.getByRole('option', { name: /^Speech Input/ }).click()
       await settings
         .getByTestId('speech-source-list')
         .getByRole('button', { name: /^Speech test/ })

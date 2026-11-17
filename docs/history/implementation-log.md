@@ -3245,3 +3245,51 @@ The canonical release-source check passes in a clean checkout before the correct
 Its four uploaded assets are macOS arm64 DMG, macOS x64 DMG, Windows x64 EXE, and Linux x64 AppImage.
 CI proves package structure and artifact integrity, not cross-platform runtime behavior. Packages are unsigned distribution artifacts.
 The earlier macOS arm64 runtime acceptance remains the functional evidence. This record does not change the release tag.
+
+## 2026-11-17 Issue 21 Settings and existing model catalogs
+
+The local changes unify Settings navigation and default selection for Agent, Autocomplete, and Image Generation.
+Agent discovery requires explicit model adoption. The connection test runs through the selected model's worker transport.
+An expired OAuth fixture confirms that browsing and saving the default use zero network requests.
+ADR 095 records the later storage migrations. This batch does not change the database schema.
+
+The macOS arm64 package smoke gate passed twelve runtime scenarios in 63 seconds with zero retries.
+The packaged provider lifecycle scenario passed in 18 seconds, including a connection test against a controlled streaming service.
+The first desktop run exposed two stale locators. The corrected tests use the revised source heading and model menu.
+All seven selected desktop scenarios passed against the same packaged App in two runs of 18.0 and 20.7 seconds without automatic retries.
+Windows, Linux, and live services remain untested for this batch.
+
+## 2026-11-17 Issue 21 review repairs and test package
+
+The Agent probe preserves observed HTTP status codes and reports a connection failure when no status is available.
+Settings identifies the tested model, warns about credential invalidation, and marks saved models absent from the latest successful fetch.
+Disabling DeepSeek clears its Autocomplete default. Missing credentials preserve the selection. Onboarding protects source drafts during navigation.
+Desktop fixtures now adopt discovered models explicitly. The tests cover duplicate model names, unavailable defaults, and keyboard access.
+The complete unit suite exposed stale Pi version metadata. New conversations now record the pinned version, 1.5.2.
+An earlier desktop run exposed an obsolete shortcut locator. The corrected test operates the Outline toggle.
+
+The final canonical unit run passed 2,218 tests in 30.2 seconds. Three optional benchmarks were skipped.
+All 22 source-only desktop scenarios passed in 53.6 seconds without retries.
+The final macOS arm64 package gate passed in 298.1 seconds. Twelve runtime scenarios and 52 packaged desktop scenarios passed.
+The tested App produced local DMG and ZIP artifacts with version 0.2026.11.2. Other platforms and live providers remain untested.
+
+## 2026-11-17 Settings Overview
+
+Settings opens on a read-only list of enabled models, grouped by purpose with source names and default markers.
+Overview refreshes Autocomplete on entry. A desktop regression covers returning immediately after clearing the selection.
+Five Settings tests passed in 0.8 seconds. All 22 source-only desktop scenarios passed in 55.6 seconds.
+The final macOS arm64 package gate passed in 298.5 seconds with twelve runtime and 52 desktop scenarios.
+The initial packaged run found stale Autocomplete data. The corrected App passed without automatic retries and produced DMG and ZIP artifacts.
+
+## 2026-11-17 Settings Overview grid
+
+Seven purpose summaries replace the enabled-model list. The Agent summary spans two columns and counts configured sources and enabled models.
+Each remaining summary shows configuration status and the selected model or parsing mode.
+Static checks passed in 3.7 seconds. The macOS arm64 package build produced the App, DMG, and ZIP in 79.9 seconds.
+Three focused desktop scenarios passed against the packaged App in 26.3 seconds without retries.
+
+## 2026-11-17 Overview provider icons
+
+Configured purposes show local provider logos. Multiple logos form a compact stack with the default source first.
+The grid shows up to four distinct icons and a count for the rest. Unknown providers use their initials.
+Static checks passed in 3.5 seconds. Three packaged macOS arm64 desktop scenarios passed in 26.4 seconds without retries.

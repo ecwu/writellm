@@ -106,6 +106,12 @@ function harness() {
     remove: vi.fn(async () => snapshot),
     saveImageSource: vi.fn(async () => snapshot),
     removeImageSource: vi.fn(async () => snapshot),
+    testAgentPreset: vi.fn(async () => ({
+      ok: false,
+      code: 'network_error',
+      message: 'Provider connection failed.',
+      durationMs: 1
+    })),
     testImageSource: vi.fn(async () => ({
       ok: true,
       code: 'connected' as const,
@@ -127,12 +133,17 @@ function harness() {
     ),
     saveAgentCustomPreset: vi.fn(async () => snapshot),
     clearAgentCredential: vi.fn(async () => snapshot),
-    setAgentProviderEnabled: vi.fn(async () => snapshot),
+    setAgentProviderEnabled: vi.fn(
+      async (_presetId: string, _enabled: boolean, _onAutocompleteDefaultCleared: () => void) =>
+        snapshot
+    ),
     setAgentModelEnabled: vi.fn(async () => snapshot),
     saveAgentManualModel: vi.fn(async () => snapshot),
     removeAgentManualModel: vi.fn(async () => snapshot)
   }
+  const onConfigurationChanged = vi.fn()
   registerProviderIpc({
+    onConfigurationChanged,
     providers: providers as never,
     logger: pino({ level: 'silent' }),
     developmentUrl: 'http://localhost:5173',
@@ -145,6 +156,7 @@ function harness() {
     sender: { id: 7, send }
   } as unknown as IpcMainInvokeEvent
   return {
+    onConfigurationChanged,
     providers,
     invoke: (channel: string, input?: unknown) =>
       handlers.get(channel)?.(event as never, input as never),
@@ -157,6 +169,21 @@ function harness() {
 }
 
 describe('provider IPC', () => {
+  it('notifies once when disabling DeepSeek commits a default clear before the snapshot fails', async () => {
+    const { invoke, onConfigurationChanged, providers } = harness()
+    providers.setAgentProviderEnabled.mockImplementationOnce(async (_preset, _enabled, onClear) => {
+      onClear()
+      throw new Error('Snapshot unavailable')
+    })
+    await expect(
+      invoke(IPC_CHANNELS.providersSetAgentProviderEnabled, {
+        presetId: 'builtin:deepseek',
+        enabled: false
+      })
+    ).rejects.toThrow('Snapshot unavailable')
+    expect(onConfigurationChanged).toHaveBeenCalledExactlyOnceWith(true)
+  })
+
   it('routes speech sources and refreshes using bounded saved source identities', async () => {
     const { invoke, providers } = harness()
     const source = {
@@ -219,6 +246,25 @@ describe('provider IPC', () => {
     ).rejects.toThrow()
     expect(providers.remove).not.toHaveBeenCalled()
     expect(providers.save).not.toHaveBeenCalled()
+  })
+
+  it('authorizes and validates per-model Agent connection tests', async () => {
+    const { invoke, handlers, unauthorized, providers } = harness()
+    const selection = { presetId: 'custom:writer', modelId: 'writer-2' }
+    await expect(
+      handlers.get(IPC_CHANNELS.providersTestAgentPreset)?.(
+        unauthorized as never,
+        selection as never
+      )
+    ).rejects.toThrow()
+    await expect(
+      invoke(IPC_CHANNELS.providersTestAgentPreset, { presetId: 'custom:writer' })
+    ).rejects.toThrow()
+    expect(providers.testAgentPreset).not.toHaveBeenCalled()
+    await expect(invoke(IPC_CHANNELS.providersTestAgentPreset, selection)).resolves.toMatchObject({
+      code: 'network_error'
+    })
+    expect(providers.testAgentPreset).toHaveBeenCalledWith(selection)
   })
 
   it('routes image sources only through validated image source channels', async () => {
@@ -323,7 +369,11 @@ describe('provider IPC', () => {
       }
     })
 
-    expect(providers.setAgentProviderEnabled).toHaveBeenCalledWith('custom:loopback', false)
+    expect(providers.setAgentProviderEnabled).toHaveBeenCalledWith(
+      'custom:loopback',
+      false,
+      expect.any(Function)
+    )
     expect(providers.setAgentModelEnabled).toHaveBeenCalledWith(
       'custom:loopback',
       'writer-1',

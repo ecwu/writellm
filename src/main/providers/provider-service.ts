@@ -43,11 +43,17 @@ import type { AppDatabase } from '../app-db/connection'
 import type { AppSettingsRepository } from '../app-db/repositories/app-settings'
 import { getProviderCapability, providerRoles } from './capability-registry'
 import { type CredentialService, CredentialUnavailableError } from './credential-service'
-import type { AgentProviderCatalogService } from './agent-provider-catalog'
+import {
+  agentProviderConfigFromResolved,
+  agentCredentialFromResolved,
+  agentRuntimeModelFromResolved,
+  type AgentProviderCatalogService
+} from './agent-provider-catalog'
 import { credentialBindingFingerprint } from './credential-binding'
 
 type AgentCatalog = Pick<
   AgentProviderCatalogService,
+  | 'resolve'
   | 'snapshot'
   | 'saveCustomPreset'
   | 'removePreset'
@@ -71,7 +77,8 @@ export interface ConnectionProbeResult {
 export type ConnectionProbe = (
   config: ProviderConfig,
   credential: string | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  runtimeModel?: ReturnType<typeof agentRuntimeModelFromResolved>
 ) => Promise<ConnectionProbeResult>
 
 export class ProviderService {
@@ -244,9 +251,12 @@ export class ProviderService {
 
   async setAgentProviderEnabled(
     presetId: string,
-    enabled: boolean
+    enabled: boolean,
+    onAutocompleteDefaultCleared: () => void
   ): Promise<ProviderSettingsSnapshot> {
-    await this.#agentCatalogService().setProviderEnabled(presetId, enabled)
+    if (await this.#agentCatalogService().setProviderEnabled(presetId, enabled)) {
+      onAutocompleteDefaultCleared()
+    }
     return this.snapshot()
   }
 
@@ -454,16 +464,6 @@ export class ProviderService {
       },
       'Image source saved'
     )
-    if ((await this.settings.getImageDefaultSelection()) === null) {
-      const firstModel = enabledImageModels(next)[0]
-      if (firstModel !== undefined && (await this.#imageSourceUsable(configId, next))) {
-        await this.settings.setImageDefaultSelection({ sourceId, modelId: firstModel.id })
-        this.log.info(
-          { event: 'provider.image.default_initialized', sourceId, modelId: firstModel.id },
-          'Initialized the default image model'
-        )
-      }
-    }
     return this.snapshot()
   }
 
@@ -977,6 +977,20 @@ export class ProviderService {
     return config as ProviderConfigForRole<R>
   }
 
+  async testAgentPreset(selection: AgentModelSelection): Promise<ProviderConnectionTestResult> {
+    const startedAt = Date.now()
+    const resolved = await this.#agentCatalogService().resolve(selection)
+    const config = agentProviderConfigFromResolved(resolved)
+    return this.#probeConnection('agent', config, selection.presetId, startedAt, (signal) =>
+      this.probe(
+        config,
+        agentCredentialFromResolved(resolved),
+        signal,
+        agentRuntimeModelFromResolved(resolved)
+      )
+    )
+  }
+
   async testConnection(
     role: Exclude<ProviderRole, 'image'>
   ): Promise<ProviderConnectionTestResult> {
@@ -1037,16 +1051,19 @@ export class ProviderService {
     role: ProviderRole,
     config: ProviderConfig,
     configId: string,
-    startedAt: number
+    startedAt: number,
+    probeResolved?: (signal: AbortSignal) => Promise<ConnectionProbeResult>
   ): Promise<ProviderConnectionTestResult> {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs)
     try {
-      const response = usesAmbientAuthentication(config)
-        ? await this.probe(config, undefined, controller.signal)
-        : await this.credentials.withCredential(configId, (credential) =>
-            this.probe(config, credential, controller.signal)
-          )
+      const response = probeResolved
+        ? await probeResolved(controller.signal)
+        : usesAmbientAuthentication(config)
+          ? await this.probe(config, undefined, controller.signal)
+          : await this.credentials.withCredential(configId, (credential) =>
+              this.probe(config, credential, controller.signal)
+            )
       if (
         response.status === 401 ||
         response.status === 403 ||

@@ -1,3 +1,4 @@
+import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -8,30 +9,30 @@ import {
   autocompleteStyleSchema,
   type AutocompleteSettings
 } from '../../../../shared/contracts/autocomplete'
-import {
-  Field,
-  FieldContent,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel
-} from '@/components/ui/field'
-import { Pilcrow, Sparkles, Text, WholeWord } from 'lucide-react'
-import { SettingsPageHeader } from '@/components/settings-page-header'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select'
+import type { AgentProviderPresetSummary } from '../../../../shared/contracts/providers'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { ArrowUpRight, Pilcrow, Text, WholeWord } from 'lucide-react'
+import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import { Spinner } from '@/components/ui/spinner'
+import { DefaultModelSelector } from '@/features/providers/default-model-selector'
 import { reportAutocompleteError } from './autocomplete-errors'
 
-export function DefaultModelSettings({
-  closeAction
+const deepSeekModels = [
+  {
+    id: 'builtin:deepseek',
+    label: 'DeepSeek',
+    models: AUTOCOMPLETE_MODELS.map((modelId) => ({ value: modelId, label: modelId }))
+  }
+]
+
+export function AutocompleteSettingsWorkspace({
+  closeAction,
+  onOpenAgentSettings,
+  source
 }: {
   closeAction: React.ReactNode
+  onOpenAgentSettings: () => void
+  source: AgentProviderPresetSummary | undefined
 }): React.JSX.Element {
   const [settings, setSettings] = useState<AutocompleteSettings | null>(null)
   const [busy, setBusy] = useState(false)
@@ -78,10 +79,10 @@ export function DefaultModelSettings({
       setBusy(false)
     }
   }
-  const select = (value: string) =>
+  const select = (value: string | null) =>
     save(() =>
       window.desktop.autocomplete.select(
-        value === 'none'
+        value === null
           ? null
           : {
               providerPresetId: 'builtin:deepseek',
@@ -89,111 +90,123 @@ export function DefaultModelSettings({
             }
       )
     )
+  const unavailableReason =
+    settings?.sourceAvailable || settings === null
+      ? null
+      : source?.authConfigured && !source.enabled
+        ? 'Enable DeepSeek in Agent.'
+        : 'Add a DeepSeek API key in Agent.'
+  const currentModel = settings?.selection?.modelId ?? null
   return (
-    <ScrollArea className='h-full'>
-      <div className='mx-auto flex w-full max-w-4xl flex-col gap-8 p-6 lg:p-8'>
-        <SettingsPageHeader
-          icon={Sparkles}
-          title='Default Models'
-          description='Models used by editor features outside the Agent conversation.'
-          closeAction={closeAction}
-        />
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor='autocomplete-model'>FIM / Autocomplete</FieldLabel>
-            <FieldDescription>
-              Uses the enabled DeepSeek connection from Agent API. This choice is independent of
-              your writing Agent model.
-            </FieldDescription>
+    <div className='grid h-full min-h-0 grid-cols-[18rem_minmax(0,1fr)] overflow-hidden'>
+      <section className='flex min-h-0 flex-col border-r' aria-label='Autocomplete sources'>
+        <div className={panelHeaderClassName}>
+          <PanelTitle title='Autocomplete' />
+        </div>
+        <div className='border-b p-4'>
+          <DefaultModelSelector
+            id='autocomplete-default-model'
+            groups={settings?.sourceAvailable ? deepSeekModels : []}
+            value={currentModel}
+            disabled={settings === null || busy}
+            onValueChange={(value) => void select(value)}
+            unavailable={
+              currentModel !== null && unavailableReason !== null
+                ? { label: `DeepSeek · ${currentModel}`, reason: unavailableReason }
+                : undefined
+            }
+          />
+        </div>
+        <div className='flex flex-col gap-2 p-4'>
+          <h3 className='text-sm font-medium'>Sources</h3>
+          <ul aria-label='Sources'>
+            <li aria-current='true' className='rounded-md bg-secondary px-3 py-2 text-sm'>
+              DeepSeek
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section className='flex min-h-0 min-w-0 flex-col'>
+        <div className={panelHeaderClassName}>
+          <PanelTitle title='DeepSeek' />
+          {closeAction}
+        </div>
+        <ScrollArea className='min-h-0 flex-1'>
+          <div className='flex flex-col gap-6 p-5'>
+            <section className='flex flex-col items-start gap-2'>
+              <h3 className='font-medium'>Connection</h3>
+              {unavailableReason && currentModel === null ? (
+                <p className='text-sm text-muted-foreground'>{unavailableReason}</p>
+              ) : null}
+              <Button variant='outline' size='sm' onClick={onOpenAgentSettings}>
+                Manage DeepSeek in Agent <ArrowUpRight data-icon='inline-end' />
+              </Button>
+            </section>
+            <section className='flex flex-col gap-2'>
+              <h3 className='font-medium'>Models</h3>
+              <ul aria-label='Autocomplete models' className='divide-y rounded-md border'>
+                {AUTOCOMPLETE_MODELS.map((modelId) => (
+                  <li key={modelId} className='px-3 py-2 text-sm'>
+                    {modelId}
+                  </li>
+                ))}
+              </ul>
+            </section>
             {settings ? (
-              <Select
-                value={settings.selection?.modelId ?? 'none'}
-                disabled={busy}
-                onValueChange={(value) => void select(value)}
-              >
-                <SelectTrigger id='autocomplete-model'>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value='none'>Not selected</SelectItem>
-                    {AUTOCOMPLETE_MODELS.map((model) => (
-                      <SelectItem key={model} value={model}>
-                        DeepSeek · {model}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            ) : !error ? (
-              <Spinner />
-            ) : null}
-            {settings?.selection && !settings.available ? (
-              <FieldDescription>
-                Configure and enable DeepSeek in Agent API to use autocomplete.
-              </FieldDescription>
-            ) : null}
-            <FieldDescription>
-              Editor changes apply until app exit and do not change these saved defaults. Tab
-              accepts a suggestion; Esc dismisses it.
-            </FieldDescription>
-            {error ? (
-              <FieldDescription role='alert'>
-                Default model settings could not be updated.
-              </FieldDescription>
-            ) : null}
-          </Field>
-          {settings ? (
-            <>
-              <Field orientation='horizontal'>
-                <FieldContent>
+              <FieldGroup>
+                <Field orientation='horizontal'>
                   <FieldLabel htmlFor='autocomplete-auto-enable'>
                     Automatically enable autocomplete
                   </FieldLabel>
-                  <FieldDescription>
-                    Use autocomplete by default when a model is available. Applies across all
-                    projects.
-                  </FieldDescription>
-                </FieldContent>
-                <Switch
-                  id='autocomplete-auto-enable'
-                  checked={settings.defaultEnabled}
-                  disabled={busy}
-                  onCheckedChange={(enabled) =>
-                    void save(() => window.desktop.autocomplete.setDefaultEnabled(enabled))
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel id='autocomplete-default-length'>Default completion length</FieldLabel>
-                <ToggleGroup
-                  type='single'
-                  variant='outline'
-                  aria-labelledby='autocomplete-default-length'
-                  value={settings.style}
-                  disabled={busy}
-                  onValueChange={(value) => {
-                    if (value)
-                      void save(() =>
-                        window.desktop.autocomplete.setStyle(autocompleteStyleSchema.parse(value))
-                      )
-                  }}
-                >
-                  <ToggleGroupItem value='word'>
-                    <WholeWord /> Words
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='sentence'>
-                    <Text /> Sentence
-                  </ToggleGroupItem>
-                  <ToggleGroupItem value='paragraph'>
-                    <Pilcrow /> Paragraph
-                  </ToggleGroupItem>
-                </ToggleGroup>
-              </Field>
-            </>
-          ) : null}
-        </FieldGroup>
-      </div>
-    </ScrollArea>
+                  <Switch
+                    id='autocomplete-auto-enable'
+                    checked={settings.defaultEnabled}
+                    disabled={busy}
+                    onCheckedChange={(enabled) =>
+                      void save(() => window.desktop.autocomplete.setDefaultEnabled(enabled))
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel id='autocomplete-default-length'>
+                    Default completion length
+                  </FieldLabel>
+                  <ToggleGroup
+                    type='single'
+                    variant='outline'
+                    aria-labelledby='autocomplete-default-length'
+                    value={settings.style}
+                    disabled={busy}
+                    onValueChange={(value) => {
+                      if (value)
+                        void save(() =>
+                          window.desktop.autocomplete.setStyle(autocompleteStyleSchema.parse(value))
+                        )
+                    }}
+                  >
+                    <ToggleGroupItem value='word'>
+                      <WholeWord /> Words
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='sentence'>
+                      <Text /> Sentence
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value='paragraph'>
+                      <Pilcrow /> Paragraph
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </Field>
+              </FieldGroup>
+            ) : !error ? (
+              <Spinner />
+            ) : null}
+            {error ? (
+              <FieldDescription role='alert'>
+                Autocomplete settings could not be updated.
+              </FieldDescription>
+            ) : null}
+          </div>
+        </ScrollArea>
+      </section>
+    </div>
   )
 }

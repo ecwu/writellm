@@ -120,15 +120,41 @@ describe('ProviderSettingsWorkspace image catalog', () => {
 
     expect(html).toContain('OpenAI')
     expect(html).toContain('Image gateway')
-    expect(html).toContain('not connected')
     expect(html).toContain('Default source')
     expect(html).toContain('https://gateway.example.test/v1')
     expect(html).toContain('GPT Image 3')
-    expect(html).toContain('manual')
+    expect(html).toContain('Manage GPT Image 3')
     expect(html).toContain('Fetch models')
     expect(html).toContain('1 candidates · stale')
     expect(html).not.toContain('new-image-id')
-    expect(html).toContain('Requests never fall back to another model')
+    expect(html).toContain('Image gateway · gpt-image-2')
+    expect(html).toContain('Connection')
+  })
+
+  it('shows the saved default with its connection issue when the source is unavailable', () => {
+    const html = renderToStaticMarkup(
+      <ProviderSettingsWorkspace
+        role='image'
+        snapshot={{
+          ...snapshot,
+          imageCatalog: {
+            ...snapshot.imageCatalog,
+            sources: snapshot.imageCatalog.sources.map((source) =>
+              source.sourceId === 'img-gateway'
+                ? { ...source, available: false, issues: ['Provider credential is missing.'] }
+                : source
+            )
+          }
+        }}
+        closeAction={null}
+        onSnapshotChange={() => undefined}
+        onError={() => undefined}
+      />
+    )
+
+    expect(html).toContain('Image gateway · gpt-image-2')
+    expect(html).toContain('image-default-model-issue')
+    expect(html).toContain('Provider credential is missing.')
   })
 
   it('renders the Vertex project and local ADC guidance without an API key field', () => {

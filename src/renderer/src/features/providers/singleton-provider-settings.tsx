@@ -1,5 +1,5 @@
 import { reportRendererOperationError } from '../../diagnostics'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   ArrowDownWideNarrow,
@@ -38,6 +38,8 @@ import {
   type SingletonProviderConfig,
   type SingletonProviderRole
 } from './provider-settings-common'
+
+import { useSettingsDraft } from './settings-draft-guard'
 
 const roleIcons: Record<SingletonProviderRole, LucideIcon> = {
   embedding: Binary,
@@ -98,22 +100,22 @@ export function SingletonProviderWorkspace({
   const [message, setMessage] = useState<ProviderConnectionTestResult | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
 
-  useEffect(() => {
-    setConfig(
-      status?.config !== null &&
-        status?.config !== undefined &&
-        status.config.role !== 'agent' &&
-        status.config.role !== 'image' &&
-        status.config.role !== 'speech'
-        ? status.config
-        : defaultConfig(role)
-    )
-    setApiKey('')
-    setMessage(null)
+  const savedConfig = useMemo(() => {
+    const stored = status?.config
+    return stored?.role === role ? stored : defaultConfig(role)
   }, [role, status?.config])
 
-  const save = async (): Promise<void> => {
-    if (config === null) return
+  useEffect(() => {
+    setConfig(savedConfig)
+    setApiKey('')
+    setMessage(null)
+  }, [savedConfig])
+
+  const save = async (): Promise<boolean> => {
+    if (busy || !config) {
+      onError('Wait for the current source operation to finish.')
+      return false
+    }
     setBusy('save')
     try {
       const next = await window.desktop.providers.save({
@@ -122,13 +124,23 @@ export function SingletonProviderWorkspace({
       })
       onSnapshotChange(next)
       setApiKey('')
+      return true
     } catch (err) {
       reportRendererOperationError(err, 'singleton-provider-settings')
       onError('Configuration was not saved. Check every value and credential storage status.')
+      return false
     } finally {
       setBusy(null)
     }
   }
+
+  const dirty =
+    config?.role === role &&
+    (JSON.stringify(config) !== JSON.stringify(savedConfig) || apiKey.trim() !== '')
+  useSettingsDraft(dirty, save, () => {
+    setConfig(savedConfig)
+    setApiKey('')
+  })
 
   const testConnection = async (): Promise<void> => {
     setBusy('test')
@@ -163,7 +175,7 @@ export function SingletonProviderWorkspace({
           <SettingsPageHeader
             icon={roleIcons[role]}
             title={roleLabels[role]}
-            description='Applies to all projects.'
+            description={role === 'mineru' ? 'MinerU' : undefined}
             actions={
               <Badge variant={status?.available ? 'default' : 'secondary'}>
                 {status?.available ? <CircleCheck /> : <CircleDashed />}

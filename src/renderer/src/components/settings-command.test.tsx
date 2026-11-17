@@ -23,15 +23,16 @@ const secureSnapshot = {
 describe('SettingsCommand', () => {
   it('keeps every settings destination in one ordered peer list', () => {
     expect(settingsSections.map(({ id, label }) => [id, label])).toEqual([
+      ['overview', 'Overview'],
       ['general', 'General'],
-      ['agent', 'Agent API'],
-      ['default-models', 'Default Models'],
+      ['agent', 'Agent'],
+      ['autocomplete', 'Autocomplete'],
+      ['embedding', 'Embedding'],
+      ['rerank', 'Reranking'],
+      ['mineru', 'Document Parsing'],
+      ['image', 'Image Generation'],
+      ['speech', 'Speech Input'],
       ['skills', 'Writing Skills'],
-      ['embedding', 'Embedding API'],
-      ['rerank', 'Reranking API'],
-      ['mineru', 'MinerU API'],
-      ['image', 'Image API'],
-      ['speech', 'Speech input'],
       ['publication', 'Publication'],
       ['shortcuts', 'Keyboard Shortcuts'],
       ['about', 'About & Diagnostics']

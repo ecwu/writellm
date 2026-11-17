@@ -51,7 +51,7 @@ No ADR 045 exists.
 | [006](006-rich-media-and-image-generation.md) | Asset-referenced image blocks, source-backed Mermaid and Math, and the Agent `generate_image` tool. | Partly replaced; extended by 027–029 and 060. |
 | [007](007-managed-project-version-history.md) | Linear checkpoint history in an application-owned bare Git repository at `.writellm/history.git`. | Current |
 | [008](008-pi-provider-catalog-and-agent-model-selection.md) | Application-global Pi provider catalog, plus per-conversation model selection with run snapshots. | Current; 076 governs model configuration. |
-| [009](009-settings-workspace-and-agent-model-availability.md) | Settings as one Command workspace with provider sections and Agent model availability. | Current |
+| [009](009-settings-workspace-and-agent-model-availability.md) | Settings as one Command workspace with provider sections and Agent model availability. | Amended by 095 |
 | [010](010-background-index-readiness-and-knowledge-summaries.md) | The project opens before the rebuildable index finishes. Search reports preparing or unavailable meanwhile. | Current |
 | [011](011-security-boundary-remediation.md) | `ProjectFilesystem` capability, safe database preflight, credential binding, and bounded projections. | Current |
 | [012](012-agent-provider-request-lifetime.md) | No wall-clock deadline for Agent generation, and at most five attempts before content is streamed. | Current |
@@ -135,7 +135,8 @@ No ADR 045 exists.
 | [091](091-issue-19-endpoint-authority-and-compatibility.md) | Endpoint registration as the single IPC authority, and canonical JSON compatibility. | Current |
 | [092](092-documentation-evidence-archive.md) | Summarize verification evidence and archive it at a pinned commit. | Current |
 | [093](093-configurable-image-source-instances-and-models.md) | Multiple image source instances, OpenAI-compatible endpoints, manual image models, and a per-conversation override. | Current |
-| [094](094-speech-input.md) | Draft-only speech input, a single provider, bounded binary IPC, and a dedicated background-worker instance. | Current |
+| [094](094-speech-input.md) | Draft-only speech input, source selection, bounded binary IPC, and a dedicated background-worker instance. | Amended by 095 |
+| [095](095-purpose-model-defaults.md) | Explicit model defaults by purpose, migration of prior selections, and request recovery. | Current |
 
 ## Dependency boundaries
 

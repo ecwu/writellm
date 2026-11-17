@@ -7,7 +7,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 import { ZipFile } from 'yazl'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
-import { createProject, closeProject } from './helpers/project'
+import { configureAgentProvider, createProject, closeProject } from './helpers/project'
 import { sendCompletion as sendSharedCompletion } from './helpers/mock-provider-sse'
 import { sendToolCall as sendSharedToolCall } from './helpers/mock-provider-sse'
 
@@ -61,23 +61,13 @@ async function configureProvider(
   page: Page,
   input: { sectionName: RegExp; role: 'agent' | 'mineru'; baseUrl: string; model: string }
 ): Promise<void> {
+  if (input.role === 'agent') {
+    await configureAgentProvider(page, input.baseUrl)
+    return
+  }
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await settings.getByRole('option', { name: input.sectionName }).click()
-  if (input.role === 'agent') {
-    await settings.getByRole('button', { name: 'Add provider' }).click()
-    const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-    await addProvider.getByLabel('Provider name').fill('E2E Agent')
-    await addProvider.getByRole('button', { name: 'Continue' }).click()
-    await settings.getByLabel('Base URL').fill(input.baseUrl)
-    await settings.getByLabel('API key').fill('e2e-secret')
-    await settings.getByRole('button', { name: 'Save provider' }).click()
-    await expect(settings.getByRole('heading', { name: 'E2E Agent' })).toBeVisible()
-    await settings.getByRole('button', { name: 'Fetch E2E Agent models' }).click()
-    await expect(settings.getByText(/1 models · current/)).toBeVisible()
-    await page.keyboard.press('Escape')
-    return
-  }
   await settings.getByLabel('Base URL').fill(input.baseUrl)
   await settings.getByLabel('Model ID').fill(input.model)
   await settings.getByLabel('API key or token').fill('e2e-secret')
@@ -191,7 +181,7 @@ test(
     try {
       await createProject(launched.page, 'Agent diagnostic recovery')
       await configureProvider(launched.page, {
-        sectionName: /^Agent API/,
+        sectionName: /^Agent/,
         role: 'agent',
         baseUrl: `http://127.0.0.1:${port}/v1`,
         model: 'writer-model'
@@ -583,7 +573,7 @@ test(
     })
     try {
       await configureProvider(launched.page, {
-        sectionName: /^MinerU API/,
+        sectionName: /^Document Parsing/,
         role: 'mineru',
         baseUrl: `http://127.0.0.1:${port}`,
         model: 'pipeline'
@@ -602,7 +592,7 @@ test(
       ).toHaveCount(0)
       await launched.page.keyboard.press('Escape')
       await configureProvider(launched.page, {
-        sectionName: /^Agent API/,
+        sectionName: /^Agent/,
         role: 'agent',
         baseUrl: `http://127.0.0.1:${port}/v1`,
         model: 'writer-model'

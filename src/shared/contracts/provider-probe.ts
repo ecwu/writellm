@@ -1,3 +1,4 @@
+import { agentRuntimeModelSchema } from './agent'
 import { z } from 'zod'
 import { providerConfigSchema } from './providers'
 import { projectSessionIdSchema } from './projects'
@@ -7,6 +8,7 @@ export const providerProbeRequestSchema = z
     requestId: z.uuid(),
     projectSessionId: projectSessionIdSchema.nullable().optional(),
     config: providerConfigSchema,
+    runtimeModel: agentRuntimeModelSchema.optional(),
     credential: z.string().min(1).max(16_384).optional()
   })
   .superRefine((request, context) => {

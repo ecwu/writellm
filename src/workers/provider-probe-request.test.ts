@@ -81,6 +81,37 @@ async function withSdkFetch<T>(fetchMock: typeof fetch, operation: () => Promise
 }
 
 describe('provider utility probe request', () => {
+  it.each([
+    [401, { type: 'result', status: 401 }],
+    [503, { type: 'result', status: 503 }],
+    [0, { type: 'error' }]
+  ] as const)('classifies Agent transport failure with status %i', async (httpStatus, expected) => {
+    const fetchMock = vi.fn<typeof fetch>(async () => {
+      if (httpStatus === 0) throw new TypeError('private diagnostic payload')
+      return new Response('private diagnostic payload', { status: httpStatus })
+    })
+    const response = await withSdkFetch(fetchMock, () =>
+      runProviderProbeRequest({
+        ...request,
+        credential: JSON.stringify({ apiKey: 'private-api-key' }),
+        runtimeModel: {
+          id: 'writer',
+          name: 'Writer',
+          provider: 'openai-compatible',
+          api: 'openai-completions',
+          baseUrl: 'https://api.example.test/v1',
+          reasoning: false,
+          input: ['text'],
+          contextWindow: 8192,
+          maxTokens: 1024
+        }
+      })
+    )
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(response).toMatchObject(expected)
+    expect(JSON.stringify(response)).not.toMatch(/private diagnostic payload|private-api-key/)
+  })
+
   it('allows credentialless Vertex ADC probes but requires credentials for other providers', () => {
     expect(providerProbeRequestSchema.safeParse(vertexImageRequest).success).toBe(true)
     const { credential: _credential, ...credentiallessGemini } = imageRequest

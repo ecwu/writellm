@@ -65,7 +65,11 @@ describe('AutocompleteService', () => {
     expect(await service.session(input.projectSessionId)).toMatchObject({ enabled: true })
     service.revokeSession(input.projectSessionId)
     expect(await service.session(input.projectSessionId)).toMatchObject({ enabled: true })
-    await service.select(null)
+    await expect(service.select(null)).resolves.toMatchObject({
+      available: false,
+      sourceAvailable: true,
+      selection: null
+    })
     expect(await service.toggle(input.projectSessionId, true)).toMatchObject({
       enabled: false,
       available: false,
@@ -143,7 +147,10 @@ describe('AutocompleteService', () => {
   it('uses the temporary length without persisting it and retains enable intent while unavailable', async () => {
     const { service, options } = harness()
     options.credential.mockResolvedValue(null)
-    await service.setDefaultEnabled(true)
+    await expect(service.setDefaultEnabled(true)).resolves.toMatchObject({
+      available: false,
+      sourceAvailable: false
+    })
     expect(await service.session(input.projectSessionId)).toMatchObject({
       enabled: false,
       defaultEnabled: true

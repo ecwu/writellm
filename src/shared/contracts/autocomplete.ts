@@ -13,7 +13,10 @@ export const autocompleteSelectionSchema = z
 export const autocompleteStyleSchema = z.enum(['word', 'sentence', 'paragraph'])
 export type AutocompleteStyle = z.infer<typeof autocompleteStyleSchema>
 export const autocompleteChangeSchema = z
-  .object({ reason: z.enum(['model', 'provider', 'style', 'toggle']) })
+  .object({
+    reason: z.enum(['model', 'provider', 'style', 'toggle']),
+    defaultCleared: z.literal(true).optional()
+  })
   .strict()
 export type AutocompleteChange = z.infer<typeof autocompleteChangeSchema>
 export const autocompleteTriggerSchema = z.enum([
@@ -41,7 +44,7 @@ export const autocompleteCancelReasonSchema = z.enum([
 ])
 export type AutocompleteTrigger = z.infer<typeof autocompleteTriggerSchema>
 export type AutocompleteCancelReason = z.infer<typeof autocompleteCancelReasonSchema>
-export const autocompleteSettingsSchema = z
+const autocompletePreferencesSchema = z
   .object({
     defaultEnabled: z.boolean(),
     selection: autocompleteSelectionSchema.nullable(),
@@ -49,6 +52,9 @@ export const autocompleteSettingsSchema = z
     available: z.boolean()
   })
   .strict()
+export const autocompleteSettingsSchema = autocompletePreferencesSchema.extend({
+  sourceAvailable: z.boolean()
+})
 export const autocompleteSessionInputSchema = z
   .object({ projectSessionId: projectSessionIdSchema })
   .strict()
@@ -59,7 +65,7 @@ export const autocompleteSessionStyleInputSchema = autocompleteSessionInputSchem
   style: autocompleteStyleSchema
 })
 export const autocompleteDefaultEnabledSchema = z.boolean()
-export const autocompleteSessionSchema = autocompleteSettingsSchema.extend({
+export const autocompleteSessionSchema = autocompletePreferencesSchema.extend({
   enabled: z.boolean(),
   overrides: z.object({ enabled: z.boolean(), style: z.boolean() }).strict()
 })

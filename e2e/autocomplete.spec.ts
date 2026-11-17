@@ -104,13 +104,48 @@ test(
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: Off · Words')
       await toggleEnabled()
       const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-      await expect(settings.getByText('Default Models', { exact: true }).last()).toBeVisible()
-      await expect(settings.getByRole('combobox')).toHaveText('Not selected')
-      await settings.getByRole('combobox').click()
-      await page.getByRole('option', { name: 'DeepSeek · deepseek-v4-pro', exact: true }).click()
       await expect(
-        settings.getByText('Configure and enable DeepSeek in Agent API to use autocomplete.')
+        settings.getByRole('heading', { name: 'Autocomplete', exact: true })
       ).toBeVisible()
+      await expect(settings.getByText('Add a DeepSeek API key in Agent.')).toBeVisible()
+      await settings.getByRole('button', { name: 'Manage DeepSeek in Agent' }).click()
+      await expect(
+        settings.locator('[data-agent-provider-preset-id="builtin:deepseek"]')
+      ).toHaveAttribute('aria-pressed', 'true')
+      await settings.getByLabel('API key', { exact: true }).fill('fixture-autocomplete-key')
+      await settings.getByRole('button', { name: 'Save credential' }).click()
+      const sourceEnabled = settings.getByRole('switch', { name: 'Enabled', exact: true })
+      await expect(settings.getByRole('button', { name: 'Save credential' })).toBeDisabled()
+      if (!(await sourceEnabled.isChecked())) await sourceEnabled.click()
+      await expect(sourceEnabled).toBeChecked()
+      await settings.getByRole('option', { name: 'Autocomplete', exact: true }).click()
+      const defaultModel = settings.getByLabel('Default model', { exact: true })
+      await expect(defaultModel).toHaveText('Choose a model')
+      const selectModel = async () => {
+        await defaultModel.click()
+        const search = page.getByRole('combobox', { name: 'Search models' })
+        await search.fill('v4-pro')
+        await search.press('Enter')
+        await expect(defaultModel).toHaveText('DeepSeek · deepseek-v4-pro')
+      }
+      await selectModel()
+      const overview = settings.getByRole('option', { name: 'Overview', exact: true })
+      const autocomplete = settings.getByRole('option', { name: 'Autocomplete', exact: true })
+      const completionRow = settings.getByRole('region', { name: 'Autocomplete', exact: true })
+      await overview.click()
+      await expect(completionRow).toContainText('deepseek-v4-pro')
+      await autocomplete.click()
+      await defaultModel.click()
+      await page.getByRole('button', { name: 'Clear default model' }).click()
+      await expect(defaultModel).toHaveText('Choose a model')
+      expect(await page.evaluate(() => window.desktop.autocomplete.settings())).toMatchObject({
+        selection: null
+      })
+      await overview.click()
+      await expect(completionRow).toContainText('No default selected')
+      await expect(completionRow).not.toContainText('deepseek-v4-pro')
+      await autocomplete.click()
+      await selectModel()
       const autoEnable = settings.getByRole('switch', { name: 'Automatically enable autocomplete' })
       const offColor = await autoEnable.evaluate(
         (element) => getComputedStyle(element).backgroundColor
@@ -131,16 +166,6 @@ test(
         animations: 'disabled'
       })
       await settings.getByRole('button', { name: 'Close settings', exact: true }).first().click()
-      await page.evaluate(async () => {
-        await window.desktop.providers.setAgentCredential({
-          presetId: 'builtin:deepseek',
-          apiKey: 'fixture-autocomplete-key'
-        })
-        await window.desktop.providers.setAgentProviderEnabled({
-          presetId: 'builtin:deepseek',
-          enabled: true
-        })
-      })
       await installCompletionFixture(app)
       await expect(toggle).toHaveAttribute('aria-label', 'Autocomplete: On · Sentence')
       await toggleEnabled()
@@ -283,6 +308,10 @@ test(
           enabled: false
         })
       })
+      await expect(page.getByText('Autocomplete default cleared', { exact: true })).toBeVisible()
+      expect(await page.evaluate(() => window.desktop.autocomplete.settings())).toMatchObject({
+        selection: null
+      })
       await expect(ghost).toHaveCount(0)
       await toggle.click()
       await expect(
@@ -293,6 +322,10 @@ test(
         await window.desktop.providers.setAgentProviderEnabled({
           presetId: 'builtin:deepseek',
           enabled: true
+        })
+        await window.desktop.autocomplete.select({
+          providerPresetId: 'builtin:deepseek',
+          modelId: 'deepseek-v4-pro'
         })
       })
       await app.evaluate(() => {

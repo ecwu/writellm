@@ -17,12 +17,12 @@ export interface ProviderSettingsWorkspaceProps {
 }
 
 export const roleLabels: Record<ProviderRole, string> = {
-  agent: 'Agent API',
-  embedding: 'Embedding API',
-  rerank: 'Reranking API',
-  mineru: 'MinerU API',
-  image: 'Image API',
-  speech: 'Speech input'
+  agent: 'Agent',
+  embedding: 'Embedding',
+  rerank: 'Reranking',
+  mineru: 'Document Parsing',
+  image: 'Image Generation',
+  speech: 'Speech Input'
 }
 
 export const customTransports: Array<{ value: CustomAgentPiApi; label: string }> = [

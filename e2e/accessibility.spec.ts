@@ -16,18 +16,19 @@ test(
 
       const dialog = launched.page.getByRole('dialog', { name: 'Settings' })
       await expect(dialog).toBeVisible()
-      await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+      await expect(dialog.getByRole('heading', { name: 'Overview', exact: true })).toBeVisible()
 
       const expectedSections = [
+        'overview',
         'general',
         'agent',
-        'default-models',
-        'skills',
+        'autocomplete',
         'embedding',
         'rerank',
         'mineru',
         'image',
         'speech',
+        'skills',
         'publication',
         'shortcuts',
         'about'
@@ -44,6 +45,10 @@ test(
         await mkdir(screenshotDirectory, { recursive: true })
       }
 
+      await expect(
+        dialog.getByRole('region', { name: 'Model configuration' }).getByRole('region')
+      ).toHaveCount(7)
+      await dialog.getByRole('option', { name: 'General', exact: true }).click()
       await dialog.getByRole('radio', { name: 'Light', exact: true }).click()
       await dialog.getByRole('radio', { name: 'Blue', exact: true }).click()
       await dialog.getByRole('radio', { name: '[1]', exact: true }).click()
@@ -92,28 +97,49 @@ test(
       await expect(dialog.getByRole('button', { name: 'Export diagnostics' })).toBeVisible()
 
       await launched.page.evaluate(axe.source)
-      const results = await launched.page.evaluate(async () => {
-        const axeRuntime = (globalThis as typeof globalThis & { axe: typeof axe }).axe
-        return axeRuntime.run(document, {
-          runOnly: {
-            type: 'tag',
-            values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
-          }
+      const checkAccessibility = async (surface: string): Promise<void> => {
+        const results = await launched.page.evaluate(async () => {
+          const axeRuntime = (globalThis as typeof globalThis & { axe: typeof axe }).axe
+          return axeRuntime.run(document, {
+            runOnly: {
+              type: 'tag',
+              values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
+            }
+          })
         })
-      })
-      if (results.violations.length > 0) {
-        await testInfo.attach('axe-violations.json', {
-          body: Buffer.from(JSON.stringify(results.violations, null, 2)),
-          contentType: 'application/json'
-        })
+        if (results.violations.length > 0) {
+          await testInfo.attach(`axe-${surface}-violations.json`, {
+            body: Buffer.from(JSON.stringify(results.violations, null, 2)),
+            contentType: 'application/json'
+          })
+        }
+        expect.soft(results.violations, `WCAG violations in ${surface}`).toEqual([])
       }
-      expect(results.violations).toEqual([])
+      await checkAccessibility('about')
 
       if (screenshotDirectory !== undefined) {
         await launched.page.screenshot({
           path: join(screenshotDirectory, 'cp62-settings-desktop.png'),
           animations: 'disabled'
         })
+      }
+
+      for (const section of ['agent', 'image', 'autocomplete']) {
+        await dialog.locator(`[data-settings-section="${section}"]`).click()
+        const defaultModel = dialog.getByRole('button', { name: 'Default model', exact: true })
+        await expect(defaultModel).toBeEnabled()
+        await expect(defaultModel).toHaveCSS('opacity', '1')
+        await checkAccessibility(section)
+        if (section === 'agent') {
+          await defaultModel.focus()
+          await launched.page.keyboard.press('Enter')
+          const search = launched.page.getByRole('combobox', { name: 'Search models' })
+          await expect(search).toBeFocused()
+          await checkAccessibility('agent-model-selector')
+          await launched.page.keyboard.press('Escape')
+          await expect(search).toHaveCount(0)
+          await expect(defaultModel).toBeFocused()
+        }
       }
 
       await dialog.locator('[data-settings-section="general"]').click()

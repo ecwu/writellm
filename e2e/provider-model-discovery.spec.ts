@@ -99,7 +99,7 @@ test(
       await installPublicModelCatalog(launched.app, mock.baseUrl)
       await createProject(launched.page, 'Speech sources')
       await prepareSyntheticMicrophone(launched.app, launched.page)
-      const settings = await openProviderSettings(launched.page, /^Speech input/)
+      const settings = await openProviderSettings(launched.page, /^Speech Input/)
       for (const source of [
         { name: 'Speech alpha', model: 'alpha-model', key: 'fixture-alpha' },
         { name: 'Speech beta', model: 'beta-model', key: 'fixture-beta' }
@@ -282,7 +282,7 @@ test(
       )
       if (!source) throw new Error('Image fixture source missing')
       const initialDefault = saved.imageCatalog.defaultSelection
-      const settings = await openProviderSettings(launched.page, /^Image API/)
+      const settings = await openProviderSettings(launched.page, /^Image Generation/)
       await settings
         .getByTestId('image-source-list')
         .getByRole('button', { name: /^Image catalog fixture/ })

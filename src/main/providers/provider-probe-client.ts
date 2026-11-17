@@ -36,8 +36,8 @@ export class ProviderProbeClient {
       })
   }
 
-  readonly probe: ConnectionProbe = (config, credential, signal) =>
-    this.run(config, credential, signal)
+  readonly probe: ConnectionProbe = (config, credential, signal, runtimeModel) =>
+    this.run(config, credential, signal, runtimeModel)
 
   terminate(): void {
     this.#worker.terminate()
@@ -46,13 +46,15 @@ export class ProviderProbeClient {
   private run(
     config: ProviderConfig,
     credential: string | undefined,
-    signal: AbortSignal
+    signal: AbortSignal,
+    runtimeModel?: ProviderProbeRequest['runtimeModel']
   ): Promise<ConnectionProbeResult> {
     if (signal.aborted) return Promise.reject(createAbortError('Provider probe aborted'))
     const request: ProviderProbeRequest = {
       requestId: randomUUID(),
       projectSessionId: null,
       config,
+      ...(runtimeModel === undefined ? {} : { runtimeModel }),
       ...(credential === undefined ? {} : { credential })
     }
     return this.#worker

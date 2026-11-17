@@ -113,20 +113,37 @@ export class AppSettingsRepository {
     await this.#writeSetting('editor.autocomplete.style.v1', autocompleteStyleSchema.parse(style))
   }
 
-  async getAutocompleteSelection(): Promise<AutocompleteSelection | null> {
+  async getAutocompleteSelection(
+    executor?: AppDatabase['kysely']
+  ): Promise<AutocompleteSelection | null> {
     return this.#readSetting(
       'models.autocomplete.default.v1',
       autocompleteSelectionSchema.nullable(),
       null,
-      'app.settings.invalid_autocomplete_selection'
+      'app.settings.invalid_autocomplete_selection',
+      executor
     )
   }
 
-  async setAutocompleteSelection(selection: AutocompleteSelection | null): Promise<void> {
-    await this.#writeSetting(
-      'models.autocomplete.default.v1',
-      autocompleteSelectionSchema.nullable().parse(selection)
-    )
+  async setAutocompleteSelection(
+    selection: AutocompleteSelection | null,
+    executor?: AppDatabase['kysely']
+  ): Promise<void> {
+    const value = autocompleteSelectionSchema.nullable().parse(selection)
+    const key = 'models.autocomplete.default.v1'
+    if (value === null) {
+      await this.#writeSetting(key, value, executor)
+      return
+    }
+    await this.database.kysely.transaction().execute(async (transaction) => {
+      const source = await transaction
+        .selectFrom('agent_provider_preferences')
+        .select('enabled')
+        .where('provider_config_id', '=', `agent:${value.providerPresetId}`)
+        .executeTakeFirst()
+      if (source?.enabled === 0) throw new Error('The autocomplete source is disabled')
+      await this.#writeSetting(key, value, transaction)
+    })
   }
 
   async getThemePreference(): Promise<ThemePreference> {
@@ -264,20 +281,24 @@ export class AppSettingsRepository {
     await this.#writeSetting(AGENT_MODEL_LIMITS_CACHE_KEY, modelLimitsCacheSchema.parse(cache))
   }
 
-  async getDefaultAgentModelSelection(): Promise<AgentModelSelection | null> {
+  async getDefaultAgentModelSelection(
+    executor?: AppDatabase['kysely']
+  ): Promise<AgentModelSelection | null> {
     return this.#readSetting(
       AGENT_DEFAULT_MODEL_SELECTION_KEY,
       agentModelSelectionSchema.nullable(),
       null,
-      'app.settings.invalid_agent_model_selection'
+      'app.settings.invalid_agent_model_selection',
+      executor
     )
   }
 
   async setDefaultAgentModelSelection(
-    selection: AgentModelSelection | null
+    selection: AgentModelSelection | null,
+    executor?: AppDatabase['kysely']
   ): Promise<AgentModelSelection | null> {
     const value = agentModelSelectionSchema.nullable().parse(selection)
-    await this.#writeSetting(AGENT_DEFAULT_MODEL_SELECTION_KEY, value)
+    await this.#writeSetting(AGENT_DEFAULT_MODEL_SELECTION_KEY, value, executor)
     return value
   }
 
@@ -365,8 +386,14 @@ export class AppSettingsRepository {
     )
   }
 
-  async #readSetting<T>(key: string, schema: z.ZodType<T>, fallback: T, event: string): Promise<T> {
-    const row = await this.database.kysely
+  async #readSetting<T>(
+    key: string,
+    schema: z.ZodType<T>,
+    fallback: T,
+    event: string,
+    executor = this.database.kysely
+  ): Promise<T> {
+    const row = await executor
       .selectFrom('app_settings')
       .select('value_json')
       .where('key', '=', key)
@@ -380,10 +407,10 @@ export class AppSettingsRepository {
     }
   }
 
-  async #writeSetting(key: string, value: unknown): Promise<void> {
+  async #writeSetting(key: string, value: unknown, executor = this.database.kysely): Promise<void> {
     const now = this.now()
     const valueJson = JSON.stringify(value)
-    await this.database.kysely
+    await executor
       .insertInto('app_settings')
       .values({ key, value_json: valueJson, created_at: now, updated_at: now })
       .onConflict((conflict) =>

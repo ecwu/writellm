@@ -45,16 +45,32 @@ export class AutocompleteService {
     }
   ) {}
 
+  async #preferences(): Promise<
+    Pick<AutocompleteSettings, 'selection' | 'defaultEnabled' | 'style'>
+  > {
+    const [selection, defaultEnabled, style] = await Promise.all([
+      this.options.settings.getAutocompleteSelection(),
+      this.options.settings.getAutocompleteDefaultEnabled(),
+      this.options.settings.getAutocompleteStyle()
+    ])
+    return { selection, defaultEnabled, style }
+  }
   async settings(): Promise<AutocompleteSettings> {
-    const selection = await this.options.settings.getAutocompleteSelection()
+    const [preferences, credential] = await Promise.all([
+      this.#preferences(),
+      this.options.credential()
+    ])
+    const sourceAvailable = credential !== null
     return {
-      selection,
-      defaultEnabled: await this.options.settings.getAutocompleteDefaultEnabled(),
-      style: await this.options.settings.getAutocompleteStyle(),
-      available: selection !== null && (await this.options.credential()) !== null
+      ...preferences,
+      sourceAvailable,
+      available: preferences.selection !== null && sourceAvailable
     }
   }
   async select(selection: AutocompleteSelection | null): Promise<AutocompleteSettings> {
+    if (selection !== null && (await this.options.credential()) === null) {
+      throw new Error('The autocomplete source is unavailable')
+    }
     await this.options.settings.setAutocompleteSelection(selection)
     this.configurationChanged('model')
     this.options.log.info(
@@ -89,11 +105,13 @@ export class AutocompleteService {
   async session(projectSessionId: string): Promise<AutocompleteSession> {
     // Register synchronously so revocation during asynchronous settings reads cannot resurrect work.
     if (!this.#sessions.has(projectSessionId)) this.#sessions.set(projectSessionId, {})
-    const settings = await this.settings()
+    const preferences = await this.#preferences()
+    const available = preferences.selection !== null && (await this.options.credential()) !== null
     return {
-      ...settings,
-      style: this.#styleOverride ?? settings.style,
-      enabled: (this.#enabledOverride ?? settings.defaultEnabled) && settings.available,
+      ...preferences,
+      available,
+      style: this.#styleOverride ?? preferences.style,
+      enabled: (this.#enabledOverride ?? preferences.defaultEnabled) && available,
       overrides: {
         enabled: this.#enabledOverride !== undefined,
         style: this.#styleOverride !== undefined
@@ -131,12 +149,12 @@ export class AutocompleteService {
     )
     return this.session(projectSessionId)
   }
-  configurationChanged(reason: 'provider' | 'model' = 'provider'): void {
+  configurationChanged(reason: 'provider' | 'model' = 'provider', defaultCleared?: true): void {
     this.#configurationVersion++
     this.#paused = false
     this.#retryAt = 0
     for (const id of this.#sessions.keys()) this.cancel(id, undefined, 'configuration')
-    this.options.changed({ reason })
+    this.options.changed(defaultCleared ? { reason, defaultCleared } : { reason })
   }
   revokeSession(projectSessionId: string): void {
     this.cancel(projectSessionId, undefined, 'revoked')

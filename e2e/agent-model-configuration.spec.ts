@@ -104,12 +104,15 @@ test(
 
       await launched.page.getByRole('button', { name: 'Settings', exact: true }).click()
       const settings = launched.page.getByRole('dialog', { name: 'Settings' })
-      await settings.getByRole('option', { name: /^Agent API/ }).click()
+      await settings.getByRole('option', { name: /^Agent/ }).click()
       await settings
         .getByTestId('agent-provider-list')
         .locator('[data-agent-provider-preset-id="custom:configuration-fixture"]')
         .click()
-      await settings.getByRole('button', { name: 'Edit Initial Writer' }).click()
+      await settings
+        .getByRole('button', { name: 'Actions for Initial Writer', exact: true })
+        .click()
+      await launched.page.getByRole('menuitem', { name: 'Edit model', exact: true }).click()
       const edit = launched.page.getByRole('dialog', { name: 'Edit model' })
       await edit.getByLabel('Display name').fill('Updated Writer')
       await edit.getByRole('button', { name: 'Advanced model metadata' }).click()

@@ -42,7 +42,7 @@ import { useProjectTemplateController } from '@/features/project/use-project-tem
 import { ManuscriptExportDialogs } from '@/features/project/manuscript-export-dialogs'
 import { useManuscriptExportController } from '@/features/project/use-manuscript-export-controller'
 import type { ProjectActionChange } from '@/features/project/project-session-generation'
-import { notifyActionError } from '@/lib/notifications'
+import { notifyActionError, notifyAutocompleteDefaultCleared } from '@/lib/notifications'
 import { useDesktopSubscription } from '@/hooks/use-desktop-subscription'
 
 const closedSnapshot: ProjectLifecycleSnapshot = {
@@ -96,12 +96,12 @@ function App(): React.JSX.Element {
   const [onboardingState, setOnboardingState] = useState<OnboardingState | null>(null)
   const [activeAction, setActiveAction] = useState<ProjectAction | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<'general' | 'skills' | 'default-models'>(
-    'general'
+  const [settingsSection, setSettingsSection] = useState<'overview' | 'skills' | 'autocomplete'>(
+    'overview'
   )
   useEffect(() => {
     const open = () => {
-      setSettingsSection('default-models')
+      setSettingsSection('autocomplete')
       setSettingsOpen(true)
     }
     window.addEventListener('writellm:open-autocomplete-settings', open)
@@ -365,6 +365,14 @@ function App(): React.JSX.Element {
     [projectSessionId]
   )
 
+  useEffect(
+    () =>
+      window.desktop.autocomplete.subscribeChanges(({ defaultCleared }) => {
+        if (defaultCleared) notifyAutocompleteDefaultCleared()
+      }),
+    []
+  )
+
   useDesktopSubscription<ProjectLifecycleEvent>(
     (listener) => {
       if (!projectSessionId) return Promise.reject(new Error('Project session is unavailable'))
@@ -596,7 +604,7 @@ function App(): React.JSX.Element {
       if (window.desktop.menu.native) return
       if (matchesShortcut(event, 'settings')) {
         event.preventDefault()
-        setSettingsSection('general')
+        setSettingsSection('overview')
         setSettingsOpen(true)
       } else if (matchesShortcut(event, 'newProject') && !isBusy && !projectSelectionDisabled) {
         event.preventDefault()
@@ -661,7 +669,7 @@ function App(): React.JSX.Element {
         canRestoreSnapshot={snapshot.state === 'closed' || snapshot.state === 'recovery-required'}
         onClose={() => void closeProject()}
         onOpenSettings={() => {
-          setSettingsSection('general')
+          setSettingsSection('overview')
           setSettingsOpen(true)
         }}
         onOpenLogs={() => void runDiagnostics(window.desktop.diagnostics.openLogsDirectory)}
@@ -694,7 +702,7 @@ function App(): React.JSX.Element {
               agentOpen={agentOpen}
               onAgentOpenChange={setAgentOpen}
               onOpenSettings={() => {
-                setSettingsSection('general')
+                setSettingsSection('overview')
                 setSettingsOpen(true)
               }}
               onError={notifyActionError}
@@ -782,7 +790,7 @@ function App(): React.JSX.Element {
                         className='mt-auto justify-start'
                         variant='ghost'
                         onClick={() => {
-                          setSettingsSection('general')
+                          setSettingsSection('overview')
                           setSettingsOpen(true)
                         }}
                       >

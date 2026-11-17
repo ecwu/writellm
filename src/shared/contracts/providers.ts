@@ -81,6 +81,7 @@ export const agentModelSummarySchema = z.object({
   api: piApiSchema,
   enabled: z.boolean(),
   source: z.enum(['packaged', 'discovered', 'manual']),
+  absentFromLastDiscovery: z.literal(true).optional(),
   reasoning: z.boolean(),
   supportedThinkingLevels: z.array(agentThinkingLevelSchema).min(1).max(7).default(['off']),
   input: z

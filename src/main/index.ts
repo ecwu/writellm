@@ -542,7 +542,8 @@ if (!hasSingleInstanceLock) {
           mainWindow.webContents.id === id
       })
       const unregisterProviderIpc = registerProviderIpc({
-        onConfigurationChanged: () => autocomplete.configurationChanged(),
+        onConfigurationChanged: (defaultCleared) =>
+          autocomplete.configurationChanged('provider', defaultCleared),
         providers,
         logger: loggerSystem.createModuleLogger('ipc', 'providers'),
         developmentUrl,

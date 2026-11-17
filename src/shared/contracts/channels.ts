@@ -249,6 +249,7 @@ export const IPC_CHANNELS = {
   providersSetImageModelEnabled: 'providers:set-image-model-enabled',
   providersSaveAgentPreset: 'providers:save-agent-preset',
   providersRemoveAgentPreset: 'providers:remove-agent-preset',
+  providersTestAgentPreset: 'providers:test-agent-preset',
   providersRefreshAgentPreset: 'providers:refresh-agent-preset',
   providersSetAgentDefault: 'providers:set-agent-default',
   providersSetAgentCredential: 'providers:set-agent-credential',

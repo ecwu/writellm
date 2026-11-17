@@ -35,6 +35,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Spinner } from '@/components/ui/spinner'
 import { ProjectCreationFields } from '@/features/project/project-creation-fields'
 import { ProviderSettingsWorkspace } from '@/features/providers/provider-settings-dialog'
+import { SettingsDraftProvider, useSettingsLeave } from '@/features/providers/settings-draft-guard'
 import { cn } from '@/lib/utils'
 import { reportRendererOperationError } from '../../diagnostics'
 
@@ -108,6 +109,15 @@ const providerSteps: Partial<Record<OnboardingStep, ProviderRole>> = {
 }
 
 export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
+  return (
+    <SettingsDraftProvider>
+      <OnboardingSteps {...props} />
+    </SettingsDraftProvider>
+  )
+}
+
+function OnboardingSteps(props: OnboardingFlowProps): React.JSX.Element {
+  const requestLeave = useSettingsLeave()
   const [providerSnapshot, setProviderSnapshot] = useState<ProviderSettingsSnapshot | null>(null)
   const [providerLoadError, setProviderLoadError] = useState<string | null>(null)
   const stepIndex = onboardingSteps.findIndex((step) => step.id === props.state.step)
@@ -136,8 +146,11 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
     }
   }, [])
 
-  const moveTo = async (nextStep: OnboardingStep): Promise<void> => {
-    await props.onStateChange({ schemaVersion: 1, status: 'pending', step: nextStep })
+  const moveTo = (nextStep: OnboardingStep): void => {
+    if (nextStep !== step.id)
+      requestLeave(
+        () => void props.onStateChange({ schemaVersion: 1, status: 'pending', step: nextStep })
+      )
   }
 
   const complete = async (): Promise<void> => {
@@ -146,12 +159,12 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
 
   const moveBack = (): void => {
     const previous = onboardingSteps[Math.max(0, stepIndex - 1)]
-    void moveTo(previous.id)
+    moveTo(previous.id)
   }
 
   const moveForward = (): void => {
     const next = onboardingSteps[Math.min(onboardingSteps.length - 1, stepIndex + 1)]
-    void moveTo(next.id)
+    moveTo(next.id)
   }
 
   return (
@@ -188,7 +201,7 @@ export function OnboardingFlow(props: OnboardingFlowProps): React.JSX.Element {
                   variant={isCurrent ? 'secondary' : 'ghost'}
                   className='h-auto min-w-0 justify-start px-3 py-2 text-left'
                   aria-current={isCurrent ? 'step' : undefined}
-                  onClick={() => void moveTo(candidate.id)}
+                  onClick={() => moveTo(candidate.id)}
                 >
                   <Icon data-icon='inline-start' />
                   <span className='min-w-0 flex-1'>

@@ -410,9 +410,9 @@ async function runPackagedAppScenarios(resources) {
 
     await page.getByRole('button', { name: /Start setup/u }).click()
     for (const nextHeading of [
-      'Embedding API',
-      'Reranking API',
-      'MinerU API',
+      'Embedding',
+      'Reranking',
+      'Document Parsing',
       'Create your first writing project'
     ]) {
       await page.getByRole('button', { name: /Continue|Skip for now/u }).click()

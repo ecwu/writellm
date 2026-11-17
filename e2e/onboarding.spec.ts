@@ -34,16 +34,34 @@ test(
         })
       }
       await first.page.getByRole('button', { name: /Start setup/ }).click()
-      await expect(first.page.getByText('Agent providers', { exact: true })).toBeVisible()
+      await expect(first.page.getByTestId('agent-provider-list')).toBeVisible()
       if (screenshotDirectory !== undefined) {
         await first.page.screenshot({
           path: join(screenshotDirectory, 'cp67-onboarding-agent-desktop.png'),
           animations: 'disabled'
         })
       }
-      await first.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
+      await first.page.getByRole('button', { name: 'Add source', exact: true }).click()
+      const addSource = first.page.getByRole('dialog', { name: 'Add source' })
+      await addSource.getByLabel('Source name').fill('Onboarding draft')
+      await addSource.getByRole('button', { name: 'Continue', exact: true }).click()
+      const leavePrompt = first.page.getByRole('alertdialog', {
+        name: 'Save changes before leaving?'
+      })
+      await first.page.getByTestId('agent-provider-list').getByRole('button').first().click()
+      await leavePrompt.getByRole('button', { name: 'Keep editing', exact: true }).click()
+      await expect(first.page.getByLabel('Source name')).toHaveValue('Onboarding draft')
+      const next = first.page.getByRole('button', { name: /Continue|Skip for now/ })
+      await next.click()
+      await leavePrompt.getByRole('button', { name: 'Save', exact: true }).click()
       await expect(
-        first.page.getByRole('heading', { name: 'Embedding API', exact: true })
+        first.page.getByText('Enter a source name and base URL before saving.')
+      ).toBeVisible()
+      await expect(first.page.getByLabel('Source name')).toHaveValue('Onboarding draft')
+      await next.click()
+      await leavePrompt.getByRole('button', { name: 'Discard', exact: true }).click()
+      await expect(
+        first.page.getByRole('heading', { name: 'Embedding', exact: true })
       ).toBeVisible()
     } finally {
       await closeApp(first.app)
@@ -56,13 +74,21 @@ test(
     })
     try {
       await expect(
-        resumed.page.getByRole('heading', { name: 'Embedding API', exact: true })
+        resumed.page.getByRole('heading', { name: 'Embedding', exact: true })
       ).toBeVisible()
-      for (const nextHeading of [
-        'Reranking API',
-        'MinerU API',
-        'Create your first writing project'
-      ]) {
+      await resumed.page.getByLabel('Model ID').fill('Unsaved embedding')
+      await resumed.page.getByRole('button', { name: 'Back', exact: true }).click()
+      const leavePrompt = resumed.page.getByRole('alertdialog', {
+        name: 'Save changes before leaving?'
+      })
+      await leavePrompt.getByRole('button', { name: 'Keep editing', exact: true }).click()
+      await expect(resumed.page.getByLabel('Model ID')).toHaveValue('Unsaved embedding')
+      await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
+      await leavePrompt.getByRole('button', { name: 'Discard', exact: true }).click()
+      await expect(
+        resumed.page.getByRole('heading', { name: 'Reranking', exact: true })
+      ).toBeVisible()
+      for (const nextHeading of ['Document Parsing', 'Create your first writing project']) {
         await resumed.page.getByRole('button', { name: /Continue|Skip for now/ }).click()
         await expect(
           resumed.page.getByRole('heading', { name: nextHeading, exact: true })

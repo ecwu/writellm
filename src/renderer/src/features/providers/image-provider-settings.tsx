@@ -1,12 +1,10 @@
 import { reportRendererOperationError } from '../../diagnostics'
 import { useEffect, useState } from 'react'
-import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
 import {
-  Boxes,
   AlertCircle,
   Check,
   CheckCircle2,
-  ChevronRight,
+  Ellipsis,
   ImageIcon,
   Plus,
   ShieldAlert,
@@ -26,7 +24,7 @@ import {
   type ProviderConnectionTestResult,
   type ProviderSettingsSnapshot
 } from '../../../../shared/contracts/providers'
-import { resolveModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
+import { imageSourceLogoId } from './image-source-logo'
 import { ProviderLogo } from '@/components/provider-logo'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
@@ -58,7 +56,7 @@ import {
   EmptyMedia,
   EmptyTitle
 } from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -66,7 +64,6 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
@@ -74,16 +71,17 @@ import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { ConfigField, type ProviderSettingsWorkspaceProps } from './provider-settings-common'
+import { useSettingsDraft } from './settings-draft-guard'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { DefaultModelSelector } from './default-model-selector'
 import { ModelCandidatePicker, ModelCatalogRefresh } from './model-candidate-controls'
 
 const IMAGE_TRANSPORTS: ImageProviderId[] = ['google-gemini', 'google-vertex', 'openai', 'xai']
-
-const transportLogoIds: Record<ImageProviderId, string> = {
-  'google-gemini': 'google',
-  'google-vertex': 'google-vertex',
-  openai: 'openai',
-  xai: 'xai'
-}
 
 interface ImageSourceFormDraft {
   sourceId?: string
@@ -116,21 +114,6 @@ function sourceDraftInput(draft: ImageSourceFormDraft): ImageSourceDraft {
   return { providerId: draft.providerId, name }
 }
 
-function imageSourceLogoId(source: {
-  providerId: ImageProviderId
-  name: string
-  baseUrl: string
-}): string | null {
-  if (source.baseUrl === '') return transportLogoIds[source.providerId]
-  return (
-    resolveModelsDevProviderLogoId({
-      providerId: '',
-      name: source.name,
-      baseUrl: source.baseUrl
-    }) ?? transportLogoIds[source.providerId]
-  )
-}
-
 export function selectionKey(selection: ImageModelSelection): string {
   return JSON.stringify([selection.sourceId, selection.modelId])
 }
@@ -158,7 +141,10 @@ export function ImageProviderWorkspace({
 }: ProviderSettingsWorkspaceProps): React.JSX.Element {
   const catalog = snapshot.imageCatalog
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(
-    catalog.defaultSelection?.sourceId ?? catalog.sources[0]?.sourceId ?? null
+    catalog.sources.find((source) => source.sourceId === catalog.defaultSelection?.sourceId)
+      ?.sourceId ??
+      catalog.sources[0]?.sourceId ??
+      null
   )
   const selectedSource = catalog.sources.find((source) => source.sourceId === selectedSourceId)
   const [draft, setDraft] = useState<ImageSourceFormDraft | null>(
@@ -166,7 +152,9 @@ export function ImageProviderWorkspace({
   )
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
-  const [message, setMessage] = useState<ProviderConnectionTestResult | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, ProviderConnectionTestResult>>({})
+  const message = selectedSource === undefined ? undefined : testResults[selectedSource.sourceId]
+  const [defaultNotice, setDefaultNotice] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newTransport, setNewTransport] = useState<ImageProviderId>('openai')
@@ -175,12 +163,6 @@ export function ImageProviderWorkspace({
     initial: ImageModelDefinition | null
   }>({ open: false, initial: null })
   const [confirmRemove, setConfirmRemove] = useState(false)
-
-  useEffect(() => {
-    if (selectedSource !== undefined) setDraft(draftFromSource(selectedSource))
-    setApiKey('')
-    setMessage(null)
-  }, [selectedSource])
 
   const run = async <T,>(
     label: string,
@@ -207,8 +189,16 @@ export function ImageProviderWorkspace({
       apiKey.trim() !== '')
   const vertex = draft?.providerId === 'google-vertex'
 
-  const save = async (): Promise<void> => {
-    if (draft === null) return
+  const canSave = unsaved && draft?.name.trim() !== ''
+  const save = async (): Promise<boolean> => {
+    if (draft === null || !canSave || busy !== null) {
+      onError(
+        busy !== null
+          ? 'Wait for the current source operation to finish.'
+          : 'Enter a source name before saving.'
+      )
+      return false
+    }
     const previousIds = new Set(catalog.sources.map((source) => source.sourceId))
     const next = await run(
       'save',
@@ -220,13 +210,21 @@ export function ImageProviderWorkspace({
         }),
       'The image source was not saved.'
     )
-    if (next === undefined) return
+    if (next === undefined) return false
     onSnapshotChange(next)
-    setApiKey('')
-    if (draft.sourceId === undefined) {
-      const created = next.imageCatalog.sources.find((source) => !previousIds.has(source.sourceId))
-      setSelectedSourceId(created?.sourceId ?? null)
+    const saved = next.imageCatalog.sources.find((source) =>
+      draft.sourceId === undefined
+        ? !previousIds.has(source.sourceId)
+        : source.sourceId === draft.sourceId
+    )
+    showSource(saved)
+    if (saved) {
+      setTestResults((current) => {
+        const { [saved.sourceId]: _, ...remaining } = current
+        return remaining
+      })
     }
+    return true
   }
 
   const testConnection = async (): Promise<void> => {
@@ -236,7 +234,9 @@ export function ImageProviderWorkspace({
       () => window.desktop.providers.testImageSource({ sourceId: selectedSource.sourceId }),
       'The image source connection test could not be completed.'
     )
-    if (result !== undefined) setMessage(result)
+    if (result !== undefined) {
+      setTestResults((current) => ({ ...current, [selectedSource.sourceId]: result }))
+    }
   }
 
   const updateSnapshot = async (
@@ -245,7 +245,8 @@ export function ImageProviderWorkspace({
     failure: string
   ): Promise<void> => {
     const next = await run(label, operation, failure)
-    if (next !== undefined) onSnapshotChange(next)
+    if (next === undefined) return
+    acceptSnapshot(next, label === 'model-enabled' || label === 'remove-model')
   }
 
   const removeSource = async (): Promise<void> => {
@@ -257,10 +258,25 @@ export function ImageProviderWorkspace({
     )
     setConfirmRemove(false)
     if (next === undefined) return
-    onSnapshotChange(next)
-    setSelectedSourceId(next.imageCatalog.sources[0]?.sourceId ?? null)
-    if (next.imageCatalog.sources.length === 0) setDraft(null)
+    acceptSnapshot(next, true)
+    showSource(next.imageCatalog.sources[0])
   }
+
+  function showSource(source: ImageSourceStatus | undefined): void {
+    setSelectedSourceId(source?.sourceId ?? null)
+    setDraft(source ? draftFromSource(source) : null)
+    setApiKey('')
+  }
+
+  function acceptSnapshot(next: ProviderSettingsSnapshot, reportDefaultRemoved: boolean): void {
+    if (reportDefaultRemoved && catalog.defaultSelection && !next.imageCatalog.defaultSelection) {
+      setDefaultNotice(true)
+    }
+    if (next.imageCatalog.defaultSelection) setDefaultNotice(false)
+    onSnapshotChange(next)
+  }
+
+  const requestLeave = useSettingsDraft(unsaved, save, () => showSource(selectedSource))
 
   const beginAddSource = (): void => {
     setSelectedSourceId(null)
@@ -271,60 +287,61 @@ export function ImageProviderWorkspace({
       projectId: ''
     })
     setApiKey('')
-    setMessage(null)
     setAddOpen(false)
     setNewName('')
   }
 
-  const defaultValue =
-    catalog.defaultSelection === null ? undefined : selectionKey(catalog.defaultSelection)
-  const groups = selectableImageModels(catalog)
+  const defaultSelection = catalog.defaultSelection
+  const defaultSource = catalog.sources.find(
+    (source) => source.sourceId === defaultSelection?.sourceId
+  )
+  const defaultModel = defaultSource?.models.find((model) => model.id === defaultSelection?.modelId)
+  const groups = selectableImageModels(catalog).map(({ source, models }) => ({
+    id: source.sourceId,
+    label: source.name,
+    models: models.map((model) => ({
+      value: selectionKey({ sourceId: source.sourceId, modelId: model.id }),
+      label: model.name,
+      keywords: [model.id]
+    }))
+  }))
+  const setDefault = (selection: ImageModelSelection | null): void => {
+    void updateSnapshot(
+      'default',
+      () => window.desktop.providers.setImageDefault(selection),
+      'The default image model could not be changed.'
+    )
+  }
 
   return (
     <>
       <div className='grid h-full min-h-0 grid-cols-[18rem_minmax(0,1fr)] overflow-hidden'>
         <section className='flex min-h-0 flex-col border-r'>
-          <div className={panelHeaderClassName}>
-            <PanelTitle icon={ImageIcon} title='Image sources' />
-          </div>
           <div className='flex flex-col gap-3 border-b p-4'>
-            <Field>
-              <FieldLabel htmlFor='image-default-model'>Default image model</FieldLabel>
-              <Select
-                value={defaultValue}
-                disabled={busy !== null || groups.length === 0}
-                onValueChange={(value) =>
-                  void updateSnapshot(
-                    'default',
-                    () => window.desktop.providers.setImageDefault(parseSelectionKey(value)),
-                    'The default image model could not be changed.'
-                  )
-                }
-              >
-                <SelectTrigger id='image-default-model'>
-                  <SelectValue placeholder='Choose a model' />
-                </SelectTrigger>
-                <SelectContent>
-                  {groups.map(({ source, models }) => (
-                    <SelectGroup key={source.sourceId}>
-                      <SelectLabel>{source.name}</SelectLabel>
-                      {models.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={selectionKey({ sourceId: source.sourceId, modelId: model.id })}
-                        >
-                          {model.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-              <FieldDescription>
-                Conversations can override it. Requests never fall back to another model.
-              </FieldDescription>
-            </Field>
+            <DefaultModelSelector
+              id='image-default-model'
+              groups={groups}
+              value={defaultSelection === null ? null : selectionKey(defaultSelection)}
+              disabled={busy !== null}
+              onValueChange={(value) =>
+                setDefault(value === null ? null : parseSelectionKey(value))
+              }
+              unavailable={
+                defaultSelection === null
+                  ? undefined
+                  : {
+                      label: `${defaultSource?.name ?? defaultSelection.sourceId} · ${defaultModel?.name ?? defaultSelection.modelId}`,
+                      reason: defaultSource?.issues[0] ?? 'The selected model is unavailable.'
+                    }
+              }
+            />
+            {defaultNotice ? (
+              <p role='status' className='text-sm text-muted-foreground'>
+                Default model cleared. Choose another model to generate images.
+              </p>
+            ) : null}
           </div>
+          <h3 className='px-4 pt-3 text-sm font-medium'>Sources</h3>
           <ScrollArea className='min-h-0 flex-1'>
             <div className='flex flex-col gap-1 p-2' data-testid='image-source-list'>
               {catalog.sources.map((source) => (
@@ -333,7 +350,10 @@ export function ImageProviderWorkspace({
                   data-image-source-id={source.sourceId}
                   variant={source.sourceId === selectedSourceId ? 'secondary' : 'ghost'}
                   className='h-auto min-w-0 justify-start px-3 py-2'
-                  onClick={() => setSelectedSourceId(source.sourceId)}
+                  disabled={busy !== null}
+                  onClick={() => {
+                    if (source.sourceId !== selectedSourceId) requestLeave(() => showSource(source))
+                  }}
                 >
                   <ProviderLogo
                     logoId={imageSourceLogoId(draftFromSource(source))}
@@ -341,11 +361,6 @@ export function ImageProviderWorkspace({
                   />
                   <span className='min-w-0 flex-1 text-left'>
                     <span className='block truncate'>{source.name}</span>
-                    <span className='block truncate text-xs text-muted-foreground'>
-                      {source.available
-                        ? `${source.label} · ${source.models.filter((model) => model.enabled).length} enabled`
-                        : `${source.label} · not connected`}
-                    </span>
                   </span>
                   {catalog.defaultSelection?.sourceId === source.sourceId ? (
                     <Check aria-label='Default source' className='shrink-0' />
@@ -355,7 +370,12 @@ export function ImageProviderWorkspace({
             </div>
           </ScrollArea>
           <div className='border-t p-3'>
-            <Button className='w-full' variant='outline' onClick={() => setAddOpen(true)}>
+            <Button
+              className='w-full'
+              variant='outline'
+              disabled={busy !== null}
+              onClick={() => requestLeave(() => setAddOpen(true))}
+            >
               <Plus data-icon='inline-start' /> Add source
             </Button>
           </div>
@@ -376,7 +396,11 @@ export function ImageProviderWorkspace({
                   </EmptyDescription>
                 </EmptyHeader>
                 <EmptyContent>
-                  <Button variant='outline' onClick={() => setAddOpen(true)}>
+                  <Button
+                    variant='outline'
+                    disabled={busy !== null}
+                    onClick={() => requestLeave(() => setAddOpen(true))}
+                  >
                     <Plus data-icon='inline-start' /> Add source
                   </Button>
                 </EmptyContent>
@@ -392,24 +416,16 @@ export function ImageProviderWorkspace({
                       <h2 className='truncate text-xl font-semibold'>
                         {draft.name.trim() || 'New image source'}
                       </h2>
-                      <Badge variant='outline'>{IMAGE_TRANSPORT_LABELS[draft.providerId]}</Badge>
                     </div>
-                    <p className='text-sm text-muted-foreground'>
-                      {selectedSource === undefined
-                        ? 'Not saved'
-                        : selectedSource.available
-                          ? 'Connected'
-                          : (selectedSource.issues[0] ?? 'Not connected')}
-                    </p>
+                    {selectedSource && !selectedSource.available && selectedSource.issues[0] ? (
+                      <p className='text-sm text-muted-foreground'>{selectedSource.issues[0]}</p>
+                    ) : null}
                   </div>
                   <div className='flex shrink-0 items-center gap-2'>
                     {unsaved && selectedSource !== undefined ? (
                       <Badge variant='secondary'>Unsaved changes</Badge>
                     ) : null}
-                    <Button
-                      disabled={busy !== null || !unsaved || draft.name.trim() === ''}
-                      onClick={() => void save()}
-                    >
+                    <Button disabled={busy !== null || !canSave} onClick={() => void save()}>
                       {busy === 'save' ? <Spinner data-icon='inline-start' /> : null}
                       {selectedSource === undefined ? 'Save source' : 'Save changes'}
                     </Button>
@@ -425,117 +441,120 @@ export function ImageProviderWorkspace({
                   </Alert>
                 ) : null}
 
-                {message ? (
-                  <Alert variant={message.ok ? 'default' : 'destructive'}>
-                    {message.ok ? <CheckCircle2 /> : <AlertCircle />}
-                    <AlertTitle>{message.ok ? 'Connected' : 'Connection failed'}</AlertTitle>
-                    <AlertDescription>
-                      {message.message} ({message.durationMs} ms)
-                    </AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <FieldGroup>
-                  <ConfigField label='Source name'>
-                    <Input
-                      value={draft.name}
-                      onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                    />
-                  </ConfigField>
-                  {draft.providerId === 'openai' || draft.providerId === 'xai' ? (
-                    <ConfigField
-                      label='Base URL'
-                      description='Leave empty for the official endpoint. Changing the endpoint removes the stored key.'
-                    >
+                <section className='flex min-w-0 flex-col gap-4' aria-label='Connection'>
+                  <h3 className='font-medium'>Connection</h3>
+                  <FieldGroup>
+                    <div>
+                      <p className='text-sm font-medium'>Source type</p>
+                      <p className='text-sm'>{IMAGE_TRANSPORT_LABELS[draft.providerId]}</p>
+                    </div>
+                    <ConfigField label='Source name'>
                       <Input
-                        value={draft.baseUrl}
-                        autoComplete='url'
-                        placeholder={OFFICIAL_IMAGE_BASE_URLS[draft.providerId]}
-                        onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
+                        value={draft.name}
+                        disabled={busy === 'save'}
+                        onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                       />
                     </ConfigField>
-                  ) : null}
-                  {vertex ? (
-                    <>
-                      <ConfigField label='Google Cloud Project ID'>
+                    {draft.providerId === 'openai' || draft.providerId === 'xai' ? (
+                      <ConfigField
+                        label='Base URL'
+                        description='Leave empty for the official endpoint. Changing the endpoint removes the stored key.'
+                      >
                         <Input
-                          value={draft.projectId}
-                          autoComplete='off'
-                          placeholder='my-google-cloud-project'
-                          onChange={(event) =>
-                            setDraft({ ...draft, projectId: event.target.value })
-                          }
+                          value={draft.baseUrl}
+                          disabled={busy === 'save'}
+                          autoComplete='url'
+                          placeholder={OFFICIAL_IMAGE_BASE_URLS[draft.providerId]}
+                          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
                         />
                       </ConfigField>
-                      <Alert>
-                        <ShieldAlert />
-                        <AlertTitle>Application Default Credentials</AlertTitle>
-                        <AlertDescription>
-                          Uses the local Google Cloud ADC account in the global location. Run gcloud
-                          auth application-default login on this computer, enable Vertex AI for the
-                          project, and grant that identity roles/aiplatform.user. No Google
-                          credential is saved by WriteLLM.
-                        </AlertDescription>
-                      </Alert>
-                    </>
-                  ) : (
-                    <ConfigField label='API key'>
-                      <Input
-                        type='password'
-                        value={apiKey}
-                        autoComplete='new-password'
-                        placeholder={
-                          selectedSource?.configured
-                            ? 'Stored — enter a new value to replace'
-                            : 'Required'
-                        }
-                        onChange={(event) => setApiKey(event.target.value)}
-                      />
-                    </ConfigField>
-                  )}
-                </FieldGroup>
-
-                {selectedSource !== undefined ? (
-                  <>
+                    ) : null}
+                    {vertex ? (
+                      <>
+                        <ConfigField label='Google Cloud Project ID'>
+                          <Input
+                            value={draft.projectId}
+                            disabled={busy === 'save'}
+                            autoComplete='off'
+                            placeholder='my-google-cloud-project'
+                            onChange={(event) =>
+                              setDraft({ ...draft, projectId: event.target.value })
+                            }
+                          />
+                        </ConfigField>
+                        <Alert>
+                          <ShieldAlert />
+                          <AlertTitle>Application Default Credentials</AlertTitle>
+                          <AlertDescription>
+                            Uses the local Google Cloud ADC account in the global location. Run
+                            gcloud auth application-default login on this computer, enable Vertex AI
+                            for the project, and grant that identity roles/aiplatform.user. No
+                            Google credential is saved by WriteLLM.
+                          </AlertDescription>
+                        </Alert>
+                      </>
+                    ) : (
+                      <ConfigField label='API key'>
+                        <Input
+                          type='password'
+                          value={apiKey}
+                          disabled={busy === 'save'}
+                          autoComplete='new-password'
+                          placeholder={
+                            selectedSource?.configured
+                              ? 'Stored — enter a new value to replace'
+                              : 'Required'
+                          }
+                          onChange={(event) => setApiKey(event.target.value)}
+                        />
+                      </ConfigField>
+                    )}
+                  </FieldGroup>
+                  {selectedSource !== undefined ? (
                     <div className='flex flex-wrap gap-2'>
                       <Button
                         variant='outline'
-                        disabled={busy !== null || selectedSource.config === null}
+                        disabled={busy !== null || unsaved || selectedSource.config === null}
                         onClick={() => void testConnection()}
                       >
                         {busy === 'test' ? <Spinner data-icon='inline-start' /> : null}
                         Test connection
                       </Button>
                     </div>
+                  ) : null}
+                  {message ? (
+                    <Alert variant={message.ok ? 'default' : 'destructive'}>
+                      {message.ok ? <CheckCircle2 /> : <AlertCircle />}
+                      <AlertTitle>{message.ok ? 'Connected' : 'Connection failed'}</AlertTitle>
+                      <AlertDescription>
+                        {message.message} ({message.durationMs} ms)
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+                </section>
 
-                    <ModelCatalogRefresh
-                      candidates={selectedSource.modelCandidates}
-                      catalog={selectedSource.catalog}
-                      busy={busy === 'refresh-models'}
-                      disabled={busy !== null || unsaved}
-                      onRefresh={() =>
-                        void updateSnapshot(
-                          'refresh-models',
-                          () =>
-                            window.desktop.providers.refreshImageModels({
-                              sourceId: selectedSource.sourceId
-                            }),
-                          'The image model catalog could not be refreshed.'
-                        )
-                      }
-                    />
+                {selectedSource !== undefined ? (
+                  <>
                     <Separator />
                     <section className='flex min-w-0 flex-col gap-4'>
                       <div className='flex flex-wrap items-end gap-3'>
-                        <div className='min-w-0 flex-1'>
-                          <h3 className='flex items-center gap-2 font-medium'>
-                            <Boxes className='size-4 text-muted-foreground' aria-hidden='true' />
-                            Models
-                          </h3>
-                          <p className='text-sm text-muted-foreground'>
-                            Built-in models for {selectedSource.label}, plus model IDs you add.
-                          </p>
-                        </div>
+                        <h3 className='min-w-0 flex-1 font-medium'>Models</h3>
+                        <ModelCatalogRefresh
+                          candidates={selectedSource.modelCandidates}
+                          catalog={selectedSource.catalog}
+                          busy={busy === 'refresh-models'}
+                          disabled={busy !== null || unsaved}
+                          onRefresh={() =>
+                            void updateSnapshot(
+                              'refresh-models',
+                              () =>
+                                window.desktop.providers.refreshImageModels({
+                                  sourceId: selectedSource.sourceId
+                                }),
+                              'The image model catalog could not be refreshed.'
+                            )
+                          }
+                        />
                         <Button
                           variant='outline'
                           disabled={busy !== null}
@@ -574,9 +593,6 @@ export function ImageProviderWorkspace({
                               <div className='min-w-48 flex-1'>
                                 <div className='flex min-w-0 flex-wrap items-center gap-2'>
                                   <span className='truncate text-sm font-medium'>{model.name}</span>
-                                  {model.source === 'manual' ? (
-                                    <Badge variant='outline'>manual</Badge>
-                                  ) : null}
                                 </div>
                                 <div className='truncate text-xs text-muted-foreground'>
                                   {model.id} · {model.imageSizes.join(', ')}
@@ -590,58 +606,59 @@ export function ImageProviderWorkspace({
                                   busy !== null || !model.enabled || !selectedSource.available
                                 }
                                 onClick={() =>
-                                  void updateSnapshot(
-                                    'default',
-                                    () =>
-                                      window.desktop.providers.setImageDefault({
-                                        sourceId: selectedSource.sourceId,
-                                        modelId: model.id
-                                      }),
-                                    'The default image model could not be changed.'
-                                  )
+                                  setDefault({
+                                    sourceId: selectedSource.sourceId,
+                                    modelId: model.id
+                                  })
                                 }
                               >
                                 {isDefault ? <Check /> : <Star />}
                               </Button>
                               {model.source === 'manual' ? (
-                                <>
-                                  <Button
-                                    size='icon-sm'
-                                    variant='ghost'
-                                    aria-label={`Edit ${model.name}`}
-                                    onClick={() =>
-                                      setModelDialog({
-                                        open: true,
-                                        initial: {
-                                          id: model.id,
-                                          name: model.name,
-                                          imageSizes: model.imageSizes
-                                        }
-                                      })
-                                    }
-                                  >
-                                    <ChevronRight />
-                                  </Button>
-                                  <Button
-                                    size='icon-sm'
-                                    variant='ghost'
-                                    aria-label={`Remove ${model.name}`}
-                                    disabled={busy !== null}
-                                    onClick={() =>
-                                      void updateSnapshot(
-                                        'remove-model',
-                                        () =>
-                                          window.desktop.providers.removeImageManualModel({
-                                            sourceId: selectedSource.sourceId,
-                                            modelId: model.id
-                                          }),
-                                        'The image model could not be removed.'
-                                      )
-                                    }
-                                  >
-                                    <Trash2 />
-                                  </Button>
-                                </>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      size='icon-sm'
+                                      variant='ghost'
+                                      aria-label={`Manage ${model.name}`}
+                                      disabled={busy !== null}
+                                    >
+                                      <Ellipsis />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align='end'>
+                                    <DropdownMenuItem
+                                      onSelect={() =>
+                                        setModelDialog({
+                                          open: true,
+                                          initial: {
+                                            id: model.id,
+                                            name: model.name,
+                                            imageSizes: model.imageSizes
+                                          }
+                                        })
+                                      }
+                                    >
+                                      Edit model
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      variant='destructive'
+                                      onSelect={() =>
+                                        void updateSnapshot(
+                                          'remove-model',
+                                          () =>
+                                            window.desktop.providers.removeImageManualModel({
+                                              sourceId: selectedSource.sourceId,
+                                              modelId: model.id
+                                            }),
+                                          'The image model could not be removed.'
+                                        )
+                                      }
+                                    >
+                                      Remove model
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               ) : null}
                             </div>
                           )

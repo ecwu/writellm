@@ -167,6 +167,14 @@ export const providersApi: DesktopApi['providers'] = {
       )
     )
   },
+  async testAgentPreset(input) {
+    return providerConnectionTestResultSchema.parse(
+      await ipcRenderer.invoke(
+        IPC_CHANNELS.providersTestAgentPreset,
+        agentModelSelectionSchema.parse(input)
+      )
+    )
+  },
   async refreshAgentPreset(input) {
     return providerSettingsSnapshotSchema.parse(
       await ipcRenderer.invoke(

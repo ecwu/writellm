@@ -153,6 +153,7 @@ export interface DesktopApi {
     setImageModelEnabled(input: ImageModelEnabledInput): Promise<ProviderSettingsSnapshot>
     saveAgentPreset(input: AgentCustomPresetInput): Promise<ProviderSettingsSnapshot>
     removeAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
+    testAgentPreset(input: AgentModelSelection): Promise<ProviderConnectionTestResult>
     refreshAgentPreset(input: AgentPresetInput): Promise<ProviderSettingsSnapshot>
     setAgentDefault(selection: AgentModelSelection | null): Promise<ProviderSettingsSnapshot>
     setAgentCredential(input: AgentPresetCredentialInput): Promise<ProviderSettingsSnapshot>

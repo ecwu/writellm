@@ -1566,6 +1566,9 @@ Write-type agent tools remain sequential even when Pi permits parallel tool exec
 ## Secrets And Provider Configuration
 
 Provider configuration is application-global because credentials are device/user concerns, not portable project content.
+[ADR 095](adrs/095-purpose-model-defaults.md) defines explicit defaults by purpose and migration of existing selections.
+The planned storage expansion requires each embedding generation to retain its original model contract.
+It also requires each submitted MinerU task to retain its source and mode across default changes and recovery.
 
 - The application-global image role is a list of source instances over the four reviewed
   transports (ADRs 051, 052, and 093). Instances are independently bound and can coexist; Gemini,
@@ -1769,7 +1772,8 @@ audio forwarding from synchronous CPU work. Renderer captures bounded PCM16 thro
 same-origin Worklet; Main authorizes every project operation and owns credentials and lifecycle.
 Audio and partial transcripts remain transient.
 
-Speech Settings owns the single active source choice. Each source keeps its model and realtime/file mode.
+The ADR 094 storage layout records one model and realtime/file mode per source. Speech Settings selects the active source.
+ADR 095 specifies a migration to a default model configuration. Each source will then support several model and mode combinations.
 Recognition snapshots the resolved configuration. There is no conversation override or source fallback.
 Image and speech model discovery is explicit, bounded, and source-bound. A failed refresh retains the last successful candidate list.
 Discovered IDs do not establish endpoint capabilities. Manual model configuration and separate connection tests remain available.

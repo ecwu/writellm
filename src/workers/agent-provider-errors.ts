@@ -73,7 +73,7 @@ export function providerErrorDetails(
   }
 }
 
-function readProviderStatus(value: unknown): number | undefined {
+export function readProviderStatus(value: unknown): number | undefined {
   for (const key of ['httpStatus', 'statusCode', 'status'] as const) {
     const status = readProviderProperty(value, key)
     if (typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599) {

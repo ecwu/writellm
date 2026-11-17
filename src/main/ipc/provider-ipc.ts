@@ -45,7 +45,7 @@ export interface ProviderIpcMain {
 
 export interface RegisterProviderIpcOptions {
   providers: ProviderService
-  onConfigurationChanged?: () => void
+  onConfigurationChanged?: (autocompleteDefaultCleared?: true) => void
   logger: Logger
   developmentUrl?: string
   ipc?: ProviderIpcMain
@@ -60,8 +60,10 @@ export function registerProviderIpc({
   ipc = ipcMain,
   openExternal = (url) => shell.openExternal(url)
 }: RegisterProviderIpcOptions): () => void {
-  const readOnlyChannels = new Set<string>([
+  const configurationHandledChannels = new Set<string>([
     IPC_CHANNELS.providersSnapshot,
+    IPC_CHANNELS.providersSetAgentProviderEnabled,
+    IPC_CHANNELS.providersTestAgentPreset,
     IPC_CHANNELS.providersTestConnection,
     IPC_CHANNELS.providersTestImageSource,
     IPC_CHANNELS.providersRespondAgentAuth,
@@ -75,7 +77,7 @@ export function registerProviderIpc({
       } finally {
         // A mutation may commit before its status projection fails. Revoke old
         // autocomplete work even when that projection cannot be returned.
-        if (!readOnlyChannels.has(channel)) onConfigurationChanged?.()
+        if (!configurationHandledChannels.has(channel)) onConfigurationChanged?.()
       }
     })
   }
@@ -201,6 +203,12 @@ export function registerProviderIpc({
     const { presetId } = agentPresetInputSchema.parse(rawInput)
     return providerSettingsSnapshotSchema.parse(await providers.removeAgentPreset(presetId))
   })
+  handle(IPC_CHANNELS.providersTestAgentPreset, async (event, rawInput) => {
+    authorizeSender(event.senderFrame, developmentUrl)
+    return providerConnectionTestResultSchema.parse(
+      await providers.testAgentPreset(agentModelSelectionSchema.parse(rawInput))
+    )
+  })
   handle(IPC_CHANNELS.providersRefreshAgentPreset, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId } = agentPresetInputSchema.parse(rawInput)
@@ -227,9 +235,16 @@ export function registerProviderIpc({
   handle(IPC_CHANNELS.providersSetAgentProviderEnabled, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
     const { presetId, enabled } = agentProviderEnabledInputSchema.parse(rawInput)
-    return providerSettingsSnapshotSchema.parse(
-      await providers.setAgentProviderEnabled(presetId, enabled)
-    )
+    let autocompleteDefaultCleared: true | undefined
+    try {
+      return providerSettingsSnapshotSchema.parse(
+        await providers.setAgentProviderEnabled(presetId, enabled, () => {
+          autocompleteDefaultCleared = true
+        })
+      )
+    } finally {
+      onConfigurationChanged?.(autocompleteDefaultCleared)
+    }
   })
   handle(IPC_CHANNELS.providersSetAgentModelEnabled, async (event, rawInput) => {
     authorizeSender(event.senderFrame, developmentUrl)
@@ -367,6 +382,7 @@ export function registerProviderIpc({
       IPC_CHANNELS.providersSetImageModelEnabled,
       IPC_CHANNELS.providersSaveAgentPreset,
       IPC_CHANNELS.providersRemoveAgentPreset,
+      IPC_CHANNELS.providersTestAgentPreset,
       IPC_CHANNELS.providersRefreshAgentPreset,
       IPC_CHANNELS.providersSetAgentDefault,
       IPC_CHANNELS.providersSetAgentCredential,

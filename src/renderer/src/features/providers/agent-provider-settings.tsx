@@ -1,12 +1,12 @@
 import { reportRendererOperationError } from '../../diagnostics'
-import { useEffect, useState } from 'react'
-import { PanelTitle, panelHeaderClassName } from '@/components/panel-header'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  AlertCircle,
   Boxes,
-  ArrowLeft,
   Bot,
   Check,
-  ChevronRight,
+  CheckCircle2,
+  Ellipsis,
   KeyRound,
   Plus,
   RefreshCw,
@@ -15,13 +15,16 @@ import {
   Star,
   Trash2
 } from 'lucide-react'
-import type {
-  AgentAuthInteractionEvent,
-  AgentManualModel,
-  AgentProviderPresetSummary,
-  CustomAgentPiApi,
-  PiApi,
-  ProviderSettingsSnapshot
+import {
+  providerBaseUrlSchema,
+  type AgentAuthInteractionEvent,
+  type AgentManualModel,
+  type AgentModelSelection,
+  type AgentProviderPresetSummary,
+  type CustomAgentPiApi,
+  type PiApi,
+  type ProviderConnectionTestResult,
+  type ProviderSettingsSnapshot
 } from '../../../../shared/contracts/providers'
 import { resolveModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
 import type { ModelsDevProviderLogoId } from '../../../../shared/models-dev-provider-logos'
@@ -48,15 +51,15 @@ import {
   DialogHeader,
   DialogTitle
 } from '@/components/ui/dialog'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle
-} from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -71,14 +74,23 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
-import { cn } from '@/lib/utils'
 import { orderEnabledAgentProvidersFirst } from './agent-provider-order'
 import {
   ConfigField,
   customTransports,
   type ProviderSettingsWorkspaceProps
 } from './provider-settings-common'
+import { DefaultModelSelector } from './default-model-selector'
 import { ManualModelDialog } from './manual-model-dialog'
+import { useSettingsDraft } from './settings-draft-guard'
+
+interface TestedAgentConnection {
+  modelId: string
+  modelApi: PiApi
+  baseUrl: string | undefined
+  authSource: string | null
+  result: ProviderConnectionTestResult
+}
 
 export interface AgentDraft {
   presetId?: string
@@ -93,11 +105,19 @@ export function AgentProviderWorkspace({
   snapshot,
   closeAction,
   onSnapshotChange,
-  onError
-}: ProviderSettingsWorkspaceProps): React.JSX.Element {
-  const orderedPresets = orderEnabledAgentProvidersFirst(snapshot.agentCatalog.presets)
+  onError,
+  initialPresetId
+}: ProviderSettingsWorkspaceProps & { initialPresetId?: string }): React.JSX.Element {
+  const { presets: savedPresets, defaultSelection } = snapshot.agentCatalog
+  const orderedPresets = useMemo(
+    () => orderEnabledAgentProvidersFirst(savedPresets),
+    [savedPresets]
+  )
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
-    orderedPresets[0]?.presetId ?? null
+    () =>
+      savedPresets.find((preset) => preset.presetId === initialPresetId)?.presetId ??
+      orderedPresets[0]?.presetId ??
+      null
   )
   const [providerSearch, setProviderSearch] = useState('')
   const [modelSearch, setModelSearch] = useState('')
@@ -110,13 +130,65 @@ export function AgentProviderWorkspace({
   const [manualModel, setManualModel] = useState<AgentManualModel | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
-  const [mobileDetail, setMobileDetail] = useState(false)
+  const [testResults, setTestResults] = useState<Record<string, TestedAgentConnection>>({})
+  const [defaultCleared, setDefaultCleared] = useState(false)
   const [authFlowId, setAuthFlowId] = useState<string | null>(null)
   const [authEvent, setAuthEvent] = useState<AgentAuthInteractionEvent | null>(null)
   const [authValue, setAuthValue] = useState('')
 
-  const selectedPreset =
-    snapshot.agentCatalog.presets.find((preset) => preset.presetId === selectedPresetId) ?? null
+  const selectedPreset = savedPresets.find((preset) => preset.presetId === selectedPresetId) ?? null
+  const defaultPreset = orderedPresets.find(
+    (preset) => preset.presetId === defaultSelection?.presetId
+  )
+  const defaultModel = defaultPreset?.models.find((model) => model.id === defaultSelection?.modelId)
+  const testModel =
+    selectedPreset?.models.find(
+      (model) =>
+        selectedPreset.presetId === defaultSelection?.presetId &&
+        model.id === defaultSelection.modelId &&
+        model.enabled
+    ) ?? selectedPreset?.models.find((model) => model.enabled)
+  const testedConnection =
+    selectedPreset === null ? undefined : testResults[selectedPreset.presetId]
+  const testResult =
+    selectedPreset?.enabled &&
+    selectedPreset.authConfigured &&
+    testedConnection?.modelId === testModel?.id &&
+    testedConnection?.modelApi === testModel?.api &&
+    testedConnection?.baseUrl === selectedPreset.baseUrl &&
+    testedConnection?.authSource === selectedPreset.authSource
+      ? testedConnection?.result
+      : undefined
+  const defaultUnavailable =
+    defaultSelection === null
+      ? undefined
+      : {
+          label: `${defaultPreset?.name ?? defaultSelection.presetId} · ${defaultModel?.name ?? defaultSelection.modelId}`,
+          reason:
+            defaultModel === undefined
+              ? 'The selected model is missing from its source.'
+              : !defaultPreset?.authConfigured
+                ? 'Configure authentication for this source.'
+                : 'The selected source or model is disabled.'
+        }
+  const defaultGroups = useMemo(
+    () =>
+      orderedPresets
+        .filter((preset) => preset.enabled && preset.authConfigured)
+        .map((preset) => ({
+          id: preset.presetId,
+          label: preset.name,
+          models: preset.models
+            .filter((model) => model.enabled)
+            .map((model) => ({
+              value: modelSelectionKey({ presetId: preset.presetId, modelId: model.id }),
+              label: model.name,
+              keywords: [model.id]
+            }))
+        }))
+        .filter((group) => group.models.length > 0),
+    [orderedPresets]
+  )
   const savedAuthMode = selectedPreset?.authMethods.includes('none') ? 'none' : 'api_key'
   const providerHasUnsavedChanges =
     draft !== null &&
@@ -124,6 +196,7 @@ export function AgentProviderWorkspace({
       draft.name.trim() !== selectedPreset.name ||
       draft.logoOverrideId !== selectedPreset.logoOverrideId ||
       draft.baseUrl.trim() !== (selectedPreset.baseUrl ?? '') ||
+      draft.api !== (selectedPreset.api ?? 'openai-completions') ||
       draft.authMode !== savedAuthMode ||
       apiKey.trim() !== '')
   const providerCanSave =
@@ -133,20 +206,55 @@ export function AgentProviderWorkspace({
     busy === null &&
     providerHasUnsavedChanges
 
+  const savedPresetId = selectedPreset?.presetId
+  const savedName = selectedPreset?.name ?? ''
+  const savedLogo = selectedPreset?.logoOverrideId ?? null
+  const savedBaseUrl = selectedPreset?.baseUrl ?? ''
+  const savedApi = selectedPreset?.api ?? 'openai-completions'
+  const draftBaseUrl = providerBaseUrlSchema.safeParse(draft?.baseUrl.trim())
+  const connectionIdentityChanged =
+    selectedPreset?.kind === 'custom' &&
+    draft?.presetId === selectedPreset.presetId &&
+    selectedPreset.baseUrl !== undefined &&
+    draftBaseUrl.success &&
+    (new URL(draftBaseUrl.data).origin !== new URL(selectedPreset.baseUrl).origin ||
+      draft.authMode !== savedAuthMode ||
+      draft.api !== savedApi)
+  const clearsStoredCredential =
+    connectionIdentityChanged &&
+    savedAuthMode === 'api_key' &&
+    selectedPreset.authConfigured &&
+    (draft.authMode === 'none' || apiKey.trim() === '')
+  const clearsDiscoveredCatalog = connectionIdentityChanged && selectedPreset.checkedAt !== null
+
   useEffect(() => {
-    if (selectedPreset !== null) {
+    if (savedPresetId !== undefined) {
       setDraft({
-        presetId: selectedPreset.presetId,
-        name: selectedPreset.name,
-        logoOverrideId: selectedPreset.logoOverrideId,
-        baseUrl: selectedPreset.baseUrl ?? '',
-        api: selectedPreset.api ?? 'openai-completions',
-        authMode: selectedPreset.authMethods.includes('none') ? 'none' : 'api_key'
+        presetId: savedPresetId,
+        name: savedName,
+        logoOverrideId: savedLogo,
+        baseUrl: savedBaseUrl,
+        api: savedApi,
+        authMode: savedAuthMode
       })
-      setApiKey('')
-      setModelSearch('')
     }
-  }, [selectedPreset])
+  }, [savedPresetId, savedName, savedLogo, savedBaseUrl, savedApi, savedAuthMode])
+
+  const discardDraft = (): void => {
+    setDraft(
+      savedPresetId === undefined
+        ? null
+        : {
+            presetId: savedPresetId,
+            name: savedName,
+            logoOverrideId: savedLogo,
+            baseUrl: savedBaseUrl,
+            api: savedApi,
+            authMode: savedAuthMode
+          }
+    )
+    setApiKey('')
+  }
 
   const providerDisplayName = (preset: AgentProviderPresetSummary): string =>
     preset.presetId === selectedPresetId && draft?.presetId === preset.presetId
@@ -157,8 +265,8 @@ export function AgentProviderWorkspace({
       ? null
       : resolveModelsDevProviderLogoId({
           providerId: selectedPreset?.providerId ?? 'writellm-custom:draft',
-          name: draft.name,
-          baseUrl: draft.baseUrl,
+          name: draft.name.trim(),
+          baseUrl: draft.baseUrl.trim(),
           logoOverrideId: null
         })
   const draftLogoId = draft?.logoOverrideId ?? draftAutomaticLogoId
@@ -179,11 +287,6 @@ export function AgentProviderWorkspace({
     onSnapshotChange(next)
   }
 
-  const choosePreset = (presetId: string): void => {
-    setSelectedPresetId(presetId)
-    setMobileDetail(true)
-  }
-
   const beginAddProvider = (): void => {
     if (newProviderName.trim() === '') return
     setSelectedPresetId(null)
@@ -197,44 +300,101 @@ export function AgentProviderWorkspace({
     setApiKey('')
     setAddProviderOpen(false)
     setNewProviderName('')
-    setMobileDetail(true)
+    setModelSearch('')
   }
 
-  const savePreset = async (): Promise<void> => {
-    if (draft === null || draft.baseUrl.trim() === '') return
-    setBusy('save-preset')
+  const resetTestResult = (presetId: string, modelId?: string): void => {
+    setTestResults((results) => {
+      if (modelId !== undefined && results[presetId]?.modelId !== modelId) return results
+      const { [presetId]: _, ...remaining } = results
+      return remaining
+    })
+  }
+
+  const testConnection = async (): Promise<void> => {
+    if (
+      busy !== null ||
+      providerHasUnsavedChanges ||
+      !selectedPreset?.enabled ||
+      !selectedPreset.authConfigured ||
+      !testModel
+    )
+      return
+    const { presetId, baseUrl, authSource } = selectedPreset
+    setBusy('test-connection')
+    resetTestResult(presetId)
     try {
-      const next = await window.desktop.providers.saveAgentPreset({
-        ...(draft.presetId === undefined ? {} : { presetId: draft.presetId }),
-        name: draft.name,
-        logoOverrideId: draft.logoOverrideId,
-        baseUrl: draft.baseUrl,
-        api: draft.api,
-        authMode: draft.authMode,
-        ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
+      const result = await window.desktop.providers.testAgentPreset({
+        presetId,
+        modelId: testModel.id
       })
-      updateSnapshot(next)
-      const persisted =
-        draft.presetId === undefined
-          ? next.agentCatalog.presets.find(
-              (preset) =>
-                preset.kind === 'custom' &&
-                preset.name === draft.name &&
-                preset.baseUrl === draft.baseUrl
-            )
-          : next.agentCatalog.presets.find((preset) => preset.presetId === draft.presetId)
-      setSelectedPresetId(persisted?.presetId ?? null)
-      setApiKey('')
+      setTestResults((current) => ({
+        ...current,
+        [presetId]: { modelId: testModel.id, modelApi: testModel.api, baseUrl, authSource, result }
+      }))
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
-      onError('Custom Agent provider was not saved. Check its name, URL, and credential.')
+      onError('The Agent source connection test could not be completed.')
     } finally {
       setBusy(null)
     }
   }
 
-  const saveCredential = async (): Promise<void> => {
-    if (selectedPreset === null || apiKey.trim() === '') return
+  const savePreset = async (): Promise<boolean> => {
+    if (!providerCanSave || draft === null) {
+      onError(
+        busy !== null
+          ? 'Wait for the current source operation to finish.'
+          : 'Enter a source name and base URL before saving.'
+      )
+      return false
+    }
+    const name = draft.name.trim()
+    const baseUrl = draft.baseUrl.trim().replace(/\/+$/, '')
+    const previousIds = new Set(orderedPresets.map((preset) => preset.presetId))
+    setBusy('save-preset')
+    try {
+      const next = await window.desktop.providers.saveAgentPreset({
+        ...(draft.presetId === undefined ? {} : { presetId: draft.presetId }),
+        name,
+        logoOverrideId: draft.logoOverrideId,
+        baseUrl,
+        api: draft.api,
+        authMode: draft.authMode,
+        ...(apiKey.trim() === '' ? {} : { apiKey: apiKey.trim() })
+      })
+      updateSnapshot(next)
+      const persisted = next.agentCatalog.presets.find((preset) =>
+        draft.presetId === undefined
+          ? !previousIds.has(preset.presetId) && preset.kind === 'custom'
+          : preset.presetId === draft.presetId
+      )
+      if (persisted !== undefined) {
+        setSelectedPresetId(persisted.presetId)
+        if (connectionIdentityChanged || baseUrl !== savedBaseUrl || apiKey.trim() !== '') {
+          resetTestResult(persisted.presetId)
+        }
+      }
+      setApiKey('')
+      return true
+    } catch (err) {
+      reportRendererOperationError(err, 'agent-provider-settings')
+      onError('Custom Agent source was not saved. Check its name, URL, and credential.')
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const saveCredential = async (): Promise<boolean> => {
+    if (busy !== null || selectedPreset === null || apiKey.trim() === '') {
+      onError(
+        busy !== null
+          ? 'Wait for the current source operation to finish.'
+          : 'Select a source and enter its API key before saving.'
+      )
+      return false
+    }
     setBusy('credential')
     try {
       updateSnapshot(
@@ -243,24 +403,45 @@ export function AgentProviderWorkspace({
           apiKey: apiKey.trim()
         })
       )
+      resetTestResult(selectedPreset.presetId)
       setApiKey('')
+      return true
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
-      onError('The Agent provider credential could not be saved.')
+      onError('The Agent source credential could not be saved.')
+      return false
     } finally {
       setBusy(null)
     }
   }
 
+  const requestLeave = useSettingsDraft(
+    providerHasUnsavedChanges,
+    selectedPreset?.kind === 'builtin' ? saveCredential : savePreset,
+    discardDraft
+  )
+
+  const choosePreset = (presetId: string): void => {
+    if (presetId === selectedPresetId) return
+    requestLeave(() => {
+      setSelectedPresetId(presetId)
+      setApiKey('')
+      setModelSearch('')
+    })
+  }
+
+  const openAddProvider = (): void => requestLeave(() => setAddProviderOpen(true))
+
   const clearCredential = async (): Promise<void> => {
     if (selectedPreset === null) return
     setBusy('credential')
     try {
-      updateSnapshot(
+      updateAfterRemoval(
         await window.desktop.providers.clearAgentCredential({
           presetId: selectedPreset.presetId
         })
       )
+      resetTestResult(selectedPreset.presetId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('The Agent provider credential could not be cleared.')
@@ -278,10 +459,15 @@ export function AgentProviderWorkspace({
           presetId: selectedPreset.presetId
         })
       )
+      resetTestResult(selectedPreset.presetId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('Model discovery failed. The last successful catalog was retained.')
-      updateSnapshot(await window.desktop.providers.snapshot())
+      try {
+        updateSnapshot(await window.desktop.providers.snapshot())
+      } catch (snapshotError) {
+        reportRendererOperationError(snapshotError, 'agent-provider-settings')
+      }
     } finally {
       setBusy(null)
     }
@@ -291,12 +477,13 @@ export function AgentProviderWorkspace({
     if (selectedPreset === null) return
     setBusy('provider-toggle')
     try {
-      updateSnapshot(
+      updateAfterRemoval(
         await window.desktop.providers.setAgentProviderEnabled({
           presetId: selectedPreset.presetId,
           enabled
         })
       )
+      if (!enabled) resetTestResult(selectedPreset.presetId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('Provider availability could not be changed.')
@@ -309,13 +496,14 @@ export function AgentProviderWorkspace({
     if (selectedPreset === null) return
     setBusy(`model:${modelId}`)
     try {
-      updateSnapshot(
+      updateAfterRemoval(
         await window.desktop.providers.setAgentModelEnabled({
           presetId: selectedPreset.presetId,
           modelId,
           enabled
         })
       )
+      if (!enabled) resetTestResult(selectedPreset.presetId, modelId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('Model availability could not be changed.')
@@ -324,21 +512,38 @@ export function AgentProviderWorkspace({
     }
   }
 
-  const setDefaultModel = async (modelId: string): Promise<void> => {
-    if (selectedPreset === null) return
-    setBusy(`default:${modelId}`)
+  const setDefaultModel = async (selection: AgentModelSelection | null): Promise<void> => {
+    setBusy('default')
     try {
-      updateSnapshot(
-        await window.desktop.providers.setAgentDefault({
-          presetId: selectedPreset.presetId,
-          modelId
-        })
-      )
+      updateSnapshot(await window.desktop.providers.setAgentDefault(selection))
+      setDefaultCleared(false)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
-      onError('Only an enabled, authenticated model can be the default.')
+      onError('The Agent default model could not be saved.')
     } finally {
       setBusy(null)
+    }
+  }
+
+  const selectDefault = (value: string | null): void => {
+    if (value === null) {
+      void setDefaultModel(null)
+      return
+    }
+    const group = defaultGroups.find((source) =>
+      source.models.some((model) => model.value === value)
+    )
+    const preset = orderedPresets.find((source) => source.presetId === group?.id)
+    const model = preset?.models.find(
+      (model) => modelSelectionKey({ presetId: preset.presetId, modelId: model.id }) === value
+    )
+    if (preset && model) void setDefaultModel({ presetId: preset.presetId, modelId: model.id })
+  }
+
+  const updateAfterRemoval = (next: ProviderSettingsSnapshot): void => {
+    updateSnapshot(next)
+    if (defaultSelection !== null && next.agentCatalog.defaultSelection === null) {
+      setDefaultCleared(true)
     }
   }
 
@@ -352,6 +557,7 @@ export function AgentProviderWorkspace({
           model
         })
       )
+      resetTestResult(selectedPreset.presetId, model.id)
       setManualOpen(false)
       setManualModel(null)
     } catch (err) {
@@ -366,12 +572,13 @@ export function AgentProviderWorkspace({
     if (selectedPreset === null) return
     setBusy(`model:${modelId}`)
     try {
-      updateSnapshot(
+      updateAfterRemoval(
         await window.desktop.providers.removeAgentManualModel({
           presetId: selectedPreset.presetId,
           modelId
         })
       )
+      resetTestResult(selectedPreset.presetId, modelId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('The manual model could not be removed.')
@@ -387,12 +594,13 @@ export function AgentProviderWorkspace({
       const next = await window.desktop.providers.removeAgentPreset({
         presetId: selectedPreset.presetId
       })
-      updateSnapshot(next)
+      updateAfterRemoval(next)
+      setDraft(null)
       setSelectedPresetId(
         orderEnabledAgentProvidersFirst(next.agentCatalog.presets)[0]?.presetId ?? null
       )
       setConfirmRemove(false)
-      setMobileDetail(false)
+      resetTestResult(selectedPreset.presetId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('The Agent provider could not be removed.')
@@ -418,6 +626,7 @@ export function AgentProviderWorkspace({
           }
         )
       )
+      resetTestResult(selectedPreset.presetId)
     } catch (err) {
       reportRendererOperationError(err, 'agent-provider-settings')
       onError('Provider sign-in did not complete.')
@@ -431,23 +640,33 @@ export function AgentProviderWorkspace({
 
   return (
     <>
-      <div className='grid h-full min-h-0 grid-cols-1 overflow-hidden lg:grid-cols-[18rem_minmax(0,1fr)]'>
-        <section
-          className={cn('min-h-0 flex-col border-r', mobileDetail ? 'hidden lg:flex' : 'flex')}
-        >
-          <div className={panelHeaderClassName}>
-            <PanelTitle icon={Bot} title='Agent providers' />
-            <div className='lg:hidden'>{closeAction}</div>
+      <div className='grid h-full min-h-0 grid-cols-[18rem_minmax(0,1fr)] overflow-hidden'>
+        <section className='flex min-h-0 min-w-0 flex-col border-r'>
+          <div className='flex flex-col gap-2 border-b p-4'>
+            <DefaultModelSelector
+              id='agent-default-model'
+              groups={defaultGroups}
+              value={defaultSelection === null ? null : modelSelectionKey(defaultSelection)}
+              onValueChange={selectDefault}
+              disabled={busy !== null}
+              unavailable={defaultUnavailable}
+            />
+            {defaultCleared && defaultSelection === null ? (
+              <p role='status' className='text-sm text-muted-foreground'>
+                Default model cleared.
+              </p>
+            ) : null}
           </div>
-          <div className='border-b p-4'>
+          <div className='flex flex-col gap-2 p-4 pb-2'>
+            <h2 className='text-sm font-medium'>Sources</h2>
             <InputGroup>
               <InputGroupAddon>
                 <Search />
               </InputGroupAddon>
               <InputGroupInput
-                aria-label='Search Agent providers'
+                aria-label='Search Agent sources'
                 value={providerSearch}
-                placeholder='Search providers…'
+                placeholder='Search sources…'
                 onChange={(event) => setProviderSearch(event.target.value)}
               />
             </InputGroup>
@@ -460,68 +679,54 @@ export function AgentProviderWorkspace({
                   data-agent-provider-preset-id={preset.presetId}
                   variant={preset.presetId === selectedPresetId ? 'secondary' : 'ghost'}
                   className='h-auto w-full min-w-0 justify-start px-3 py-2'
+                  aria-pressed={preset.presetId === selectedPresetId}
+                  disabled={busy !== null}
                   onClick={() => choosePreset(preset.presetId)}
                 >
                   <ProviderLogo
                     logoId={providerDisplayLogoId(preset)}
                     name={providerDisplayName(preset)}
                   />
-                  <span className='min-w-0 flex-1 text-left'>
-                    <span className='block truncate'>{providerDisplayName(preset)}</span>
-                    <span className='block truncate text-xs text-muted-foreground'>
-                      {preset.models.filter((model) => model.enabled).length} enabled
-                    </span>
+                  <span className='min-w-0 flex-1 truncate text-left'>
+                    {providerDisplayName(preset)}
                   </span>
-                  <Badge className='shrink-0' variant={preset.enabled ? 'default' : 'secondary'}>
-                    {preset.enabled ? 'On' : 'Off'}
-                  </Badge>
+                  {!preset.enabled ? <Badge variant='secondary'>Off</Badge> : null}
                 </Button>
               ))}
             </div>
           </ScrollArea>
           <div className='border-t p-3'>
-            <Button className='w-full' variant='outline' onClick={() => setAddProviderOpen(true)}>
-              <Plus data-icon='inline-start' /> Add provider
+            <Button
+              className='w-full'
+              variant='outline'
+              disabled={busy !== null}
+              onClick={openAddProvider}
+            >
+              <Plus data-icon='inline-start' /> Add source
             </Button>
           </div>
         </section>
 
-        <section
-          className={cn('min-h-0 min-w-0 flex-col', mobileDetail ? 'flex' : 'hidden lg:flex')}
-        >
+        <section className='flex min-h-0 min-w-0 flex-col'>
           {draft === null ? (
             <>
-              <div className='flex justify-end p-5 pb-0 lg:p-7 lg:pb-0'>{closeAction}</div>
+              <div className='flex justify-end p-7 pb-0'>{closeAction}</div>
               <Empty className='h-full flex-1 border-0'>
                 <EmptyHeader>
                   <EmptyMedia variant='icon'>
                     <Bot />
                   </EmptyMedia>
-                  <EmptyTitle>Select a provider</EmptyTitle>
+                  <EmptyTitle>Select a source</EmptyTitle>
                   <EmptyDescription>
                     Choose a Pi provider or add a custom endpoint to manage its models.
                   </EmptyDescription>
                 </EmptyHeader>
-                <EmptyContent>
-                  <Button variant='outline' onClick={() => setAddProviderOpen(true)}>
-                    <Plus data-icon='inline-start' /> Add provider
-                  </Button>
-                </EmptyContent>
               </Empty>
             </>
           ) : (
             <ScrollArea className='h-full'>
-              <div className='flex min-w-0 flex-col gap-6 p-5 lg:p-7'>
+              <div className='flex min-w-0 flex-col gap-6 p-7'>
                 <header className='flex flex-wrap items-center gap-3'>
-                  <Button
-                    size='icon-sm'
-                    variant='ghost'
-                    className='lg:hidden'
-                    aria-label='Back to providers'
-                    onClick={() => setMobileDetail(false)}
-                  >
-                    <ArrowLeft />
-                  </Button>
                   <ProviderLogo
                     logoId={
                       selectedPreset?.kind === 'custom'
@@ -531,19 +736,7 @@ export function AgentProviderWorkspace({
                     name={draft.name}
                     size='lg'
                   />
-                  <div className='min-w-0 flex-1'>
-                    <div className='flex flex-wrap items-center gap-2'>
-                      <h2 className='truncate text-xl font-semibold'>{draft.name}</h2>
-                      <Badge variant='outline'>
-                        {selectedPreset?.kind ?? 'custom'} · {draft.api}
-                      </Badge>
-                    </div>
-                    <p className='text-sm text-muted-foreground'>
-                      {selectedPreset?.authConfigured
-                        ? `Connected${selectedPreset.authSource ? ` through ${selectedPreset.authSource}` : ''}`
-                        : 'Not connected'}
-                    </p>
-                  </div>
+                  <h2 className='min-w-0 flex-1 truncate text-xl font-semibold'>{draft.name}</h2>
                   {selectedPreset ? (
                     <Field orientation='horizontal' className='w-auto shrink-0'>
                       <FieldLabel htmlFor='agent-provider-enabled'>Enabled</FieldLabel>
@@ -562,9 +755,17 @@ export function AgentProviderWorkspace({
                       ) : null}
                       <Button disabled={!providerCanSave} onClick={() => void savePreset()}>
                         {busy === 'save-preset' ? <Spinner data-icon='inline-start' /> : null}
-                        {selectedPreset === null ? 'Save provider' : 'Save changes'}
+                        {selectedPreset === null ? 'Save source' : 'Save changes'}
                       </Button>
                     </div>
+                  ) : selectedPreset.authMethods.includes('api_key') ? (
+                    <Button
+                      disabled={busy !== null || apiKey.trim() === ''}
+                      onClick={() => void saveCredential()}
+                    >
+                      {busy === 'credential' ? <Spinner data-icon='inline-start' /> : null}
+                      Save credential
+                    </Button>
                   ) : null}
                   {closeAction}
                 </header>
@@ -577,116 +778,160 @@ export function AgentProviderWorkspace({
                   </Alert>
                 ) : null}
 
-                <FieldGroup>
-                  {selectedPreset?.kind === 'custom' || selectedPreset === null ? (
-                    <>
-                      <ConfigField label='Provider name'>
-                        <Input
-                          value={draft.name}
-                          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                        />
-                      </ConfigField>
-                      <ConfigField
-                        label='Provider logo'
-                        description='Uses a packaged models.dev logo. Automatic matching checks the endpoint and Provider name.'
-                      >
-                        <ProviderLogoPicker
-                          value={draft.logoOverrideId}
-                          automaticLogoId={draftAutomaticLogoId}
-                          disabled={busy !== null}
-                          onValueChange={(logoOverrideId) => setDraft({ ...draft, logoOverrideId })}
-                        />
-                      </ConfigField>
-                      <ConfigField label='Base URL' description='Use HTTP or HTTPS.'>
-                        <Input
-                          value={draft.baseUrl}
-                          autoComplete='url'
-                          placeholder='https://api.example.com/v1'
-                          onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-                        />
-                      </ConfigField>
-                      <Field>
-                        <FieldLabel>Authentication</FieldLabel>
-                        <Select
-                          value={draft.authMode}
-                          onValueChange={(value) =>
-                            setDraft({ ...draft, authMode: value as 'api_key' | 'none' })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value='api_key'>API key</SelectItem>
-                              <SelectItem value='none'>Keyless</SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                      </Field>
-                    </>
-                  ) : (
-                    <Field>
-                      <FieldTitle>Endpoint</FieldTitle>
-                      <FieldDescription>
-                        Managed by the pinned Pi provider. Add a custom provider to use another
-                        endpoint.
-                      </FieldDescription>
-                    </Field>
-                  )}
-
-                  {draft.authMode === 'api_key' &&
-                  (selectedPreset === null || selectedPreset.authMethods.includes('api_key')) ? (
-                    <ConfigField label='API key'>
-                      <Input
-                        type='password'
-                        value={apiKey}
-                        autoComplete='new-password'
-                        placeholder={
-                          selectedPreset?.authConfigured
-                            ? 'Stored — enter a new value to replace'
-                            : 'Enter provider API key'
-                        }
-                        onChange={(event) => setApiKey(event.target.value)}
-                      />
-                    </ConfigField>
+                <section className='flex flex-col gap-4'>
+                  <h3 className='font-medium'>Connection</h3>
+                  {selectedPreset &&
+                  !selectedPreset.authConfigured &&
+                  selectedPreset.authMethods.length > 0 ? (
+                    <p className='text-sm text-muted-foreground'>Authentication required.</p>
+                  ) : selectedPreset?.authSource === 'OAuth' ? (
+                    <p className='text-sm text-muted-foreground'>Connected through OAuth</p>
                   ) : null}
-                </FieldGroup>
+                  <FieldGroup>
+                    {selectedPreset?.kind === 'custom' || selectedPreset === null ? (
+                      <>
+                        <ConfigField label='Source name'>
+                          <Input
+                            value={draft.name}
+                            disabled={busy !== null}
+                            onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                          />
+                        </ConfigField>
+                        <ConfigField label='Source logo'>
+                          <ProviderLogoPicker
+                            value={draft.logoOverrideId}
+                            automaticLogoId={draftAutomaticLogoId}
+                            disabled={busy !== null}
+                            onValueChange={(logoOverrideId) =>
+                              setDraft({ ...draft, logoOverrideId })
+                            }
+                          />
+                        </ConfigField>
+                        <ConfigField label='Base URL'>
+                          <Input
+                            value={draft.baseUrl}
+                            disabled={busy !== null}
+                            autoComplete='url'
+                            placeholder='https://api.example.com/v1'
+                            onChange={(event) =>
+                              setDraft({ ...draft, baseUrl: event.target.value })
+                            }
+                          />
+                        </ConfigField>
+                        <ConfigField label='Type'>
+                          <Input
+                            value={
+                              customTransports.find((transport) => transport.value === draft.api)
+                                ?.label ?? draft.api
+                            }
+                            readOnly
+                          />
+                        </ConfigField>
+                        <Field>
+                          <FieldLabel htmlFor='agent-authentication'>Authentication</FieldLabel>
+                          <Select
+                            value={draft.authMode}
+                            disabled={busy !== null}
+                            onValueChange={(value) => {
+                              if (value === 'none') setApiKey('')
+                              setDraft({ ...draft, authMode: value as 'api_key' | 'none' })
+                            }}
+                          >
+                            <SelectTrigger id='agent-authentication'>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value='api_key'>API key</SelectItem>
+                                <SelectItem value='none'>Keyless</SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      </>
+                    ) : null}
 
-                <div className='flex flex-wrap items-center gap-2'>
-                  <div className='flex flex-wrap gap-2'>
-                    {selectedPreset?.authMethods.includes('oauth') ? (
-                      <Button
-                        variant='outline'
-                        disabled={busy !== null}
-                        onClick={() => void login()}
-                      >
-                        {busy === 'login' ? <Spinner data-icon='inline-start' /> : <KeyRound />}
-                        Sign in
-                      </Button>
+                    {draft.authMode === 'api_key' &&
+                    (selectedPreset === null || selectedPreset.authMethods.includes('api_key')) ? (
+                      <ConfigField label='API key'>
+                        <Input
+                          type='password'
+                          value={apiKey}
+                          disabled={busy !== null}
+                          autoComplete='new-password'
+                          placeholder={
+                            selectedPreset?.authConfigured
+                              ? 'Stored — enter a new value to replace'
+                              : 'Enter provider API key'
+                          }
+                          onChange={(event) => setApiKey(event.target.value)}
+                        />
+                      </ConfigField>
                     ) : null}
-                    {selectedPreset?.authConfigured && draft.authMode !== 'none' ? (
+                  </FieldGroup>
+
+                  {clearsStoredCredential || clearsDiscoveredCatalog ? (
+                    <Alert>
+                      <AlertCircle />
+                      <AlertTitle>Connection changes</AlertTitle>
+                      <AlertDescription>
+                        {clearsStoredCredential ? <p>The saved API key will be cleared.</p> : null}
+                        {clearsDiscoveredCatalog ? (
+                          <p>
+                            The discovered model list will be cleared. Fetch models to refresh it.
+                          </p>
+                        ) : null}
+                      </AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  <div className='flex flex-wrap items-center gap-2'>
+                    <div className='flex flex-wrap gap-2'>
+                      {selectedPreset?.authMethods.includes('oauth') ? (
+                        <Button
+                          variant='outline'
+                          disabled={busy !== null}
+                          onClick={() => void login()}
+                        >
+                          {busy === 'login' ? <Spinner data-icon='inline-start' /> : <KeyRound />}
+                          Sign in
+                        </Button>
+                      ) : null}
+                      {selectedPreset?.authConfigured && draft.authMode !== 'none' ? (
+                        <Button
+                          variant='outline'
+                          disabled={busy !== null}
+                          onClick={() => void clearCredential()}
+                        >
+                          Disconnect
+                        </Button>
+                      ) : null}
+                    </div>
+                    {selectedPreset ? (
                       <Button
                         variant='outline'
-                        disabled={busy !== null}
-                        onClick={() => void clearCredential()}
+                        disabled={
+                          busy !== null ||
+                          providerHasUnsavedChanges ||
+                          !selectedPreset.enabled ||
+                          !selectedPreset.authConfigured ||
+                          testModel === undefined
+                        }
+                        onClick={() => void testConnection()}
                       >
-                        Disconnect
-                      </Button>
-                    ) : null}
-                    {selectedPreset !== null &&
-                    draft.authMode === 'api_key' &&
-                    selectedPreset.authMethods.includes('api_key') ? (
-                      <Button
-                        variant='outline'
-                        disabled={busy !== null || apiKey.trim() === ''}
-                        onClick={() => void saveCredential()}
-                      >
-                        Save credential
+                        {busy === 'test-connection' ? <Spinner data-icon='inline-start' /> : null}
+                        Test connection
                       </Button>
                     ) : null}
                   </div>
-                </div>
+                  {testResult && !providerHasUnsavedChanges ? (
+                    <Alert role='status' variant={testResult.ok ? 'default' : 'destructive'}>
+                      {testResult.ok ? <CheckCircle2 /> : <AlertCircle />}
+                      <AlertTitle>Tested {testModel?.name}</AlertTitle>
+                      <AlertDescription>{testResult.message}</AlertDescription>
+                    </Alert>
+                  ) : null}
+                </section>
 
                 {selectedPreset ? (
                   <>
@@ -698,29 +943,25 @@ export function AgentProviderWorkspace({
                             <Boxes className='size-4 text-muted-foreground' aria-hidden='true' />
                             Models
                           </h3>
-                          <p className='text-sm text-muted-foreground'>
-                            {selectedPreset.models.length} models · {selectedPreset.catalogStatus}
-                            {selectedPreset.checkedAt
-                              ? ` · checked ${new Date(selectedPreset.checkedAt).toLocaleString()}`
-                              : ''}
-                          </p>
                         </div>
+                        {selectedPreset.canRefresh ? (
+                          <Button
+                            variant='outline'
+                            disabled={busy !== null}
+                            aria-label={`Fetch ${selectedPreset.name} models`}
+                            onClick={() => void refresh()}
+                          >
+                            {busy === 'refresh' ? (
+                              <Spinner data-icon='inline-start' />
+                            ) : (
+                              <RefreshCw data-icon='inline-start' />
+                            )}
+                            Fetch models
+                          </Button>
+                        ) : null}
                         <Button
                           variant='outline'
-                          disabled={busy !== null || !selectedPreset.canRefresh}
-                          aria-label={`Fetch ${selectedPreset.name} models`}
-                          onClick={() => void refresh()}
-                        >
-                          {busy === 'refresh' ? (
-                            <Spinner data-icon='inline-start' />
-                          ) : (
-                            <RefreshCw data-icon='inline-start' />
-                          )}
-                          Fetch models
-                        </Button>
-                        <Button
-                          variant='outline'
-                          disabled={availableApis(selectedPreset).length === 0}
+                          disabled={busy !== null || availableApis(selectedPreset).length === 0}
                           onClick={() => {
                             setManualModel(null)
                             setManualOpen(true)
@@ -729,6 +970,11 @@ export function AgentProviderWorkspace({
                           <Plus data-icon='inline-start' /> Add model
                         </Button>
                       </div>
+                      {selectedPreset.lastErrorCode !== null ? (
+                        <p className='text-sm text-muted-foreground'>
+                          Model discovery failed. The last successful catalog was retained.
+                        </p>
+                      ) : null}
                       <InputGroup>
                         <InputGroupAddon>
                           <Search />
@@ -757,9 +1003,8 @@ export function AgentProviderWorkspace({
                         <div className='flex min-w-0 flex-col divide-y rounded-md border'>
                           {visibleModels.map((model) => {
                             const isDefault =
-                              snapshot.agentCatalog.defaultSelection?.presetId ===
-                                selectedPreset.presetId &&
-                              snapshot.agentCatalog.defaultSelection.modelId === model.id
+                              defaultSelection?.presetId === selectedPreset.presetId &&
+                              defaultSelection.modelId === model.id
                             return (
                               <div
                                 key={model.id}
@@ -789,6 +1034,11 @@ export function AgentProviderWorkspace({
                                     {model.contextWindow.toLocaleString()} context ·{' '}
                                     {model.maxTokens.toLocaleString()} output
                                   </div>
+                                  {model.absentFromLastDiscovery === true ? (
+                                    <p className='text-xs text-muted-foreground'>
+                                      Missing from the last successful model list.
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <Button
                                   size='icon-sm'
@@ -800,41 +1050,54 @@ export function AgentProviderWorkspace({
                                     !selectedPreset.enabled ||
                                     !selectedPreset.authConfigured
                                   }
-                                  onClick={() => void setDefaultModel(model.id)}
+                                  onClick={() =>
+                                    void setDefaultModel({
+                                      presetId: selectedPreset.presetId,
+                                      modelId: model.id
+                                    })
+                                  }
                                 >
                                   {isDefault ? <Check /> : <Star />}
                                 </Button>
                                 {model.source === 'manual' ? (
-                                  <>
-                                    <Button
-                                      size='icon-sm'
-                                      variant='ghost'
-                                      aria-label={`Edit ${model.name}`}
-                                      onClick={() => {
-                                        setManualModel({
-                                          id: model.id,
-                                          name: model.name,
-                                          api: model.api,
-                                          reasoning: model.reasoning,
-                                          input: model.input,
-                                          contextWindow: model.contextWindow,
-                                          maxTokens: model.maxTokens
-                                        })
-                                        setManualOpen(true)
-                                      }}
-                                    >
-                                      <ChevronRight />
-                                    </Button>
-                                    <Button
-                                      size='icon-sm'
-                                      variant='ghost'
-                                      aria-label={`Remove ${model.name}`}
-                                      disabled={busy !== null}
-                                      onClick={() => void removeManualModel(model.id)}
-                                    >
-                                      <Trash2 />
-                                    </Button>
-                                  </>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        size='icon-sm'
+                                        variant='ghost'
+                                        disabled={busy !== null}
+                                        aria-label={`Actions for ${model.name}`}
+                                      >
+                                        <Ellipsis />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align='end'>
+                                      <DropdownMenuGroup>
+                                        <DropdownMenuItem
+                                          onSelect={() => {
+                                            setManualModel({
+                                              id: model.id,
+                                              name: model.name,
+                                              api: model.api,
+                                              reasoning: model.reasoning,
+                                              input: model.input,
+                                              contextWindow: model.contextWindow,
+                                              maxTokens: model.maxTokens
+                                            })
+                                            setManualOpen(true)
+                                          }}
+                                        >
+                                          Edit model
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          variant='destructive'
+                                          onSelect={() => void removeManualModel(model.id)}
+                                        >
+                                          Remove model
+                                        </DropdownMenuItem>
+                                      </DropdownMenuGroup>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 ) : null}
                               </div>
                             )
@@ -849,10 +1112,10 @@ export function AgentProviderWorkspace({
                         <div className='flex justify-end'>
                           <Button
                             variant='destructive'
-                            disabled={busy !== null}
+                            disabled={busy !== null || providerHasUnsavedChanges}
                             onClick={() => setConfirmRemove(true)}
                           >
-                            <Trash2 data-icon='inline-start' /> Remove provider
+                            <Trash2 data-icon='inline-start' /> Remove source
                           </Button>
                         </div>
                       </>
@@ -868,14 +1131,14 @@ export function AgentProviderWorkspace({
       <Dialog open={addProviderOpen} onOpenChange={setAddProviderOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add provider</DialogTitle>
+            <DialogTitle>Add source</DialogTitle>
             <DialogDescription>
               Choose a transport and a display name. Endpoint and authentication are configured
               next.
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>
-            <ConfigField label='Provider name'>
+            <ConfigField label='Source name'>
               <Input
                 value={newProviderName}
                 placeholder='My writing provider'
@@ -883,12 +1146,12 @@ export function AgentProviderWorkspace({
               />
             </ConfigField>
             <Field>
-              <FieldLabel>Provider type</FieldLabel>
+              <FieldLabel htmlFor='agent-source-type'>Type</FieldLabel>
               <Select
                 value={newProviderApi}
                 onValueChange={(value) => setNewProviderApi(value as CustomAgentPiApi)}
               >
-                <SelectTrigger>
+                <SelectTrigger id='agent-source-type'>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -926,7 +1189,7 @@ export function AgentProviderWorkspace({
       <AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove custom provider?</AlertDialogTitle>
+            <AlertDialogTitle>Remove custom source?</AlertDialogTitle>
             <AlertDialogDescription>
               Its encrypted credential, discovered catalog, manual models, and preferences will be
               removed. Existing Agent run history remains unchanged.
@@ -940,7 +1203,7 @@ export function AgentProviderWorkspace({
               onClick={() => void removeProvider()}
             >
               {busy === 'remove' ? <Spinner data-icon='inline-start' /> : null}
-              Remove provider
+              Remove source
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1026,6 +1289,10 @@ export function AgentProviderWorkspace({
       </Dialog>
     </>
   )
+}
+
+function modelSelectionKey(selection: AgentModelSelection): string {
+  return JSON.stringify([selection.presetId, selection.modelId])
 }
 
 export function availableApis(preset: AgentProviderPresetSummary): PiApi[] {

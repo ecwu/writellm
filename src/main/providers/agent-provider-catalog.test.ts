@@ -101,13 +101,28 @@ describe('AgentProviderCatalogService', () => {
       expect(await catalog.autocompleteCredential()).toBeNull()
       await catalog.setApiKey('builtin:deepseek', 'autocomplete-test-key')
       expect(await catalog.autocompleteCredential()).toBe('autocomplete-test-key')
+      const settings = new AppSettingsRepository(database, log)
+      const selection = {
+        providerPresetId: 'builtin:deepseek',
+        modelId: 'deepseek-v4-pro'
+      } as const
+      await settings.setAutocompleteSelection(selection)
       await catalog.setModelEnabled('builtin:deepseek', 'deepseek-v4-pro', false)
       expect(await catalog.autocompleteCredential()).toBe('autocomplete-test-key')
-      await catalog.setProviderEnabled('builtin:deepseek', false)
-      expect(await catalog.autocompleteCredential()).toBeNull()
-      await catalog.setProviderEnabled('builtin:deepseek', true)
+      expect(await settings.getAutocompleteSelection()).toEqual(selection)
       await catalog.clearCredential('builtin:deepseek')
       expect(await catalog.autocompleteCredential()).toBeNull()
+      expect(await settings.getAutocompleteSelection()).toEqual(selection)
+      expect(await catalog.setProviderEnabled('builtin:deepseek', false)).toBe(true)
+      expect(await settings.getAutocompleteSelection()).toBeNull()
+      await expect(settings.setAutocompleteSelection(selection)).rejects.toThrow(
+        'source is disabled'
+      )
+      expect(await catalog.setProviderEnabled('builtin:deepseek', false)).toBe(false)
+      await catalog.setProviderEnabled('builtin:deepseek', true)
+      await catalog.setApiKey('builtin:deepseek', 'autocomplete-test-key')
+      expect(await catalog.autocompleteCredential()).toBe('autocomplete-test-key')
+      expect(await settings.getAutocompleteSelection()).toBeNull()
     } finally {
       database.close()
     }
@@ -140,6 +155,25 @@ describe('AgentProviderCatalogService', () => {
         modelId
       })
       expect(resolved.model.provider).toBe('azure')
+    } finally {
+      database.close()
+    }
+  })
+
+  it('saves and displays a default without refreshing an expired OAuth credential', async () => {
+    const { database, credentials, catalog } = await createHarness()
+    try {
+      const selection = { presetId: 'builtin:openai-codex', modelId: 'gpt-6-astra' }
+      await catalog.setProviderEnabled(selection.presetId, true)
+      const ciphertext = await credentials.encryptForPersistence(
+        JSON.stringify({ type: 'oauth', access: 'expired', refresh: 'fixture', expires: 1 })
+      )
+      await credentials.persistEncrypted('agent:builtin:openai-codex', ciphertext)
+      const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error('Offline'))
+      vi.stubGlobal('fetch', fetchMock)
+      expect(await catalog.setDefaultSelection(selection)).toEqual(selection)
+      expect((await catalog.snapshot()).defaultSelection).toEqual(selection)
+      expect(fetchMock).not.toHaveBeenCalled()
     } finally {
       database.close()
     }
@@ -193,6 +227,11 @@ describe('AgentProviderCatalogService', () => {
         .select('models_json')
         .where('provider_config_id', '=', 'agent:custom:mixed')
         .executeTakeFirstOrThrow()
+      // Legacy databases had no per-model preference until a user changed availability.
+      await database.kysely
+        .deleteFrom('agent_model_preferences')
+        .where('provider_config_id', '=', 'agent:custom:mixed')
+        .execute()
       const legacy = JSON.parse(row.models_json)[0]
       delete legacy.type
       await database.kysely
@@ -457,7 +496,7 @@ describe('AgentProviderCatalogService', () => {
         catalogStatus: 'current',
         models: [
           { id: 'writer-1', api: 'openai-responses' },
-          { id: 'writer-2', name: 'Writer 2', api: 'openai-responses' }
+          { id: 'writer-2', name: 'Writer 2', api: 'openai-responses', enabled: false }
         ]
       })
       await catalog.saveCustomPreset({
@@ -477,6 +516,7 @@ describe('AgentProviderCatalogService', () => {
         }
       )
 
+      await catalog.setModelEnabled('custom:loopback', 'writer-2', true)
       await catalog.setDefaultSelection({ presetId: 'custom:loopback', modelId: 'writer-2' })
       const resolved = await catalog.resolve({
         presetId: 'custom:loopback',
@@ -487,6 +527,15 @@ describe('AgentProviderCatalogService', () => {
         providerId: 'writellm-custom:loopback',
         auth: { auth: { apiKey: 'catalog-secret' } }
       })
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: 'writer-3' }] })))
+      await catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      expect(
+        (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:loopback')
+          ?.models
+      ).toMatchObject([
+        { id: 'writer-3', enabled: false },
+        { id: 'writer-2', name: 'Writer 2', enabled: true, absentFromLastDiscovery: true }
+      ])
       expect(JSON.stringify(await catalog.snapshot())).not.toContain('catalog-secret')
       await catalog.setModelEnabled('custom:loopback', 'writer-2', false)
       const disabled = await catalog.snapshot()
@@ -501,7 +550,16 @@ describe('AgentProviderCatalogService', () => {
       ).rejects.toThrow('Agent model catalog refresh failed')
       expect(
         (await catalog.snapshot()).presets.find((preset) => preset.presetId === 'custom:loopback')
-      ).toMatchObject({ catalogStatus: 'stale', models: [{ id: 'writer-1' }, { id: 'writer-2' }] })
+      ).toMatchObject({
+        catalogStatus: 'stale',
+        models: [{ id: 'writer-3' }, { id: 'writer-2', absentFromLastDiscovery: true }]
+      })
+      await catalog.refreshPreset('custom:loopback', new AbortController().signal)
+      const rediscovered = (await catalog.snapshot()).presets
+        .find((preset) => preset.presetId === 'custom:loopback')
+        ?.models.find((model) => model.id === 'writer-2')
+      expect(rediscovered).toMatchObject({ name: 'Writer 2', enabled: false })
+      expect(rediscovered?.absentFromLastDiscovery).toBeUndefined()
       database.close()
     }
   )
@@ -553,7 +611,7 @@ describe('AgentProviderCatalogService', () => {
           supportedThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high'],
           input: ['text', 'image']
         }),
-        expect.objectContaining({ id: 'writer-2', source: 'discovered', enabled: true })
+        expect.objectContaining({ id: 'writer-2', source: 'discovered', enabled: false })
       ])
     )
 

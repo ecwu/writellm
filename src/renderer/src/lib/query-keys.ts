@@ -5,6 +5,7 @@
  */
 export const rendererQueryKeys = {
   settings: {
+    autocomplete: ['settings', 'autocomplete'] as const,
     appInfo: ['settings', 'app-info'] as const,
     providers: ['provider-settings'] as const,
     approvalMode: ['settings', 'default-agent-approval-mode'] as const,

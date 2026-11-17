@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import type { Page } from '@playwright/test'
 import { expect, expectActiveProject, launchApp, scenario, sectionEditor, test } from './fixtures'
-import { createProject } from './helpers/project'
+import { configureAgentProvider, createProject } from './helpers/project'
 import { ZipFile } from 'yazl'
 
 function makeMinimalPdf(): string {
@@ -32,7 +32,7 @@ function makeMinimalPdf(): string {
 async function configureMineruProvider(page: Page, port: number): Promise<void> {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   const provider = page.getByRole('dialog', { name: 'Settings' })
-  await provider.getByRole('option', { name: /^MinerU API/ }).click()
+  await provider.getByRole('option', { name: /^Document Parsing/ }).click()
   await provider.getByLabel('Base URL').fill(`http://127.0.0.1:${port}`)
   await provider.getByLabel('Model ID').fill('pipeline')
   await provider.getByLabel('API key or token').fill('e2e-mineru-token')
@@ -42,19 +42,10 @@ async function configureMineruProvider(page: Page, port: number): Promise<void> 
 }
 
 async function configureNotebookAgentProvider(page: Page, baseUrl: string): Promise<void> {
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('option', { name: /^Agent API/ }).click()
-  await settings.getByRole('button', { name: 'Add provider' }).click()
-  const addProvider = page.getByRole('dialog', { name: 'Add provider' })
-  await addProvider.getByLabel('Provider name').fill('Notebook Agent')
-  await addProvider.getByRole('button', { name: 'Continue' }).click()
-  await settings.getByLabel('Base URL').fill(baseUrl)
-  await settings.getByLabel('API key').fill('notebook-e2e-secret')
-  await settings.getByRole('button', { name: 'Save provider' }).click()
-  await settings.getByRole('button', { name: 'Fetch Notebook Agent models' }).click()
-  await expect(settings.getByText(/1 models · current/)).toBeVisible()
-  await page.keyboard.press('Escape')
+  await configureAgentProvider(page, baseUrl, {
+    providerName: 'Notebook Agent',
+    apiKey: 'notebook-e2e-secret'
+  })
 }
 
 function sendNotebookCompletion(response: ServerResponse, text: string): void {

@@ -203,6 +203,8 @@ export class AgentProviderCatalogService {
     private readonly credentials: CredentialService,
     private readonly settings: Pick<
       AppSettingsRepository,
+      | 'getAutocompleteSelection'
+      | 'setAutocompleteSelection'
       | 'getDefaultAgentModelSelection'
       | 'setDefaultAgentModelSelection'
       | 'getLastAgentThinkingLevel'
@@ -410,35 +412,62 @@ export class AgentProviderCatalogService {
   async setDefaultSelection(
     selection: AgentModelSelection | null
   ): Promise<AgentModelSelection | null> {
-    if (selection !== null) await this.resolve(selection)
+    if (selection !== null) {
+      const { models, providerId } = await this.#selectableModel(selection)
+      if ((await models.checkAuth(providerId)) === undefined) {
+        throw new Error('Selected Agent provider is not authenticated')
+      }
+    }
     return this.settings.setDefaultAgentModelSelection(selection)
   }
 
-  async setProviderEnabled(presetId: string, enabled: boolean): Promise<void> {
+  async setProviderEnabled(presetId: string, enabled: boolean): Promise<boolean> {
     const parsed = agentPresetIdSchema.parse(presetId)
     const provider = await this.#provider(parsed)
     await this.#ensureProviderRecord(provider, parsed)
     const now = this.now().toISOString()
-    await this.database.kysely
-      .insertInto('agent_provider_preferences')
-      .values({
-        provider_config_id: `agent:${parsed}`,
-        enabled: enabled ? 1 : 0,
-        created_at: now,
-        updated_at: now
+    const autocompleteDefaultCleared = await this.database.kysely
+      .transaction()
+      .execute(async (transaction) => {
+        await transaction
+          .insertInto('agent_provider_preferences')
+          .values({
+            provider_config_id: `agent:${parsed}`,
+            enabled: enabled ? 1 : 0,
+            created_at: now,
+            updated_at: now
+          })
+          .onConflict((conflict) =>
+            conflict.column('provider_config_id').doUpdateSet({
+              enabled: enabled ? 1 : 0,
+              updated_at: now
+            })
+          )
+          .execute()
+        if (enabled) return false
+        const agentDefault = await this.settings.getDefaultAgentModelSelection(transaction)
+        if (agentDefault?.presetId === parsed) {
+          await this.settings.setDefaultAgentModelSelection(null, transaction)
+        }
+        if (
+          parsed !== 'builtin:deepseek' ||
+          !(await this.settings.getAutocompleteSelection(transaction))
+        ) {
+          return false
+        }
+        await this.settings.setAutocompleteSelection(null, transaction)
+        return true
       })
-      .onConflict((conflict) =>
-        conflict.column('provider_config_id').doUpdateSet({
-          enabled: enabled ? 1 : 0,
-          updated_at: now
-        })
-      )
-      .execute()
-    if (!enabled) await this.#clearDefaultForPreset(parsed)
     this.log.info(
-      { event: 'agent.provider_availability.updated', presetId: parsed, enabled },
+      {
+        event: 'agent.provider_availability.updated',
+        presetId: parsed,
+        enabled,
+        autocompleteDefaultCleared
+      },
       'Updated Agent provider availability'
     )
+    return autocompleteDefaultCleared
   }
 
   async setModelEnabled(presetId: string, modelId: string, enabled: boolean): Promise<void> {
@@ -552,7 +581,6 @@ export class AgentProviderCatalogService {
     const parsed = agentPresetIdSchema.parse(presetId)
     const providerId = await this.#runtimeProviderId(parsed)
     await this.#credentialStore.delete(providerId)
-    await this.#clearDefaultForPreset(parsed)
     this.log.info(
       { event: 'agent.provider_credential.cleared', presetId: parsed, providerId },
       'Cleared Agent provider credential'
@@ -588,23 +616,9 @@ export class AgentProviderCatalogService {
   }
 
   async resolve(selection: AgentModelSelection): Promise<ResolvedAgentCatalogModel> {
-    const parsed = agentModelSelectionSchema.parse(selection)
-    const models = await this.#buildModels()
-    await models.refresh({ allowNetwork: false })
-    const providerId = await this.#runtimeProviderId(parsed.presetId)
-    const provider = models.getProvider(providerId)
-    const model = models.getModel(providerId, parsed.modelId)
-    if (provider === undefined || model === undefined) {
-      throw new Error('Selected Agent model is unavailable')
-    }
+    const { parsed, models, providerId, provider, model } = await this.#selectableModel(selection)
     const auth = await models.getAuth(model)
     if (auth === undefined) throw new Error('Selected Agent provider is not authenticated')
-    if (!(await this.#providerEnabled(parsed.presetId, true))) {
-      throw new Error('Selected Agent provider is disabled')
-    }
-    if (!(await this.#modelEnabled(parsed.presetId, parsed.modelId))) {
-      throw new Error('Selected Agent model is disabled')
-    }
     const custom = await this.#customPreset(parsed.presetId)
     return {
       presetId: parsed.presetId,
@@ -614,6 +628,25 @@ export class AgentProviderCatalogService {
       model,
       auth
     }
+  }
+
+  async #selectableModel(selection: AgentModelSelection) {
+    const parsed = agentModelSelectionSchema.parse(selection)
+    const models = await this.#buildModels()
+    await models.refresh({ allowNetwork: false })
+    const providerId = await this.#runtimeProviderId(parsed.presetId)
+    const provider = models.getProvider(providerId)
+    const model = models.getModel(providerId, parsed.modelId)
+    if (provider === undefined || model === undefined) {
+      throw new Error('Selected Agent model is unavailable')
+    }
+    if (!(await this.#providerEnabled(parsed.presetId, true))) {
+      throw new Error('Selected Agent provider is disabled')
+    }
+    if (!(await this.#modelEnabled(parsed.presetId, parsed.modelId))) {
+      throw new Error('Selected Agent model is disabled')
+    }
+    return { parsed, models, providerId, provider, model }
   }
 
   async #buildModels() {
@@ -668,6 +701,11 @@ export class AgentProviderCatalogService {
             return agentModelSummarySchema.parse({
               id: model.id,
               name: model.name,
+              ...(!manualIds.has(model.id) &&
+              'absentFromLastDiscovery' in model &&
+              model.absentFromLastDiscovery === true
+                ? { absentFromLastDiscovery: true }
+                : {}),
               api: parsed.data,
               enabled: await this.#modelEnabled(presetId, model.id),
               source: manualIds.has(model.id)
@@ -839,13 +877,6 @@ export class AgentProviderCatalogService {
         .where('model_id', '=', modelId)
         .executeTakeFirst()) ?? null
     )
-  }
-
-  async #clearDefaultForPreset(presetId: string): Promise<void> {
-    const selection = await this.settings.getDefaultAgentModelSelection()
-    if (selection?.presetId === presetId) {
-      await this.settings.setDefaultAgentModelSelection(null)
-    }
   }
 
   async #clearDefaultForModel(presetId: string, modelId: string): Promise<void> {
@@ -1190,34 +1221,96 @@ class DatabaseModelsStore implements ModelsStore {
     const providerConfigId = await this.#providerConfigId(providerId)
     options?.signal?.throwIfAborted()
     if (providerConfigId === null) throw new Error('Agent provider record is missing')
-    const models = cachedModelsSchema.parse(chatCacheEntries(entry.models))
-    const modelsJson = JSON.stringify(models)
-    if (new TextEncoder().encode(modelsJson).byteLength > MAX_CATALOG_BYTES) {
-      throw new Error('Agent model catalog is too large')
-    }
+    const fetched = cachedModelsSchema.parse(chatCacheEntries(entry.models))
     const now = this.now().toISOString()
     const checkedAt = entry.checkedAt === undefined ? now : new Date(entry.checkedAt).toISOString()
-    await this.database.kysely
-      .insertInto('agent_model_catalogs')
-      .values({
-        provider_config_id: providerConfigId,
-        models_json: modelsJson,
-        checked_at: checkedAt,
-        last_attempted_at: now,
-        last_error_code: null,
-        created_at: now,
-        updated_at: now
-      })
-      .onConflict((conflict) =>
-        conflict.column('provider_config_id').doUpdateSet({
+    await this.database.kysely.transaction().execute(async (transaction) => {
+      const previous = await transaction
+        .selectFrom('agent_model_catalogs')
+        .select('models_json')
+        .where('provider_config_id', '=', providerConfigId)
+        .executeTakeFirst()
+      const installed = providerConfigId.startsWith('agent:builtin:')
+        ? (builtinProviders()
+            .find((provider) => provider.id === providerId)
+            ?.getModels() ?? [])
+        : []
+      const saved =
+        previous === undefined
+          ? cachedModelsSchema.parse(chatCacheEntries(installed))
+          : cachedModelsSchema.parse(chatCacheEntries(JSON.parse(previous.models_json)))
+      const preferences = await transaction
+        .selectFrom('agent_model_preferences')
+        .select(['model_id', 'enabled', 'manual_model_json'])
+        .where('provider_config_id', '=', providerConfigId)
+        .execute()
+      const disabled = new Set(preferences.filter((row) => !row.enabled).map((row) => row.model_id))
+      const known = new Set(saved.map((model) => model.id))
+      const merged = new Map(
+        fetched.map(({ absentFromLastDiscovery: _, ...model }) => [model.id, model])
+      )
+      for (const model of saved) {
+        if (!disabled.has(model.id) && !merged.has(model.id)) {
+          merged.set(model.id, { ...model, absentFromLastDiscovery: true })
+        }
+      }
+      const modelsJson = JSON.stringify(cachedModelsSchema.parse([...merged.values()]))
+      if (Buffer.byteLength(modelsJson) > MAX_CATALOG_BYTES)
+        throw new Error('Agent model catalog is too large')
+      const candidates = fetched.filter((model) => !known.has(model.id))
+      if (candidates.length > 0) {
+        await transaction
+          .insertInto('agent_model_preferences')
+          .values(
+            candidates.map((model) => ({
+              provider_config_id: providerConfigId,
+              model_id: model.id,
+              enabled: 0,
+              manual_model_json: null,
+              created_at: now,
+              updated_at: now
+            }))
+          )
+          .onConflict((conflict) =>
+            conflict.columns(['provider_config_id', 'model_id']).doNothing()
+          )
+          .execute()
+      }
+      const expired = preferences
+        .filter(
+          (row) => !row.enabled && row.manual_model_json === null && !merged.has(row.model_id)
+        )
+        .map((row) => row.model_id)
+      if (expired.length > 0) {
+        await transaction
+          .deleteFrom('agent_model_preferences')
+          .where('provider_config_id', '=', providerConfigId)
+          .where('model_id', 'in', expired)
+          .execute()
+      }
+      options?.signal?.throwIfAborted()
+      await transaction
+        .insertInto('agent_model_catalogs')
+        .values({
+          provider_config_id: providerConfigId,
           models_json: modelsJson,
           checked_at: checkedAt,
           last_attempted_at: now,
           last_error_code: null,
+          created_at: now,
           updated_at: now
         })
-      )
-      .execute()
+        .onConflict((conflict) =>
+          conflict.column('provider_config_id').doUpdateSet({
+            models_json: modelsJson,
+            checked_at: checkedAt,
+            last_attempted_at: now,
+            last_error_code: null,
+            updated_at: now
+          })
+        )
+        .execute()
+    })
   }
 
   async delete(providerId: string, options?: ModelsStoreOperationOptions): Promise<void> {

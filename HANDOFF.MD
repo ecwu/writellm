@@ -687,3 +687,30 @@ Run verify-release-source.mjs in a clean checkout at the tagged revision before 
 
 Release notes must exist at docs/releases/<release.version>.md before publication. Otherwise the publisher uses a generic source-changes sentence.
 The 0.2026.11.2 notes now describe concrete user changes and final evidence, following 0.2026.11.1. The public Release body is updated without changing assets or the tag.
+
+## Settings prototype preview
+
+The inline preview iframe permits scripts but blocks native form submission.
+Use a local button handler and handle Enter for sample forms. Keep native field validation with `reportValidity()`.
+The Chrome preview passed source selection, default clearing, model entry, Speech mode, and the Autocomplete link after this correction.
+
+## Settings model selector keyboard navigation
+
+Set the searchable model list's accessible name on the nested Command component. cmdk supplies the input's aria-labelledby.
+Stop Enter propagation on the selector trigger and clear button. Otherwise the outer Settings command can consume their native activation.
+
+## Agent discovery in desktop test fixtures
+
+After fetching a new model, enable its switch before selecting it in an Agent session or as a default.
+Assert the switch state in shared setup. A catalog status label cannot prove that the model is usable.
+The focused Settings scenarios use their own setup. Run the consumers of the shared fixture after discovery policy changes.
+
+A model selector can become enabled before its opacity transition ends. Wait for full opacity before running the contrast scan.
+
+After a Pi upgrade, keep AGENT_RUNTIME_VERSION equal to both direct package pins.
+New Agent conversations record this value, so a stale constant gives the wrong runtime provenance.
+
+## Settings Overview freshness
+
+The Renderer normally reuses a query result for 30 seconds. Overview reads Autocomplete again on mount.
+Its change subscription alone cannot catch edits that occur while another Settings section is open.
