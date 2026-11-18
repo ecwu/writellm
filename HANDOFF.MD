@@ -718,3 +718,9 @@ Its change subscription alone cannot catch edits that occur while another Settin
 ## Provider catalog snapshots
 
 Pass the current Kysely transaction to nested catalog reads. Opening a second read on the same connection can stall Settings after model discovery.
+
+## 2026-11-18 speech issue closure
+
+The owner closes issue 20 after delivery and real-device use. Remaining real-sample and undocumented-protocol tests no longer block closure.
+Do not reopen the issue or create follow-up issues solely for these former gates. Record actual defects separately when observed.
+Keep untested behavior distinct from passing evidence.

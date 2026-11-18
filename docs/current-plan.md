@@ -42,7 +42,7 @@ A recorded public models.dev response sample also passes the offline parser regr
 [Source-catalog evidence](history/implementation-log.md#2026-11-16-speech-sources-and-public-model-discovery) records scope and platform limits.
 
 
-Issue 20 speech input is implemented locally under [ADR 094](adrs/094-speech-input.md).
+Issue 20 speech input ships in release 0.2026.11.2 under [ADR 094](adrs/094-speech-input.md).
 The macOS arm64 package gate passes with twelve runtime scenarios and 49 interaction scenarios, including two speech scenarios.
 The same tested App produced DMG and ZIP artifacts. The delivery branch is `codex/speech-model-discovery`, based on main after the untangle merge.
 [Speech evidence](history/implementation-log.md#2026-11-15-speech-input-implementation) records the focused tests and the corrected first package attempt.
@@ -55,7 +55,9 @@ The user reports that speech now works. Automated recording quality and transcri
 One authorized visible real-device probe reports granted OS permission but no audio stream within twenty seconds.
 The user later confirms an outstanding authorization prompt despite that granted status. Synthetic audio uses mocked OS permission status.
 Other platforms, real local transcription services, and undocumented live delta correction semantics remain unverified.
-Issue 20 remains open for complete acceptance and these documented limits.
+Issue 20 is closed as completed by the project owner on 2026-11-18.
+The owner removes the remaining real-sample and undocumented-protocol acceptance requirements as closure gates because reliable automation is unavailable.
+The limits above remain evidence limits, not claims of successful tests. No follow-up issue is required for closure.
 
 Main includes `codex/untangle-code-knots` through a separate merge commit.
 The current Speech, model discovery, interface, and Pi changes use `codex/speech-model-discovery` before their separate merge into main.
